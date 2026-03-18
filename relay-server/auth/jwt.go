@@ -39,6 +39,18 @@ func SignToken(secret, agentID, deviceID string, clientType model.ClientType, tt
 	return token.SignedString([]byte(secret))
 }
 
+// GenerateToken is an alias for SignToken with simplified parameters
+func GenerateToken(secret string, clientType model.ClientType, clientID, sub string, ttl time.Duration) (string, error) {
+	agentID := ""
+	deviceID := ""
+	if clientType == model.ClientTypeAgent {
+		agentID = clientID
+	} else {
+		deviceID = clientID
+	}
+	return SignToken(secret, agentID, deviceID, clientType, ttl)
+}
+
 // VerifyToken parses and validates a JWT, returning the embedded claims.
 func VerifyToken(secret, tokenStr string) (*Claims, error) {
 	token, err := jwt.ParseWithClaims(tokenStr, &Claims{}, func(t *jwt.Token) (interface{}, error) {

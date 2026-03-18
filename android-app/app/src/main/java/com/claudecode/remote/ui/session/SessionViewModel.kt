@@ -22,6 +22,8 @@ class SessionViewModel(private val repository: SessionRepository) : ViewModel() 
     private val _uiState = MutableStateFlow(SessionUiState())
     val uiState: StateFlow<SessionUiState> = _uiState.asStateFlow()
 
+    val sessions = repository.sessions
+
     init {
         viewModelScope.launch {
             repository.sessions.collect { sessions ->
@@ -51,7 +53,9 @@ class SessionViewModel(private val repository: SessionRepository) : ViewModel() 
     }
 
     fun removeSession(id: String) {
-        repository.removeSession(id)
+        viewModelScope.launch {
+            repository.removeSession(id)
+        }
     }
 
     fun clearError() {

@@ -1,0 +1,27 @@
+﻿* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background-color: #1e1e1e;
+}
+
+#terminal {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.xterm {
+  height: 100%;
+}
+
+.xterm-viewport {
+  overflow-y: auto;
+}

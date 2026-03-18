@@ -1,15 +1,22 @@
 package com.claudecode.remote.domain
 
+import android.content.Context
+import android.net.Uri
+import android.util.Base64
+import com.claudecode.remote.data.local.AppDatabase
+import com.claudecode.remote.data.local.MessageEntity
 import com.claudecode.remote.data.model.Envelope
 import com.claudecode.remote.data.model.Events
+import com.claudecode.remote.data.model.FileInfo
 import com.claudecode.remote.data.model.Message
 import com.claudecode.remote.data.model.MessageRole
+import com.claudecode.remote.data.model.MessageType
 import com.claudecode.remote.data.model.StreamBuffer
 import com.claudecode.remote.data.remote.RelayWebSocket
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
@@ -17,11 +24,12 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import java.util.UUID
 
-class MessageRepository(private val webSocket: RelayWebSocket) {
-
-    private val _messages = MutableStateFlow<Map<String, List<Message>>>(emptyMap())
-    val messages: Flow<Map<String, List<Message>>> = _messages.asStateFlow()
-
+class MessageRepository(
+    private val webSocket: RelayWebSocket,
+    private val context: Context
+) {
+    private val db = AppDatabase.getInstance(context)
+    private val messageDao = db.messageDao()
     private val streamBuffers = mutableMapOf<String, StreamBuffer>()
 
     suspend fun sendMessage(projectId: String, content: String) {
@@ -38,13 +46,100 @@ class MessageRepository(private val webSocket: RelayWebSocket) {
             projectId = projectId,
             role = MessageRole.USER,
             content = content,
+            type = MessageType.TEXT,
             timestamp = envelope.ts
         )
         addMessage(projectId, userMessage)
         webSocket.send(envelope)
     }
 
-    fun processEnvelope(envelope: Envelope) {
+    suspend fun sendFile(projectId: String, fileUri: Uri) = withContext(Dispatchers.IO) {
+        val fileId = UUID.randomUUID().toString()
+        val contentResolver = context.contentResolver
+
+        // Get file info
+        val fileName = contentResolver.query(fileUri, null, null, null, null)?.use { cursor ->
+            val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+            cursor.moveToFirst()
+            cursor.getString(nameIndex)
+        } ?: "unknown"
+
+        val fileSize = contentResolver.query(fileUri, null, null, null, null)?.use { cursor ->
+            val sizeIndex = cursor.getColumnIndex(android.provider.OpenableColumns.SIZE)
+            cursor.moveToFirst()
+            cursor.getLong(sizeIndex)
+        } ?: 0L
+
+        val mimeType = contentResolver.getType(fileUri) ?: "application/octet-stream"
+
+        // Send file.upload envelope
+        val uploadEnvelope = Envelope(
+            id = fileId,
+            event = Events.FILE_UPLOAD,
+            projectId = projectId,
+            payload = buildJsonObject {
+                put("file_name", JsonPrimitive(fileName))
+                put("file_size", JsonPrimitive(fileSize))
+                put("mime_type", JsonPrimitive(mimeType))
+            },
+            ts = System.currentTimeMillis()
+        )
+
+        // Add file message to UI
+        val fileMessage = Message(
+            id = fileId,
+            projectId = projectId,
+            role = MessageRole.USER,
+            content = fileName,
+            type = MessageType.FILE,
+            fileInfo = FileInfo(fileName, fileSize, mimeType),
+            timestamp = uploadEnvelope.ts
+        )
+        addMessage(projectId, fileMessage)
+        webSocket.send(uploadEnvelope)
+
+        // Send file chunks
+        val chunkSize = 64 * 1024 // 64KB chunks
+        contentResolver.openInputStream(fileUri)?.use { inputStream ->
+            val buffer = ByteArray(chunkSize)
+            var seq = 0L
+            var bytesRead: Int
+
+            while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                val chunk = Base64.encodeToString(buffer, 0, bytesRead, Base64.NO_WRAP)
+                val chunkEnvelope = Envelope(
+                    id = UUID.randomUUID().toString(),
+                    event = Events.FILE_CHUNK,
+                    projectId = projectId,
+                    streamId = fileId,
+                    seq = seq++,
+                    payload = buildJsonObject {
+                        put("file_id", JsonPrimitive(fileId))
+                        put("chunk", JsonPrimitive(chunk))
+                        put("seq", JsonPrimitive(seq))
+                    },
+                    ts = System.currentTimeMillis()
+                )
+                webSocket.send(chunkEnvelope)
+            }
+        }
+
+        // Send file.done
+        val doneEnvelope = Envelope(
+            id = UUID.randomUUID().toString(),
+            event = Events.FILE_DONE,
+            projectId = projectId,
+            streamId = fileId,
+            payload = buildJsonObject {
+                put("file_id", JsonPrimitive(fileId))
+                put("file_name", JsonPrimitive(fileName))
+            },
+            ts = System.currentTimeMillis()
+        )
+        webSocket.send(doneEnvelope)
+    }
+
+    suspend fun processEnvelope(envelope: Envelope) {
         val projectId = envelope.projectId ?: return
         when (envelope.event) {
             Events.MESSAGE_CHUNK -> {
@@ -73,25 +168,22 @@ class MessageRepository(private val webSocket: RelayWebSocket) {
                 val streamId = envelope.streamId
                 if (streamId != null) {
                     streamBuffers.remove(streamId)
-                upsertStreamingMessage(projectId, streamId, "[Error receiving response]", isStreaming = false)
+                    upsertStreamingMessage(projectId, streamId, "[Error receiving response]", isStreaming = false)
                 }
             }
         }
     }
 
     fun getMessagesForProject(projectId: String): Flow<List<Message>> =
-        _messages.map { it[projectId] ?: emptyList() }
+        messageDao.getMessagesByProject(projectId).map { entities ->
+            entities.map { it.toMessage() }
+        }
 
-    private fun addMessage(projectId: String, message: Message) {
-        val current = _messages.value.toMutableMap()
-        current[projectId] = (current[projectId] ?: emptyList()) + message
-        _messages.value = current
+    private suspend fun addMessage(projectId: String, message: Message) {
+        messageDao.insertMessage(message.toEntity())
     }
 
-    private fun upsertStreamingMessage(projectId: String, streamId: String, content: String, isStreaming: Boolean) {
-        val current = _messages.value.toMutableMap()
-        val projectMessages = (current[projectId] ?: emptyList()).toMutableList()
-        val existingIndex = projectMessages.indexOfFirst { it.streamId == streamId }
+    private suspend fun upsertStreamingMessage(projectId: String, streamId: String, content: String, isStreaming: Boolean) {
         val message = Message(
             id = streamId,
             projectId = projectId,
@@ -101,12 +193,33 @@ class MessageRepository(private val webSocket: RelayWebSocket) {
             timestamp = System.currentTimeMillis(),
             isStreaming = isStreaming
         )
-        if (existingIndex >= 0) {
-            projectMessages[existingIndex] = message
-        } else {
-            projectMessages.add(message)
-        }
-        current[projectId] = projectMessages
-        _messages.value = current
+        messageDao.insertMessage(message.toEntity())
     }
+
+    private fun Message.toEntity() = MessageEntity(
+        id = id,
+        projectId = projectId,
+        role = role.name,
+        content = content,
+        type = type.name,
+        fileName = fileInfo?.fileName,
+        fileSize = fileInfo?.fileSize,
+        mimeType = fileInfo?.mimeType,
+        filePath = fileInfo?.filePath,
+        streamId = streamId,
+        timestamp = timestamp,
+        isStreaming = isStreaming
+    )
+
+    private fun MessageEntity.toMessage() = Message(
+        id = id,
+        projectId = projectId,
+        role = MessageRole.valueOf(role),
+        content = content,
+        type = MessageType.valueOf(type),
+        fileInfo = if (fileName != null) FileInfo(fileName, fileSize ?: 0, mimeType ?: "", filePath) else null,
+        streamId = streamId,
+        timestamp = timestamp,
+        isStreaming = isStreaming
+    )
 }

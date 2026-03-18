@@ -10,6 +10,22 @@ export interface Envelope {
   ts: number;
 }
 
+export interface LoginRequest {
+  username: string;
+  password: string;
+  client_type: string;
+  client_id: string;
+}
+
+export interface LoginResponse {
+  token: string;
+  expires_at: string;
+  user: {
+    id: number;
+    username: string;
+  };
+}
+
 export const Events = {
   AUTH_LOGIN:    "auth.login",
   AUTH_RESUME:   "auth.resume",
@@ -25,6 +41,10 @@ export const Events = {
   AGENT_STATUS:  "agent.status",
   AGENT_WAKEUP:  "agent.wakeup",
   FILE_SYNC:     "file.sync",
+  FILE_UPLOAD:   "file.upload",
+  FILE_CHUNK:    "file.chunk",
+  FILE_DONE:     "file.done",
+  FILE_ERROR:    "file.error",
   E2E_OFFER:     "e2e.offer",
   E2E_ANSWER:    "e2e.answer",
   PING:          "ping",

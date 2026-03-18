@@ -11,6 +11,7 @@ interface AgentConfig {
   serverUrl: string;
   agentId: string;
   token: string;
+  username?: string;
 }
 
 interface AppSettings {
@@ -23,6 +24,7 @@ const configStore = new Store<AgentConfig>({
     serverUrl: "ws://localhost:8080/ws",
     agentId: "",
     token: "",
+    username: "",
   },
 });
 
@@ -44,6 +46,7 @@ function loadConfig(): AgentConfig {
     serverUrl: (process.env.RELAY_SERVER_URL ?? configStore.get("serverUrl")) as string,
     agentId: (process.env.AGENT_ID ?? configStore.get("agentId")) as string,
     token: (process.env.AGENT_TOKEN ?? configStore.get("token")) as string,
+    username: configStore.get("username") as string,
   };
 }
 
@@ -70,16 +73,14 @@ function rebuildTrayMenu(trayInstance?: Tray): void {
   }));
 
   const menu = Menu.buildFromTemplate([
-    { label: t("app.name"), enabled: false },
+    { label: "Claude Code Remote", enabled: false },
     { type: "separator" },
-    { label: t("tray.showMain"), click: () => showMainWindow() },
     ...(projectItems.length > 0
       ? projectItems
-      : [{ label: t("tray.noProjects"), enabled: false } as Electron.MenuItemConstructorOptions]),
+      : [{ label: "暂无项目", enabled: false } as Electron.MenuItemConstructorOptions]),
     { type: "separator" },
-    { label: t("tray.settings"), click: () => openSettingsWindow() },
-    { type: "separator" },
-    { label: t("tray.quit"), click: () => app.quit() },
+    { label: "设置", click: () => openSettingsWindow() },
+    { label: "退出", click: () => app.quit() },
   ]);
   tr.setContextMenu(menu);
 }
@@ -91,9 +92,13 @@ function showMainWindow(): void {
     return;
   }
   mainWindow = new BrowserWindow({
-    width: 600,
-    height: 520,
+    width: 800,
+    height: 700,
     title: t("app.name"),
+    frame: false,
+    transparent: false,
+    backgroundColor: '#0d1117',
+    resizable: true,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -192,6 +197,61 @@ function initRelay(config: AgentConfig): void {
 // IPC handlers
 ipcMain.handle("get-projects", () => projectStore.getAll());
 
+ipcMain.handle("add-project", async (_event, data: { name: string; path: string }) => {
+  const { v4: uuidv4 } = await import("uuid");
+  const config = loadConfig();
+  const projectId = uuidv4();
+
+  // Add to local store
+  projectStore.add({
+    id: projectId,
+    name: data.name,
+    path: data.path,
+    agentId: config.agentId,
+    createdAt: Date.now(),
+  });
+
+  // Bind to server
+  if (relayClient) {
+    relayClient.send({
+      id: uuidv4(),
+      event: "project.bind",
+      project_id: projectId,
+      ts: Date.now(),
+      payload: {
+        project_id: projectId,
+        name: data.name,
+        path: data.path,
+        agent_id: config.agentId,
+      },
+    });
+  }
+
+  rebuildTrayMenu();
+  return { success: true, projectId };
+});
+
+ipcMain.handle("delete-project", (_event, projectId: string) => {
+  projectStore.remove(projectId);
+
+  // Close project window if open
+  const win = projectWindows.get(projectId);
+  if (win && !win.isDestroyed()) {
+    win.close();
+  }
+  projectWindows.delete(projectId);
+
+  // Kill PTY if exists
+  try {
+    ptyManager.kill(projectId);
+  } catch (err) {
+    // Ignore if PTY doesn't exist
+  }
+
+  rebuildTrayMenu();
+  return { success: true };
+});
+
 ipcMain.on("open-project-window", (_event, projectId: string) => {
   const project = projectStore.getById(projectId);
   if (project) createProjectWindow(project.id, project.name);
@@ -218,7 +278,41 @@ ipcMain.handle("save-config", (_event, config: Partial<AgentConfig>) => {
   if (config.serverUrl !== undefined) configStore.set("serverUrl", config.serverUrl);
   if (config.agentId !== undefined) configStore.set("agentId", config.agentId);
   if (config.token !== undefined) configStore.set("token", config.token);
+  if (config.username !== undefined) configStore.set("username", config.username);
   return true;
+});
+
+ipcMain.handle("login", async (_event, data: { username: string; password: string; agentId: string }) => {
+  try {
+    const config = loadConfig();
+    const serverUrl = config.serverUrl.replace(/^ws/, "http").replace(/\/ws$/, "");
+
+    const response = await fetch(`${serverUrl}/api/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        username: data.username,
+        password: data.password,
+        client_type: "agent",
+        client_id: data.agentId,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return { success: false, error: errorText || response.statusText };
+    }
+
+    const result = await response.json();
+
+    // Save token and username
+    configStore.set("token", result.token);
+    configStore.set("username", data.username);
+
+    return { success: true, token: result.token, user: result.user };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
 });
 
 ipcMain.handle("get-e2e-status", () => {
@@ -250,6 +344,9 @@ ipcMain.handle("set-lang", (_event, lang: Lang) => {
     tray.setToolTip(t("app.name"));
     rebuildTrayMenu();
   }
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.setTitle(t("app.name"));
+  }
   return true;
 });
 
@@ -271,6 +368,49 @@ ipcMain.handle("set-app-settings", (_event, settings: Partial<AppSettings>) => {
     appSettingsStore.set("silentLaunch", settings.silentLaunch);
   }
   return true;
+});
+
+ipcMain.handle("get-connection-status", () => {
+  if (!relayClient) {
+    return { state: "disconnected" };
+  }
+
+  const isConnected = relayClient.isConnected();
+
+  return {
+    state: isConnected ? "connected" : "disconnected"
+  };
+});
+
+ipcMain.handle("open-project", (_event, projectId: string) => {
+  const project = projectStore.getById(projectId);
+  if (project) {
+    createProjectWindow(project.id, project.name);
+    return { success: true };
+  }
+  return { success: false, error: "Project not found" };
+});
+
+// 窗口控制
+ipcMain.on("minimize-window", (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (win) win.minimize();
+});
+
+ipcMain.on("maximize-window", (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (win) {
+    if (win.isMaximized()) {
+      win.unmaximize();
+    } else {
+      win.maximize();
+    }
+  }
+});
+
+ipcMain.on("close-window", (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (win) win.close();
 });
 
 app.whenReady().then(() => {

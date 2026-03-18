@@ -4,10 +4,13 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/claudecode/relay-server/auth"
 	"github.com/claudecode/relay-server/config"
 	"github.com/claudecode/relay-server/hub"
+	"github.com/claudecode/relay-server/model"
+	"github.com/google/uuid"
 )
 
 type projectBindRequest struct {
@@ -45,10 +48,33 @@ func ProjectBindHandler(h *hub.Hub, cfg *config.Config) http.HandlerFunc {
 			return
 		}
 
-		h.BindProject(req.ProjectID, req.AgentID)
+		h.BindProject(req.ProjectID, req.AgentID, req.Name, req.Path)
+
+		// Forward project.bind to agent via WebSocket
+		payloadData := map[string]interface{}{
+			"id":       req.ProjectID,
+			"name":     req.Name,
+			"path":     req.Path,
+			"agent_id": req.AgentID,
+		}
+		payloadBytes, _ := json.Marshal(payloadData)
+
+		envelope := &model.Envelope{
+			ID:        uuid.New().String(),
+			Event:     "project.bind",
+			ProjectID: req.ProjectID,
+			Timestamp: time.Now().UnixMilli(),
+			Payload:   payloadBytes,
+		}
+
+		sent := h.SendToAgent(req.AgentID, envelope)
+		if !sent {
+			http.Error(w, "agent not online", http.StatusServiceUnavailable)
+			return
+		}
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{"status": "bound"})
+		json.NewEncoder(w).Encode(map[string]bool{"success": true})
 	}
 }

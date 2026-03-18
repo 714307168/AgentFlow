@@ -11,14 +11,23 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// ProjectInfo stores project metadata
+type ProjectInfo struct {
+	ID      string
+	Name    string
+	Path    string
+	AgentID string
+}
+
 // Hub is the central message router connecting agents and devices.
 type Hub struct {
-	agents   sync.Map // agentID  -> *Client
-	devices  sync.Map // deviceID -> *Client
-	projects sync.Map // projectID -> agentID
-	queues   sync.Map // projectID -> *Queue
-	cfg      *config.Config
-	seq      int64 // atomic sequence counter
+	agents       sync.Map // agentID  -> *Client
+	devices      sync.Map // deviceID -> *Client
+	projects     sync.Map // projectID -> agentID
+	projectInfos sync.Map // projectID -> *ProjectInfo
+	queues       sync.Map // projectID -> *Queue
+	cfg          *config.Config
+	seq          int64 // atomic sequence counter
 }
 
 // NewHub creates a Hub with the given configuration.
@@ -113,11 +122,17 @@ func (h *Hub) HandleMessage(from *Client, env *model.Envelope) {
 			return
 		}
 		h.projects.Store(p.ProjectID, from.AgentID)
+		h.projectInfos.Store(p.ProjectID, &ProjectInfo{
+			ID:      p.ProjectID,
+			Name:    p.Name,
+			Path:    p.Path,
+			AgentID: from.AgentID,
+		})
 		from.ProjectIDs = append(from.ProjectIDs, p.ProjectID)
 		log.Info().Str("project_id", p.ProjectID).Str("agent_id", from.AgentID).Msg("project bound")
 
 		ack := &model.Envelope{
-							ID:        newID(),
+			ID:        newID(),
 			Event:     model.EventProjectBound,
 			ProjectID: p.ProjectID,
 			Seq:       h.NextSeq(),
@@ -127,7 +142,7 @@ func (h *Hub) HandleMessage(from *Client, env *model.Envelope) {
 
 	case model.EventPing:
 		pong := &model.Envelope{
-									ID:        newID(),
+			ID:        newID(),
 			Event:     model.EventPong,
 			Seq:       h.NextSeq(),
 			Timestamp: time.Now().UnixMilli(),
@@ -142,6 +157,19 @@ func (h *Hub) HandleMessage(from *Client, env *model.Envelope) {
 		if from.Type == model.ClientTypeAgent {
 			h.BroadcastToDevices(env, env.ProjectID)
 		} else {
+			agentID, ok := h.resolveAgent(env.ProjectID)
+			if ok {
+				h.Route(env, agentID)
+			}
+		}
+
+	case model.EventFileUpload, model.EventFileChunk, model.EventFileDone, model.EventFileError:
+		// Bidirectional file transfer: route based on sender type
+		if from.Type == model.ClientTypeAgent {
+			// Agent -> Devices
+			h.BroadcastToDevices(env, env.ProjectID)
+		} else {
+			// Device -> Agent
 			agentID, ok := h.resolveAgent(env.ProjectID)
 			if ok {
 				h.Route(env, agentID)
@@ -235,8 +263,14 @@ func (h *Hub) sendError(to *Client, refID, code, message string) {
 }
 
 // BindProject registers a project->agent mapping (used by REST handler).
-func (h *Hub) BindProject(projectID, agentID string) {
+func (h *Hub) BindProject(projectID, agentID, name, path string) {
 	h.projects.Store(projectID, agentID)
+	h.projectInfos.Store(projectID, &ProjectInfo{
+		ID:      projectID,
+		Name:    name,
+		Path:    path,
+		AgentID: agentID,
+	})
 	log.Info().Str("project_id", projectID).Str("agent_id", agentID).Msg("project bound via REST")
 }
 
@@ -249,4 +283,21 @@ func (h *Hub) SendToAgent(agentID string, env *model.Envelope) bool {
 	agent := v.(*Client)
 	_ = agent.Send(env)
 	return true
+}
+
+// GetAgentProjects returns all projects bound to the given agent.
+func (h *Hub) GetAgentProjects(agentID string) []map[string]string {
+	projects := []map[string]string{}
+	h.projectInfos.Range(func(k, v interface{}) bool {
+		info := v.(*ProjectInfo)
+		if info.AgentID == agentID {
+			projects = append(projects, map[string]string{
+				"id":   info.ID,
+				"name": info.Name,
+				"path": info.Path,
+			})
+		}
+		return true
+	})
+	return projects
 }

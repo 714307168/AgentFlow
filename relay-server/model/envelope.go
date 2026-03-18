@@ -28,7 +28,11 @@ const (
 	EventAgentWakeup = "agent.wakeup"
 
 	// File events
-	EventFileSync = "file.sync"
+	EventFileSync   = "file.sync"
+	EventFileUpload = "file.upload"
+	EventFileChunk  = "file.chunk"
+	EventFileDone   = "file.done"
+	EventFileError  = "file.error"
 
 	// E2E encryption events
 	EventE2EOffer  = "e2e.offer"
@@ -141,4 +145,27 @@ type EncryptedPayload struct {
 	Ciphertext string `json:"ciphertext"` // base64-encoded AES-256-GCM ciphertext
 	Nonce      string `json:"nonce"`      // base64-encoded 12-byte nonce
 	Encrypted  bool   `json:"encrypted"`  // always true
+}
+
+// FileUploadPayload is the payload for file.upload
+type FileUploadPayload struct {
+	FileName  string `json:"file_name"`
+	FileSize  int64  `json:"file_size"`
+	MimeType  string `json:"mime_type"`
+	ProjectID string `json:"project_id"`
+}
+
+// FileChunkPayload is the payload for file.chunk
+type FileChunkPayload struct {
+	FileID string `json:"file_id"`
+	Chunk  string `json:"chunk"` // base64 encoded
+	Seq    int64  `json:"seq"`
+	Total  int64  `json:"total"`
+}
+
+// FileDonePayload is the payload for file.done
+type FileDonePayload struct {
+	FileID   string `json:"file_id"`
+	FileName string `json:"file_name"`
+	FilePath string `json:"file_path,omitempty"`
 }

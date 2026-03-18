@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agent Settings</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #1e1e1e; color: #ccc; padding: 24px; }
+    h1 { font-size: 18px; color: #fff; margin-bottom: 20px; }
+    .section { margin-bottom: 24px; }
+    .section h2 { font-size: 13px; text-transform: uppercase; color: #888; margin-bottom: 12px; letter-spacing: 0.5px; }
+    label { display: block; font-size: 13px; color: #aaa; margin-bottom: 4px; }
+    input[type="text"], input[type="password"] {
+      width: 100%; padding: 8px 12px; background: #2d2d2d; border: 1px solid #444;
+      border-radius: 4px; color: #fff; font-size: 14px; margin-bottom: 12px; outline: none;
+    }
+    input:focus { border-color: #007acc; }
+    .toggle-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+    .toggle-row label { margin-bottom: 0; }
+    .toggle { position: relative; width: 40px; height: 22px; }
+    .toggle input { opacity: 0; width: 0; height: 0; }
+    .toggle .slider {
+      position: absolute; inset: 0; background: #444; border-radius: 11px; cursor: pointer; transition: 0.2s;
+    }
+    .toggle .slider::before {
+      content: ''; position: absolute; width: 16px; height: 16px; left: 3px; bottom: 3px;
+      background: #ccc; border-radius: 50%; transition: 0.2s;
+    }
+    .toggle input:checked + .slider { background: #007acc; }
+    .toggle input:checked + .slider::before { transform: translateX(18px); }
+    .pubkey { font-family: monospace; font-size: 11px; color: #888; word-break: break-all; background: #252525; padding: 8px; border-radius: 4px; margin-top: 4px; }
+    .btn-row { display: flex; gap: 8px; margin-top: 20px; }
+    button {
+      padding: 8px 20px; border: none; border-radius: 4px; font-size: 14px; cursor: pointer;
+    }
+    .btn-primary { background: #007acc; color: #fff; }
+    .btn-primary:hover { background: #005f9e; }
+    .btn-secondary { background: #333; color: #ccc; }
+    .btn-secondary:hover { background: #444; }
+    .status { font-size: 12px; color: #4caf50; margin-top: 8px; display: none; }
+    .status.error { color: #f44336; }
+  </style>
+</head>
+<body>
+  <h1>Agent Settings</h1>
+
+  <div class="section">
+    <h2>Server Connection</h2>
+    <label for="serverUrl">Relay Server URL</label>
+    <input type="text" id="serverUrl" placeholder="ws://localhost:8080/ws">
+    <label for="agentId">Agent ID</label>
+    <input type="text" id="agentId" placeholder="Enter your agent ID">
+    <label for="token">Authentication Token</label>
+    <input type="password" id="token" placeholder="JWT token">
+  </div>
+
+  <div class="section">
+    <h2>End-to-End Encryption</h2>
+    <div class="toggle-row">
+      <label>Enable E2E Encryption</label>
+      <div class="toggle">
+        <input type="checkbox" id="e2eToggle">
+        <span class="slider"></span>
+      </div>
+    </div>
+    <label>Public Key</label>
+    <div class="pubkey" id="pubkey">&mdash;</div>
+  </div>
+
+  <div class="btn-row">
+    <button class="btn-primary" id="saveBtn">Save &amp; Reconnect</button>
+    <button class="btn-secondary" id="cancelBtn">Cancel</button>
+  </div>
+  <div class="status" id="status"></div>
+
+  <script>
+    const api = window.claudeAgent;
+
+    async function loadSettings() {
+      const config = await api.getConfig();
+      document.getElementById('serverUrl').value = config.serverUrl || '';
+      document.getElementById('agentId').value = config.agentId || '';
+      document.getElementById('token').value = config.token || '';
+
+      const e2e = await api.getE2EStatus();
+      document.getElementById('e2eToggle').checked = e2e.enabled;
+      document.getElementById('pubkey').textContent = e2e.publicKey || '\u2014';
+    }
+
+    document.getElementById('saveBtn').addEventListener('click', async () => {
+      const config = {
+        serverUrl: document.getElementById('serverUrl').value.trim(),
+        agentId: document.getElementById('agentId').value.trim(),
+        token: document.getElementById('token').value.trim(),
+      };
+      const e2eEnabled = document.getElementById('e2eToggle').checked;
+
+      try {
+        await api.saveConfig(config);
+        await api.setE2EEnabled(e2eEnabled);
+        await api.reconnectRelay();
+        showStatus('Settings saved. Reconnecting...', false);
+        setTimeout(async () => {
+          const e2e = await api.getE2EStatus();
+          document.getElementById('pubkey').textContent = e2e.publicKey || '\u2014';
+        }, 1000);
+      } catch (err) {
+        showStatus('Failed to save: ' + err.message, true);
+      }
+    });
+
+    document.getElementById('cancelBtn').addEventListener('click', () => {
+      window.close();
+    });
+
+    function showStatus(msg, isError) {
+      const el = document.getElementById('status');
+      el.textContent = msg;
+      el.className = 'status' + (isError ? ' error' : '');
+      el.style.display = 'block';
+      setTimeout(() => { el.style.display = 'none'; }, 3000);
+    }
+
+    loadSettings();
+  </script>
+</body>
+</html>

@@ -43,6 +43,9 @@ class RelayWebSocket(
     private val _connectionState = MutableStateFlow(ConnectionState.DISCONNECTED)
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
 
+    private val _errorMessage = MutableStateFlow<String?>(null)
+    val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
+
     private var webSocket: WebSocket? = null
     private var lastSeq: Long = 0
     private var reconnectAttempts = 0
@@ -59,9 +62,29 @@ class RelayWebSocket(
     suspend fun connect() {
         if (_connectionState.value == ConnectionState.CONNECTED ||
             _connectionState.value == ConnectionState.CONNECTING) return
+
+        // Check if token exists
+        val token = tokenStore.getToken()
+        if (token.isNullOrEmpty()) {
+            _errorMessage.value = "请先在设置中配置 Token 和 Device ID"
+            _connectionState.value = ConnectionState.DISCONNECTED
+            return
+        }
+
         _connectionState.value = ConnectionState.CONNECTING
+        _errorMessage.value = null
         reconnectAttempts = 0
         openWebSocket()
+    }
+
+    fun disconnect() {
+        reconnectJob?.cancel()
+        reconnectJob = null
+        stopPing()
+        webSocket?.close(1000, "User disconnected")
+        webSocket = null
+        _connectionState.value = ConnectionState.DISCONNECTED
+        Log.d(tag, "WebSocket disconnected by user")
     }
 
     private fun openWebSocket() {
@@ -86,6 +109,21 @@ class RelayWebSocket(
             try {
                 val envelope = json.decodeFromString<Envelope>(text)
                 envelope.seq?.let { if (it > lastSeq) lastSeq = it }
+
+                // Handle auth errors
+                if (envelope.event == Events.AUTH_ERROR) {
+                    _errorMessage.value = "认证失败，请检查 Token 是否正确"
+                    _connectionState.value = ConnectionState.DISCONNECTED
+                    ws.close(1000, "Auth failed")
+                    return
+                }
+
+                // Handle auth success
+                if (envelope.event == Events.AUTH_OK) {
+                    _errorMessage.value = null
+                    Log.d(tag, "Authentication successful")
+                }
+
                 scope.launch { _incomingEnvelopes.emit(envelope) }
             } catch (e: Exception) {
                 Log.e(tag, "Failed to parse envelope: $text", e)
@@ -93,14 +131,19 @@ class RelayWebSocket(
         }
 
         override fun onFailure(ws: WebSocket, t: Throwable, response: Response?) {
-            Log.e(tag, "WebSocket failure", t)
+            val errorMsg = "连接失败: ${t.message ?: "未知错误"}"
+            Log.e(tag, "WebSocket failure: ${t.message}, response: ${response?.code}", t)
+            _errorMessage.value = errorMsg
             _connectionState.value = ConnectionState.RECONNECTING
             stopPing()
             scheduleReconnect()
         }
 
         override fun onClosed(ws: WebSocket, code: Int, reason: String) {
-            Log.d(tag, "WebSocket closed: $code $reason")
+            Log.d(tag, "WebSocket closed: code=$code, reason=$reason")
+            if (code != 1000) { // 1000 = normal closure
+                _errorMessage.value = "连接关闭: $reason (code: $code)"
+            }
             if (_connectionState.value != ConnectionState.DISCONNECTED) {
                 _connectionState.value = ConnectionState.RECONNECTING
                 scheduleReconnect()
@@ -133,14 +176,6 @@ class RelayWebSocket(
         } catch (e: Exception) {
             Log.e(tag, "Failed to send envelope", e)
         }
-    }
-
-    fun disconnect() {
-        reconnectJob?.cancel()
-        stopPing()
-        _connectionState.value = ConnectionState.DISCONNECTED
-        webSocket?.close(1000, "Client disconnect")
-        webSocket = null
     }
 
     private fun startPing() {

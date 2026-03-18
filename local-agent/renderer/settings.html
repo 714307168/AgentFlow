@@ -6,71 +6,659 @@
   <title>Agent Settings</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #1e1e1e; color: #ccc; padding: 24px; overflow-y: auto; }
-    h1 { font-size: 18px; color: #fff; margin-bottom: 20px; }
-    .section { margin-bottom: 24px; }
-    .section h2 { font-size: 13px; text-transform: uppercase; color: #888; margin-bottom: 12px; letter-spacing: 0.5px; }
-    label { display: block; font-size: 13px; color: #aaa; margin-bottom: 4px; }
+
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --surface2: #1c2128;
+      --surface-hover: #21262d;
+      --border: #30363d;
+      --border-focus: #58a6ff;
+      --text: #c9d1d9;
+      --text-muted: #8b949e;
+      --text-label: #c9d1d9;
+      --accent: #58a6ff;
+      --accent-hover: #79c0ff;
+      --success: #3fb950;
+      --success-bg: rgba(63, 185, 80, 0.1);
+      --error: #f85149;
+      --error-bg: rgba(248, 81, 73, 0.1);
+      --warning: #d29922;
+      --shadow: rgba(0, 0, 0, 0.3);
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: 0;
+      overflow-y: auto;
+      font-size: 14px;
+      line-height: 1.6;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .titlebar {
+      -webkit-app-region: drag;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+
+    .titlebar-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .titlebar-title::before {
+      content: '⚙️';
+      font-size: 16px;
+    }
+
+    .titlebar-controls {
+      -webkit-app-region: no-drag;
+      display: flex;
+      gap: 8px;
+    }
+
+    .titlebar-button {
+      width: 32px;
+      height: 32px;
+      border: none;
+      background: transparent;
+      color: var(--text);
+      border-radius: 6px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      transition: all 0.2s;
+      padding: 0;
+    }
+
+    .titlebar-button:hover {
+      background: var(--surface-hover);
+    }
+
+    .titlebar-button.minimize:hover {
+      background: rgba(88, 166, 255, 0.2);
+    }
+
+    .titlebar-button.maximize:hover {
+      background: rgba(63, 185, 80, 0.2);
+    }
+
+    .titlebar-button.close:hover {
+      background: var(--error);
+      color: #fff;
+    }
+
+    .content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px;
+      max-width: 800px;
+      margin: 0 auto;
+      width: 100%;
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 32px;
+      padding-bottom: 20px;
+      border-bottom: 2px solid var(--border);
+    }
+
+    h1 {
+      font-size: 24px;
+      font-weight: 600;
+      color: var(--text);
+      letter-spacing: -0.5px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    h1::before {
+      content: '⚙️';
+      font-size: 28px;
+    }
+
+    .save-indicator {
+      font-size: 13px;
+      color: var(--success);
+      opacity: 0;
+      transition: all 0.3s;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      background: var(--success-bg);
+      border-radius: 6px;
+      border: 1px solid var(--success);
+    }
+    .save-indicator.visible {
+      opacity: 1;
+      transform: scale(1);
+    }
+    .save-indicator::before {
+      content: '✓';
+      font-weight: bold;
+    }
+
+    .section {
+      margin-bottom: 20px;
+      background: var(--surface);
+      border-radius: 12px;
+      padding: 20px 24px;
+      border: 1px solid var(--border);
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    .section:hover {
+      border-color: var(--border-focus);
+      box-shadow: 0 4px 12px var(--shadow);
+    }
+
+    .section-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .section-title::before {
+      content: '';
+      width: 4px;
+      height: 20px;
+      background: var(--accent);
+      border-radius: 2px;
+    }
+
+    .field { margin-bottom: 16px; }
+    .field:last-child { margin-bottom: 0; }
+
+    label {
+      display: block;
+      font-size: 13px;
+      color: var(--text-label);
+      margin-bottom: 8px;
+      font-weight: 500;
+    }
+
     input[type="text"], input[type="password"] {
-      width: 100%; padding: 8px 12px; background: #2d2d2d; border: 1px solid #444;
-      border-radius: 4px; color: #fff; font-size: 14px; margin-bottom: 12px; outline: none;
+      width: 100%;
+      padding: 10px 14px;
+      background: var(--surface2);
+      border: 1.5px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 14px;
+      outline: none;
+      transition: all 0.2s;
+      font-family: inherit;
     }
-    input:focus { border-color: #007acc; }
+    input[type="text"]:focus, input[type="password"]:focus {
+      border-color: var(--border-focus);
+      background: var(--surface-hover);
+      box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.1);
+    }
+    input[type="text"]:hover, input[type="password"]:hover {
+      border-color: var(--text-muted);
+    }
+
     select {
-      width: 100%; padding: 8px 12px; background: #2d2d2d; border: 1px solid #444;
-      border-radius: 4px; color: #fff; font-size: 14px; margin-bottom: 12px; outline: none;
-      appearance: auto;
+      width: 100%;
+      padding: 10px 14px;
+      background: var(--surface2);
+      border: 1.5px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 14px;
+      outline: none;
+      cursor: pointer;
+      transition: all 0.2s;
+      font-family: inherit;
     }
-    select:focus { border-color: #007acc; }
-    .toggle-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
-    .toggle-row label { margin-bottom: 0; }
-    .toggle { position: relative; width: 40px; height: 22px; }
+    select:focus {
+      bordeolor: var(--border-focus);
+      box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.1);
+    }
+    select:hover {
+      border-color: var(--text-muted);
+    }
+
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 36px;
+      padding: 8px 0;
+      transition: background 0.2s;
+      border-radius: 6px;
+    }
+    .toggle-row:hover {
+      background: rgba(88, 166, 255, 0.05);
+    }
+    .toggle-row + .toggle-row {
+      margin-top: 4px;
+      border-top: 1px solid var(--border);
+      padding-top: 12px;
+    }
+    .toggle-row label {
+      margin-bottom: 0;
+      cursor: pointer;
+      flex: 1;
+      font-size: 14px;
+    }
+
+    .toggle {
+      position: relative;
+      width: 44px;
+      height: 24px;
+      flex-shrink: 0;
+      margin-left: 12px;
+    }
     .toggle input { opacity: 0; width: 0; height: 0; }
     .toggle .slider {
-      position: absolute; inset: 0; background: #444; border-radius: 11px; cursor: pointer; transition: 0.2s;
+      position: absolute;
+      inset: 0;
+      background: #30363d;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: all 0.3s;
+      border: 1.5px solid var(--border);
     }
     .toggle .slider::before {
-      content: ''; position: absolute; width: 16px; height: 16px; left: 3px; bottom: 3px;
-      background: #ccc; border-radius: 50%; transition: 0.2s;
+      content: '';
+      position: absolute;
+      width: 18px;
+      height: 18px;
+      left: 2px;
+      top: 2px;
+      background: #8b949e;
+      border-radius: 50%;
+      transition: all 0.3s;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
     }
-    .toggle input:checked + .slider { background: #007acc; }
-    .toggle input:checked + .slider::before { transform: translateX(18px); }
-    .pubkey { font-family: monospace; font-size: 11px; color: #888; word-break: break-all; background: #252525; padding: 8px; border-radius: 4px; margin-top: 4px; }
-    .btn-row { display: flex; gap: 8px; margin-top: 20px; }
+    .toggle input:checked + .slider {
+      background: var(--accent);
+      border-color: var(--accent);
+    }
+    .toggle input:checked + .slider::before {
+      transform: translateX(20px);
+      background: #fff;
+    }
+    .toggle:hover .slider {
+      border-color: var(--accent);
+    }
+
+    .pubkey {
+      font-family: 'SF Mono', 'Consolas', monospace;
+      font-size: 11px;
+      color: var(--text-muted);
+      word-break: break-all;
+      background: var(--surface2);
+      padding: 12px 14px;
+      border-radius: 8px;
+      margin-top: 8px;
+      border: 1.5px solid var(--border);
+      line-height: 1.8;
+      user-select: all;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .pubkey:hover {
+      border-color: var(--accent);
+      background: var(--surface-hover);
+    }
+    .pubkey::before {
+      content: '🔑 ';
+      margin-right: 8px;
+    }
+
+    .connection-status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 14px;
+      background: var(--surface);
+      border: 1.5px solid var(--border);
+      border-radius: 8px;
+      font-size: 13px;
+      transition: all 0.3s;
+    }
+
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--text-muted);
+      animation: pulse 2s infinite;
+    }
+
+    .connection-status.connected .status-dot {
+      background: var(--success);
+      box-shadow: 0 0 8px var(--success);
+    }
+
+    .connection-status.connecting .status-dot {
+      background: var(--warning);
+      box-shadow: 0 0 8px var(--warning);
+    }
+
+    .connection-status.disconnected .status-dot {
+      background: var(--error);
+      animation: none;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    .status-text {
+      font-weight: 500;
+      color: var(--text);
+    }
+
+    .project-list:empty::before {
+      content: '暂无项目，点击上方"添加项目"按钮开始';
+      display: block;
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--text-muted);
+      font-size: 14px;
+      background: var(--surface2);
+      border: 1.5px dashed var(--border);
+      border-radius: 10px;
+    }
+
+    ::-webkit-scrollbar {
+      width: 10px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: var(--bg);
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 5px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: var(--text-muted);
+    }
+
+    ::placeholder {
+      color: var(--text-muted);
+      opacity: 0.6;
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .loading {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+    }
+
+    .btn-row {
+      display: flex;
+      gap: 12px;
+      margin-top: 16px;
+      flex-wrap: wrap;
+    }
+
     button {
-      padding: 8px 20px; border: none; border-radius: 4px; font-size: 14px; cursor: pointer;
+      padding: 10px 20px;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      cursor: pointer;
+      font-weight: 500;
+      transition: all 0.2s;
+      font-family: inherit;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
     }
-    .btn-primary { background: #007acc; color: #fff; }
-    .btn-primary:hover { background: #005f9e; }
-    .btn-secondary { background: #333; color: #ccc; }
-    .btn-secondary:hover { background: #444; }
-    .status { font-size: 12px; color: #4caf50; margin-top: 8px; display: none; }
-    .status.error { color: #f44336; }
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+      box-shadow: 0 2px 8px rgba(88, 166, 255, 0.3);
+    }
+    .btn-primary:hover {
+      background: var(--accent-hover);
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(88, 166, 255, 0.4);
+    }
+    .btn-primary:active {
+      transform: translateY(0);
+    }
+    .btn-secondary {
+      background: var(--surface2);
+      color: var(--text);
+      border: 1.5px solid var(--border);
+    }
+    .btn-secondary:hover {
+      background: var(--surface-hover);
+      border-color: var(--text-muted);
+    }
+    .btn-danger {
+      background: var(--error);
+      color: #fff;
+      box-shadow: 0 2px 8px rgba(248, 81, 73, 0.3);
+    }
+    .btn-danger:hover {
+      background: #ff6b6b;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(248, 81, 73, 0.4);
+    }
+
+    .project-list {
+      margin-top: 12px;
+    }
+    .project-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 18px;
+      background: var(--surface2);
+      border: 1.5px solid var(--border);
+      border-radius: 10px;
+      margin-bottom: 12px;
+      transition: all 0.2s;
+      cursor: pointer;
+    }
+    .project-item:hover {
+      border-color: var(--accent);
+      background: var(--surface-hover);
+      transform: translateX(4px);
+      box-shadow: 0 2px 8px var(--shadow);
+    }
+    .project-info {
+      flex: 1;
+      min-width: 0;
+    }
+    .project-name {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .project-name::before {
+      content: '📁';
+      font-size: 18px;
+    }
+    .project-path {
+      font-size: 12px;
+      color: var(--text-muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-family: 'SF Mono', 'Consolas', monospace;
+    }
+    .project-actions {
+      display: flex;
+      gap: 8px;
+      margin-left: 16px;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+    .project-item:hover .project-actions {
+      opacity: 1;
+    }
+    .btn-small {
+      padding: 6px 12px;
+      font-size: 12px;
+    }
+
+    .add-project-form {
+      display: none;
+      margin-top: 16px;
+      padding: 20px;
+      background: var(--surface2);
+      border: 1.5px solid var(--border);
+      border-radius: 10px;
+      animation: slideDown 0.3s ease;
+    }
+    .add-project-form.visible {
+      display: block;
+    }
+
+    @keyframes slideDown {
+      from {
+        opacity: 0;
+        transform: translateY(-10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .status {
+      font-size: 14px;
+      color: var(--success);
+      margin-top: 16px;
+      display: none;
+      padding: 12px 16px;
+      background: var(--success-bg);
+      border-radius: 8px;
+      border: 1.5px solid var(--success);
+      animation: slideDown 0.3s ease;
+    }
+    .status.error {
+      color: var(--error);
+      background: var(--error-bg);
+      border-color: var(--error);
+    }
+    .status::before {
+      content: 'ℹ️ ';
+      margin-right: 8px;
+    }
   </style>
 </head>
 <body>
-  <h1 id="title">Agent Settings</h1>
+  <div class="titlebar">
+    <div class="titlebar-title" id="titlebarTitle">设置</div>
+    <div class="titlebar-controls">
+      <button class="titlebar-button minimize" id="minimizeBtn" title="最小化">−</button>
+      <button class="titlebar-button maximize" id="maximizeBtn" title="最大化">□</button>
+      <button class="titlebar-button close" id="closeBtn" title="关闭">×</button>
+    </div>
+  </div>
 
-  <div class="section">
-    <h2 id="langSection">Language</h2>
-    <label id="langLabel">Interface Language</label>
-    <select id="langSelect">
-      <option value="en">English</option>
-      <option value="zh">中文</option>
-    </select>
+  <div class="content">
+  <div class="header">
+    <h1 id="title">Agent Settings</h1>
+    <div style="display: flex; gap: 12px; align-items: center;">
+      <div class="connection-status" id="connectionStatus">
+        <span class="status-dot"></span>
+        <span class="status-text" id="statusText">未连接</span>
+      </div>
+      <span class="save-indicator" id="saveIndicator"><span id="savedText">已保存</span></span>
+    </div>
   </div>
 
   <div class="section">
-    <h2 id="launchSection">Launch</h2>
+    <div class="section-title" id="langSection">语言</div>
+    <div class="field">
+      <label id="langLabel">界面语言</label>
+      <select id="langSelect">
+        <option value="en">English</option>
+        <option value="zh">中文</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title" id="projectSection">项目管理</div>
+    <div class="btn-row">
+      <button class="btn-primary" id="addProjectBtn">添加项目</button>
+    </div>
+
+    <div class="add-project-form" id="addProjectForm">
+      <div class="field">
+        <label id="projectNameLabel">项目名称</label>
+        <input type="text" id="projectName" placeholder="输入项目名称">
+      </div>
+      <div class="field">
+        <label id="projectPathLabel">项目路径</label>
+        <input type="text" id="projectPath" placeholder="输入项目路径">
+      </div>
+      <div class="btn-row">
+        <button class="btn-primary btn-small" id="saveProjectBtn">保存</button>
+        <button class="btn-secondary btn-small" id="cancelProjectBtn">取消</button>
+      </div>
+    </div>
+
+    <div class="project-list" id="projectList"></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title" id="launchSection">启动设置</div>
     <div class="toggle-row">
-      <label id="autoStartLabel">Start on Boot</label>
+      <label id="autoStartLabel" for="autoStartToggle">开机启动</label>
       <div class="toggle">
         <input type="checkbox" id="autoStartToggle">
         <span class="slider"></span>
       </div>
     </div>
     <div class="toggle-row">
-      <label id="silentLaunchLabel">Silent Launch (minimize to tray)</label>
+      <label id="silentLaunchLabel" for="silentLaunchToggle">静默启动（最小化到托盘）</label>
       <div class="toggle">
         <input type="checkbox" id="silentLaunchToggle">
         <span class="slider"></span>
@@ -79,33 +667,53 @@
   </div>
 
   <div class="section">
-    <h2 id="serverSection">Server Connection</h2>
-    <label id="serverUrlLabel">Relay Server URL</label>
-    <input type="text" id="serverUrl" placeholder="ws://localhost:8080/ws">
-    <label id="agentIdLabel">Agent ID</label>
-    <input type="text" id="agentId" placeholder="Enter your agent ID">
-    <label id="tokenLabel">Authentication Token</label>
-    <input type="password" id="token" placeholder="JWT token">
+    <div class="section-title" id="serverSection">服务器连接</div>
+    <div class="field">
+      <label id="serverUrlLabel">中继服务器地址</label>
+      <input type="text" id="serverUrl" placeholder="http://localhost:8080">
+    </div>
+    <div class="field">
+      <label id="usernameLabel">用户名</label>
+      <input type="text" id="username" placeholder="输入用户名">
+    </div>
+    <div class="field">
+      <label id="passwordLabel">密码</label>
+      <input type="password" id="password" placeholder="输入密码">
+    </div>
+    <div class="field">
+      <label id="agentIdLabel">Agent ID</label>
+      <input type="text" id="agentId" placeholder="输入你的 Agent ID">
+    </div>
+    <div class="btn-row">
+      <button class="btn-primary" id="loginBtn">登录</button>
+      <button class="btn-secondary" id="reconnectBtn">重新连接</button>
+    </div>
+    <div class="field" style="margin-top: 12px;">
+      <label id="loginStatusLabel">登录状态</label>
+      <div class="connection-status" id="loginStatus">
+        <span class="status-dot"></span>
+        <span class="status-text" id="loginStatusText">未登录</span>
+      </div>
+    </div>
   </div>
 
   <div class="section">
-    <h2 id="e2eSection">End-to-End Encryption</h2>
+    <div class="section-title" id="e2eSection">端到端加密</div>
     <div class="toggle-row">
-      <label id="e2eLabel">Enable E2E Encryption</label>
+      <label id="e2eLabel" for="e2eToggle">启用端到端加密</label>
       <div class="toggle">
         <input type="checkbox" id="e2eToggle">
         <span class="slider"></span>
       </div>
     </div>
-    <label id="pubkeyLabel">Public Key</label>
-    <div class="pubkey" id="pubkey">&mdash;</div>
+    <div class="field" style="margin-top: 10px;">
+      <label id="pubkeyLabel">公钥</label>
+      <div class="pubkey" id="pubkey">&mdash;</div>
+    </div>
   </div>
 
-  <div class="btn-row">
-    <button class="btn-primary" id="saveBtn">Save &amp; Reconnect</button>
-    <button class="btn-secondary" id="cancelBtn">Cancel</button>
-  </div>
   <div class="status" id="status"></div>
+  </div>
 
   <script>
     const api = window.claudeAgent;
@@ -113,6 +721,7 @@
 
     function applyI18n() {
       document.getElementById('title').textContent = msgs['settings.title'] || 'Agent Settings';
+      document.getElementById('savedText').textContent = msgs['settings.saved.short'] || 'Saved';
       document.getElementById('langSection').textContent = msgs['settings.language'] || 'Language';
       document.getElementById('langLabel').textContent = msgs['settings.languageLabel'] || 'Interface Language';
       document.getElementById('launchSection').textContent = msgs['settings.launch'] || 'Launch';
@@ -127,8 +736,7 @@
       document.getElementById('e2eSection').textContent = msgs['settings.e2e'] || 'End-to-End Encryption';
       document.getElementById('e2eLabel').textContent = msgs['settings.e2eEnable'] || 'Enable E2E Encryption';
       document.getElementById('pubkeyLabel').textContent = msgs['settings.publicKey'] || 'Public Key';
-      document.getElementById('saveBtn').textContent = msgs['settings.save'] || 'Save & Reconnect';
-      document.getElementById('cancelBtn').textContent = msgs['settings.cancel'] || 'Cancel';
+      document.getElementById('reconnectBtn').textContent = msgs['settings.reconnect'] || 'Reconnect';
     }
 
     async function loadSettings() {
@@ -141,8 +749,8 @@
       ]);
 
       document.getElementById('serverUrl').value = config.serverUrl || '';
+      document.getElementById('username').value = config.username || '';
       document.getElementById('agentId').value = config.agentId || '';
-      document.getElementById('token').value = config.token || '';
       document.getElementById('e2eToggle').checked = e2e.enabled;
       document.getElementById('pubkey').textContent = e2e.publicKey || '\u2014';
       document.getElementById('langSelect').value = lang || 'en';
@@ -151,47 +759,125 @@
 
       msgs = i18nMessages || {};
       applyI18n();
+      updateLoginStatus();
     }
 
-    document.getElementById('langSelect').addEventListener('change', async (e) => {
-      const lang = e.target.value;
-      await api.setLang(lang);
-      msgs = await api.getI18nMessages();
-      applyI18n();
-    });
+    function flashSaved() {
+      const el = document.getElementById('saveIndicator');
+      el.classList.add('visible');
+      clearTimeout(el._timer);
+      el._timer = setTimeout(() => el.classList.remove('visible'), 1500);
+    }
 
-    document.getElementById('autoStartToggle').addEventListener('change', async (e) => {
-      await api.setAppSettings({ autoStart: e.target.checked });
-    });
-
-    document.getElementById('silentLaunchToggle').addEventListener('change', async (e) => {
-      await api.setAppSettings({ silentLaunch: e.target.checked });
-    });
-
-    document.getElementById('saveBtn').addEventListener('click', async () => {
-      const config = {
+    async function saveConnectionConfig() {
+      await api.saveConfig({
         serverUrl: document.getElementById('serverUrl').value.trim(),
+        username: document.getElementById('username').value.trim(),
         agentId: document.getElementById('agentId').value.trim(),
-        token: document.getElementById('token').value.trim(),
-      };
-      const e2eEnabled = document.getElementById('e2eToggle').checked;
+      });
+      flashSaved();
+    }
+
+    // Auto-save text inputs on blur
+    ['serverUrl', 'username', 'agentId'].forEach(id => {
+      document.getElementById(id).addEventListener('blur', saveConnectionConfig);
+    });
+
+    // Login button
+    document.getElementById('loginBtn').addEventListener('click', async () => {
+      const serverUrl = document.getElementById('serverUrl').value.trim();
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value.trim();
+      const agentId = document.getElementById('agentId').value.trim();
+
+      if (!serverUrl || !username || !password || !agentId) {
+        showStatus('请填写所有字段', true);
+        return;
+      }
 
       try {
-        await api.saveConfig(config);
-        await api.setE2EEnabled(e2eEnabled);
-        await api.reconnectRelay();
-        showStatus(msgs['settings.saved'] || 'Settings saved. Reconnecting...', false);
-        setTimeout(async () => {
-          const e2e = await api.getE2EStatus();
-          document.getElementById('pubkey').textContent = e2e.publicKey || '\u2014';
-        }, 1000);
+        // Save config first
+        await saveConnectionConfig();
+
+        // Call login API
+        const result = await api.login({ username, password, agentId });
+
+        if (result.success) {
+          showStatus('登录成功', false);
+          document.getElementById('password').value = ''; // Clear password
+          updateLoginStatus();
+
+          // Reconnect with new token
+          setTimeout(() => api.reconnectRelay(), 500);
+        } else {
+          showStatus('登录失败: ' + (result.error || '未知错误'), true);
+        }
       } catch (err) {
-        showStatus((msgs['settings.saveFailed'] || 'Failed to save: ') + err.message, true);
+        showStatus('登录失败: ' + err.message, true);
       }
     });
 
-    document.getElementById('cancelBtn').addEventListener('click', () => {
-      window.close();
+    // Update login status
+    async function updateLoginStatus() {
+      try {
+        const config = await api.getConfig();
+        const statusEl = document.getElementById('loginStatus');
+        const textEl = document.getElementById('loginStatusText');
+
+        if (config.token) {
+          statusEl.className = 'connection-status connected';
+          textEl.textContent = '已登录';
+        } else {
+          statusEl.className = 'connection-status disconnected';
+          textEl.textContent = '未登录';
+        }
+      } catch (err) {
+        console.error('Failed to update login status:', err);
+      }
+    }
+
+    // Language
+    document.getElementById('langSelect').addEventListener('change', async (e) => {
+      await api.setLang(e.target.value);
+      msgs = await api.getI18nMessages();
+      applyI18n();
+      flashSaved();
+    });
+
+    // Launch toggles
+    document.getElementById('autoStartToggle').addEventListener('change', async (e) => {
+      await api.setAppSettings({ autoStart: e.target.checked });
+      flashSaved();
+    });
+    document.getElementById('silentLaunchToggle').addEventListener('change', async (e) => {
+      await api.setAppSettings({ silentLaunch: e.target.checked });
+      flashSaved();
+    });
+
+    // E2E toggle
+    document.getElementById('e2eToggle').addEventListener('change', async (e) => {
+      await api.setE2EEnabled(e.target.checked);
+      flashSaved();
+      setTimeout(async () => {
+        const e2e = await api.getE2EStatus();
+        document.getElementById('pubkey').textContent = e2e.publicKey || '\u2014';
+      }, 500);
+    });
+
+    // Reconnect
+    document.getElementById('reconnectBtn').addEventListener('click', async () => {
+      try {
+        await saveConnectionConfig();
+        await api.reconnectRelay();
+        showStatus(msgs['settings.saved'] || 'Reconnecting...', false);
+        setTimeout(async () => {
+          const e2e = await api.getE2EStatus();
+          document.getElementById('pubkey').textContent = e2e.publicKey || '\u2014';
+          updateLoginStatus();
+        }, 1000);
+      } catch (err) {
+        showStatus((msgs['settings.saveFailed'] || 'Failed: ') + err.message, true);
+      }
     });
 
     function showStatus(msg, isError) {
@@ -202,7 +888,134 @@
       setTimeout(() => { el.style.display = 'none'; }, 3000);
     }
 
+    // 连接状态更新
+    async function updateConnectionStatus() {
+      try {
+        const status = await api.getConnectionStatus();
+        const statusEl = document.getElementById('connectionStatus');
+        const textEl = document.getElementById('statusText');
+
+        statusEl.className = 'connection-status ' + status.state;
+
+        const statusTexts = {
+          connected: msgs['settings.status.connected'] || '已连接',
+          connecting: msgs['settings.status.connecting'] || '连接中',
+          disconnected: msgs['settings.status.disconnected'] || '未连接'
+        };
+
+        textEl.textContent = statusTexts[status.state] || statusTexts.disconnected;
+      } catch (err) {
+        console.error('Failed to get connection status:', err);
+      }
+    }
+
+    // 项目列表加载
+    async function loadProjects() {
+      try {
+        const projects = await api.getProjects();
+        const listEl = document.getElementById('projectList');
+
+        if (!projects || projects.length === 0) {
+          listEl.innerHTML = '';
+          return;
+        }
+
+        listEl.innerHTML = projects.map(p => `
+          <div class="project-item">
+            <div class="project-info">
+              <div class="project-name">${escapeHtml(p.name)}</div>
+              <div class="project-path">${escapeHtml(p.path)}</div>
+            </div>
+            <div class="project-actions">
+              <button class="btn-secondary btn-small" onclick="openProject('${p.id}')">打开</button>
+              <button class="btn-danger btn-small" onclick="deleteProject('${p.id}')">删除</button>
+            </div>
+          </div>
+        `).join('');
+      } catch (err) {
+        console.error('Failed to load projects:', err);
+      }
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    async function openProject(projectId) {
+      try {
+        await api.openProject(projectId);
+      } catch (err) {
+        showStatus('打开项目失败: ' + err.message, true);
+      }
+    }
+
+    async function deleteProject(projectId) {
+      if (!confirm('确定要删除这个项目吗？')) return;
+
+      try {
+        await api.deleteProject(projectId);
+        await loadProjects();
+        flashSaved();
+      } catch (err) {
+        showStatus('删除项目失败: ' + err.message, true);
+      }
+    }
+
+    // 添加项目表单
+    document.getElementById('addProjectBtn').addEventListener('click', () => {
+      document.getElementById('addProjectForm').classList.add('visible');
+      document.getElementById('projectName').focus();
+    });
+
+    document.getElementById('cancelProjectBtn').addEventListener('click', () => {
+      document.getElementById('addProjectForm').classList.remove('visible');
+      document.getElementById('projectName').value = '';
+      document.getElementById('projectPath').value = '';
+    });
+
+    document.getElementById('saveProjectBtn').addEventListener('click', async () => {
+      const name = document.getElementById('projectName').value.trim();
+      const path = document.getElementById('projectPath').value.trim();
+
+      if (!name || !path) {
+        showStatus('请填写项目名称和路径', true);
+        return;
+      }
+
+      try {
+        await api.addProject({ name, path });
+        document.getElementById('addProjectForm').classList.remove('visible');
+        document.getElementById('projectName').value = '';
+        document.getElementById('projectPath').value = '';
+        await loadProjects();
+        flashSaved();
+      } catch (err) {
+        showStatus('添加项目失败: ' + err.message, true);
+      }
+    });
+
+    // 初始化
     loadSettings();
+    loadProjects();
+    updateConnectionStatus();
+
+    // 定期更新连接状态
+    setInterval(updateConnectionStatus, 3000);
+
+    // 窗口控制按钮
+    document.getElementById('minimizeBtn').addEventListener('click', () => {
+      api.minimizeWindow();
+    });
+
+    document.getElementById('maximizeBtn').addEventListener('click', () => {
+      api.maximizeWindow();
+    });
+
+    document.getElementById('closeBtn').addEventListener('click', () => {
+      api.closeWindow();
+    });
   </script>
 </body>
 </html>

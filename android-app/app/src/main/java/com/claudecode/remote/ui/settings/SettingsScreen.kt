@@ -13,17 +13,21 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import com.claudecode.remote.R
+import com.claudecode.remote.util.CrashLogger
 
 data class SettingsState(
     val serverUrl: String = "",
     val deviceId: String = "",
     val token: String = "",
+    val username: String = "",
     val e2eEnabled: Boolean = false,
     val e2ePublicKey: String = "",
     val language: String = "en",
     val isSaving: Boolean = false,
-    val message: String? = null
+    val message: String? = null,
+    val isLoggedIn: Boolean = false
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -31,16 +35,20 @@ data class SettingsState(
 fun SettingsScreen(
     initialState: SettingsState,
     onSave: (serverUrl: String, deviceId: String, token: String, e2eEnabled: Boolean) -> Unit,
+    onLogin: (serverUrl: String, username: String, password: String, deviceId: String) -> Unit,
     onLanguageChange: (String) -> Unit,
     onNavigateBack: () -> Unit
 ) {
     var serverUrl by remember { mutableStateOf(initialState.serverUrl) }
     var deviceId by remember { mutableStateOf(initialState.deviceId) }
+    var username by remember { mutableStateOf(initialState.username) }
+    var password by remember { mutableStateOf("") }
     var token by remember { mutableStateOf(initialState.token) }
     var e2eEnabled by remember { mutableStateOf(initialState.e2eEnabled) }
     var selectedLang by remember { mutableStateOf(initialState.language) }
     var langExpanded by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
+    var isLoggedIn by remember { mutableStateOf(initialState.isLoggedIn) }
 
     Scaffold(
         topBar = {
@@ -76,8 +84,27 @@ fun SettingsScreen(
                 value = serverUrl,
                 onValueChange = { serverUrl = it },
                 label = { Text(stringResource(R.string.relay_server_url)) },
-                placeholder = { Text(stringResource(R.string.relay_server_url_placeholder)) },
+                placeholder = { Text("http://localhost:8080") },
                 singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            OutlinedTextField(
+                value = username,
+                onValueChange = { username = it },
+                label = { Text("用户名") },
+                placeholder = { Text("输入用户名") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            OutlinedTextField(
+                value = password,
+                onValueChange = { password = it },
+                label = { Text("密码") },
+                placeholder = { Text("输入密码") },
+                singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
                 modifier = Modifier.fillMaxWidth()
             )
 
@@ -90,15 +117,37 @@ fun SettingsScreen(
                 modifier = Modifier.fillMaxWidth()
             )
 
-            OutlinedTextField(
-                value = token,
-                onValueChange = { token = it },
-                label = { Text(stringResource(R.string.auth_token)) },
-                placeholder = { Text(stringResource(R.string.auth_token_placeholder)) },
-                singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
-                modifier = Modifier.fillMaxWidth()
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Button(
+                    onClick = {
+                        if (serverUrl.isNotBlank() && username.isNotBlank() && password.isNotBlank() && deviceId.isNotBlank()) {
+                            onLogin(serverUrl, username, password, deviceId)
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                    enabled = serverUrl.isNotBlank() && username.isNotBlank() && password.isNotBlank() && deviceId.isNotBlank()
+                ) {
+                    Text("登录")
+                }
+            }
+
+            if (isLoggedIn) {
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    shape = MaterialTheme.shapes.small,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "✓ 已登录",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.padding(12.dp)
+                    )
+                }
+            }
 
             HorizontalDivider()
 
@@ -186,6 +235,34 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(8.dp))
 
+            HorizontalDivider()
+
+            // Debug Section
+            Text(
+                text = "调试工具",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary
+            )
+
+            var showLogDialog by remember { mutableStateOf(false) }
+
+            Button(
+                onClick = { showLogDialog = true },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                )
+            ) {
+                Text("查看崩溃日志")
+            }
+
+            if (showLogDialog) {
+                CrashLogDialog(onDismiss = { showLogDialog = false })
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
             Button(
                 onClick = {
                     onSave(serverUrl.trim(), deviceId.trim(), token.trim(), e2eEnabled)
@@ -203,6 +280,84 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.primary
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CrashLogDialog(onDismiss: () -> Unit) {
+    val logContent = remember { CrashLogger.getLogContent() }
+    val logPath = remember { CrashLogger.getLogFilePath() }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = MaterialTheme.shapes.large,
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 6.dp,
+            modifier = Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.8f)
+        ) {
+            Column(
+                modifier = Modifier
+                    .padding(16.dp)
+                    .fillMaxSize()
+            ) {
+                Text(
+                    text = "崩溃日志",
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+
+                Text(
+                    text = "日志位置: $logPath",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 16.dp)
+                )
+
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    shape = MaterialTheme.shapes.small,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                ) {
+                    val scrollState = rememberScrollState()
+                    Text(
+                        text = logContent,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontFamily = FontFamily.Monospace,
+                        modifier = Modifier
+                            .padding(12.dp)
+                            .verticalScroll(scrollState)
+                    )
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            CrashLogger.clearLog()
+                            onDismiss()
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("清除日志")
+                    }
+
+                    Button(
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("关闭")
+                    }
+                }
             }
         }
     }

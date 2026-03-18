@@ -3,6 +3,7 @@ import { EventEmitter } from "events";
 
 const ALGORITHM = "aes-256-gcm";
 const NONCE_LENGTH = 12;
+const CURVE = "prime256v1"; // Also known as secp256r1 or P-256, widely supported
 
 export interface EncryptedPayload {
   encrypted: true;
@@ -11,7 +12,7 @@ export interface EncryptedPayload {
 }
 
 class E2ECrypto extends EventEmitter {
-  private ecdh = createECDH("x25519");
+  private ecdh = createECDH(CURVE);
   private sharedSecrets: Map<string, Buffer> = new Map(); // deviceId -> sharedSecret
   private publicKey: string; // base64
 

@@ -1,10 +1,12 @@
 package com.claudecode.remote.ui.chat
 
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.claudecode.remote.data.model.Message
 import com.claudecode.remote.data.remote.RelayWebSocket
 import com.claudecode.remote.domain.MessageRepository
+import com.claudecode.remote.util.CrashLogger
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -46,14 +48,44 @@ class ChatViewModel(
     }
 
     fun loadProject(projectId: String, projectName: String) {
+        CrashLogger.logInfo("ChatViewModel", "loadProject called: projectId=$projectId, projectName=$projectName")
+
+        if (projectId.isEmpty()) {
+            CrashLogger.logError("ChatViewModel", "loadProject called with empty projectId")
+            return
+        }
+
         _uiState.update { it.copy(projectId = projectId, projectName = projectName) }
+
         viewModelScope.launch {
-            messageRepository.getMessagesForProject(projectId).collect { messages ->
-                _uiState.update { it.copy(messages = messages) }
+            try {
+                CrashLogger.logInfo("ChatViewModel", "Starting to collect messages for project: $projectId")
+                messageRepository.getMessagesForProject(projectId).collect { messages ->
+                    CrashLogger.logInfo("ChatViewModel", "Received ${messages.size} messages")
+                    _uiState.update { it.copy(messages = messages) }
+                }
+            } catch (e: Exception) {
+                CrashLogger.logError("ChatViewModel", "Error collecting messages", e)
+                e.printStackTrace()
             }
         }
+
+        // Don't reconnect if already connected
         viewModelScope.launch {
-            webSocket.connect()
+            try {
+                val currentState = webSocket.connectionState.value
+                CrashLogger.logInfo("ChatViewModel", "Current connection state: $currentState")
+
+                if (currentState != RelayWebSocket.ConnectionState.CONNECTED) {
+                    CrashLogger.logInfo("ChatViewModel", "Attempting to connect WebSocket")
+                    webSocket.connect()
+                } else {
+                    CrashLogger.logInfo("ChatViewModel", "WebSocket already connected, skipping reconnect")
+                }
+            } catch (e: Exception) {
+                CrashLogger.logError("ChatViewModel", "Error connecting WebSocket", e)
+                e.printStackTrace()
+            }
         }
     }
 
@@ -69,7 +101,27 @@ class ChatViewModel(
         _uiState.update { it.copy(inputText = "", isSending = true) }
         viewModelScope.launch {
             try {
+                CrashLogger.logInfo("ChatViewModel", "Sending message: projectId=${state.projectId}, content length=${content.length}")
                 messageRepository.sendMessage(state.projectId, content)
+            } catch (e: Exception) {
+                CrashLogger.logError("ChatViewModel", "Error sending message", e)
+            } finally {
+                _uiState.update { it.copy(isSending = false) }
+            }
+        }
+    }
+
+    fun sendFile(fileUri: Uri) {
+        val state = _uiState.value
+        if (state.isSending) return
+
+        _uiState.update { it.copy(isSending = true) }
+        viewModelScope.launch {
+            try {
+                CrashLogger.logInfo("ChatViewModel", "Sending file: projectId=${state.projectId}, uri=$fileUri")
+                messageRepository.sendFile(state.projectId, fileUri)
+            } catch (e: Exception) {
+                CrashLogger.logError("ChatViewModel", "Error sending file", e)
             } finally {
                 _uiState.update { it.copy(isSending = false) }
             }
@@ -82,6 +134,7 @@ class ChatViewModel(
 
     override fun onCleared() {
         super.onCleared()
-        webSocket.disconnect()
+        // Don't disconnect WebSocket when leaving chat screen
+        // It should stay connected for the session list
     }
 }

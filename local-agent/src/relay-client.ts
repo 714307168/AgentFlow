@@ -38,6 +38,10 @@ class RelayClient extends EventEmitter {
     this.e2eEnabled = enabled;
   }
 
+  isConnected(): boolean {
+    return this.ws !== null && this.ws.readyState === WebSocket.OPEN;
+  }
+
   connect(): void {
     this.intentionalDisconnect = false;
     this.ws = new WebSocket(this.serverUrl);

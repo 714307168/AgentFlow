@@ -1,4 +1,7 @@
 import { v4 as uuidv4 } from "uuid";
+import * as fs from "fs";
+import * as path from "path";
+import { app } from "electron";
 import RelayClient from "./relay-client";
 import ptyManager from "./pty-manager";
 import projectStore from "./project-store";
@@ -7,6 +10,7 @@ import { Envelope, Events } from "./types";
 class MessageRouter {
   private relayClient: RelayClient;
   private streamSeq: Map<string, number> = new Map();
+  private fileBuffers: Map<string, { fileName: string; chunks: Map<number, Buffer>; totalChunks: number }> = new Map();
 
   constructor(relayClient: RelayClient) {
     this.relayClient = relayClient;
@@ -24,6 +28,15 @@ class MessageRouter {
       case Events.AGENT_WAKEUP:
         this.handleAgentWakeup(env);
         break;
+      case Events.FILE_UPLOAD:
+        this.handleFileUpload(env);
+        break;
+      case Events.FILE_CHUNK:
+        this.handleFileChunk(env);
+        break;
+      case Events.FILE_DONE:
+        this.handleFileDone(env);
+        break;
       case Events.AUTH_OK:
         console.log("[MessageRouter] Auth OK");
         break;
@@ -36,15 +49,17 @@ class MessageRouter {
   }
 
   private handleMessageSend(env: Envelope): void {
+    console.log("[MessageRouter] Received message.send:", JSON.stringify(env));
     const projectId = env.project_id;
-    const streamId = env.stream_id;
+    const streamId = env.stream_id || uuidv4(); // Generate if not provided
 
-    if (!projectId || !streamId) {
-      console.error("[MessageRouter] message.send missing project_id or stream_id");
+    if (!projectId) {
+      console.error("[MessageRouter] message.send missing project_id");
       return;
     }
 
     const project = projectStore.getById(projectId);
+    console.log("[MessageRouter] All projects:", JSON.stringify(projectStore.getAll()));
     if (!project) {
       console.error("[MessageRouter] Unknown project: " + projectId);
       this.relayClient.send({
@@ -114,24 +129,25 @@ class MessageRouter {
   }
 
   private handleProjectBind(env: Envelope): void {
+    console.log("[MessageRouter] Received project.bind:", JSON.stringify(env));
     const payload = env.payload as {
-      id?: string;
+      project_id?: string;
       name?: string;
       path?: string;
       agent_id?: string;
     } | undefined;
 
-    if (!payload?.id || !payload?.name || !payload?.path) {
-      console.error("[MessageRouter] project.bind missing required fields");
+    if (!payload?.project_id || !payload?.name || !payload?.path) {
+      console.error("[MessageRouter] project.bind missing required fields, payload:", JSON.stringify(payload));
       return;
     }
 
-    const existing = projectStore.getById(payload.id);
+    const existing = projectStore.getById(payload.project_id);
     if (existing) {
-      projectStore.update(payload.id, { name: payload.name, path: payload.path });
+      projectStore.update(payload.project_id, { name: payload.name, path: payload.path });
     } else {
       projectStore.add({
-        id: payload.id,
+        id: payload.project_id,
         name: payload.name,
         path: payload.path,
         agentId: payload.agent_id ?? "",
@@ -139,19 +155,121 @@ class MessageRouter {
       });
     }
 
-    console.log("[MessageRouter] Project bound: " + payload.name + " (" + payload.id + ")");
+    console.log("[MessageRouter] Project bound: " + payload.name + " (" + payload.project_id + ")");
 
     this.relayClient.send({
       id: uuidv4(),
       event: Events.PROJECT_BOUND,
-      project_id: payload.id,
+      project_id: payload.project_id,
       ts: Date.now(),
-      payload: { project_id: payload.id },
+      payload: { project_id: payload.project_id },
     });
   }
 
   private handleAgentWakeup(env: Envelope): void {
     console.log("[MessageRouter] Agent wakeup received", env.payload);
+  }
+
+  private handleFileUpload(env: Envelope): void {
+    const payload = env.payload as any;
+    const fileId = env.id;
+    const fileName = payload?.file_name;
+
+    if (!fileId || !fileName) {
+      console.error("[MessageRouter] file.upload missing required fields");
+      return;
+    }
+
+    console.log(`[MessageRouter] File upload started: ${fileName} (${fileId})`);
+    this.fileBuffers.set(fileId, {
+      fileName,
+      chunks: new Map(),
+      totalChunks: 0
+    });
+  }
+
+  private handleFileChunk(env: Envelope): void {
+    const payload = env.payload as any;
+    const fileId = payload?.file_id;
+    const chunkData = payload?.chunk;
+    const seq = payload?.seq || 0;
+
+    if (!fileId || !chunkData) {
+      console.error("[MessageRouter] file.chunk missing required fields");
+      return;
+    }
+
+    const buffer = this.fileBuffers.get(fileId);
+    if (!buffer) {
+      console.error(`[MessageRouter] No buffer found for file ${fileId}`);
+      return;
+    }
+
+    // Decode base64 chunk
+    const chunkBuffer = Buffer.from(chunkData, 'base64');
+    buffer.chunks.set(seq, chunkBuffer);
+    console.log(`[MessageRouter] Received chunk ${seq} for file ${fileId}`);
+  }
+
+  private handleFileDone(env: Envelope): void {
+    const payload = env.payload as any;
+    const fileId = payload?.file_id;
+    const fileName = payload?.file_name;
+
+    if (!fileId) {
+      console.error("[MessageRouter] file.done missing file_id");
+      return;
+    }
+
+    const buffer = this.fileBuffers.get(fileId);
+    if (!buffer) {
+      console.error(`[MessageRouter] No buffer found for file ${fileId}`);
+      return;
+    }
+
+    try {
+      // Assemble chunks in order
+      const sortedChunks = Array.from(buffer.chunks.entries())
+        .sort((a, b) => a[0] - b[0])
+        .map(([_, chunk]) => chunk);
+
+      const completeFile = Buffer.concat(sortedChunks);
+
+      // Save to downloads folder
+      const downloadsPath = app.getPath('downloads');
+      const filePath = path.join(downloadsPath, buffer.fileName);
+      fs.writeFileSync(filePath, completeFile);
+
+      console.log(`[MessageRouter] File saved: ${filePath}`);
+
+      // Send confirmation back
+      this.relayClient.send({
+        id: uuidv4(),
+        event: Events.FILE_DONE,
+        project_id: env.project_id,
+        stream_id: fileId,
+        ts: Date.now(),
+        payload: {
+          file_id: fileId,
+          file_name: buffer.fileName,
+          file_path: filePath
+        }
+      });
+
+      // Clean up
+      this.fileBuffers.delete(fileId);
+    } catch (error) {
+      console.error(`[MessageRouter] Error saving file:`, error);
+      this.relayClient.send({
+        id: uuidv4(),
+        event: Events.FILE_ERROR,
+        project_id: env.project_id,
+        stream_id: fileId,
+        ts: Date.now(),
+        payload: { error: String(error) }
+      });
+      this.fileBuffers.delete(fileId);
+    }
   }
 
   private sendChunk(

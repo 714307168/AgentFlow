@@ -37,8 +37,10 @@ const messages: Record<Lang, Record<string, string>> = {
     "settings.silentLaunch": "Silent Launch (minimize to tray)",
     "settings.save": "Save & Reconnect",
     "settings.cancel": "Cancel",
-    "settings.saved": "Settings saved. Reconnecting...",
-    "settings.saveFailed": "Failed to save: ",
+    "settings.reconnect": "Reconnect",
+    "settings.saved.short": "Saved",
+    "settings.saved": "Reconnecting...",
+    "settings.saveFailed": "Failed: ",
   },
   zh: {
     "app.name": "Claude Code 代理",
@@ -65,8 +67,10 @@ const messages: Record<Lang, Record<string, string>> = {
     "settings.silentLaunch": "静默启动（最小化到托盘）",
     "settings.save": "保存并重连",
     "settings.cancel": "取消",
-    "settings.saved": "设置已保存，正在重连...",
-    "settings.saveFailed": "保存失败：",
+    "settings.reconnect": "重新连接",
+    "settings.saved.short": "已保存",
+    "settings.saved": "正在重连...",
+    "settings.saveFailed": "失败：",
   },
 };
 

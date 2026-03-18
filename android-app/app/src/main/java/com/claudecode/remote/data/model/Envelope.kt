@@ -29,6 +29,10 @@ object Events {
     const val AGENT_STATUS = "agent.status"
     const val E2E_OFFER = "e2e.offer"
     const val E2E_ANSWER = "e2e.answer"
+    const val FILE_UPLOAD = "file.upload"
+    const val FILE_CHUNK = "file.chunk"
+    const val FILE_DONE = "file.done"
+    const val FILE_ERROR = "file.error"
     const val PING = "ping"
     const val PONG = "pong"
 }

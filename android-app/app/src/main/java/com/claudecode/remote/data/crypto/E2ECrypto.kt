@@ -3,6 +3,7 @@ package com.claudecode.remote.data.crypto
 import android.util.Base64
 import java.security.KeyFactory
 import java.security.KeyPairGenerator
+import java.security.spec.ECGenParameterSpec
 import java.security.spec.X509EncodedKeySpec
 import javax.crypto.Cipher
 import javax.crypto.KeyAgreement
@@ -31,10 +32,10 @@ class E2ECrypto {
 
     fun deriveSharedSecret(peerId: String, peerPublicKeyBase64: String) {
         val peerKeyBytes = Base64.decode(peerPublicKeyBase64, Base64.NO_WRAP)
-        val keyFactory = KeyFactory.getInstance("XDH")
+        val keyFactory = KeyFactory.getInstance("EC")
         val peerPublicKey = keyFactory.generatePublic(X509EncodedKeySpec(peerKeyBytes))
 
-        val keyAgreement = KeyAgreement.getInstance("XDH")
+        val keyAgreement = KeyAgreement.getInstance("ECDH")
         keyAgreement.init(keyPair.private)
         keyAgreement.doPhase(peerPublicKey, true)
 
@@ -83,7 +84,8 @@ class E2ECrypto {
     }
 
     private fun generateKeyPair(): KeyPair {
-        val kpg = KeyPairGenerator.getInstance("XDH")
+        val kpg = KeyPairGenerator.getInstance("EC")
+        kpg.initialize(ECGenParameterSpec("secp256r1"))
         return kpg.generateKeyPair()
     }
 

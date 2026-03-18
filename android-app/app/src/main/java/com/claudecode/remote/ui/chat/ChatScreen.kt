@@ -11,9 +11,14 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -26,6 +31,7 @@ import androidx.compose.ui.res.stringResource
 import com.claudecode.remote.R
 import com.claudecode.remote.data.model.Message
 import com.claudecode.remote.data.model.MessageRole
+import com.claudecode.remote.data.model.MessageType
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -40,8 +46,16 @@ fun ChatScreen(
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
 
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let { viewModel.sendFile(it) }
+    }
+
     LaunchedEffect(projectId) {
-        viewModel.loadProject(projectId, projectName)
+        if (projectId.isNotEmpty()) {
+            viewModel.loadProject(projectId, projectName)
+        }
     }
 
     // Auto-scroll to bottom when new messages arrive
@@ -83,6 +97,7 @@ fun ChatScreen(
                 text = uiState.inputText,
                 onTextChange = { viewModel.updateInput(it) },
                 onSend = { viewModel.sendMessage() },
+                onAttachFile = { filePickerLauncher.launch("*/*") },
                 enabled = uiState.isConnected && !uiState.isSending
             )
         }
@@ -138,20 +153,51 @@ private fun MessageBubble(message: Message) {
             color = bubbleColor,
             modifier = Modifier.widthIn(max = 300.dp)
         ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.Bottom
-            ) {
-                Text(
-                    text = message.content,
-                    color = textColor,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontFamily = if (!isUser) FontFamily.Monospace else FontFamily.Default,
-                    modifier = Modifier.weight(1f, fill = false)
-                )
-                if (message.isStreaming) {
-                    Spacer(modifier = Modifier.width(4.dp))
-                    BlinkingCursor(color = textColor)
+            if (message.type == MessageType.FILE) {
+                // File message
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.InsertDriveFile,
+                        contentDescription = "File",
+                        tint = textColor,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column(modifier = Modifier.weight(1f, fill = false)) {
+                        Text(
+                            text = message.content,
+                            color = textColor,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        message.fileInfo?.let { fileInfo ->
+                            Text(
+                                text = "${fileInfo.fileSize / 1024} KB",
+                                color = textColor.copy(alpha = 0.7f),
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                    }
+                }
+            } else {
+                // Text message
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.Bottom
+                ) {
+                    Text(
+                        text = message.content,
+                        color = textColor,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontFamily = if (!isUser) FontFamily.Monospace else FontFamily.Default,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    if (message.isStreaming) {
+                        Spacer(modifier = Modifier.width(4.dp))
+                        BlinkingCursor(color = textColor)
+                    }
                 }
             }
         }
@@ -183,6 +229,7 @@ private fun InputBar(
     text: String,
     onTextChange: (String) -> Unit,
     onSend: () -> Unit,
+    onAttachFile: () -> Unit,
     enabled: Boolean
 ) {
     Surface(
@@ -196,6 +243,13 @@ private fun InputBar(
                 .imePadding(),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            IconButton(
+                onClick = onAttachFile,
+                enabled = enabled
+            ) {
+                Icon(Icons.Default.AttachFile, contentDescription = "Attach file")
+            }
+            Spacer(modifier = Modifier.width(4.dp))
             OutlinedTextField(
                 value = text,
                 onValueChange = onTextChange,

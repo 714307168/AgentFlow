@@ -1,7 +1,16 @@
 ﻿* {
-  box-sizing: border-box;
   margin: 0;
   padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  --bg: #0d1117;
+  --surface: #161b22;
+  --border: #30363d;
+  --text: #c9d1d9;
+  --text-muted: #8b949e;
+  --accent: #58a6ff;
 }
 
 html,
@@ -9,19 +18,60 @@ body {
   width: 100vw;
   height: 100vh;
   overflow: hidden;
-  background-color: #1e1e1e;
+  background: var(--bg);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
 }
 
 #terminal {
   width: 100vw;
   height: 100vh;
+  padding: 16px;
   overflow: hidden;
 }
 
+/* XTerm.js 样式优化 */
 .xterm {
   height: 100%;
+  padding: 12px;
+  background: var(--surface) !important;
+  border-radius: 8px;
+  border: 1px solid var(--border);
 }
 
 .xterm-viewport {
+  background: transparent !important;
   overflow-y: auto;
+}
+
+.xterm-screen {
+  background: transparent !important;
+}
+
+/* 滚动条样式 */
+.xterm .xterm-viewport::-webkit-scrollbar {
+  width: 10px;
+}
+
+.xterm .xterm-viewport::-webkit-scrollbar-track {
+  background: var(--bg);
+  border-radius: 5px;
+}
+
+.xterm .xterm-viewport::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 5px;
+}
+
+.xterm .xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* 光标样式 */
+.xterm-cursor-layer .xterm-cursor {
+  background: var(--accent) !important;
+}
+
+/* 选中文本样式 */
+.xterm-selection div {
+  background: rgba(88, 166, 255, 0.3) !important;
 }
