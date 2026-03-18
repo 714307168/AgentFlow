@@ -75,16 +75,19 @@ class RelayClient extends EventEmitter {
     console.log("[RelayClient] Connected to relay server");
     this.resetBackoff();
     const event = this.lastSeq > 0 ? Events.AUTH_RESUME : Events.AUTH_LOGIN;
+    const payload: Record<string, unknown> = {
+      agent_id: this.agentId,
+      token: this.token,
+      type: "agent",
+    };
+    if (event === Events.AUTH_RESUME) {
+      payload.last_seq = this.lastSeq;
+    }
     const env: Envelope = {
       id: uuidv4(),
       event,
       ts: Date.now(),
-      payload: {
-        agent_id: this.agentId,
-        token: this.token,
-        last_seq: this.lastSeq,
-        client_type: "agent",
-      },
+      payload,
     };
     this.send(env);
     this.emit("connected");

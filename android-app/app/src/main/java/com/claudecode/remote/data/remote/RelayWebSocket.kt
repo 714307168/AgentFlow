@@ -154,9 +154,14 @@ class RelayWebSocket(
 
     private fun authenticate() {
         val token = tokenStore.getToken()
+        val deviceId = tokenStore.getDeviceId()
         val event = if (lastSeq > 0) Events.AUTH_RESUME else Events.AUTH_LOGIN
         val payload = buildJsonObject {
             put("token", JsonPrimitive(token ?: ""))
+            put("type", JsonPrimitive("device"))
+            if (!deviceId.isNullOrBlank()) {
+                put("device_id", JsonPrimitive(deviceId))
+            }
             if (lastSeq > 0) put("last_seq", JsonPrimitive(lastSeq))
         }
         send(

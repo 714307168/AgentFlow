@@ -97,6 +97,7 @@ func WSHandler(h *hub.Hub, cfg *config.Config) http.HandlerFunc {
 		switch claims.Type {
 		case model.ClientTypeAgent:
 			h.RegisterAgent(client)
+			client.ProjectIDs = h.GetProjectIDsByAgent(client.AgentID)
 		case model.ClientTypeDevice:
 			h.RegisterDevice(client)
 		default:
@@ -123,6 +124,9 @@ func WSHandler(h *hub.Hub, cfg *config.Config) http.HandlerFunc {
 
 		// For auth.resume on an agent, drain queued messages for its projects.
 		if env.Event == model.EventAuthResume && client.Type == model.ClientTypeAgent {
+			if len(client.ProjectIDs) == 0 {
+				client.ProjectIDs = h.GetProjectIDsByAgent(client.AgentID)
+			}
 			for _, projectID := range client.ProjectIDs {
 				q := h.GetOrCreateQueue(projectID)
 				for _, queued := range q.DrainFrom(lastSeq) {

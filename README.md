@@ -130,3 +130,7 @@ E2E 加密启用后，payload 变为：
 ## 许可证
 
 MIT
+
+## Latest Validation (2026-03-18)
+- See detailed fixes and full regression results:
+  - [VALIDATION-REPORT-2026-03-18.md](./VALIDATION-REPORT-2026-03-18.md)

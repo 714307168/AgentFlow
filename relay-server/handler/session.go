@@ -60,7 +60,14 @@ func SessionHandler(cfg *config.Config, st *store.Store) http.HandlerFunc {
 			ttl = 30 * 24 * time.Hour
 		}
 
-		token, err := auth.SignToken(cfg.JWTSecret, req.AgentID, req.DeviceID, req.Type, ttl)
+		agentID := req.AgentID
+		if req.Type == model.ClientTypeDevice {
+			if boundAgentID, ok := st.GetDeviceAgentID(req.DeviceID); ok {
+				agentID = boundAgentID
+			}
+		}
+
+		token, err := auth.SignToken(cfg.JWTSecret, agentID, req.DeviceID, req.Type, ttl)
 		if err != nil {
 			http.Error(w, "failed to sign token", http.StatusInternalServerError)
 			return

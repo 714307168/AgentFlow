@@ -52,16 +52,17 @@ func ProjectBindHandler(h *hub.Hub, cfg *config.Config) http.HandlerFunc {
 
 		// Forward project.bind to agent via WebSocket
 		payloadData := map[string]interface{}{
-			"id":       req.ProjectID,
-			"name":     req.Name,
-			"path":     req.Path,
-			"agent_id": req.AgentID,
+			"project_id": req.ProjectID,
+			"id":         req.ProjectID, // backward compatibility for older agents
+			"name":       req.Name,
+			"path":       req.Path,
+			"agent_id":   req.AgentID,
 		}
 		payloadBytes, _ := json.Marshal(payloadData)
 
 		envelope := &model.Envelope{
 			ID:        uuid.New().String(),
-			Event:     "project.bind",
+			Event:     model.EventProjectBind,
 			ProjectID: req.ProjectID,
 			Timestamp: time.Now().UnixMilli(),
 			Payload:   payloadBytes,

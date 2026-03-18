@@ -118,7 +118,17 @@ func LoginHandler(database *db.DB, cfg *config.Config) http.HandlerFunc {
 			ttl = 24 * time.Hour // 24 hours for devices
 		}
 
-		token, err := auth.GenerateToken(cfg.JWTSecret, clientType, req.ClientID, req.ClientID, ttl)
+		agentIDForToken := req.ClientID
+		if clientType == model.ClientTypeDevice {
+			agentIDForToken, err = database.GetDeviceAgentID(req.ClientID)
+			if err != nil {
+				log.Error().Err(err).Str("device_id", req.ClientID).Msg("Failed to get device binding")
+				http.Error(w, "internal server error", http.StatusInternalServerError)
+				return
+			}
+		}
+
+		token, err := auth.SignToken(cfg.JWTSecret, agentIDForToken, req.ClientID, clientType, ttl)
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to generate token")
 			http.Error(w, "internal server error", http.StatusInternalServerError)

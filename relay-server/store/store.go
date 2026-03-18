@@ -1,6 +1,7 @@
 package store
 
 import (
+	"database/sql"
 	"errors"
 	"time"
 
@@ -32,7 +33,23 @@ func NewStore(database *db.DB) *Store {
 // New code should use db.RegisterAgent/RegisterDevice directly with userID
 
 func (s *Store) RegisterAgent(id, note string) error {
-	return errors.New("deprecated: use authentication API to register agents")
+	if id == "" {
+		return errors.New("agent id is required")
+	}
+
+	userID, err := s.resolveAdminUserID()
+	if err != nil {
+		return err
+	}
+
+	_, err = s.db.Exec(
+		"INSERT INTO agents (id, user_id, note) VALUES (?, ?, ?)",
+		id, userID, note,
+	)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *Store) DeleteAgent(id string) error {
@@ -44,7 +61,28 @@ func (s *Store) DeleteAgent(id string) error {
 }
 
 func (s *Store) RegisterDevice(id, agentID, note string) error {
-	return errors.New("deprecated: use authentication API to register devices")
+	if id == "" {
+		return errors.New("device id is required")
+	}
+
+	userID, err := s.resolveAdminUserID()
+	if err != nil {
+		return err
+	}
+
+	var agentIDNull sql.NullString
+	if agentID != "" {
+		agentIDNull = sql.NullString{String: agentID, Valid: true}
+	}
+
+	_, err = s.db.Exec(
+		"INSERT INTO devices (id, user_id, agent_id, note) VALUES (?, ?, ?, ?)",
+		id, userID, agentIDNull, note,
+	)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *Store) DeleteDevice(id string) error {
@@ -125,4 +163,13 @@ func (s *Store) UpdateDeviceAgent(deviceID, agentID string) error {
 		return errors.New("device not found")
 	}
 	return nil
+}
+
+func (s *Store) resolveAdminUserID() (int, error) {
+	var userID int
+	err := s.db.QueryRow("SELECT id FROM users ORDER BY id ASC LIMIT 1").Scan(&userID)
+	if err != nil {
+		return 0, errors.New("no users available")
+	}
+	return userID, nil
 }

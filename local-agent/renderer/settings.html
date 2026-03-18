@@ -731,8 +731,10 @@
       document.getElementById('serverUrlLabel').textContent = msgs['settings.relayServerUrl'] || 'Relay Server URL';
       document.getElementById('agentIdLabel').textContent = msgs['settings.agentId'] || 'Agent ID';
       document.getElementById('agentId').placeholder = msgs['settings.agentIdPlaceholder'] || 'Enter your agent ID';
-      document.getElementById('tokenLabel').textContent = msgs['settings.token'] || 'Authentication Token';
-      document.getElementById('token').placeholder = msgs['settings.tokenPlaceholder'] || 'JWT token';
+      const tokenLabel = document.getElementById('tokenLabel');
+      if (tokenLabel) tokenLabel.textContent = msgs['settings.token'] || 'Authentication Token';
+      const tokenInput = document.getElementById('token');
+      if (tokenInput) tokenInput.placeholder = msgs['settings.tokenPlaceholder'] || 'JWT token';
       document.getElementById('e2eSection').textContent = msgs['settings.e2e'] || 'End-to-End Encryption';
       document.getElementById('e2eLabel').textContent = msgs['settings.e2eEnable'] || 'Enable E2E Encryption';
       document.getElementById('pubkeyLabel').textContent = msgs['settings.publicKey'] || 'Public Key';

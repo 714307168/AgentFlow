@@ -234,3 +234,19 @@ func (db *DB) GetUserDevices(userID int) ([]map[string]string, error) {
 
 	return devices, nil
 }
+
+// GetDeviceAgentID returns the bound agent ID for a device.
+func (db *DB) GetDeviceAgentID(deviceID string) (string, error) {
+	var agentID sql.NullString
+	err := db.QueryRow("SELECT agent_id FROM devices WHERE id = ?", deviceID).Scan(&agentID)
+	if err == sql.ErrNoRows {
+		return "", fmt.Errorf("device not found")
+	}
+	if err != nil {
+		return "", fmt.Errorf("failed to get device agent id: %w", err)
+	}
+	if !agentID.Valid {
+		return "", nil
+	}
+	return agentID.String, nil
+}

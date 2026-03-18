@@ -132,22 +132,24 @@ class MessageRouter {
     console.log("[MessageRouter] Received project.bind:", JSON.stringify(env));
     const payload = env.payload as {
       project_id?: string;
+      id?: string;
       name?: string;
       path?: string;
       agent_id?: string;
     } | undefined;
+    const projectId = payload?.project_id ?? payload?.id;
 
-    if (!payload?.project_id || !payload?.name || !payload?.path) {
+    if (!projectId || !payload?.name || !payload?.path) {
       console.error("[MessageRouter] project.bind missing required fields, payload:", JSON.stringify(payload));
       return;
     }
 
-    const existing = projectStore.getById(payload.project_id);
+    const existing = projectStore.getById(projectId);
     if (existing) {
-      projectStore.update(payload.project_id, { name: payload.name, path: payload.path });
+      projectStore.update(projectId, { name: payload.name, path: payload.path });
     } else {
       projectStore.add({
-        id: payload.project_id,
+        id: projectId,
         name: payload.name,
         path: payload.path,
         agentId: payload.agent_id ?? "",
@@ -155,14 +157,14 @@ class MessageRouter {
       });
     }
 
-    console.log("[MessageRouter] Project bound: " + payload.name + " (" + payload.project_id + ")");
+    console.log("[MessageRouter] Project bound: " + payload.name + " (" + projectId + ")");
 
     this.relayClient.send({
       id: uuidv4(),
       event: Events.PROJECT_BOUND,
-      project_id: payload.project_id,
+      project_id: projectId,
       ts: Date.now(),
-      payload: { project_id: payload.project_id },
+      payload: { project_id: projectId },
     });
   }
 

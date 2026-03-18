@@ -60,7 +60,7 @@ func (h *Hub) RegisterDevice(client *Client) {
 
 // Unregister removes a client from all maps and notifies peers.
 func (h *Hub) Unregister(client *Client) {
-	close(client.send)
+	client.Close()
 
 	switch client.Type {
 	case model.ClientTypeAgent:
@@ -108,6 +108,10 @@ func (h *Hub) HandleMessage(from *Client, env *model.Envelope) {
 			log.Warn().Str("project_id", env.ProjectID).Msg("no agent for project")
 			h.sendError(from, env.ID, "no_agent", "no agent registered for project")
 			return
+		}
+		// Track the resolved agent on the device connection so response broadcasts reach it.
+		if from.Type == model.ClientTypeDevice {
+			from.AgentID = agentID
 		}
 		h.Route(env, agentID)
 
@@ -300,4 +304,16 @@ func (h *Hub) GetAgentProjects(agentID string) []map[string]string {
 		return true
 	})
 	return projects
+}
+
+// GetProjectIDsByAgent returns all project IDs currently bound to agentID.
+func (h *Hub) GetProjectIDsByAgent(agentID string) []string {
+	projectIDs := []string{}
+	h.projects.Range(func(k, v interface{}) bool {
+		if v.(string) == agentID {
+			projectIDs = append(projectIDs, k.(string))
+		}
+		return true
+	})
+	return projectIDs
 }

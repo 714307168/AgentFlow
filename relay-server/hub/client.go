@@ -2,6 +2,8 @@ package hub
 
 import (
 	"encoding/json"
+	"errors"
+	"sync"
 	"time"
 
 	"github.com/claudecode/relay-server/model"
@@ -26,14 +28,18 @@ type Client struct {
 	conn *websocket.Conn
 	send chan []byte
 	hub  *Hub
+
+	closed    chan struct{}
+	closeOnce sync.Once
 }
 
 // NewClient creates a Client bound to the given hub and connection.
 func NewClient(hub *Hub, conn *websocket.Conn) *Client {
 	return &Client{
-		conn: conn,
-		send: make(chan []byte, 256),
-		hub:  hub,
+		conn:   conn,
+		send:   make(chan []byte, 256),
+		hub:    hub,
+		closed: make(chan struct{}),
 	}
 }
 
@@ -85,7 +91,7 @@ func (c *Client) WritePump() {
 		case msg, ok := <-c.send:
 			_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if !ok {
-c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
 			if err := c.conn.WriteMessage(websocket.TextMessage, msg); err != nil {
@@ -108,10 +114,27 @@ func (c *Client) Send(env *model.Envelope) error {
 	if err != nil {
 		return err
 	}
+
+	select {
+	case <-c.closed:
+		return errors.New("client closed")
+	default:
+	}
+
 	select {
 	case c.send <- data:
+	case <-c.closed:
+		return errors.New("client closed")
 	default:
 		log.Warn().Str("client_id", c.ID).Msg("send buffer full, dropping message")
 	}
 	return nil
+}
+
+// Close safely closes outbound channels once.
+func (c *Client) Close() {
+	c.closeOnce.Do(func() {
+		close(c.closed)
+		close(c.send)
+	})
 }
