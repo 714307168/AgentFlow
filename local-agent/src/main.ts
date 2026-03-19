@@ -1,10 +1,14 @@
 import { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage } from "electron";
 import * as path from "path";
 import Store from "electron-store";
+import { v4 as uuidv4 } from "uuid";
+import { createAppIcon, createTrayIcon } from "./app-icon";
 import RelayClient from "./relay-client";
 import MessageRouter from "./message-router";
-import projectStore from "./project-store";
+import projectStore, { Project } from "./project-store";
 import ptyManager from "./pty-manager";
+import RuntimeManager, { CliProvider, ProjectSessionSnapshot } from "./runtime-manager";
+import { Events } from "./types";
 import { t, getLang, setLang, getAllMessages, Lang } from "./i18n";
 
 interface AgentConfig {
@@ -12,6 +16,7 @@ interface AgentConfig {
   agentId: string;
   token: string;
   username?: string;
+  cliProvider: CliProvider;
 }
 
 interface AppSettings {
@@ -25,6 +30,7 @@ const configStore = new Store<AgentConfig>({
     agentId: "",
     token: "",
     username: "",
+    cliProvider: "claude",
   },
 });
 
@@ -36,10 +42,198 @@ const appSettingsStore = new Store<AppSettings>({
   },
 });
 
-const projectWindows: Map<string, BrowserWindow> = new Map();
 let tray: Tray | null = null;
 let mainWindow: BrowserWindow | null = null;
+let workspaceWindow: BrowserWindow | null = null;
+let activeWorkspaceProjectId: string | null = null;
 let relayClient: RelayClient | null = null;
+
+function getDefaultCliProvider(): CliProvider {
+  return loadConfig().cliProvider === "codex" ? "codex" : "claude";
+}
+
+function normalizeCliProvider(
+  provider: string | null | undefined,
+  fallback: CliProvider = "claude",
+): CliProvider {
+  if (provider === "claude" || provider === "codex") {
+    return provider;
+  }
+  return fallback;
+}
+
+function getProjectCliProvider(projectId: string): CliProvider {
+  const project = projectStore.getById(projectId);
+  return normalizeCliProvider(project?.cliProvider, getDefaultCliProvider());
+}
+
+function getProjectCliModel(projectId: string): string | null {
+  const project = projectStore.getById(projectId);
+  const model = project?.cliModel?.trim() ?? "";
+  return model || null;
+}
+
+function buildProjectListPayload(agentId: string): {
+  agent_id: string;
+  projects: Array<{
+    id: string;
+    name: string;
+    path: string;
+    cli_provider: CliProvider;
+    cli_model: string;
+  }>;
+} {
+  return {
+    agent_id: agentId,
+    projects: projectStore.getAll().map((project) => ({
+      id: project.id,
+      name: project.name,
+      path: project.path,
+      cli_provider: project.cliProvider,
+      cli_model: project.cliModel ?? "",
+    })),
+  };
+}
+
+const runtimeManager = new RuntimeManager(() => ({
+  getProjectProvider: getProjectCliProvider,
+  getProjectModel: getProjectCliModel,
+  updateProject: (projectId, updates) => {
+    projectStore.update(projectId, updates);
+  },
+  onProjectConfigChanged: (projectId) => {
+    const project = projectStore.getById(projectId);
+    if (project) {
+      syncProjectCatalog(project.agentId || loadConfig().agentId);
+    }
+    rebuildTrayMenu();
+    broadcastProjectsChanged();
+    broadcastProjectSnapshot(projectId);
+    updateWindowTitles();
+  },
+}));
+
+function getSettingsWindowTitle(): string {
+  return t("settings.title");
+}
+
+function getWorkspaceWindowTitle(projectId?: string | null): string {
+  if (!projectId) {
+    return t("app.name");
+  }
+
+  const project = projectStore.getById(projectId);
+  return project ? `${project.name} - ${t("app.name")}` : t("app.name");
+}
+
+function getLangPayload(): { lang: Lang; messages: Record<string, string> } {
+  return {
+    lang: getLang(),
+    messages: getAllMessages(),
+  };
+}
+
+function updateTrayTooltip(): void {
+  if (!tray) {
+    return;
+  }
+
+  const tooltip = relayClient?.isConnected() ? t("tray.connected") : t("tray.disconnected");
+  tray.setToolTip(tooltip);
+}
+
+function updateWindowTitles(): void {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.setTitle(getSettingsWindowTitle());
+  }
+
+  if (workspaceWindow && !workspaceWindow.isDestroyed()) {
+    workspaceWindow.setTitle(getWorkspaceWindowTitle(activeWorkspaceProjectId));
+  }
+}
+
+function broadcastLangChange(): void {
+  const payload = getLangPayload();
+
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("lang-changed", payload);
+  }
+
+  if (workspaceWindow && !workspaceWindow.isDestroyed()) {
+    workspaceWindow.webContents.send("lang-changed", payload);
+  }
+}
+
+runtimeManager.on("snapshot", (projectId: string, snapshot: ProjectSessionSnapshot) => {
+  if (workspaceWindow && !workspaceWindow.isDestroyed()) {
+    workspaceWindow.webContents.send("project-session-snapshot", snapshot);
+  }
+  broadcastSessionSync(snapshot);
+});
+
+function broadcastProjectsChanged(): void {
+  const projects = projectStore.getAll();
+
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("projects-changed", projects);
+  }
+
+  if (workspaceWindow && !workspaceWindow.isDestroyed()) {
+    workspaceWindow.webContents.send("projects-changed", projects);
+  }
+}
+
+function broadcastProjectSnapshot(projectId: string): void {
+  if (workspaceWindow && !workspaceWindow.isDestroyed()) {
+    workspaceWindow.webContents.send("project-session-snapshot", runtimeManager.getSnapshot(projectId));
+  }
+}
+
+function broadcastSessionSync(snapshot: ProjectSessionSnapshot): void {
+  if (!relayClient || !relayClient.isConnected()) {
+    return;
+  }
+
+  // Mobile already receives remote-triggered assistant output as streamed chunks.
+  // Reserve full session sync for desktop-originated activity and final reconciliation.
+  if (snapshot.isRunning && snapshot.currentSource !== "desktop") {
+    return;
+  }
+
+  relayClient.send({
+    id: uuidv4(),
+    event: Events.SESSION_SYNC,
+    project_id: snapshot.projectId,
+    ts: Date.now(),
+    payload: {
+      project_id: snapshot.projectId,
+      provider: snapshot.provider,
+      model: snapshot.model,
+      messages: snapshot.messages,
+    },
+  });
+}
+
+function revealWindow(win: BrowserWindow): void {
+  if (win.isDestroyed()) {
+    return;
+  }
+
+  if (win.isMinimized()) {
+    win.restore();
+  }
+  if (!win.isVisible()) {
+    win.show();
+  }
+
+  win.focus();
+  win.flashFrame(true);
+  setTimeout(() => {
+    if (!win.isDestroyed()) {
+      win.flashFrame(false);
+    }
+  }, 1200);
+}
 
 function loadConfig(): AgentConfig {
   return {
@@ -47,18 +241,17 @@ function loadConfig(): AgentConfig {
     agentId: (process.env.AGENT_ID ?? configStore.get("agentId")) as string,
     token: (process.env.AGENT_TOKEN ?? configStore.get("token")) as string,
     username: configStore.get("username") as string,
+    cliProvider: ((process.env.CLI_PROVIDER ?? configStore.get("cliProvider")) as CliProvider) || "claude",
   };
 }
 
 function createTray(): Tray {
-  const iconPath = path.join(__dirname, "..", "..", "assets", "tray-icon.png");
-  const icon = nativeImage.createFromPath(iconPath);
+  const icon = createTrayIcon();
   const trayInstance = new Tray(icon.isEmpty() ? nativeImage.createEmpty() : icon);
-  trayInstance.setToolTip(t("app.name"));
+  trayInstance.setToolTip(t("tray.disconnected"));
   rebuildTrayMenu(trayInstance);
   trayInstance.on("click", () => {
-    // Click tray icon to show main window
-    showMainWindow();
+    showWorkspaceWindow(activeWorkspaceProjectId ?? projectStore.getAll()[0]?.id);
   });
   return trayInstance;
 }
@@ -69,35 +262,36 @@ function rebuildTrayMenu(trayInstance?: Tray): void {
   const projects = projectStore.getAll();
   const projectItems: Electron.MenuItemConstructorOptions[] = projects.map((p) => ({
     label: p.name,
-    click: () => createProjectWindow(p.id, p.name),
+    click: () => showWorkspaceWindow(p.id),
   }));
 
   const menu = Menu.buildFromTemplate([
-    { label: "Claude Code Remote", enabled: false },
+    { label: t("app.name"), enabled: false },
     { type: "separator" },
     ...(projectItems.length > 0
       ? projectItems
-      : [{ label: "暂无项目", enabled: false } as Electron.MenuItemConstructorOptions]),
+      : [{ label: t("tray.noProjects"), enabled: false } as Electron.MenuItemConstructorOptions]),
     { type: "separator" },
-    { label: "设置", click: () => openSettingsWindow() },
-    { label: "退出", click: () => app.quit() },
+    { label: t("tray.settings"), click: () => openSettingsWindow() },
+    { label: t("tray.quit"), click: () => app.quit() },
   ]);
   tr.setContextMenu(menu);
 }
 
-function showMainWindow(): void {
+function showMainWindow(parentWindow?: BrowserWindow | null): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.show();
-    mainWindow.focus();
+    revealWindow(mainWindow);
     return;
   }
   mainWindow = new BrowserWindow({
     width: 800,
     height: 700,
-    title: t("app.name"),
+    title: getSettingsWindowTitle(),
+    icon: createAppIcon(256),
     frame: false,
     transparent: false,
     backgroundColor: '#0d1117',
+    parent: parentWindow ?? undefined,
     resizable: true,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -106,66 +300,114 @@ function showMainWindow(): void {
     },
   });
   mainWindow.loadFile(path.join(__dirname, "..", "..", "renderer", "settings.html"));
+  mainWindow.webContents.on("did-finish-load", () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("lang-changed", getLangPayload());
+    }
+  });
+  mainWindow.once("ready-to-show", () => {
+    if (mainWindow) {
+      revealWindow(mainWindow);
+    }
+  });
   mainWindow.on("closed", () => {
     mainWindow = null;
   });
 }
 
-function createProjectWindow(projectId: string, projectName: string): BrowserWindow {
-  const existing = projectWindows.get(projectId);
-  if (existing && !existing.isDestroyed()) {
-    existing.focus();
-    return existing;
-  }
-
+function createWorkspaceWindow(): BrowserWindow {
   const win = new BrowserWindow({
     width: 1000,
     height: 700,
-    title: projectName + " - " + t("app.name"),
+    title: getWorkspaceWindowTitle(activeWorkspaceProjectId),
+    icon: createAppIcon(256),
+    frame: false,
+    transparent: false,
+    resizable: true,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
 
       contextIsolation: true,
       nodeIntegration: false,
     },
-    backgroundColor: "#1e1e1e",
+    backgroundColor: "#0d1117",
   });
 
   win.loadFile(path.join(__dirname, "..", "..", "renderer", "index.html"));
+  win.once("ready-to-show", () => {
+    revealWindow(win);
+  });
 
   win.webContents.on("did-finish-load", () => {
-    win.webContents.send("project-id", projectId);
+    win.webContents.send("lang-changed", getLangPayload());
+    win.webContents.send("projects-changed", projectStore.getAll());
+    for (const project of projectStore.getAll()) {
+      win.webContents.send("project-session-snapshot", runtimeManager.getSnapshot(project.id));
+    }
+    if (activeWorkspaceProjectId) {
+      win.webContents.send("project-id", activeWorkspaceProjectId);
+    }
   });
 
   win.on("closed", () => {
-    projectWindows.delete(projectId);
-  });
-
-  projectWindows.set(projectId, win);
-
-  // Ensure PTY session exists and forward output to this window
-  if (!ptyManager.isAlive(projectId)) {
-    const project = projectStore.getById(projectId);
-    if (project) {
-      ptyManager.spawn(projectId, project.path);
+    if (workspaceWindow === win) {
+      workspaceWindow = null;
     }
-  }
-
-  const session = ptyManager.get(projectId);
-  if (session) {
-    session.pty.onData((data: string) => {
-      if (!win.isDestroyed()) {
-        win.webContents.send("pty-output", data);
-      }
-    });
-  }
+  });
 
   return win;
 }
 
+function showWorkspaceWindow(projectId?: string): void {
+  if (projectId) {
+    activeWorkspaceProjectId = projectId;
+  }
+
+  if (workspaceWindow && !workspaceWindow.isDestroyed()) {
+    workspaceWindow.setTitle(getWorkspaceWindowTitle(activeWorkspaceProjectId));
+    if (activeWorkspaceProjectId) {
+      workspaceWindow.webContents.send("project-id", activeWorkspaceProjectId);
+    }
+    revealWindow(workspaceWindow);
+    return;
+  }
+
+  workspaceWindow = createWorkspaceWindow();
+}
+
 function openSettingsWindow(): void {
-  // Reuse main window if it exists
-  showMainWindow();
+  showMainWindow(workspaceWindow);
+}
+
+function sendProjectBind(project: Project, agentId: string): void {
+  if (!relayClient || !relayClient.isConnected()) return;
+  relayClient.send({
+    id: uuidv4(),
+    event: "project.bind",
+    project_id: project.id,
+    ts: Date.now(),
+    payload: {
+      project_id: project.id,
+      name: project.name,
+      path: project.path,
+      agent_id: agentId,
+      cli_provider: project.cliProvider,
+      cli_model: project.cliModel ?? "",
+    },
+  });
+}
+
+function syncProjectCatalog(agentId: string): void {
+  if (!relayClient || !relayClient.isConnected()) {
+    return;
+  }
+
+  relayClient.send({
+    id: uuidv4(),
+    event: Events.PROJECT_LIST,
+    ts: Date.now(),
+    payload: buildProjectListPayload(agentId),
+  });
 }
 
 function initRelay(config: AgentConfig): void {
@@ -175,16 +417,26 @@ function initRelay(config: AgentConfig): void {
   }
 
   relayClient = new RelayClient(config.serverUrl, config.agentId, config.token);
-  new MessageRouter(relayClient);
+  new MessageRouter(relayClient, {
+    revealProjectWindow: (projectId: string) => showWorkspaceWindow(projectId),
+    runtimeManager,
+    getDefaultCliProvider,
+    onProjectsChanged: () => {
+      rebuildTrayMenu();
+      broadcastProjectsChanged();
+      updateWindowTitles();
+    },
+  });
 
   relayClient.on("connected", () => {
     console.log("[Main] Relay connected");
-    if (tray) tray.setToolTip(t("tray.connected"));
+    updateTrayTooltip();
+    syncProjectCatalog(config.agentId);
   });
 
   relayClient.on("disconnected", () => {
     console.log("[Main] Relay disconnected");
-    if (tray) tray.setToolTip(t("tray.disconnected"));
+    updateTrayTooltip();
   });
 
   relayClient.on("error", (err: Error) => {
@@ -197,10 +449,11 @@ function initRelay(config: AgentConfig): void {
 // IPC handlers
 ipcMain.handle("get-projects", () => projectStore.getAll());
 
-ipcMain.handle("add-project", async (_event, data: { name: string; path: string }) => {
-  const { v4: uuidv4 } = await import("uuid");
+ipcMain.handle("add-project", async (_event, data: { name: string; path: string; cliProvider?: CliProvider; cliModel?: string | null }) => {
   const config = loadConfig();
   const projectId = uuidv4();
+  const cliProvider = normalizeCliProvider(data.cliProvider, getDefaultCliProvider());
+  const cliModel = data.cliModel?.trim() ? data.cliModel.trim() : null;
 
   // Add to local store
   projectStore.add({
@@ -208,38 +461,60 @@ ipcMain.handle("add-project", async (_event, data: { name: string; path: string 
     name: data.name,
     path: data.path,
     agentId: config.agentId,
+    cliProvider,
+    cliModel,
     createdAt: Date.now(),
   });
 
   // Bind to server
-  if (relayClient) {
-    relayClient.send({
-      id: uuidv4(),
-      event: "project.bind",
-      project_id: projectId,
-      ts: Date.now(),
-      payload: {
-        project_id: projectId,
-        name: data.name,
-        path: data.path,
-        agent_id: config.agentId,
-      },
-    });
-  }
+  syncProjectCatalog(config.agentId);
 
   rebuildTrayMenu();
+  broadcastProjectsChanged();
+  broadcastProjectSnapshot(projectId);
   return { success: true, projectId };
 });
 
-ipcMain.handle("delete-project", (_event, projectId: string) => {
-  projectStore.remove(projectId);
+ipcMain.handle(
+  "update-project",
+  (_event, data: { projectId: string; updates: Partial<Pick<Project, "name" | "path" | "cliProvider" | "cliModel">> }) => {
+    const project = projectStore.getById(data.projectId);
+    if (!project) {
+      return { success: false, error: "Project not found" };
+    }
 
-  // Close project window if open
-  const win = projectWindows.get(projectId);
-  if (win && !win.isDestroyed()) {
-    win.close();
+    const nextUpdates: Partial<Project> = { ...data.updates };
+    if (data.updates.cliProvider !== undefined) {
+      nextUpdates.cliProvider = normalizeCliProvider(
+        data.updates.cliProvider,
+        normalizeCliProvider(project.cliProvider, getDefaultCliProvider()),
+      );
+    }
+    if (data.updates.cliModel !== undefined) {
+      nextUpdates.cliModel = data.updates.cliModel?.trim() ? data.updates.cliModel.trim() : null;
+    }
+
+    projectStore.update(data.projectId, nextUpdates);
+    const updatedProject = projectStore.getById(data.projectId);
+    if (updatedProject) {
+      syncProjectCatalog(updatedProject.agentId || loadConfig().agentId);
+    }
+    rebuildTrayMenu();
+    broadcastProjectsChanged();
+    broadcastProjectSnapshot(data.projectId);
+    updateWindowTitles();
+    return { success: true };
+  },
+);
+
+ipcMain.handle("delete-project", (_event, projectId: string) => {
+  const project = projectStore.getById(projectId);
+  projectStore.remove(projectId);
+  runtimeManager.clearProject(projectId);
+
+  if (activeWorkspaceProjectId === projectId) {
+    activeWorkspaceProjectId = null;
   }
-  projectWindows.delete(projectId);
 
   // Kill PTY if exists
   try {
@@ -249,27 +524,17 @@ ipcMain.handle("delete-project", (_event, projectId: string) => {
   }
 
   rebuildTrayMenu();
+  if (project) {
+    syncProjectCatalog(project.agentId || loadConfig().agentId);
+  }
+  broadcastProjectsChanged();
+  updateWindowTitles();
   return { success: true };
 });
 
 ipcMain.on("open-project-window", (_event, projectId: string) => {
   const project = projectStore.getById(projectId);
-  if (project) createProjectWindow(project.id, project.name);
-});
-
-ipcMain.on("pty-write", (event, data: string) => {
-  const win = BrowserWindow.fromWebContents(event.sender);
-  if (!win) return;
-  for (const [projectId, w] of projectWindows.entries()) {
-    if (w === win) {
-      try {
-        ptyManager.write(projectId, data);
-      } catch (err) {
-        console.error("[Main] pty-write error:", err);
-      }
-      break;
-    }
-  }
+  if (project) showWorkspaceWindow(project.id);
 });
 
 ipcMain.handle("get-config", () => loadConfig());
@@ -279,6 +544,7 @@ ipcMain.handle("save-config", (_event, config: Partial<AgentConfig>) => {
   if (config.agentId !== undefined) configStore.set("agentId", config.agentId);
   if (config.token !== undefined) configStore.set("token", config.token);
   if (config.username !== undefined) configStore.set("username", config.username);
+  if (config.cliProvider !== undefined) configStore.set("cliProvider", config.cliProvider);
   return true;
 });
 
@@ -340,13 +606,10 @@ ipcMain.handle("get-lang", () => getLang());
 
 ipcMain.handle("set-lang", (_event, lang: Lang) => {
   setLang(lang);
-  if (tray) {
-    tray.setToolTip(t("app.name"));
-    rebuildTrayMenu();
-  }
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.setTitle(t("app.name"));
-  }
+  updateTrayTooltip();
+  rebuildTrayMenu();
+  updateWindowTitles();
+  broadcastLangChange();
   return true;
 });
 
@@ -385,10 +648,63 @@ ipcMain.handle("get-connection-status", () => {
 ipcMain.handle("open-project", (_event, projectId: string) => {
   const project = projectStore.getById(projectId);
   if (project) {
-    createProjectWindow(project.id, project.name);
+    showWorkspaceWindow(project.id);
     return { success: true };
   }
   return { success: false, error: "Project not found" };
+});
+
+ipcMain.on("open-settings-window", (event) => {
+  const senderWindow = BrowserWindow.fromWebContents(event.sender);
+  showMainWindow(senderWindow ?? workspaceWindow);
+});
+
+ipcMain.on("set-active-project", (_event, projectId: string | null) => {
+  activeWorkspaceProjectId = projectId;
+  updateWindowTitles();
+});
+
+ipcMain.handle("get-project-session", (_event, projectId: string) => {
+  const project = projectStore.getById(projectId);
+  if (!project) {
+    return { success: false, error: "Project not found" };
+  }
+
+  return {
+    success: true,
+    project,
+    session: runtimeManager.getSnapshot(projectId),
+  };
+});
+
+ipcMain.handle("send-project-prompt", (_event, data: { projectId: string; prompt: string }) => {
+  const project = projectStore.getById(data.projectId);
+  if (!project) {
+    return { success: false, error: "Project not found" };
+  }
+
+  runtimeManager.enqueueMessage({
+    projectId: project.id,
+    cwd: project.path,
+    prompt: data.prompt,
+    source: "desktop",
+  });
+
+  return { success: true };
+});
+
+ipcMain.handle("remove-queued-project-prompt", (_event, data: { projectId: string; runId: string }) => {
+  const project = projectStore.getById(data.projectId);
+  if (!project) {
+    return { success: false, error: "Project not found" };
+  }
+
+  const removed = runtimeManager.removeQueuedRun(data.projectId, data.runId);
+  if (!removed) {
+    return { success: false, error: "Queued item not found" };
+  }
+
+  return { success: true };
 });
 
 // 窗口控制
@@ -418,10 +734,10 @@ app.whenReady().then(() => {
   const config = loadConfig();
   initRelay(config);
 
-  // Open main window unless silent launch is configured
+  // Open workspace window unless silent launch is configured
   const silentLaunch = appSettingsStore.get("silentLaunch") as boolean;
   if (!silentLaunch) {
-    showMainWindow();
+    showWorkspaceWindow(projectStore.getAll()[0]?.id);
   }
 });
 
@@ -432,7 +748,8 @@ app.on("window-all-closed", (_event: Electron.Event) => {
 
 app.on("before-quit", () => {
   if (relayClient) relayClient.disconnect();
-  for (const [id] of projectWindows) {
-    ptyManager.kill(id);
+  runtimeManager.dispose();
+  for (const project of projectStore.getAll()) {
+    ptyManager.kill(project.id);
   }
 });

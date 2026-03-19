@@ -13,10 +13,12 @@ import (
 
 // ProjectInfo stores project metadata
 type ProjectInfo struct {
-	ID      string
-	Name    string
-	Path    string
-	AgentID string
+	ID          string
+	Name        string
+	Path        string
+	AgentID     string
+	CLIProvider string
+	CLIModel    string
 }
 
 // Hub is the central message router connecting agents and devices.
@@ -119,6 +121,21 @@ func (h *Hub) HandleMessage(from *Client, env *model.Envelope) {
 		// Agent -> Devices: broadcast to all devices wat the project.
 		h.BroadcastToDevices(env, env.ProjectID)
 
+	case model.EventSessionSyncRequest:
+		agentID, ok := h.resolveAgent(env.ProjectID)
+		if !ok {
+			log.Warn().Str("project_id", env.ProjectID).Msg("no agent for project session sync")
+			h.sendError(from, env.ID, "no_agent", "no agent registered for project")
+			return
+		}
+		if from.Type == model.ClientTypeDevice {
+			from.AgentID = agentID
+		}
+		h.Route(env, agentID)
+
+	case model.EventSessionSync:
+		h.BroadcastToDevices(env, env.ProjectID)
+
 	case model.EventProjectBind:
 		var p model.ProjectBindPayload
 		if err := json.Unmarshal(env.Payload, &p); err != nil {
@@ -127,13 +144,16 @@ func (h *Hub) HandleMessage(from *Client, env *model.Envelope) {
 		}
 		h.projects.Store(p.ProjectID, from.AgentID)
 		h.projectInfos.Store(p.ProjectID, &ProjectInfo{
-			ID:      p.ProjectID,
-			Name:    p.Name,
-			Path:    p.Path,
-			AgentID: from.AgentID,
+			ID:          p.ProjectID,
+			Name:        p.Name,
+			Path:        p.Path,
+			AgentID:     from.AgentID,
+			CLIProvider: p.CLIProvider,
+			CLIModel:    p.CLIModel,
 		})
-		from.ProjectIDs = append(from.ProjectIDs, p.ProjectID)
+		from.ProjectIDs = h.GetProjectIDsByAgent(from.AgentID)
 		log.Info().Str("project_id", p.ProjectID).Str("agent_id", from.AgentID).Msg("project bound")
+		h.broadcastProjectList(from.AgentID)
 
 		ack := &model.Envelope{
 			ID:        newID(),
@@ -143,6 +163,29 @@ func (h *Hub) HandleMessage(from *Client, env *model.Envelope) {
 			Timestamp: time.Now().UnixMilli(),
 		}
 		_ = from.Send(ack)
+
+	case model.EventProjectList:
+		if from.Type != model.ClientTypeAgent {
+			log.Warn().Str("client_id", from.ID).Msg("project.list ignored for non-agent client")
+			return
+		}
+
+		var p model.ProjectListPayload
+		if err := json.Unmarshal(env.Payload, &p); err != nil {
+			log.Warn().Err(err).Msg("invalid project.list payload")
+			return
+		}
+
+		agentID := from.AgentID
+		if agentID == "" {
+			agentID = p.AgentID
+		}
+		if agentID == "" {
+			log.Warn().Str("client_id", from.ID).Msg("project.list missing agent id")
+			return
+		}
+
+		h.ReplaceAgentProjects(agentID, p.Projects)
 
 	case model.EventPing:
 		pong := &model.Envelope{
@@ -233,6 +276,10 @@ func (h *Hub) BroadcastToDevices(env *model.Envelope, projectID string) {
 	if !ok {
 		return
 	}
+	h.broadcastToDevicesByAgent(agentID, env)
+}
+
+func (h *Hub) broadcastToDevicesByAgent(agentID string, env *model.Envelope) {
 	h.devices.Range(func(_, v interface{}) bool {
 		d := v.(*Client)
 		if d.AgentID == agentID {
@@ -267,15 +314,18 @@ func (h *Hub) sendError(to *Client, refID, code, message string) {
 }
 
 // BindProject registers a project->agent mapping (used by REST handler).
-func (h *Hub) BindProject(projectID, agentID, name, path string) {
+func (h *Hub) BindProject(projectID, agentID, name, path, cliProvider, cliModel string) {
 	h.projects.Store(projectID, agentID)
 	h.projectInfos.Store(projectID, &ProjectInfo{
-		ID:      projectID,
-		Name:    name,
-		Path:    path,
-		AgentID: agentID,
+		ID:          projectID,
+		Name:        name,
+		Path:        path,
+		AgentID:     agentID,
+		CLIProvider: cliProvider,
+		CLIModel:    cliModel,
 	})
 	log.Info().Str("project_id", projectID).Str("agent_id", agentID).Msg("project bound via REST")
+	h.broadcastProjectList(agentID)
 }
 
 // SendToAgent delivers env to the agent if online; returns true if delivered.
@@ -296,11 +346,104 @@ func (h *Hub) GetAgentProjects(agentID string) []map[string]string {
 		info := v.(*ProjectInfo)
 		if info.AgentID == agentID {
 			projects = append(projects, map[string]string{
-				"id":   info.ID,
-				"name": info.Name,
-				"path": info.Path,
+				"id":           info.ID,
+				"name":         info.Name,
+				"path":         info.Path,
+				"cli_provider": info.CLIProvider,
+				"cli_model":    info.CLIModel,
 			})
 		}
+		return true
+	})
+	return projects
+}
+
+func (h *Hub) ReplaceAgentProjects(agentID string, projects []model.ProjectListItem) {
+	keep := make(map[string]model.ProjectListItem, len(projects))
+	for _, project := range projects {
+		if project.ID == "" {
+			continue
+		}
+		keep[project.ID] = project
+	}
+
+	h.projectInfos.Range(func(_, value interface{}) bool {
+		info := value.(*ProjectInfo)
+		if info.AgentID != agentID {
+			return true
+		}
+		if _, ok := keep[info.ID]; ok {
+			return true
+		}
+		h.projectInfos.Delete(info.ID)
+		h.projects.Delete(info.ID)
+		return true
+	})
+
+	for _, project := range projects {
+		if project.ID == "" {
+			continue
+		}
+		h.projects.Store(project.ID, agentID)
+		h.projectInfos.Store(project.ID, &ProjectInfo{
+			ID:          project.ID,
+			Name:        project.Name,
+			Path:        project.Path,
+			AgentID:     agentID,
+			CLIProvider: project.CLIProvider,
+			CLIModel:    project.CLIModel,
+		})
+	}
+
+	if value, ok := h.agents.Load(agentID); ok {
+		agent := value.(*Client)
+		projectIDs := make([]string, 0, len(keep))
+		for _, project := range projects {
+			if project.ID == "" {
+				continue
+			}
+			projectIDs = append(projectIDs, project.ID)
+		}
+		agent.ProjectIDs = projectIDs
+	}
+
+	h.broadcastProjectList(agentID)
+}
+
+func (h *Hub) broadcastProjectList(agentID string) {
+	payload, err := json.Marshal(model.ProjectListPayload{
+		AgentID:  agentID,
+		Projects: h.getAgentProjectListItems(agentID),
+	})
+	if err != nil {
+		log.Warn().Err(err).Str("agent_id", agentID).Msg("failed to marshal project.listed payload")
+		return
+	}
+
+	env := &model.Envelope{
+		ID:        newID(),
+		Event:     model.EventProjectListed,
+		Seq:       h.NextSeq(),
+		Timestamp: time.Now().UnixMilli(),
+		Payload:   payload,
+	}
+	h.broadcastToDevicesByAgent(agentID, env)
+}
+
+func (h *Hub) getAgentProjectListItems(agentID string) []model.ProjectListItem {
+	projects := make([]model.ProjectListItem, 0)
+	h.projectInfos.Range(func(_, value interface{}) bool {
+		info := value.(*ProjectInfo)
+		if info.AgentID != agentID {
+			return true
+		}
+		projects = append(projects, model.ProjectListItem{
+			ID:          info.ID,
+			Name:        info.Name,
+			Path:        info.Path,
+			CLIProvider: info.CLIProvider,
+			CLIModel:    info.CLIModel,
+		})
 		return true
 	})
 	return projects

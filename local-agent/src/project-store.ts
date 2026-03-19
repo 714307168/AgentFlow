@@ -1,10 +1,14 @@
 import Store from "electron-store";
 
+export type ProjectCliProvider = "claude" | "codex";
+
 interface Project {
   id: string;
   name: string;
   path: string;
   agentId: string;
+  cliProvider: ProjectCliProvider;
+  cliModel?: string | null;
   createdAt: number;
 }
 

@@ -1,301 +1,184 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Agent Settings</title>
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-
+    * { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
       --bg: #0d1117;
-      --surface: #161b22;
-      --surface2: #1c2128;
-      --surface-hover: #21262d;
+      --panel: #161b22;
+      --panel-2: #1c2128;
       --border: #30363d;
-      --border-focus: #58a6ff;
       --text: #c9d1d9;
-      --text-muted: #8b949e;
-      --text-label: #c9d1d9;
+      --muted: #8b949e;
       --accent: #58a6ff;
       --accent-hover: #79c0ff;
       --success: #3fb950;
-      --success-bg: rgba(63, 185, 80, 0.1);
+      --success-bg: rgba(63, 185, 80, 0.12);
       --error: #f85149;
-      --error-bg: rgba(248, 81, 73, 0.1);
+      --error-bg: rgba(248, 81, 73, 0.12);
       --warning: #d29922;
-      --shadow: rgba(0, 0, 0, 0.3);
+      --shadow: rgba(0, 0, 0, 0.28);
     }
-
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
       background: var(--bg);
       color: var(--text);
-      padding: 0;
-      overflow-y: auto;
-      font-size: 14px;
-      line-height: 1.6;
-      height: 100vh;
+      font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      min-height: 100vh;
       display: flex;
       flex-direction: column;
     }
-
     .titlebar {
       -webkit-app-region: drag;
-      background: var(--surface);
-      border-bottom: 1px solid var(--border);
-      padding: 12px 16px;
+      height: 56px;
+      padding: 0 16px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      flex-shrink: 0;
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
     }
-
     .titlebar-title {
       font-size: 13px;
       font-weight: 600;
-      color: var(--text);
-      display: flex;
-      align-items: center;
-      gap: 8px;
     }
-
-    .titlebar-title::before {
-      content: '⚙️';
-      font-size: 16px;
-    }
-
     .titlebar-controls {
       -webkit-app-region: no-drag;
       display: flex;
       gap: 8px;
     }
-
     .titlebar-button {
       width: 32px;
       height: 32px;
-      border: none;
+      border: 0;
+      border-radius: 8px;
       background: transparent;
       color: var(--text);
-      border-radius: 6px;
       cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 16px;
-      transition: all 0.2s;
-      padding: 0;
     }
-
-    .titlebar-button:hover {
-      background: var(--surface-hover);
-    }
-
-    .titlebar-button.minimize:hover {
-      background: rgba(88, 166, 255, 0.2);
-    }
-
-    .titlebar-button.maximize:hover {
-      background: rgba(63, 185, 80, 0.2);
-    }
-
-    .titlebar-button.close:hover {
-      background: var(--error);
-      color: #fff;
-    }
-
+    .titlebar-button:hover { background: var(--panel-2); }
+    .titlebar-button.close:hover { background: var(--error); color: #fff; }
     .content {
       flex: 1;
-      overflow-y: auto;
-      padding: 24px;
-      max-width: 800px;
-      margin: 0 auto;
       width: 100%;
+      max-width: 840px;
+      margin: 0 auto;
+      padding: 24px;
+      overflow: auto;
     }
-
     .header {
       display: flex;
-      align-items: center;
       justify-content: space-between;
-      margin-bottom: 32px;
-      padding-bottom: 20px;
-      border-bottom: 2px solid var(--border);
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 24px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border);
     }
-
     h1 {
-      font-size: 24px;
-      font-weight: 600;
-      color: var(--text);
-      letter-spacing: -0.5px;
+      font-size: 26px;
+      line-height: 1.2;
+      font-weight: 700;
+    }
+    .header-meta {
       display: flex;
       align-items: center;
       gap: 12px;
     }
-
-    h1::before {
-      content: '⚙️';
-      font-size: 28px;
-    }
-
     .save-indicator {
-      font-size: 13px;
-      color: var(--success);
       opacity: 0;
-      transition: all 0.3s;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      padding: 6px 12px;
+      transition: opacity 0.2s ease;
+      color: var(--success);
       background: var(--success-bg);
-      border-radius: 6px;
       border: 1px solid var(--success);
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-size: 12px;
     }
-    .save-indicator.visible {
-      opacity: 1;
-      transform: scale(1);
-    }
-    .save-indicator::before {
-      content: '✓';
-      font-weight: bold;
-    }
-
+    .save-indicator.visible { opacity: 1; }
     .section {
-      margin-bottom: 20px;
-      background: var(--surface);
-      border-radius: 12px;
-      padding: 20px 24px;
+      background: var(--panel);
       border: 1px solid var(--border);
-      transition: border-color 0.2s, box-shadow 0.2s;
+      border-radius: 16px;
+      padding: 20px;
+      margin-bottom: 16px;
+      box-shadow: 0 8px 24px var(--shadow);
     }
-
-    .section:hover {
-      border-color: var(--border-focus);
-      box-shadow: 0 4px 12px var(--shadow);
-    }
-
     .section-title {
       font-size: 16px;
-      font-weight: 600;
-      color: var(--text);
-      margin-bottom: 16px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
+      font-weight: 700;
+      margin-bottom: 14px;
     }
-
-    .section-title::before {
-      content: '';
-      width: 4px;
-      height: 20px;
-      background: var(--accent);
-      border-radius: 2px;
-    }
-
-    .field { margin-bottom: 16px; }
+    .field { margin-bottom: 14px; }
     .field:last-child { margin-bottom: 0; }
-
     label {
       display: block;
-      font-size: 13px;
-      color: var(--text-label);
       margin-bottom: 8px;
-      font-weight: 500;
-    }
-
-    input[type="text"], input[type="password"] {
-      width: 100%;
-      padding: 10px 14px;
-      background: var(--surface2);
-      border: 1.5px solid var(--border);
-      border-radius: 8px;
       color: var(--text);
-      font-size: 14px;
-      outline: none;
-      transition: all 0.2s;
-      font-family: inherit;
+      font-weight: 600;
+      font-size: 13px;
     }
-    input[type="text"]:focus, input[type="password"]:focus {
-      border-color: var(--border-focus);
-      background: var(--surface-hover);
-      box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.1);
-    }
-    input[type="text"]:hover, input[type="password"]:hover {
-      border-color: var(--text-muted);
-    }
-
+    input[type="text"],
+    input[type="password"],
     select {
       width: 100%;
-      padding: 10px 14px;
-      background: var(--surface2);
-      border: 1.5px solid var(--border);
-      border-radius: 8px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--panel-2);
       color: var(--text);
-      font-size: 14px;
+      padding: 10px 12px;
       outline: none;
-      cursor: pointer;
-      transition: all 0.2s;
-      font-family: inherit;
     }
+    input[type="text"]:focus,
+    input[type="password"]:focus,
     select:focus {
-      bordeolor: var(--border-focus);
-      box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.1);
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.12);
     }
-    select:hover {
-      border-color: var(--text-muted);
-    }
-
     .toggle-row {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      min-height: 36px;
-      padding: 8px 0;
-      transition: background 0.2s;
-      border-radius: 6px;
-    }
-    .toggle-row:hover {
-      background: rgba(88, 166, 255, 0.05);
+      gap: 16px;
+      padding: 6px 0;
     }
     .toggle-row + .toggle-row {
-      margin-top: 4px;
-      border-top: 1px solid var(--border);
+      margin-top: 8px;
       padding-top: 12px;
+      border-top: 1px solid var(--border);
     }
     .toggle-row label {
-      margin-bottom: 0;
-      cursor: pointer;
+      margin: 0;
       flex: 1;
-      font-size: 14px;
     }
-
     .toggle {
       position: relative;
       width: 44px;
       height: 24px;
-      flex-shrink: 0;
-      margin-left: 12px;
+      flex: 0 0 auto;
     }
     .toggle input { opacity: 0; width: 0; height: 0; }
-    .toggle .slider {
+    .slider {
       position: absolute;
       inset: 0;
-      background: #30363d;
-      border-radius: 12px;
+      border-radius: 999px;
+      background: #3d444d;
+      border: 1px solid var(--border);
       cursor: pointer;
-      transition: all 0.3s;
-      border: 1.5px solid var(--border);
+      transition: 0.2s ease;
     }
-    .toggle .slider::before {
-      content: '';
+    .slider::before {
+      content: "";
       position: absolute;
       width: 18px;
       height: 18px;
-      left: 2px;
       top: 2px;
-      background: #8b949e;
+      left: 2px;
       border-radius: 50%;
-      transition: all 0.3s;
-      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+      background: #fff;
+      transition: 0.2s ease;
     }
     .toggle input:checked + .slider {
       background: var(--accent);
@@ -303,442 +186,585 @@
     }
     .toggle input:checked + .slider::before {
       transform: translateX(20px);
-      background: #fff;
     }
-    .toggle:hover .slider {
-      border-color: var(--accent);
-    }
-
-    .pubkey {
-      font-family: 'SF Mono', 'Consolas', monospace;
-      font-size: 11px;
-      color: var(--text-muted);
-      word-break: break-all;
-      background: var(--surface2);
-      padding: 12px 14px;
-      border-radius: 8px;
-      margin-top: 8px;
-      border: 1.5px solid var(--border);
-      line-height: 1.8;
-      user-select: all;
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-    .pubkey:hover {
-      border-color: var(--accent);
-      background: var(--surface-hover);
-    }
-    .pubkey::before {
-      content: '🔑 ';
-      margin-right: 8px;
-    }
-
-    .connection-status {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 8px 14px;
-      background: var(--surface);
-      border: 1.5px solid var(--border);
-      border-radius: 8px;
-      font-size: 13px;
-      transition: all 0.3s;
-    }
-
-    .status-dot {
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
-      background: var(--text-muted);
-      animation: pulse 2s infinite;
-    }
-
-    .connection-status.connected .status-dot {
-      background: var(--success);
-      box-shadow: 0 0 8px var(--success);
-    }
-
-    .connection-status.connecting .status-dot {
-      background: var(--warning);
-      box-shadow: 0 0 8px var(--warning);
-    }
-
-    .connection-status.disconnected .status-dot {
-      background: var(--error);
-      animation: none;
-    }
-
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.5; }
-    }
-
-    .status-text {
-      font-weight: 500;
-      color: var(--text);
-    }
-
-    .project-list:empty::before {
-      content: '暂无项目，点击上方"添加项目"按钮开始';
-      display: block;
-      text-align: center;
-      padding: 40px 20px;
-      color: var(--text-muted);
-      font-size: 14px;
-      background: var(--surface2);
-      border: 1.5px dashed var(--border);
-      border-radius: 10px;
-    }
-
-    ::-webkit-scrollbar {
-      width: 10px;
-    }
-
-    ::-webkit-scrollbar-track {
-      background: var(--bg);
-    }
-
-    ::-webkit-scrollbar-thumb {
-      background: var(--border);
-      border-radius: 5px;
-    }
-
-    ::-webkit-scrollbar-thumb:hover {
-      background: var(--text-muted);
-    }
-
-    ::placeholder {
-      color: var(--text-muted);
-      opacity: 0.6;
-    }
-
-    button:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
-
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
-
-    .loading {
-      display: inline-block;
-      width: 14px;
-      height: 14px;
-      border: 2px solid var(--border);
-      border-top-color: var(--accent);
-      border-radius: 50%;
-      animation: spin 0.6s linear infinite;
-    }
-
     .btn-row {
       display: flex;
-      gap: 12px;
-      margin-top: 16px;
+      gap: 10px;
       flex-wrap: wrap;
+      margin-top: 12px;
     }
-
     button {
-      padding: 10px 20px;
-      border: none;
-      border-radius: 8px;
-      font-size: 14px;
+      border: 0;
+      border-radius: 10px;
+      padding: 10px 16px;
+      font: inherit;
       cursor: pointer;
-      font-weight: 500;
-      transition: all 0.2s;
-      font-family: inherit;
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
     }
     .btn-primary {
       background: var(--accent);
       color: #fff;
-      box-shadow: 0 2px 8px rgba(88, 166, 255, 0.3);
     }
-    .btn-primary:hover {
-      background: var(--accent-hover);
-      transform: translateY(-1px);
-      box-shadow: 0 4px 12px rgba(88, 166, 255, 0.4);
-    }
-    .btn-primary:active {
-      transform: translateY(0);
-    }
+    .btn-primary:hover { background: var(--accent-hover); }
     .btn-secondary {
-      background: var(--surface2);
+      background: var(--panel-2);
       color: var(--text);
-      border: 1.5px solid var(--border);
-    }
-    .btn-secondary:hover {
-      background: var(--surface-hover);
-      border-color: var(--text-muted);
+      border: 1px solid var(--border);
     }
     .btn-danger {
       background: var(--error);
       color: #fff;
-      box-shadow: 0 2px 8px rgba(248, 81, 73, 0.3);
     }
-    .btn-danger:hover {
-      background: #ff6b6b;
-      transform: translateY(-1px);
-      box-shadow: 0 4px 12px rgba(248, 81, 73, 0.4);
+    .btn-small { padding: 6px 10px; font-size: 12px; }
+    .connection-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      white-space: nowrap;
     }
-
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--muted);
+    }
+    .connection-status.connected .status-dot { background: var(--success); }
+    .connection-status.connecting .status-dot { background: var(--warning); }
+    .connection-status.disconnected .status-dot { background: var(--error); }
     .project-list {
+      display: grid;
+      gap: 12px;
       margin-top: 12px;
+    }
+    .project-list:empty::before {
+      content: attr(data-empty-message);
+      display: block;
+      padding: 24px;
+      text-align: center;
+      border: 1px dashed var(--border);
+      border-radius: 12px;
+      color: var(--muted);
+      background: var(--panel-2);
     }
     .project-item {
       display: flex;
-      align-items: center;
       justify-content: space-between;
-      padding: 16px 18px;
-      background: var(--surface2);
-      border: 1.5px solid var(--border);
-      border-radius: 10px;
-      margin-bottom: 12px;
-      transition: all 0.2s;
-      cursor: pointer;
+      gap: 16px;
+      padding: 16px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: var(--panel-2);
+      align-items: center;
     }
-    .project-item:hover {
-      border-color: var(--accent);
-      background: var(--surface-hover);
-      transform: translateX(4px);
-      box-shadow: 0 2px 8px var(--shadow);
-    }
-    .project-info {
-      flex: 1;
-      min-width: 0;
-    }
-    .project-name {
-      font-size: 15px;
-      font-weight: 600;
-      color: var(--text);
-      margin-bottom: 6px;
+    .project-info { min-width: 0; flex: 1; }
+    .project-name { font-weight: 700; margin-bottom: 4px; }
+    .project-meta-row {
       display: flex;
       align-items: center;
       gap: 8px;
+      margin-bottom: 6px;
     }
-    .project-name::before {
-      content: '📁';
-      font-size: 18px;
+    .project-provider-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      border: 1px solid var(--border);
+      background: rgba(88, 166, 255, 0.1);
+      color: var(--text);
+    }
+    .project-provider-badge.codex {
+      background: rgba(88, 166, 255, 0.12);
+      border-color: rgba(88, 166, 255, 0.28);
+    }
+    .project-provider-badge.claude {
+      background: rgba(63, 185, 80, 0.12);
+      border-color: rgba(63, 185, 80, 0.28);
+    }
+    .project-model-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      border: 1px solid var(--border);
+      background: rgba(210, 153, 34, 0.12);
+      border-color: rgba(210, 153, 34, 0.28);
+      color: var(--text);
     }
     .project-path {
+      color: var(--muted);
       font-size: 12px;
-      color: var(--text-muted);
+      white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-      white-space: nowrap;
-      font-family: 'SF Mono', 'Consolas', monospace;
+      font-family: Consolas, monospace;
     }
     .project-actions {
       display: flex;
       gap: 8px;
-      margin-left: 16px;
-      opacity: 0;
-      transition: opacity 0.2s;
+      flex-wrap: wrap;
+      align-items: center;
     }
-    .project-item:hover .project-actions {
-      opacity: 1;
+    .project-provider-select {
+      min-width: 148px;
+      padding: 6px 10px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      color: var(--text);
     }
-    .btn-small {
-      padding: 6px 12px;
-      font-size: 12px;
+    .project-model-input {
+      min-width: 180px;
+      padding: 6px 10px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      color: var(--text);
     }
-
     .add-project-form {
       display: none;
-      margin-top: 16px;
-      padding: 20px;
-      background: var(--surface2);
-      border: 1.5px solid var(--border);
-      border-radius: 10px;
-      animation: slideDown 0.3s ease;
+      margin-top: 14px;
+      padding: 16px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: var(--panel-2);
     }
-    .add-project-form.visible {
-      display: block;
-    }
-
-    @keyframes slideDown {
-      from {
-        opacity: 0;
-        transform: translateY(-10px);
-      }
-      to {
-        opacity: 1;
-        transform: translateY(0);
-      }
-    }
-
+    .add-project-form.visible { display: block; }
     .status {
-      font-size: 14px;
-      color: var(--success);
-      margin-top: 16px;
       display: none;
-      padding: 12px 16px;
+      margin-top: 12px;
+      padding: 12px 14px;
+      border-radius: 12px;
+      border: 1px solid var(--success);
       background: var(--success-bg);
-      border-radius: 8px;
-      border: 1.5px solid var(--success);
-      animation: slideDown 0.3s ease;
+      color: var(--success);
     }
     .status.error {
-      color: var(--error);
-      background: var(--error-bg);
       border-color: var(--error);
+      background: var(--error-bg);
+      color: var(--error);
     }
-    .status::before {
-      content: 'ℹ️ ';
-      margin-right: 8px;
+    .pubkey {
+      border: 1px solid var(--border);
+      background: var(--panel-2);
+      border-radius: 10px;
+      padding: 10px 12px;
+      font-size: 12px;
+      color: var(--muted);
+      word-break: break-all;
+      font-family: Consolas, monospace;
+    }
+    #runtimeHint {
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 12px;
     }
   </style>
 </head>
 <body>
   <div class="titlebar">
-    <div class="titlebar-title" id="titlebarTitle">设置</div>
+    <div class="titlebar-title" id="titlebarTitle">Settings</div>
     <div class="titlebar-controls">
-      <button class="titlebar-button minimize" id="minimizeBtn" title="最小化">−</button>
-      <button class="titlebar-button maximize" id="maximizeBtn" title="最大化">□</button>
-      <button class="titlebar-button close" id="closeBtn" title="关闭">×</button>
+      <button class="titlebar-button minimize" id="minimizeBtn" title="Minimize">─</button>
+      <button class="titlebar-button maximize" id="maximizeBtn" title="Maximize">□</button>
+      <button class="titlebar-button close" id="closeBtn" title="Close">✕</button>
     </div>
   </div>
 
   <div class="content">
-  <div class="header">
-    <h1 id="title">Agent Settings</h1>
-    <div style="display: flex; gap: 12px; align-items: center;">
-      <div class="connection-status" id="connectionStatus">
-        <span class="status-dot"></span>
-        <span class="status-text" id="statusText">未连接</span>
+    <div class="header">
+      <h1 id="title">Agent Settings</h1>
+      <div class="header-meta">
+        <div class="connection-status disconnected" id="connectionStatus">
+          <span class="status-dot"></span>
+          <span class="status-text" id="statusText">Disconnected</span>
+        </div>
+        <span class="save-indicator" id="saveIndicator"><span id="savedText">Saved</span></span>
       </div>
-      <span class="save-indicator" id="saveIndicator"><span id="savedText">已保存</span></span>
-    </div>
-  </div>
-
-  <div class="section">
-    <div class="section-title" id="langSection">语言</div>
-    <div class="field">
-      <label id="langLabel">界面语言</label>
-      <select id="langSelect">
-        <option value="en">English</option>
-        <option value="zh">中文</option>
-      </select>
-    </div>
-  </div>
-
-  <div class="section">
-    <div class="section-title" id="projectSection">项目管理</div>
-    <div class="btn-row">
-      <button class="btn-primary" id="addProjectBtn">添加项目</button>
     </div>
 
-    <div class="add-project-form" id="addProjectForm">
+    <div class="section">
+      <div class="section-title" id="langSection">Language</div>
       <div class="field">
-        <label id="projectNameLabel">项目名称</label>
-        <input type="text" id="projectName" placeholder="输入项目名称">
+        <label id="langLabel">Interface Language</label>
+        <select id="langSelect">
+          <option value="en">English</option>
+          <option value="zh">中文</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title" id="projectSection">Projects</div>
+      <div class="btn-row">
+        <button class="btn-primary" id="addProjectBtn">Add Project</button>
+      </div>
+      <div class="add-project-form" id="addProjectForm">
+        <div class="field">
+          <label id="projectNameLabel">Project Name</label>
+          <input type="text" id="projectName" placeholder="Enter project name">
+        </div>
+        <div class="field">
+          <label id="projectPathLabel">Project Path</label>
+          <input type="text" id="projectPath" placeholder="Enter project path">
+        </div>
+        <div class="field">
+          <label id="projectProviderLabel">CLI Provider</label>
+          <select id="projectProvider">
+            <option value="claude">Claude Code</option>
+            <option value="codex">OpenAI Codex</option>
+          </select>
+        </div>
+        <div class="field">
+          <label id="projectModelLabel">Project Model</label>
+          <input type="text" id="projectModel" placeholder="Leave blank to use the provider default">
+        </div>
+        <div class="btn-row">
+          <button class="btn-primary btn-small" id="saveProjectBtn">Save</button>
+          <button class="btn-secondary btn-small" id="cancelProjectBtn">Cancel</button>
+        </div>
+      </div>
+      <div class="project-list" id="projectList" data-empty-message="No projects yet. Add one above to get started."></div>
+    </div>
+
+    <div class="section">
+      <div class="section-title" id="launchSection">Launch</div>
+      <div class="toggle-row">
+        <label id="autoStartLabel" for="autoStartToggle">Start on Boot</label>
+        <div class="toggle">
+          <input type="checkbox" id="autoStartToggle">
+          <span class="slider"></span>
+        </div>
+      </div>
+      <div class="toggle-row">
+        <label id="silentLaunchLabel" for="silentLaunchToggle">Silent Launch (minimize to tray)</label>
+        <div class="toggle">
+          <input type="checkbox" id="silentLaunchToggle">
+          <span class="slider"></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title" id="runtimeSection">Runtime</div>
+      <div class="field">
+        <label id="cliProviderLabel">CLI Provider</label>
+        <select id="cliProvider">
+          <option value="claude">Claude Code</option>
+          <option value="codex">OpenAI Codex</option>
+        </select>
+        <div id="runtimeHint">Both providers run in full-auto mode with no approval prompts or click-throughs.</div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title" id="serverSection">Server Connection</div>
+      <div class="field">
+        <label id="serverUrlLabel">Relay Server URL</label>
+        <input type="text" id="serverUrl" placeholder="http://localhost:8080">
       </div>
       <div class="field">
-        <label id="projectPathLabel">项目路径</label>
-        <input type="text" id="projectPath" placeholder="输入项目路径">
+        <label id="usernameLabel">Username</label>
+        <input type="text" id="username" placeholder="Enter username">
+      </div>
+      <div class="field">
+        <label id="passwordLabel">Password</label>
+        <input type="password" id="password" placeholder="Enter password">
+      </div>
+      <div class="field">
+        <label id="agentIdLabel">Agent ID</label>
+        <input type="text" id="agentId" placeholder="Enter your agent ID">
       </div>
       <div class="btn-row">
-        <button class="btn-primary btn-small" id="saveProjectBtn">保存</button>
-        <button class="btn-secondary btn-small" id="cancelProjectBtn">取消</button>
+        <button class="btn-primary" id="loginBtn">Login</button>
+        <button class="btn-secondary" id="reconnectBtn">Reconnect</button>
+      </div>
+      <div class="field" style="margin-top: 12px;">
+        <label id="loginStatusLabel">Login Status</label>
+        <div class="connection-status disconnected" id="loginStatus">
+          <span class="status-dot"></span>
+          <span class="status-text" id="loginStatusText">Not logged in</span>
+        </div>
       </div>
     </div>
 
-    <div class="project-list" id="projectList"></div>
-  </div>
-
-  <div class="section">
-    <div class="section-title" id="launchSection">启动设置</div>
-    <div class="toggle-row">
-      <label id="autoStartLabel" for="autoStartToggle">开机启动</label>
-      <div class="toggle">
-        <input type="checkbox" id="autoStartToggle">
-        <span class="slider"></span>
+    <div class="section">
+      <div class="section-title" id="e2eSection">End-to-End Encryption</div>
+      <div class="toggle-row">
+        <label id="e2eLabel" for="e2eToggle">Enable E2E Encryption</label>
+        <div class="toggle">
+          <input type="checkbox" id="e2eToggle">
+          <span class="slider"></span>
+        </div>
+      </div>
+      <div class="field" style="margin-top: 10px;">
+        <label id="pubkeyLabel">Public Key</label>
+        <div class="pubkey" id="pubkey">&mdash;</div>
       </div>
     </div>
-    <div class="toggle-row">
-      <label id="silentLaunchLabel" for="silentLaunchToggle">静默启动（最小化到托盘）</label>
-      <div class="toggle">
-        <input type="checkbox" id="silentLaunchToggle">
-        <span class="slider"></span>
-      </div>
-    </div>
-  </div>
 
-  <div class="section">
-    <div class="section-title" id="serverSection">服务器连接</div>
-    <div class="field">
-      <label id="serverUrlLabel">中继服务器地址</label>
-      <input type="text" id="serverUrl" placeholder="http://localhost:8080">
-    </div>
-    <div class="field">
-      <label id="usernameLabel">用户名</label>
-      <input type="text" id="username" placeholder="输入用户名">
-    </div>
-    <div class="field">
-      <label id="passwordLabel">密码</label>
-      <input type="password" id="password" placeholder="输入密码">
-    </div>
-    <div class="field">
-      <label id="agentIdLabel">Agent ID</label>
-      <input type="text" id="agentId" placeholder="输入你的 Agent ID">
-    </div>
-    <div class="btn-row">
-      <button class="btn-primary" id="loginBtn">登录</button>
-      <button class="btn-secondary" id="reconnectBtn">重新连接</button>
-    </div>
-    <div class="field" style="margin-top: 12px;">
-      <label id="loginStatusLabel">登录状态</label>
-      <div class="connection-status" id="loginStatus">
-        <span class="status-dot"></span>
-        <span class="status-text" id="loginStatusText">未登录</span>
-      </div>
-    </div>
-  </div>
-
-  <div class="section">
-    <div class="section-title" id="e2eSection">端到端加密</div>
-    <div class="toggle-row">
-      <label id="e2eLabel" for="e2eToggle">启用端到端加密</label>
-      <div class="toggle">
-        <input type="checkbox" id="e2eToggle">
-        <span class="slider"></span>
-      </div>
-    </div>
-    <div class="field" style="margin-top: 10px;">
-      <label id="pubkeyLabel">公钥</label>
-      <div class="pubkey" id="pubkey">&mdash;</div>
-    </div>
-  </div>
-
-  <div class="status" id="status"></div>
+    <div class="status" id="status"></div>
   </div>
 
   <script>
     const api = window.claudeAgent;
+    let currentLang = "en";
     let msgs = {};
 
+    function formatTemplate(template, vars) {
+      if (!vars) return template;
+      return String(template).replace(/\{(\w+)\}/g, (_match, key) => (
+        Object.prototype.hasOwnProperty.call(vars, key) ? vars[key] : ""
+      ));
+    }
+
+    function msg(key, fallback, vars) {
+      return formatTemplate(msgs[key] || fallback, vars);
+    }
+
+    function getErrorMessage(error) {
+      if (error && typeof error.message === "string" && error.message) return error.message;
+      if (typeof error === "string" && error) return error;
+      return msg("common.unknownError", "Unknown error");
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement("div");
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    function inlineText(en, zh) {
+      return currentLang === "zh" ? zh : en;
+    }
+
+    function modelLabel(model) {
+      const value = String(model || "").trim();
+      return value || inlineText("Auto", "自动");
+    }
+
+    function projectModelPlaceholder() {
+      return inlineText(
+        "Leave blank to use the provider default",
+        "留空则使用 provider 默认模型"
+      );
+    }
+
     function applyI18n() {
-      document.getElementById('title').textContent = msgs['settings.title'] || 'Agent Settings';
-      document.getElementById('savedText').textContent = msgs['settings.saved.short'] || 'Saved';
-      document.getElementById('langSection').textContent = msgs['settings.language'] || 'Language';
-      document.getElementById('langLabel').textContent = msgs['settings.languageLabel'] || 'Interface Language';
-      document.getElementById('launchSection').textContent = msgs['settings.launch'] || 'Launch';
-      document.getElementById('autoStartLabel').textContent = msgs['settings.autoStart'] || 'Start on Boot';
-      document.getElementById('silentLaunchLabel').textContent = msgs['settings.silentLaunch'] || 'Silent Launch (minimize to tray)';
-      document.getElementById('serverSection').textContent = msgs['settings.serverConnection'] || 'Server Connection';
-      document.getElementById('serverUrlLabel').textContent = msgs['settings.relayServerUrl'] || 'Relay Server URL';
-      document.getElementById('agentIdLabel').textContent = msgs['settings.agentId'] || 'Agent ID';
-      document.getElementById('agentId').placeholder = msgs['settings.agentIdPlaceholder'] || 'Enter your agent ID';
-      const tokenLabel = document.getElementById('tokenLabel');
-      if (tokenLabel) tokenLabel.textContent = msgs['settings.token'] || 'Authentication Token';
-      const tokenInput = document.getElementById('token');
-      if (tokenInput) tokenInput.placeholder = msgs['settings.tokenPlaceholder'] || 'JWT token';
-      document.getElementById('e2eSection').textContent = msgs['settings.e2e'] || 'End-to-End Encryption';
-      document.getElementById('e2eLabel').textContent = msgs['settings.e2eEnable'] || 'Enable E2E Encryption';
-      document.getElementById('pubkeyLabel').textContent = msgs['settings.publicKey'] || 'Public Key';
-      document.getElementById('reconnectBtn').textContent = msgs['settings.reconnect'] || 'Reconnect';
+      document.documentElement.lang = currentLang;
+      document.title = msg("settings.title", "Agent Settings");
+      document.getElementById("titlebarTitle").textContent = msg("settings.titlebarTitle", "Settings");
+      document.getElementById("title").textContent = msg("settings.title", "Agent Settings");
+      document.getElementById("savedText").textContent = msg("settings.saved.short", "Saved");
+      document.getElementById("langSection").textContent = msg("settings.language", "Language");
+      document.getElementById("langLabel").textContent = msg("settings.languageLabel", "Interface Language");
+      document.getElementById("projectSection").textContent = msg("settings.projects", "Projects");
+      document.getElementById("addProjectBtn").textContent = msg("settings.addProject", "Add Project");
+      document.getElementById("projectNameLabel").textContent = msg("settings.projectName", "Project Name");
+      document.getElementById("projectName").placeholder = msg("settings.projectNamePlaceholder", "Enter project name");
+      document.getElementById("projectPathLabel").textContent = msg("settings.projectPath", "Project Path");
+      document.getElementById("projectPath").placeholder = msg("settings.projectPathPlaceholder", "Enter project path");
+      document.getElementById("projectProviderLabel").textContent = msg("settings.cliProvider", "CLI Provider");
+      document.getElementById("projectModelLabel").textContent = inlineText("Project Model", "项目模型");
+      document.getElementById("projectModel").placeholder = projectModelPlaceholder();
+      document.getElementById("projectList").setAttribute("data-empty-message", msg("settings.projectEmpty", "No projects yet. Add one above to get started."));
+      document.getElementById("saveProjectBtn").textContent = msg("settings.save", "Save");
+      document.getElementById("cancelProjectBtn").textContent = msg("settings.cancel", "Cancel");
+      document.getElementById("launchSection").textContent = msg("settings.launch", "Launch");
+      document.getElementById("autoStartLabel").textContent = msg("settings.autoStart", "Start on Boot");
+      document.getElementById("silentLaunchLabel").textContent = msg("settings.silentLaunch", "Silent Launch (minimize to tray)");
+      document.getElementById("runtimeSection").textContent = msg("settings.runtime", "Runtime");
+      document.getElementById("cliProviderLabel").textContent = msg("settings.cliProvider", "CLI Provider");
+      document.getElementById("runtimeHint").textContent = msg("settings.runtimeHint", "Both providers run in full-auto mode with no approval prompts or click-throughs.");
+      document.getElementById("serverSection").textContent = msg("settings.serverConnection", "Server Connection");
+      document.getElementById("serverUrlLabel").textContent = msg("settings.relayServerUrl", "Relay Server URL");
+      document.getElementById("usernameLabel").textContent = msg("settings.username", "Username");
+      document.getElementById("username").placeholder = msg("settings.usernamePlaceholder", "Enter username");
+      document.getElementById("passwordLabel").textContent = msg("settings.password", "Password");
+      document.getElementById("password").placeholder = msg("settings.passwordPlaceholder", "Enter password");
+      document.getElementById("agentIdLabel").textContent = msg("settings.agentId", "Agent ID");
+      document.getElementById("agentId").placeholder = msg("settings.agentIdPlaceholder", "Enter your agent ID");
+      document.getElementById("loginBtn").textContent = msg("settings.login", "Login");
+      document.getElementById("reconnectBtn").textContent = msg("settings.reconnect", "Reconnect");
+      document.getElementById("loginStatusLabel").textContent = msg("settings.loginStatus", "Login Status");
+      document.getElementById("e2eSection").textContent = msg("settings.e2e", "End-to-End Encryption");
+      document.getElementById("e2eLabel").textContent = msg("settings.e2eEnable", "Enable E2E Encryption");
+      document.getElementById("pubkeyLabel").textContent = msg("settings.publicKey", "Public Key");
+      document.getElementById("minimizeBtn").title = msg("common.minimize", "Minimize");
+      document.getElementById("maximizeBtn").title = msg("common.maximize", "Maximize");
+      document.getElementById("closeBtn").title = msg("common.close", "Close");
+    }
+
+    function flashSaved() {
+      const el = document.getElementById("saveIndicator");
+      el.classList.add("visible");
+      clearTimeout(el._timer);
+      el._timer = setTimeout(() => el.classList.remove("visible"), 1500);
+    }
+
+    async function saveConnectionConfig() {
+      await api.saveConfig({
+        serverUrl: document.getElementById("serverUrl").value.trim(),
+        username: document.getElementById("username").value.trim(),
+        agentId: document.getElementById("agentId").value.trim(),
+        cliProvider: document.getElementById("cliProvider").value,
+      });
+      flashSaved();
+    }
+
+    async function updateLoginStatus() {
+      try {
+        const config = await api.getConfig();
+        const statusEl = document.getElementById("loginStatus");
+        const textEl = document.getElementById("loginStatusText");
+        if (config.token) {
+          statusEl.className = "connection-status connected";
+          textEl.textContent = msg("settings.loggedIn", "Logged in");
+        } else {
+          statusEl.className = "connection-status disconnected";
+          textEl.textContent = msg("settings.loggedOut", "Not logged in");
+        }
+      } catch (error) {
+        console.error("Failed to update login status:", error);
+      }
+    }
+
+    async function updateConnectionStatus() {
+      try {
+        const status = await api.getConnectionStatus();
+        const statusEl = document.getElementById("connectionStatus");
+        const textEl = document.getElementById("statusText");
+        statusEl.className = "connection-status " + status.state;
+        const statusTexts = {
+          connected: msg("settings.status.connected", "Connected"),
+          connecting: msg("settings.status.connecting", "Connecting"),
+          disconnected: msg("settings.status.disconnected", "Disconnected"),
+        };
+        textEl.textContent = statusTexts[status.state] || statusTexts.disconnected;
+      } catch (error) {
+        console.error("Failed to get connection status:", error);
+      }
+    }
+
+    function showStatus(text, isError) {
+      const el = document.getElementById("status");
+      el.textContent = text;
+      el.className = "status" + (isError ? " error" : "");
+      el.style.display = "block";
+      setTimeout(() => { el.style.display = "none"; }, 3000);
+    }
+
+    async function loadProjects() {
+      try {
+        const projects = await api.getProjects();
+        const listEl = document.getElementById("projectList");
+        if (!projects || projects.length === 0) {
+          listEl.innerHTML = "";
+          return;
+        }
+        const providerLabel = (provider) => provider === "codex" ? "OpenAI Codex" : "Claude Code";
+        listEl.innerHTML = projects.map((project) => `
+          <div class="project-item">
+            <div class="project-info">
+              <div class="project-name">${escapeHtml(project.name)}</div>
+              <div class="project-meta-row">
+                <span class="project-provider-badge ${escapeHtml(project.cliProvider || "claude")}">${escapeHtml(providerLabel(project.cliProvider || "claude"))}</span>
+                <span class="project-model-badge">${escapeHtml(modelLabel(project.cliModel))}</span>
+              </div>
+              <div class="project-path">${escapeHtml(project.path)}</div>
+            </div>
+            <div class="project-actions">
+              <select class="project-provider-select" onchange="updateProjectProvider('${project.id}', this.value)">
+                <option value="claude" ${(project.cliProvider || "claude") === "claude" ? "selected" : ""}>Claude Code</option>
+                <option value="codex" ${(project.cliProvider || "claude") === "codex" ? "selected" : ""}>OpenAI Codex</option>
+              </select>
+              <input
+                class="project-model-input"
+                type="text"
+                value="${escapeHtml(project.cliModel || "")}"
+                placeholder="${escapeHtml(projectModelPlaceholder())}"
+                onblur="updateProjectModel('${project.id}', this.value)"
+                onkeydown="handleProjectModelKey(event, '${project.id}', this)"
+              >
+              <button class="btn-secondary btn-small" onclick="openProject('${project.id}')">${escapeHtml(msg("settings.projectOpen", "Open"))}</button>
+              <button class="btn-danger btn-small" onclick="deleteProject('${project.id}')">${escapeHtml(msg("settings.projectDelete", "Delete"))}</button>
+            </div>
+          </div>
+        `).join("");
+      } catch (error) {
+        console.error("Failed to load projects:", error);
+      }
+    }
+
+    async function openProject(projectId) {
+      try {
+        await api.openProject(projectId);
+      } catch (error) {
+        showStatus(msg("settings.projectOpenFailed", "Failed to open project: {error}", { error: getErrorMessage(error) }), true);
+      }
+    }
+
+    async function deleteProject(projectId) {
+      if (!confirm(msg("settings.projectDeleteConfirm", "Delete this project?"))) return;
+      try {
+        await api.deleteProject(projectId);
+        await loadProjects();
+        flashSaved();
+      } catch (error) {
+        showStatus(msg("settings.projectDeleteFailed", "Failed to delete project: {error}", { error: getErrorMessage(error) }), true);
+      }
+    }
+
+    async function updateProjectConfig(projectId, updates) {
+      try {
+        const result = await api.updateProject({ projectId, updates });
+        if (!result || result.success === false) {
+          showStatus(msg("settings.saveFailed", "Failed: {error}", { error: result?.error || msg("common.unknownError", "Unknown error") }), true);
+          await loadProjects();
+          return false;
+        }
+        await loadProjects();
+        flashSaved();
+        return true;
+      } catch (error) {
+        showStatus(msg("settings.saveFailed", "Failed: {error}", { error: getErrorMessage(error) }), true);
+        await loadProjects();
+        return false;
+      }
+    }
+
+    async function updateProjectProvider(projectId, cliProvider) {
+      await updateProjectConfig(projectId, { cliProvider });
+    }
+
+    async function updateProjectModel(projectId, cliModel) {
+      await updateProjectConfig(projectId, {
+        cliModel: String(cliModel || "").trim() || null,
+      });
+    }
+
+    function handleProjectModelKey(event, projectId, input) {
+      if (event.key !== "Enter") {
+        return;
+      }
+      event.preventDefault();
+      input.blur();
+      void updateProjectModel(projectId, input.value);
+    }
+
+    async function syncLanguage(lang, messages) {
+      currentLang = lang || "en";
+      msgs = messages || {};
+      document.getElementById("langSelect").value = currentLang;
+      applyI18n();
+      await Promise.all([loadProjects(), updateConnectionStatus(), updateLoginStatus()]);
     }
 
     async function loadSettings() {
@@ -749,275 +775,152 @@
         api.getI18nMessages(),
         api.getAppSettings(),
       ]);
-
-      document.getElementById('serverUrl').value = config.serverUrl || '';
-      document.getElementById('username').value = config.username || '';
-      document.getElementById('agentId').value = config.agentId || '';
-      document.getElementById('e2eToggle').checked = e2e.enabled;
-      document.getElementById('pubkey').textContent = e2e.publicKey || '\u2014';
-      document.getElementById('langSelect').value = lang || 'en';
-      document.getElementById('autoStartToggle').checked = appSettings.autoStart || false;
-      document.getElementById('silentLaunchToggle').checked = appSettings.silentLaunch || false;
-
-      msgs = i18nMessages || {};
-      applyI18n();
-      updateLoginStatus();
+      document.getElementById("serverUrl").value = config.serverUrl || "";
+      document.getElementById("username").value = config.username || "";
+      document.getElementById("agentId").value = config.agentId || "";
+      document.getElementById("cliProvider").value = config.cliProvider || "claude";
+      document.getElementById("projectProvider").value = config.cliProvider || "claude";
+      document.getElementById("projectModel").value = "";
+      document.getElementById("e2eToggle").checked = e2e.enabled;
+      document.getElementById("pubkey").textContent = e2e.publicKey || "—";
+      document.getElementById("autoStartToggle").checked = appSettings.autoStart || false;
+      document.getElementById("silentLaunchToggle").checked = appSettings.silentLaunch || false;
+      await syncLanguage(lang || "en", i18nMessages || {});
     }
 
-    function flashSaved() {
-      const el = document.getElementById('saveIndicator');
-      el.classList.add('visible');
-      clearTimeout(el._timer);
-      el._timer = setTimeout(() => el.classList.remove('visible'), 1500);
-    }
-
-    async function saveConnectionConfig() {
-      await api.saveConfig({
-        serverUrl: document.getElementById('serverUrl').value.trim(),
-        username: document.getElementById('username').value.trim(),
-        agentId: document.getElementById('agentId').value.trim(),
-      });
-      flashSaved();
-    }
-
-    // Auto-save text inputs on blur
-    ['serverUrl', 'username', 'agentId'].forEach(id => {
-      document.getElementById(id).addEventListener('blur', saveConnectionConfig);
+    ["serverUrl", "username", "agentId"].forEach((id) => {
+      document.getElementById(id).addEventListener("blur", () => { void saveConnectionConfig(); });
     });
 
-    // Login button
-    document.getElementById('loginBtn').addEventListener('click', async () => {
-      const serverUrl = document.getElementById('serverUrl').value.trim();
-      const username = document.getElementById('username').value.trim();
-      const password = document.getElementById('password').value.trim();
-      const agentId = document.getElementById('agentId').value.trim();
+    document.getElementById("cliProvider").addEventListener("change", () => {
+      document.getElementById("projectProvider").value = document.getElementById("cliProvider").value;
+      void saveConnectionConfig();
+    });
 
+    document.getElementById("loginBtn").addEventListener("click", async () => {
+      const serverUrl = document.getElementById("serverUrl").value.trim();
+      const username = document.getElementById("username").value.trim();
+      const password = document.getElementById("password").value.trim();
+      const agentId = document.getElementById("agentId").value.trim();
       if (!serverUrl || !username || !password || !agentId) {
-        showStatus('请填写所有字段', true);
+        showStatus(msg("settings.fillRequired", "Please fill in all fields."), true);
         return;
       }
-
       try {
-        // Save config first
         await saveConnectionConfig();
-
-        // Call login API
         const result = await api.login({ username, password, agentId });
-
         if (result.success) {
-          showStatus('登录成功', false);
-          document.getElementById('password').value = ''; // Clear password
-          updateLoginStatus();
-
-          // Reconnect with new token
+          showStatus(msg("settings.loginSuccess", "Login successful"), false);
+          document.getElementById("password").value = "";
+          await updateLoginStatus();
           setTimeout(() => api.reconnectRelay(), 500);
         } else {
-          showStatus('登录失败: ' + (result.error || '未知错误'), true);
+          showStatus(msg("settings.loginFailed", "Login failed: {error}", {
+            error: result.error || msg("common.unknownError", "Unknown error"),
+          }), true);
         }
-      } catch (err) {
-        showStatus('登录失败: ' + err.message, true);
+      } catch (error) {
+        showStatus(msg("settings.loginFailed", "Login failed: {error}", { error: getErrorMessage(error) }), true);
       }
     });
 
-    // Update login status
-    async function updateLoginStatus() {
-      try {
-        const config = await api.getConfig();
-        const statusEl = document.getElementById('loginStatus');
-        const textEl = document.getElementById('loginStatusText');
-
-        if (config.token) {
-          statusEl.className = 'connection-status connected';
-          textEl.textContent = '已登录';
-        } else {
-          statusEl.className = 'connection-status disconnected';
-          textEl.textContent = '未登录';
-        }
-      } catch (err) {
-        console.error('Failed to update login status:', err);
-      }
-    }
-
-    // Language
-    document.getElementById('langSelect').addEventListener('change', async (e) => {
-      await api.setLang(e.target.value);
+    document.getElementById("langSelect").addEventListener("change", async (event) => {
+      currentLang = event.target.value;
+      await api.setLang(currentLang);
       msgs = await api.getI18nMessages();
       applyI18n();
+      await Promise.all([loadProjects(), updateConnectionStatus(), updateLoginStatus()]);
       flashSaved();
     });
 
-    // Launch toggles
-    document.getElementById('autoStartToggle').addEventListener('change', async (e) => {
-      await api.setAppSettings({ autoStart: e.target.checked });
-      flashSaved();
-    });
-    document.getElementById('silentLaunchToggle').addEventListener('change', async (e) => {
-      await api.setAppSettings({ silentLaunch: e.target.checked });
+    document.getElementById("autoStartToggle").addEventListener("change", async (event) => {
+      await api.setAppSettings({ autoStart: event.target.checked });
       flashSaved();
     });
 
-    // E2E toggle
-    document.getElementById('e2eToggle').addEventListener('change', async (e) => {
-      await api.setE2EEnabled(e.target.checked);
+    document.getElementById("silentLaunchToggle").addEventListener("change", async (event) => {
+      await api.setAppSettings({ silentLaunch: event.target.checked });
+      flashSaved();
+    });
+
+    document.getElementById("e2eToggle").addEventListener("change", async (event) => {
+      await api.setE2EEnabled(event.target.checked);
       flashSaved();
       setTimeout(async () => {
         const e2e = await api.getE2EStatus();
-        document.getElementById('pubkey').textContent = e2e.publicKey || '\u2014';
+        document.getElementById("pubkey").textContent = e2e.publicKey || "—";
       }, 500);
     });
 
-    // Reconnect
-    document.getElementById('reconnectBtn').addEventListener('click', async () => {
+    document.getElementById("reconnectBtn").addEventListener("click", async () => {
       try {
         await saveConnectionConfig();
         await api.reconnectRelay();
-        showStatus(msgs['settings.saved'] || 'Reconnecting...', false);
+        showStatus(msg("settings.saved", "Reconnecting..."), false);
         setTimeout(async () => {
           const e2e = await api.getE2EStatus();
-          document.getElementById('pubkey').textContent = e2e.publicKey || '\u2014';
-          updateLoginStatus();
+          document.getElementById("pubkey").textContent = e2e.publicKey || "—";
+          await Promise.all([updateConnectionStatus(), updateLoginStatus()]);
         }, 1000);
-      } catch (err) {
-        showStatus((msgs['settings.saveFailed'] || 'Failed: ') + err.message, true);
+      } catch (error) {
+        showStatus(msg("settings.saveFailed", "Failed: {error}", { error: getErrorMessage(error) }), true);
       }
     });
 
-    function showStatus(msg, isError) {
-      const el = document.getElementById('status');
-      el.textContent = msg;
-      el.className = 'status' + (isError ? ' error' : '');
-      el.style.display = 'block';
-      setTimeout(() => { el.style.display = 'none'; }, 3000);
-    }
-
-    // 连接状态更新
-    async function updateConnectionStatus() {
-      try {
-        const status = await api.getConnectionStatus();
-        const statusEl = document.getElementById('connectionStatus');
-        const textEl = document.getElementById('statusText');
-
-        statusEl.className = 'connection-status ' + status.state;
-
-        const statusTexts = {
-          connected: msgs['settings.status.connected'] || '已连接',
-          connecting: msgs['settings.status.connecting'] || '连接中',
-          disconnected: msgs['settings.status.disconnected'] || '未连接'
-        };
-
-        textEl.textContent = statusTexts[status.state] || statusTexts.disconnected;
-      } catch (err) {
-        console.error('Failed to get connection status:', err);
-      }
-    }
-
-    // 项目列表加载
-    async function loadProjects() {
-      try {
-        const projects = await api.getProjects();
-        const listEl = document.getElementById('projectList');
-
-        if (!projects || projects.length === 0) {
-          listEl.innerHTML = '';
-          return;
-        }
-
-        listEl.innerHTML = projects.map(p => `
-          <div class="project-item">
-            <div class="project-info">
-              <div class="project-name">${escapeHtml(p.name)}</div>
-              <div class="project-path">${escapeHtml(p.path)}</div>
-            </div>
-            <div class="project-actions">
-              <button class="btn-secondary btn-small" onclick="openProject('${p.id}')">打开</button>
-              <button class="btn-danger btn-small" onclick="deleteProject('${p.id}')">删除</button>
-            </div>
-          </div>
-        `).join('');
-      } catch (err) {
-        console.error('Failed to load projects:', err);
-      }
-    }
-
-    function escapeHtml(text) {
-      const div = document.createElement('div');
-      div.textContent = text;
-      return div.innerHTML;
-    }
-
-    async function openProject(projectId) {
-      try {
-        await api.openProject(projectId);
-      } catch (err) {
-        showStatus('打开项目失败: ' + err.message, true);
-      }
-    }
-
-    async function deleteProject(projectId) {
-      if (!confirm('确定要删除这个项目吗？')) return;
-
-      try {
-        await api.deleteProject(projectId);
-        await loadProjects();
-        flashSaved();
-      } catch (err) {
-        showStatus('删除项目失败: ' + err.message, true);
-      }
-    }
-
-    // 添加项目表单
-    document.getElementById('addProjectBtn').addEventListener('click', () => {
-      document.getElementById('addProjectForm').classList.add('visible');
-      document.getElementById('projectName').focus();
+    document.getElementById("addProjectBtn").addEventListener("click", () => {
+      document.getElementById("addProjectForm").classList.add("visible");
+      document.getElementById("projectName").focus();
     });
 
-    document.getElementById('cancelProjectBtn').addEventListener('click', () => {
-      document.getElementById('addProjectForm').classList.remove('visible');
-      document.getElementById('projectName').value = '';
-      document.getElementById('projectPath').value = '';
+    document.getElementById("cancelProjectBtn").addEventListener("click", () => {
+      document.getElementById("addProjectForm").classList.remove("visible");
+      document.getElementById("projectName").value = "";
+      document.getElementById("projectPath").value = "";
+      document.getElementById("projectProvider").value = document.getElementById("cliProvider").value || "claude";
+      document.getElementById("projectModel").value = "";
     });
 
-    document.getElementById('saveProjectBtn').addEventListener('click', async () => {
-      const name = document.getElementById('projectName').value.trim();
-      const path = document.getElementById('projectPath').value.trim();
-
+    document.getElementById("saveProjectBtn").addEventListener("click", async () => {
+      const name = document.getElementById("projectName").value.trim();
+      const path = document.getElementById("projectPath").value.trim();
+      const cliProvider = document.getElementById("projectProvider").value;
+      const cliModel = document.getElementById("projectModel").value.trim();
       if (!name || !path) {
-        showStatus('请填写项目名称和路径', true);
+        showStatus(msg("settings.projectRequired", "Project name and path are required."), true);
         return;
       }
-
       try {
-        await api.addProject({ name, path });
-        document.getElementById('addProjectForm').classList.remove('visible');
-        document.getElementById('projectName').value = '';
-        document.getElementById('projectPath').value = '';
+        await api.addProject({ name, path, cliProvider, cliModel: cliModel || null });
+        document.getElementById("addProjectForm").classList.remove("visible");
+        document.getElementById("projectName").value = "";
+        document.getElementById("projectPath").value = "";
+        document.getElementById("projectProvider").value = document.getElementById("cliProvider").value || "claude";
+        document.getElementById("projectModel").value = "";
         await loadProjects();
         flashSaved();
-      } catch (err) {
-        showStatus('添加项目失败: ' + err.message, true);
+      } catch (error) {
+        showStatus(msg("settings.projectAddFailed", "Failed to add project: {error}", { error: getErrorMessage(error) }), true);
       }
     });
 
-    // 初始化
-    loadSettings();
-    loadProjects();
-    updateConnectionStatus();
+    if (typeof api.onLangChanged === "function") {
+      api.onLangChanged((payload) => { void syncLanguage(payload.lang, payload.messages); });
+    }
 
-    // 定期更新连接状态
-    setInterval(updateConnectionStatus, 3000);
+    if (typeof api.onProjectsChanged === "function") {
+      api.onProjectsChanged(() => { void loadProjects(); });
+    }
 
-    // 窗口控制按钮
-    document.getElementById('minimizeBtn').addEventListener('click', () => {
-      api.minimizeWindow();
-    });
+    document.getElementById("minimizeBtn").addEventListener("click", () => api.minimizeWindow());
+    document.getElementById("maximizeBtn").addEventListener("click", () => api.maximizeWindow());
+    document.getElementById("closeBtn").addEventListener("click", () => api.closeWindow());
 
-    document.getElementById('maximizeBtn').addEventListener('click', () => {
-      api.maximizeWindow();
-    });
+    async function initialize() {
+      await loadSettings();
+      setInterval(updateConnectionStatus, 3000);
+    }
 
-    document.getElementById('closeBtn').addEventListener('click', () => {
-      api.closeWindow();
-    });
+    void initialize();
   </script>
 </body>
 </html>

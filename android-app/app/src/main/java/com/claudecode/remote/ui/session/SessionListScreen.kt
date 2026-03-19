@@ -6,11 +6,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -23,8 +21,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.claudecode.remote.R
 import com.claudecode.remote.data.model.Session
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -32,13 +28,13 @@ import kotlinx.coroutines.launch
 fun SessionListScreen(
     viewModel: SessionViewModel,
     webSocket: com.claudecode.remote.data.remote.RelayWebSocket,
-    onNavigateToChat: (sessionId: String) -> Unit,
+    onNavigateToChat: (session: Session) -> Unit,
     onNavigateToSettings: () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val connectionState by webSocket.connectionState.collectAsState()
     val connectionError by webSocket.errorMessage.collectAsState()
-    var showAddDialog by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
     var serverUrlInput by remember { mutableStateOf(uiState.serverUrl) }
 
     LaunchedEffect(Unit) {
@@ -63,6 +59,12 @@ fun SessionListScreen(
                     }
                 },
                 actions = {
+                    IconButton(
+                        onClick = { viewModel.syncFromDesktop() },
+                        enabled = connectionState == com.claudecode.remote.data.remote.RelayWebSocket.ConnectionState.CONNECTED
+                    ) {
+                        Icon(Icons.Default.Refresh, contentDescription = "Refresh from desktop")
+                    }
                     // Connection toggle button
                     IconButton(
                         onClick = {
@@ -73,7 +75,7 @@ fun SessionListScreen(
                                     webSocket.disconnect()
                                 }
                                 com.claudecode.remote.data.remote.RelayWebSocket.ConnectionState.DISCONNECTED -> {
-                                    CoroutineScope(Dispatchers.Main).launch {
+                                    coroutineScope.launch {
                                         webSocket.connect()
                                     }
                                 }
@@ -104,11 +106,6 @@ fun SessionListScreen(
                     containerColor = MaterialTheme.colorScheme.primaryContainer
                 )
             )
-        },
-        floatingActionButton = {
-            FloatingActionButton(onClick = { showAddDialog = true }) {
-                Icon(Icons.Default.Add, contentDescription = stringResource(R.string.add_session))
-            }
         }
     ) { padding ->
         Box(modifier = Modifier.padding(padding).fillMaxSize()) {
@@ -130,8 +127,7 @@ fun SessionListScreen(
                     items(uiState.sessions, key = { it.id }) { session ->
                         SessionCard(
                             session = session,
-                            onClick = { onNavigateToChat(session.id) },
-                            onDelete = { viewModel.removeSession(session.id) }
+                            onClick = { onNavigateToChat(session) }
                         )
                     }
                 }
@@ -172,20 +168,16 @@ fun SessionListScreen(
             }
         }
     }
-
-    if (showAddDialog) {
-        AddSessionDialog(
-            onConfirm = { agentId, projectId, path, name ->
-                viewModel.addSession(agentId, projectId, path, name)
-                showAddDialog = false
-            },
-            onDismiss = { showAddDialog = false }
-        )
-    }
 }
 
+private fun providerLabel(provider: String): String =
+    if (provider == "codex") "OpenAI Codex" else "Claude Code"
+
+private fun modelLabel(model: String?): String =
+    model?.trim().takeUnless { it.isNullOrEmpty() } ?: "Auto"
+
 @Composable
-private fun SessionCard(session: Session, onClick: () -> Unit, onDelete: () -> Unit) {
+private fun SessionCard(session: Session, onClick: () -> Unit) {
     Card(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
@@ -220,16 +212,14 @@ private fun SessionCard(session: Session, onClick: () -> Unit, onDelete: () -> U
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
+                    text = "${providerLabel(session.cliProvider)} · ${modelLabel(session.cliModel)}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Text(
               text = stringResource(R.string.agent_prefix, session.agentId.take(8)),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            IconButton(onClick = onDelete) {
-                Icon(
-                    Icons.Default.Delete,
-                    contentDescription = stringResource(R.string.delete_session),
-                    tint = MaterialTheme.colorScheme.error
                 )
             }
         }
@@ -269,64 +259,4 @@ private fun ConnectionStatusBadge(state: com.claudecode.remote.data.remote.Relay
             fontWeight = FontWeight.Medium
         )
     }
-}
-
-@Composable
-private fun AddSessionDialog(
-    onConfirm: (agentId: String, projectId: String, path: String, name: String) -> Unit,
-    onDismiss: () -> Unit
-) {
-    var agentId by remember { mutableStateOf("") }
-    var projectId by remember { mutableStateOf("") }
-    var path by remember { mutableStateOf("") }
-    var name by remember { mutableStateOf("") }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.add_session)) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text(stringResource(R.string.session_name_label)) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = agentId,
-                    onValueChange = { agentId = it },
-                    label = { Text(stringResource(R.string.agent_id_label)) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = projectId,
-                    onValueChange = { projectId = it },
-                    label = { Text(stringResource(R.string.project_id_label)) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = path,
-                    onValueChange = { path = it },
-                    label = { Text(stringResource(R.string.project_path_label)) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    if (agentId.isNotBlank() && projectId.isNotBlank() && path.isNotBlank() && name.isNotBlank()) {
-                        onConfirm(agentId.trim(), projectId.trim(), path.trim(), name.trim())
-                    }
-                }
-            ) { Text(stringResource(R.string.add)) }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
-        }
-    )
 }

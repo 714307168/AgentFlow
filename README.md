@@ -83,6 +83,8 @@ npm start
 - 会话=项目 — 每个会话映射到一个本地项目目录
 - 跨平台常驻 — Windows / macOS / Linux 本地代理后台运行
 - 离线唤醒 — 本地代理离线时可远程触发重连
+- 桌面联动唤起 — 手机端发消息前会请求唤醒 Agent，桌面端在收到远程消息时自动弹出对应项目窗口
+- 流式输出清洗 — Local Agent 会过滤 ANSI 控制字符、输入回显和 prompt 噪音，手机端按 `stream_id + seq` 去重重组
 - 服务器最小化 — 仅做消息路由，不存储项目内容
 - 自定义服务器 — 三端均支持自行填写服务器地址和客户端信息
 - 端到端加密 — X25519 密钥交换 + AES-256-GCM，Relay Server 仅透传密文
@@ -115,6 +117,8 @@ Relay Server 全程无法解密消息内容，仅根据 Envelope 头部的 `even
 }
 ```
 
+当前实现中的流式回复事件为 `message.chunk` 和 `message.done`，而不是单一的 `message.stream` 包装事件。
+
 E2E 加密启用后，payload 变为：
 
 ```json
@@ -127,10 +131,14 @@ E2E 加密启用后，payload 变为：
 
 详细协议与 API 定义见 [claude-code-remote-app-spec.md](./claude-code-remote-app-spec.md)。
 
+## 当前消息链路
+
+1. Android App 在发送消息或文件前，先调用 `POST /api/agent/wakeup` 请求唤醒对应 Agent。
+2. App 随后通过 WebSocket 发送 `message.send` 到 Relay Server，再转发给 Local Agent。
+3. Local Agent 收到远程消息后会自动唤起桌面上的项目终端窗口，并把消息写入 Claude Code PTY。
+4. Agent 将清洗后的增量文本拆成 `message.chunk`，结束时发送 `message.done`。
+5. Android App 按 `stream_id + seq` 去重、排序并拼装流式文本，避免重复 chunk 导致内容混乱。
+
 ## 许可证
 
 MIT
-
-## Latest Validation (2026-03-18)
-- See detailed fixes and full regression results:
-  - [VALIDATION-REPORT-2026-03-18.md](./VALIDATION-REPORT-2026-03-18.md)

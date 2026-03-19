@@ -34,7 +34,7 @@ data class SettingsState(
 @Composable
 fun SettingsScreen(
     initialState: SettingsState,
-    onSave: (serverUrl: String, deviceId: String, token: String, e2eEnabled: Boolean) -> Unit,
+    onSave: (serverUrl: String, deviceId: String, e2eEnabled: Boolean) -> Unit,
     onLogin: (serverUrl: String, username: String, password: String, deviceId: String) -> Unit,
     onLanguageChange: (String) -> Unit,
     onNavigateBack: () -> Unit
@@ -43,7 +43,6 @@ fun SettingsScreen(
     var deviceId by remember { mutableStateOf(initialState.deviceId) }
     var username by remember { mutableStateOf(initialState.username) }
     var password by remember { mutableStateOf("") }
-    var token by remember { mutableStateOf(initialState.token) }
     var e2eEnabled by remember { mutableStateOf(initialState.e2eEnabled) }
     var selectedLang by remember { mutableStateOf(initialState.language) }
     var langExpanded by remember { mutableStateOf(false) }
@@ -265,7 +264,7 @@ fun SettingsScreen(
 
             Button(
                 onClick = {
-                    onSave(serverUrl.trim(), deviceId.trim(), token.trim(), e2eEnabled)
+                    onSave(serverUrl.trim(), deviceId.trim(), e2eEnabled)
                     message = "Settings saved"
                 },
                 modifier = Modifier.fillMaxWidth(),

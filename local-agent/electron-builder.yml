@@ -10,12 +10,14 @@ files:
 
 directories:
   output: release
+  buildResources: assets
 
 extraResources:
   - from: node_modules/node-pty
     to: node_modules/node-pty
 
 win:
+  icon: app-icon.ico
   target:
     - target: dir
       arch:

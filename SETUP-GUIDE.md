@@ -114,6 +114,12 @@ ipconfig
 3. 等待状态变为 **🟢 已连接**
 4. 项目列表会自动同步显示
 
+#### 4.4 远程唤起与流式回复说明
+1. 手机端每次发送消息或文件前，会先调用 `POST /api/agent/wakeup` 请求唤醒对应 Agent。
+2. 如果电脑端 Local Agent 正在托盘常驻，收到远程消息后会自动弹出对应项目窗口，而不是只在后台执行。
+3. 手机端显示的流式回复来自 `message.chunk` / `message.done` 事件，客户端会按 `stream_id + seq` 去重并重组文本。
+4. Local Agent 会过滤 Claude Code 终端中的 ANSI 控制字符、输入回显和 prompt 行，所以手机端看到的内容会比桌面 PTY 更干净。
+
 ---
 
 ## 🔍 连接状态说明
@@ -192,6 +198,25 @@ netsh advfirewall firewall add rule name="Claude Relay Server" dir=in action=all
 ```bash
 netstat -ano | findstr :8080
 ```
+
+---
+
+### 问题 4：手机端消息流式内容混乱，或电脑端没有自动弹出项目窗口
+
+**现象**：
+1. 手机端回复中出现重复段落、prompt、回显输入或乱码式终端字符
+2. 手机发出消息后，电脑端 Agent 已在线但没有弹出对应项目窗口
+
+**排查步骤**：
+1. 确认 `local-agent` 已更新到包含流式清洗和自动弹窗逻辑的最新构建，并重新执行 `npm run build`
+2. 确认 Android App 已更新到包含 `agent.wakeup` 预唤醒和 chunk 去重逻辑的最新 APK
+3. 确认当前会话绑定的 `agentId` 正确，手机端项目列表不是旧缓存
+4. 保持 Local Agent 常驻在系统托盘，不要直接退出主进程
+5. 查看日志中是否出现 `Wakeup requested for agentId=...`、`[MessageRouter] Received message.send`、`[Main] Relay connected`
+
+**预期行为**：
+1. 手机端发送消息后，若 Agent 已在线，电脑端会直接弹出对应项目终端窗口
+2. 手机端流式输出应逐步追加正文，不应再混入输入回显、`>` prompt 或重复 chunk
 
 ---
 

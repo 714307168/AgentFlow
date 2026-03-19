@@ -15,6 +15,12 @@ interface SessionDao {
     @Query("SELECT * FROM sessions WHERE id = :id")
     suspend fun getSessionById(id: String): SessionEntity?
 
+    @Query("SELECT * FROM sessions WHERE projectId = :projectId LIMIT 1")
+    fun observeSessionByProjectId(projectId: String): Flow<SessionEntity?>
+
+    @Query("SELECT projectId FROM sessions")
+    suspend fun getAllProjectIds(): List<String>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSession(session: SessionEntity)
 
@@ -23,6 +29,9 @@ interface SessionDao {
 
     @Update
     suspend fun updateSession(session: SessionEntity)
+
+    @Query("UPDATE sessions SET cliProvider = :cliProvider, cliModel = :cliModel, lastActiveAt = :lastActiveAt WHERE projectId = :projectId")
+    suspend fun updateSessionRuntime(projectId: String, cliProvider: String, cliModel: String?, lastActiveAt: Long)
 
     @Query("DELETE FROM sessions WHERE id = :id")
     suspend fun deleteSession(id: String)

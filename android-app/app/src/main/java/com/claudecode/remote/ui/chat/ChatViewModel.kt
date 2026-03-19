@@ -7,6 +7,7 @@ import com.claudecode.remote.data.model.Message
 import com.claudecode.remote.data.remote.RelayWebSocket
 import com.claudecode.remote.domain.MessageRepository
 import com.claudecode.remote.util.CrashLogger
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -19,7 +20,10 @@ data class ChatUiState(
     val isConnected: Boolean = false,
     val isSending: Boolean = false,
     val projectId: String = "",
-    val projectName: String = ""
+    val projectName: String = "",
+    val agentId: String = "",
+    val cliProvider: String = "claude",
+    val cliModel: String = ""
 )
 
 class ChatViewModel(
@@ -29,35 +33,58 @@ class ChatViewModel(
 
     private val _uiState = MutableStateFlow(ChatUiState())
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
+    private var messagesJob: Job? = null
+    private var sessionJob: Job? = null
+    private var lastSyncedProjectId: String? = null
 
     init {
         // Observe connection state
         viewModelScope.launch {
             webSocket.connectionState.collect { state ->
+                val isConnected = state == RelayWebSocket.ConnectionState.CONNECTED
                 _uiState.update {
-                    it.copy(isConnected = state == RelayWebSocket.ConnectionState.CONNECTED)
+                    it.copy(isConnected = isConnected)
                 }
-            }
-        }
-        // Process incoming envelopes
-        viewModelScope.launch {
-            webSocket.incomingEnvelopes.collect { envelope ->
-                messageRepository.processEnvelope(envelope)
+
+                if (isConnected) {
+                    lastSyncedProjectId = null
+                    requestProjectSyncIfConnected(force = true)
+                }
             }
         }
     }
 
-    fun loadProject(projectId: String, projectName: String) {
-        CrashLogger.logInfo("ChatViewModel", "loadProject called: projectId=$projectId, projectName=$projectName")
+    fun loadProject(projectId: String, projectName: String, agentId: String) {
+        CrashLogger.logInfo("ChatViewModel", "loadProject called: projectId=$projectId, projectName=$projectName, agentId=$agentId")
 
         if (projectId.isEmpty()) {
             CrashLogger.logError("ChatViewModel", "loadProject called with empty projectId")
             return
         }
 
-        _uiState.update { it.copy(projectId = projectId, projectName = projectName) }
+        _uiState.update { it.copy(projectId = projectId, projectName = projectName, agentId = agentId) }
+        lastSyncedProjectId = null
 
-        viewModelScope.launch {
+        sessionJob?.cancel()
+        sessionJob = viewModelScope.launch {
+            try {
+                messageRepository.getSessionForProject(projectId).collect { session ->
+                    _uiState.update { current ->
+                        current.copy(
+                            projectName = session?.name?.ifBlank { current.projectName } ?: current.projectName,
+                            agentId = session?.agentId?.ifBlank { current.agentId } ?: current.agentId,
+                            cliProvider = session?.cliProvider?.ifBlank { "claude" } ?: current.cliProvider,
+                            cliModel = session?.cliModel?.orEmpty() ?: ""
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                CrashLogger.logError("ChatViewModel", "Error collecting session metadata", e)
+            }
+        }
+
+        messagesJob?.cancel()
+        messagesJob = viewModelScope.launch {
             try {
                 CrashLogger.logInfo("ChatViewModel", "Starting to collect messages for project: $projectId")
                 messageRepository.getMessagesForProject(projectId).collect { messages ->
@@ -69,6 +96,8 @@ class ChatViewModel(
                 e.printStackTrace()
             }
         }
+
+        requestProjectSyncIfConnected(force = true)
 
         // Don't reconnect if already connected
         viewModelScope.launch {
@@ -89,6 +118,30 @@ class ChatViewModel(
         }
     }
 
+    private fun requestProjectSyncIfConnected(force: Boolean = false) {
+        val state = _uiState.value
+        if (state.projectId.isBlank()) {
+            return
+        }
+        if (webSocket.connectionState.value != RelayWebSocket.ConnectionState.CONNECTED) {
+            return
+        }
+        if (!force && lastSyncedProjectId == state.projectId) {
+            return
+        }
+
+        viewModelScope.launch {
+            try {
+                lastSyncedProjectId = state.projectId
+                CrashLogger.logInfo("ChatViewModel", "Requesting desktop sync for projectId=${state.projectId}")
+                messageRepository.requestProjectSync(state.projectId, state.agentId)
+            } catch (e: Exception) {
+                lastSyncedProjectId = null
+                CrashLogger.logError("ChatViewModel", "Error requesting desktop sync", e)
+            }
+        }
+    }
+
     fun updateInput(text: String) {
         _uiState.update { it.copy(inputText = text) }
     }
@@ -102,7 +155,7 @@ class ChatViewModel(
         viewModelScope.launch {
             try {
                 CrashLogger.logInfo("ChatViewModel", "Sending message: projectId=${state.projectId}, content length=${content.length}")
-                messageRepository.sendMessage(state.projectId, content)
+                messageRepository.sendMessage(state.projectId, content, state.agentId)
             } catch (e: Exception) {
                 CrashLogger.logError("ChatViewModel", "Error sending message", e)
             } finally {
@@ -119,7 +172,7 @@ class ChatViewModel(
         viewModelScope.launch {
             try {
                 CrashLogger.logInfo("ChatViewModel", "Sending file: projectId=${state.projectId}, uri=$fileUri")
-                messageRepository.sendFile(state.projectId, fileUri)
+                messageRepository.sendFile(state.projectId, fileUri, state.agentId)
             } catch (e: Exception) {
                 CrashLogger.logError("ChatViewModel", "Error sending file", e)
             } finally {
@@ -130,6 +183,28 @@ class ChatViewModel(
 
     fun clearInput() {
         _uiState.update { it.copy(inputText = "") }
+    }
+
+    fun changeModel(rawModel: String) {
+        val state = _uiState.value
+        if (state.projectId.isBlank() || state.isSending) {
+            return
+        }
+
+        val normalized = rawModel.trim()
+        val command = if (normalized.isBlank()) "/model auto" else "/model $normalized"
+
+        _uiState.update { it.copy(isSending = true) }
+        viewModelScope.launch {
+            try {
+                CrashLogger.logInfo("ChatViewModel", "Changing model: projectId=${state.projectId}, model=${normalized.ifBlank { "auto" }}")
+                messageRepository.sendMessage(state.projectId, command, state.agentId)
+            } catch (e: Exception) {
+                CrashLogger.logError("ChatViewModel", "Error changing model", e)
+            } finally {
+                _uiState.update { it.copy(isSending = false) }
+            }
+        }
     }
 
     override fun onCleared() {

@@ -86,6 +86,13 @@ func LoginHandler(database *db.DB, cfg *config.Config) http.HandlerFunc {
 				log.Info().Str("agent_id", req.ClientID).Int("user_id", user.ID).Msg("Auto-registered agent")
 			}
 		} else {
+			autoBindAgentID, err := database.GetSingleAgentIDForUser(user.ID)
+			if err != nil {
+				log.Error().Err(err).Int("user_id", user.ID).Msg("Failed to resolve single agent for user")
+				http.Error(w, "internal server error", http.StatusInternalServerError)
+				return
+			}
+
 			belongs, err = database.DeviceBelongsToUser(req.ClientID, user.ID)
 			if err != nil {
 				log.Error().Err(err).Msg("Failed to check device ownership")
@@ -93,13 +100,37 @@ func LoginHandler(database *db.DB, cfg *config.Config) http.HandlerFunc {
 				return
 			}
 			if !belongs {
-				// Auto-register device on first login (use empty agent_id for now)
-				if err := database.RegisterDevice(req.ClientID, user.ID, "", "Auto-registered on login"); err != nil {
+				// Auto-register device on first login and bind if user has a single known agent.
+				if err := database.RegisterDevice(req.ClientID, user.ID, autoBindAgentID, "Auto-registered on login"); err != nil {
 					log.Error().Err(err).Str("device_id", req.ClientID).Msg("Failed to auto-register device")
 					http.Error(w, "failed to register device", http.StatusInternalServerError)
 					return
 				}
-				log.Info().Str("device_id", req.ClientID).Int("user_id", user.ID).Msg("Auto-registered device")
+				log.Info().
+					Str("device_id", req.ClientID).
+					Str("agent_id", autoBindAgentID).
+					Int("user_id", user.ID).
+					Msg("Auto-registered device")
+			} else if autoBindAgentID != "" {
+				// Existing device without binding gets auto-bound when there is only one agent.
+				currentAgentID, err := database.GetDeviceAgentID(req.ClientID)
+				if err != nil {
+					log.Error().Err(err).Str("device_id", req.ClientID).Msg("Failed to read device binding")
+					http.Error(w, "internal server error", http.StatusInternalServerError)
+					return
+				}
+				if currentAgentID == "" {
+					if err := database.UpdateDeviceAgent(req.ClientID, autoBindAgentID); err != nil {
+						log.Error().Err(err).Str("device_id", req.ClientID).Msg("Failed to auto-bind existing device")
+						http.Error(w, "internal server error", http.StatusInternalServerError)
+						return
+					}
+					log.Info().
+						Str("device_id", req.ClientID).
+						Str("agent_id", autoBindAgentID).
+						Int("user_id", user.ID).
+						Msg("Auto-bound existing device to single agent")
+				}
 			}
 		}
 

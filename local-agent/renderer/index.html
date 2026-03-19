@@ -1,15 +1,98 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta http-equiv="Content-Security-Policy"
         content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'" />
-  <title>Claude Code Agent</title>
+  <title>Project Session</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <div id="terminal"></div>
+  <div class="app-shell">
+    <div class="titlebar">
+      <div class="titlebar-copy">
+        <div class="titlebar-title" id="projectTitle">Project Session</div>
+        <div class="titlebar-meta" id="projectMeta">Waiting for project context...</div>
+      </div>
+      <div class="titlebar-badges">
+        <span class="titlebar-pill provider" id="providerBadge">Claude Code</span>
+        <button class="titlebar-pill model" id="modelBadge" type="button" title="Switch model">Model: Auto</button>
+        <span class="titlebar-pill mode" id="modeBadge">Full auto</span>
+      </div>
+      <div class="titlebar-controls">
+        <button class="titlebar-button menu" id="settingsBtn" title="Settings">Settings</button>
+        <button class="titlebar-button minimize" id="minimizeBtn" title="Minimize">_</button>
+        <button class="titlebar-button maximize" id="maximizeBtn" title="Maximize">[]</button>
+        <button class="titlebar-button close" id="closeBtn" title="Close">X</button>
+      </div>
+    </div>
+
+    <main class="workspace">
+      <aside class="sidebar-panel">
+        <div class="sidebar-header">
+          <div>
+            <p class="panel-kicker" id="projectsKicker">Projects</p>
+            <h1 class="sidebar-title" id="projectsTitle">Project sessions</h1>
+            <p class="panel-subtitle" id="projectsSubtitle">Choose a project to view conversation and runtime status.</p>
+          </div>
+        </div>
+        <div class="project-list" id="projectList"></div>
+      </aside>
+
+      <section class="conversation-panel">
+        <div class="panel-header">
+          <div>
+            <p class="panel-kicker" id="conversationKicker">Conversation</p>
+            <h1 class="panel-title" id="sessionViewTitle">Structured session view</h1>
+            <p class="panel-subtitle" id="runState">Ready to send prompts.</p>
+          </div>
+          <button class="ghost-button" id="openActivityBtn" type="button">View activity</button>
+        </div>
+
+        <section class="queue-panel hidden" id="queuePanel" aria-live="polite">
+          <div class="queue-header">
+            <div class="queue-title" id="queueTitle">Queued prompts</div>
+            <div class="queue-count" id="queueCount">0</div>
+          </div>
+          <div class="queue-list" id="queueList"></div>
+        </section>
+
+        <div class="messages" id="messages"></div>
+
+        <form class="composer" id="composerForm">
+          <label class="composer-label" for="composerInput" id="composerLabel">Prompt</label>
+          <textarea
+            id="composerInput"
+            rows="4"
+            placeholder="Ask Claude Code or OpenAI Codex to inspect, edit, review, or debug this project."
+          ></textarea>
+          <div class="composer-actions">
+            <div class="composer-hint" id="composerHint">
+              Full-auto mode is enabled for both providers. Press Enter to send, Shift+Enter for a new line.
+            </div>
+            <button class="primary-button" id="sendBtn" type="submit">Send</button>
+          </div>
+        </form>
+      </section>
+    </main>
+  </div>
+
+  <div class="activity-modal hidden" id="activityModal">
+    <div class="activity-modal-backdrop" id="activityModalBackdrop"></div>
+    <section class="activity-modal-card" role="dialog" aria-modal="true" aria-labelledby="executionTraceTitle">
+      <div class="activity-modal-header">
+        <div>
+          <p class="panel-kicker" id="activityKicker">Activity</p>
+          <h2 class="panel-title small" id="executionTraceTitle">Execution trace</h2>
+          <p class="panel-subtitle" id="activitySubtitle">Thinking, tools, commands, and runtime status.</p>
+        </div>
+        <button class="ghost-button" id="closeActivityBtn" type="button">Close</button>
+      </div>
+      <div class="activity-list" id="activityList"></div>
+    </section>
+  </div>
+
   <script src="terminal.js"></script>
 </body>
 </html>

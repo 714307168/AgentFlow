@@ -42,6 +42,11 @@ func SyncHandler(h *hub.Hub, cfg *config.Config, st *store.Store) http.HandlerFu
 		}
 
 		agentID, ok := st.GetDeviceAgentID(claims.DeviceID)
+		if (!ok || agentID == "") && claims.AgentID != "" {
+			agentID = claims.AgentID
+			_ = st.UpdateDeviceAgent(claims.DeviceID, agentID)
+			ok = true
+		}
 		if !ok || agentID == "" {
 			http.Error(w, "device not bound to agent", http.StatusNotFound)
 			return

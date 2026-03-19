@@ -55,7 +55,9 @@ Android App  <—WS/HTTPS—>  Public Relay Server  <—WS/HTTPS—>  Local Agen
 - `session.create`
 - `session.list`
 - `message.send`
-- `message.stream`
+- `message.chunk`
+- `message.done`
+- `message.error`
 - `project.bind`
 - `agent.heartbeat`
 - `agent.wakeup`
@@ -127,14 +129,24 @@ Android App  <—WS/HTTPS—>  Public Relay Server  <—WS/HTTPS—>  Local Agen
 | reply_to | uuid | 否 | 引用消息ID |
 | metadata | object | 否 | 扩展字段 |
 
-**message.stream**（chunk）
+**message.chunk**
 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|
 | stream_id | uuid | 是 | 流ID |
 | seq | int | 是 | 递增序号 |
-| delta | string | 是 | 增量文本 |
-| done | bool | 否 | true 表示结束 |
-| usage | object | 否 | token 统计 |
+| content | string | 是 | 清洗后的增量文本 |
+
+**message.done**
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| stream_id | uuid | 是 | 流ID |
+| seq_total | int | 否 | 总 chunk 数 |
+
+**当前实现约束**
+- Android App 在发送消息前会先请求 `POST /api/agent/wakeup`
+- Local Agent 在收到远程 `message.send` 后，应自动唤起对应项目窗口
+- `message.chunk` 的 `content` 应为适合移动端展示的纯文本，不应直接透传 ANSI 控制字符、输入回显或 prompt 行
+- Android App 应按 `(stream_id, seq)` 去重并按序重组流式内容
 
 ---
 
@@ -322,10 +334,14 @@ After=network.target
 4. Server → App：`message.reply`
 
 ### 13.4 流式消息
-1. App → Server：`message.send`（stream=true）
-2. Server → Agent：`message.send`
-3. Agent → Server：`message.stream`（start/chunk/end）
-4. Server → App：转发 `message.stream`
+1. App → Server：`POST /api/agent/wakeup`
+2. App → Server：`message.send`
+3. Server → Agent：`message.send`
+4. Agent：自动弹出对应项目窗口，并把消息写入 Claude Code PTY
+5. Agent → Server：`message.chunk`
+6. Agent → Server：`message.done`
+7. Server → App：转发 `message.chunk` / `message.done`
+8. App：按 `(stream_id, seq)` 去重、排序并重组回复内容
 
 ### 13.5 离线唤醒
 1. App → Server：`POST /api/agent/wakeup`
@@ -352,10 +368,9 @@ After=network.target
 | project.bind | App/Server/Agent | 绑定项目 | project_id, local_path |
 | project.bound | Agent → Server → App | 绑定完成 | project_id, local_path |
 | message.send | App → Server → Agent | 发送消息 | content, content_type |
-| message.reply | Agent → Server → App | 回复消息 | content, status |
-| message.stream.start | Agent → Server → App | 流开始 | stream_id |
-| message.stream.chunk | Agent → Server → App | 流分片 | stream_id, seq, delta |
-| message.stream.end | Agent → Server → App | 流结束 | stream_id, usage |
+| message.chunk | Agent → Server → App | 流式正文分片 | stream_id, seq, content |
+| message.done | Agent → Server → App | 流式回复结束 | stream_id, seq_total |
+| message.error | Agent → Server → App | 流式回复失败 | stream_id, error |
 | agent.heartbeat | Agent → Server | 心跳 | status, uptime |
 | agent.online | Agent → Server → App | 代理上线 | agent_id |
 | agent.offline | Server → App | 代理离线 | agent_id |

@@ -1,14 +1,18 @@
 ﻿import { contextBridge, ipcRenderer } from 'electron';
 
 contextBridge.exposeInMainWorld('claudeAgent', {
-  onPtyOutput: (callback: (data: string) => void) => {
-    ipcRenderer.on('pty-output', (_event, data: string) => callback(data));
-  },
-  writePty: (data: string) => {
-    ipcRenderer.send('pty-write', data);
+  onProjectSessionSnapshot: (callback: (snapshot: unknown) => void) => {
+    ipcRenderer.on('project-session-snapshot', (_event, snapshot: unknown) => callback(snapshot));
   },
   getProjects: () => ipcRenderer.invoke('get-projects'),
-  addProject: (data: { name: string; path: string }) => ipcRenderer.invoke('add-project', data),
+  onProjectsChanged: (callback: (projects: unknown[]) => void) => {
+    ipcRenderer.on('projects-changed', (_event, projects: unknown[]) => callback(projects));
+  },
+  getProjectSession: (projectId: string) => ipcRenderer.invoke('get-project-session', projectId),
+  sendProjectPrompt: (data: { projectId: string; prompt: string }) => ipcRenderer.invoke('send-project-prompt', data),
+  removeQueuedProjectPrompt: (data: { projectId: string; runId: string }) => ipcRenderer.invoke('remove-queued-project-prompt', data),
+  addProject: (data: { name: string; path: string; cliProvider?: string; cliModel?: string | null }) => ipcRenderer.invoke('add-project', data),
+  updateProject: (data: { projectId: string; updates: Record<string, string | null> }) => ipcRenderer.invoke('update-project', data),
   deleteProject: (projectId: string) => ipcRenderer.invoke('delete-project', projectId),
   openProjectWindow: (projectId: string) => {
     ipcRenderer.send('open-project-window', projectId);
@@ -25,10 +29,15 @@ contextBridge.exposeInMainWorld('claudeAgent', {
   getLang: () => ipcRenderer.invoke('get-lang'),
   setLang: (lang: string) => ipcRenderer.invoke('set-lang', lang),
   getI18nMessages: () => ipcRenderer.invoke('get-i18n-messages'),
+  onLangChanged: (callback: (payload: { lang: string; messages: Record<string, string> }) => void) => {
+    ipcRenderer.on('lang-changed', (_event, payload) => callback(payload));
+  },
   getAppSettings: () => ipcRenderer.invoke('get-app-settings'),
   setAppSettings: (settings: Record<string, boolean>) => ipcRenderer.invoke('set-app-settings', settings),
   getConnectionStatus: () => ipcRenderer.invoke('get-connection-status'),
   openProject: (projectId: string) => ipcRenderer.invoke('open-project', projectId),
+  openSettingsWindow: () => ipcRenderer.send('open-settings-window'),
+  setActiveProject: (projectId: string | null) => ipcRenderer.send('set-active-project', projectId),
   minimizeWindow: () => ipcRenderer.send('minimize-window'),
   maximizeWindow: () => ipcRenderer.send('maximize-window'),
   closeWindow: () => ipcRenderer.send('close-window'),

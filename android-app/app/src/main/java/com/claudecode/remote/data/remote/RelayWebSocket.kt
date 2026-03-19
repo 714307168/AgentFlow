@@ -30,7 +30,7 @@ import java.util.UUID
 import java.util.concurrent.TimeUnit
 
 class RelayWebSocket(
-    private val serverUrl: String,
+    private var serverUrl: String,
     private val tokenStore: TokenStore
 ) {
     private val tag = "RelayWebSocket"
@@ -59,13 +59,19 @@ class RelayWebSocket(
 
     enum class ConnectionState { DISCONNECTED, CONNECTING, CONNECTED, RECONNECTING }
 
+    fun updateServerUrl(newUrl: String) {
+        serverUrl = newUrl.trim()
+        Log.d(tag, "Server URL updated: $serverUrl")
+    }
+
     suspend fun connect() {
         if (_connectionState.value == ConnectionState.CONNECTED ||
             _connectionState.value == ConnectionState.CONNECTING) return
 
-        // Check if token exists
+        // Check required auth configuration.
         val token = tokenStore.getToken()
-        if (token.isNullOrEmpty()) {
+        val deviceId = tokenStore.getDeviceId()
+        if (token.isNullOrEmpty() || deviceId.isNullOrEmpty()) {
             _errorMessage.value = "请先在设置中配置 Token 和 Device ID"
             _connectionState.value = ConnectionState.DISCONNECTED
             return
@@ -88,10 +94,8 @@ class RelayWebSocket(
     }
 
     private fun openWebSocket() {
-        val wsUrl = serverUrl
-            .replace("http://", "ws://")
-            .replace("https://", "wss://")
-            .trimEnd('/') + "/ws"
+        val wsUrl = toWsUrl(serverUrl)
+        Log.d(tag, "Opening WebSocket: $wsUrl")
         val request = Request.Builder().url(wsUrl).build()
         webSocket = client.newWebSocket(request, createListener())
     }
@@ -214,6 +218,19 @@ class RelayWebSocket(
             delay(backoffSeconds * 1000)
             reconnectAttempts++
             openWebSocket()
+        }
+    }
+
+    private fun toWsUrl(rawUrl: String): String {
+        val trimmed = rawUrl.trim().trimEnd('/')
+        if (trimmed.isEmpty()) return "ws://localhost:8080/ws"
+
+        return when {
+            (trimmed.startsWith("ws://") || trimmed.startsWith("wss://")) && trimmed.endsWith("/ws") -> trimmed
+            trimmed.startsWith("http://") -> "ws://${trimmed.removePrefix("http://")}/ws"
+            trimmed.startsWith("https://") -> "wss://${trimmed.removePrefix("https://")}/ws"
+            trimmed.startsWith("ws://") || trimmed.startsWith("wss://") -> "$trimmed/ws"
+            else -> "ws://$trimmed/ws"
         }
     }
 }

@@ -10,6 +10,8 @@ data class SessionEntity(
     val agentId: String,
     val projectId: String,
     val projectPath: String,
+    val cliProvider: String,
+    val cliModel: String?,
     val createdAt: Long,
     val lastActiveAt: Long
 )

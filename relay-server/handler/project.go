@@ -14,10 +14,12 @@ import (
 )
 
 type projectBindRequest struct {
-	ProjectID string `json:"project_id"`
-	AgentID   string `json:"agent_id"`
-	Path      string `json:"path"`
-	Name      string `json:"name"`
+	ProjectID   string `json:"project_id"`
+	AgentID     string `json:"agent_id"`
+	Path        string `json:"path"`
+	Name        string `json:"name"`
+	CLIProvider string `json:"cli_provider"`
+	CLIModel    string `json:"cli_model"`
 }
 
 // ProjectBindHandler registers a project->agent mapping via REST.
@@ -48,15 +50,17 @@ func ProjectBindHandler(h *hub.Hub, cfg *config.Config) http.HandlerFunc {
 			return
 		}
 
-		h.BindProject(req.ProjectID, req.AgentID, req.Name, req.Path)
+		h.BindProject(req.ProjectID, req.AgentID, req.Name, req.Path, req.CLIProvider, req.CLIModel)
 
 		// Forward project.bind to agent via WebSocket
 		payloadData := map[string]interface{}{
-			"project_id": req.ProjectID,
-			"id":         req.ProjectID, // backward compatibility for older agents
-			"name":       req.Name,
-			"path":       req.Path,
-			"agent_id":   req.AgentID,
+			"project_id":   req.ProjectID,
+			"id":           req.ProjectID, // backward compatibility for older agents
+			"name":         req.Name,
+			"path":         req.Path,
+			"agent_id":     req.AgentID,
+			"cli_provider": req.CLIProvider,
+			"cli_model":    req.CLIModel,
 		}
 		payloadBytes, _ := json.Marshal(payloadData)
 

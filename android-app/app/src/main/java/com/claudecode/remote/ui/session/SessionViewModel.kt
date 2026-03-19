@@ -2,6 +2,7 @@ package com.claudecode.remote.ui.session
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.claudecode.remote.data.model.Envelope
 import com.claudecode.remote.data.model.Session
 import com.claudecode.remote.domain.SessionRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -42,19 +43,19 @@ class SessionViewModel(private val repository: SessionRepository) : ViewModel() 
         }
     }
 
-    fun addSession(agentId: String, projectId: String, path: String, name: String) {
-        _uiState.update { it.copy(isLoading = true) }
+    fun syncFromDesktop() {
         viewModelScope.launch {
-            repository.addSession(agentId, projectId, path, name).fold(
+            _uiState.update { it.copy(isLoading = true) }
+            repository.syncFromServer().fold(
                 onSuccess = { _uiState.update { it.copy(isLoading = false) } },
                 onFailure = { e -> _uiState.update { it.copy(isLoading = false, error = e.message) } }
             )
         }
     }
 
-    fun removeSession(id: String) {
+    fun processEnvelope(envelope: Envelope) {
         viewModelScope.launch {
-            repository.removeSession(id)
+            repository.processEnvelope(envelope)
         }
     }
 

@@ -29,8 +29,9 @@ data class FileInfo(
 
 data class StreamBuffer(
     val streamId: String,
-    val chunks: MutableList<Pair<Long, String>> = mutableListOf(),
+    val startedAt: Long = System.currentTimeMillis(),
+    val chunks: MutableMap<Long, String> = mutableMapOf(),
     var isDone: Boolean = false
 ) {
-    fun assembledContent(): String = chunks.sortedBy { it.first }.joinToString("") { it.second }
+    fun assembledContent(): String = chunks.toSortedMap().values.joinToString("")
 }

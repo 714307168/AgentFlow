@@ -3,18 +3,38 @@ import * as fs from "fs";
 import * as path from "path";
 import { app } from "electron";
 import RelayClient from "./relay-client";
-import ptyManager from "./pty-manager";
 import projectStore from "./project-store";
+import RuntimeManager, { CliProvider } from "./runtime-manager";
 import { Envelope, Events } from "./types";
+
+interface MessageRouterOptions {
+  revealProjectWindow?: (projectId: string, projectName: string) => void;
+  revealWakeupWindow?: () => void;
+  runtimeManager?: RuntimeManager;
+  getDefaultCliProvider?: () => CliProvider;
+  onProjectsChanged?: () => void;
+}
 
 class MessageRouter {
   private relayClient: RelayClient;
   private streamSeq: Map<string, number> = new Map();
   private fileBuffers: Map<string, { fileName: string; chunks: Map<number, Buffer>; totalChunks: number }> = new Map();
+  private options: MessageRouterOptions;
 
-  constructor(relayClient: RelayClient) {
+  constructor(relayClient: RelayClient, options: MessageRouterOptions = {}) {
     this.relayClient = relayClient;
+    this.options = options;
     this.relayClient.on("message", (env: Envelope) => this.handleEnvelope(env));
+  }
+
+  private normalizeCliProvider(
+    provider: string | null | undefined,
+    fallback: CliProvider,
+  ): CliProvider {
+    if (provider === "claude" || provider === "codex") {
+      return provider;
+    }
+    return fallback;
   }
 
   handleEnvelope(env: Envelope): void {
@@ -24,6 +44,12 @@ class MessageRouter {
         break;
       case Events.PROJECT_BIND:
         this.handleProjectBind(env);
+        break;
+      case Events.PROJECT_BOUND:
+        this.handleProjectBound(env);
+        break;
+      case Events.SESSION_SYNC_REQUEST:
+        this.handleSessionSyncRequest(env);
         break;
       case Events.AGENT_WAKEUP:
         this.handleAgentWakeup(env);
@@ -73,59 +99,48 @@ class MessageRouter {
       return;
     }
 
-    if (!ptyManager.isAlive(projectId)) {
-      try {
-        ptyManager.spawn(projectId, project.path);
-      } catch (err) {
-        console.error("[MessageRouter] Failed to spawn PTY:", err);
+    this.options.revealProjectWindow?.(projectId, project.name);
+    const payload = env.payload as { content?: string } | undefined;
+    const content = payload?.content ?? "";
+    this.streamSeq.set(streamId, 0);
+    if (!this.options.runtimeManager) {
+      this.relayClient.send({
+        id: uuidv4(),
+        event: Events.MESSAGE_ERROR,
+        project_id: projectId,
+        stream_id: streamId,
+        ts: Date.now(),
+        payload: { error: "Runtime manager is not configured" },
+      });
+      return;
+    }
+
+    this.options.runtimeManager.enqueueMessage({
+      projectId,
+      cwd: project.path,
+      prompt: content,
+      source: "remote",
+      onTextDelta: (chunk) => {
+        if (chunk) {
+          this.sendChunk(projectId, streamId, chunk, false);
+        }
+      },
+      onDone: () => {
+        this.sendChunk(projectId, streamId, "", true);
+        this.streamSeq.delete(streamId);
+      },
+      onError: (error) => {
+        this.streamSeq.delete(streamId);
         this.relayClient.send({
           id: uuidv4(),
           event: Events.MESSAGE_ERROR,
           project_id: projectId,
           stream_id: streamId,
           ts: Date.now(),
-          payload: { error: "Failed to start Claude session" },
+          payload: { error },
         });
-        return;
-      }
-    }
-
-    const session = ptyManager.get(projectId)!;
-    const parser = session.parser;
-
-    parser.reset();
-    this.streamSeq.set(streamId, 0);
-
-    const onChunk = (content: string) => {
-      this.sendChunk(projectId, streamId, content, false);
-    };
-
-    const onDone = () => {
-      this.sendChunk(projectId, streamId, "", true);
-      parser.removeListener("chunk", onChunk);
-      parser.removeListener("done", onDone);
-      this.streamSeq.delete(streamId);
-    };
-
-    parser.on("chunk", onChunk);
-    parser.once("done", onDone);
-
-    const payload = env.payload as { content?: string } | undefined;
-    const content = payload?.content ?? "";
-    try {
-      ptyManager.write(projectId, content + "\n");
-    } catch (err) {
-      console.error("[MessageRouter] Failed to write to PTY:", err);
-      parser.removeListener("chunk", onChunk);
-      parser.removeListener("done", onDone);
-      this.relayClient.send({
-        id: uuidv4(), event: Events.MESSAGE_ERROR,
-        project_id: projectId,
-        stream_id: streamId,
-        ts: Date.now(),
-        payload: { error: "Failed to send message to Claude" },
-      });
-    }
+      },
+    });
   }
 
   private handleProjectBind(env: Envelope): void {
@@ -136,6 +151,8 @@ class MessageRouter {
       name?: string;
       path?: string;
       agent_id?: string;
+      cli_provider?: CliProvider;
+      cli_model?: string | null;
     } | undefined;
     const projectId = payload?.project_id ?? payload?.id;
 
@@ -145,19 +162,29 @@ class MessageRouter {
     }
 
     const existing = projectStore.getById(projectId);
+    const fallbackProvider = existing?.cliProvider ?? (this.options.getDefaultCliProvider?.() ?? "claude");
+    const cliProvider = this.normalizeCliProvider(payload.cli_provider, fallbackProvider);
     if (existing) {
-      projectStore.update(projectId, { name: payload.name, path: payload.path });
+      projectStore.update(projectId, {
+        name: payload.name,
+        path: payload.path,
+        cliProvider,
+        cliModel: payload.cli_model?.trim() ? payload.cli_model.trim() : existing.cliModel ?? null,
+      });
     } else {
       projectStore.add({
         id: projectId,
         name: payload.name,
         path: payload.path,
         agentId: payload.agent_id ?? "",
+        cliProvider,
+        cliModel: payload.cli_model?.trim() ? payload.cli_model.trim() : null,
         createdAt: Date.now(),
       });
     }
 
     console.log("[MessageRouter] Project bound: " + payload.name + " (" + projectId + ")");
+    this.options.onProjectsChanged?.();
 
     this.relayClient.send({
       id: uuidv4(),
@@ -168,8 +195,35 @@ class MessageRouter {
     });
   }
 
+  private handleProjectBound(env: Envelope): void {
+    const projectId = env.project_id ?? "unknown";
+    console.log("[MessageRouter] Project bind acknowledged:", projectId);
+  }
+
+  private handleSessionSyncRequest(env: Envelope): void {
+    const projectId = env.project_id;
+    if (!projectId || !this.options.runtimeManager) {
+      return;
+    }
+
+    const snapshot = this.options.runtimeManager.getSnapshot(projectId);
+    this.relayClient.send({
+      id: uuidv4(),
+      event: Events.SESSION_SYNC,
+      project_id: projectId,
+      ts: Date.now(),
+      payload: {
+        project_id: projectId,
+        provider: snapshot.provider,
+        model: snapshot.model,
+        messages: snapshot.messages,
+      },
+    });
+  }
+
   private handleAgentWakeup(env: Envelope): void {
     console.log("[MessageRouter] Agent wakeup received", env.payload);
+    this.options.revealWakeupWindow?.();
   }
 
   private handleFileUpload(env: Envelope): void {
@@ -290,7 +344,7 @@ class MessageRouter {
       stream_id: streamId,
       seq,
       ts: Date.now(),
-      payload: done ? { seq_total: seq } : { content },
+      payload: done ? { seq_total: seq } : { seq, content },
     });
   }
 }

@@ -231,12 +231,19 @@ const adminHTML = `<!DOCTYPE html>
   * { margin:0; padding:0; box-sizing:border-box; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
          background:var(--bg); color:var(--text); font-size:13px; line-height:1.5; }
+  .brand-lockup { display:flex; align-items:center; gap:12px; }
+  .brand-lockup.compact { gap:10px; }
+  .brand-copy { display:flex; flex-direction:column; gap:2px; }
+  .brand-mark { width:42px; height:42px; flex:0 0 auto; }
+  .brand-lockup.compact .brand-mark { width:28px; height:28px; }
+  .brand-tagline { font-size:11px; color:var(--muted); letter-spacing:0.06em; text-transform:uppercase; }
 
   /* Login */
   #loginPage { display:flex; align-items:center; justify-content:center; height:100vh; }
   .login-box { background:var(--surface); border:1px solid var(--border); border-radius:10px;
                padding:32px 28px; width:320px; }
-  .login-box h1 { font-size:16px; margin-bottom:24px; color:var(--text); }
+  .login-box h1 { font-size:16px; color:var(--text); }
+  .login-brand { margin-bottom:24px; }
   .login-box label { display:block; font-size:12px; color:var(--label); margin-bottom:4px; font-weight:500; }
   .login-box input { width:100%; padding:7px 10px; background:var(--surface2); border:1px solid var(--border);
                      border-radius:5px; color:var(--text); font-size:13px; outline:none; margin-bottom:14px; }
@@ -328,7 +335,35 @@ const adminHTML = `<!DOCTYPE html>
 
 <div id="loginPage">
   <div class="login-box">
-    <h1>Relay Admin</h1>
+    <div class="brand-lockup login-brand">
+      <svg class="brand-mark" viewBox="0 0 64 64" aria-hidden="true">
+        <defs>
+          <linearGradient id="brandBg" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#0d1824"/>
+            <stop offset="100%" stop-color="#163249"/>
+          </linearGradient>
+          <linearGradient id="brandCore" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#5dd0ff"/>
+            <stop offset="100%" stop-color="#3fd88f"/>
+          </linearGradient>
+        </defs>
+        <rect x="4" y="4" width="56" height="56" rx="15" fill="url(#brandBg)"/>
+        <rect x="8" y="10" width="48" height="7" rx="3.5" fill="rgba(255,255,255,0.10)"/>
+        <circle cx="32" cy="18" r="6" fill="#5dd0ff"/>
+        <circle cx="18" cy="45" r="6" fill="#7ee6ff"/>
+        <circle cx="46" cy="45" r="6" fill="#3fd88f"/>
+        <path d="M 32 24 L 22 37" stroke="#edf4fb" stroke-width="3" stroke-linecap="round"/>
+        <path d="M 32 24 L 42 37" stroke="#edf4fb" stroke-width="3" stroke-linecap="round"/>
+        <path d="M 24 45 L 40 45" stroke="rgba(237,244,251,0.7)" stroke-width="3" stroke-linecap="round"/>
+        <path d="M 32 28 L 41 37 L 32 46 L 23 37 Z" fill="url(#brandCore)"/>
+        <path d="M 32 31 L 32 42" stroke="#08111a" stroke-width="2.5" stroke-linecap="round"/>
+        <path d="M 26.5 37 L 37.5 37" stroke="#08111a" stroke-width="2.5" stroke-linecap="round"/>
+      </svg>
+      <div class="brand-copy">
+        <h1>Relay Admin</h1>
+        <div class="brand-tagline">Desktop · Relay · Mobile</div>
+      </div>
+    </div>
     <label>Username</label>
     <input type="text" id="loginUser" autocomplete="username">
     <label>Password</label>
@@ -340,7 +375,34 @@ const adminHTML = `<!DOCTYPE html>
 
 <div id="dashboard">
   <div class="topbar">
-    <h1 data-i18n="title">Relay Admin</h1>
+    <div class="brand-lockup compact">
+      <svg class="brand-mark" viewBox="0 0 64 64" aria-hidden="true">
+        <defs>
+          <linearGradient id="brandBgTop" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#0d1824"/>
+            <stop offset="100%" stop-color="#163249"/>
+          </linearGradient>
+          <linearGradient id="brandCoreTop" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#5dd0ff"/>
+            <stop offset="100%" stop-color="#3fd88f"/>
+          </linearGradient>
+        </defs>
+        <rect x="4" y="4" width="56" height="56" rx="15" fill="url(#brandBgTop)"/>
+        <rect x="8" y="10" width="48" height="7" rx="3.5" fill="rgba(255,255,255,0.10)"/>
+        <circle cx="32" cy="18" r="6" fill="#5dd0ff"/>
+        <circle cx="18" cy="45" r="6" fill="#7ee6ff"/>
+        <circle cx="46" cy="45" r="6" fill="#3fd88f"/>
+        <path d="M 32 24 L 22 37" stroke="#edf4fb" stroke-width="3" stroke-linecap="round"/>
+        <path d="M 32 24 L 42 37" stroke="#edf4fb" stroke-width="3" stroke-linecap="round"/>
+        <path d="M 24 45 L 40 45" stroke="rgba(237,244,251,0.7)" stroke-width="3" stroke-linecap="round"/>
+        <path d="M 32 28 L 41 37 L 32 46 L 23 37 Z" fill="url(#brandCoreTop)"/>
+        <path d="M 32 31 L 32 42" stroke="#08111a" stroke-width="2.5" stroke-linecap="round"/>
+        <path d="M 26.5 37 L 37.5 37" stroke="#08111a" stroke-width="2.5" stroke-linecap="round"/>
+      </svg>
+      <div class="brand-copy">
+        <h1 data-i18n="title">Relay Admin</h1>
+      </div>
+    </div>
     <div class="topbar-right">
       <select class="lang-switch" id="langSwitch">
         <option value="en">English</option>

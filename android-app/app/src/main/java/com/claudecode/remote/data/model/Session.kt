@@ -10,6 +10,8 @@ data class Session(
     val agentId: String,
     val projectId: String,
     val projectPath: String,
+    val cliProvider: String = "claude",
+    val cliModel: String? = null,
     val createdAt: Long,
     val lastActiveAt: Long
 )

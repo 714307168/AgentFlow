@@ -39,12 +39,15 @@ import kotlinx.coroutines.launch
 fun ChatScreen(
     projectId: String,
     projectName: String,
+    agentId: String,
     viewModel: ChatViewModel,
     onNavigateBack: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
+    var showModelDialog by remember { mutableStateOf(false) }
+    var modelInput by remember { mutableStateOf("") }
 
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -54,12 +57,13 @@ fun ChatScreen(
 
     LaunchedEffect(projectId) {
         if (projectId.isNotEmpty()) {
-            viewModel.loadProject(projectId, projectName)
+            viewModel.loadProject(projectId, projectName, agentId)
         }
     }
 
     // Auto-scroll to bottom when new messages arrive
-    LaunchedEffect(uiState.messages.size) {
+    val lastMessage = uiState.messages.lastOrNull()
+    LaunchedEffect(lastMessage?.id, lastMessage?.content, lastMessage?.isStreaming, uiState.messages.size) {
         if (uiState.messages.isNotEmpty()) {
             coroutineScope.launch {
                 listState.animateScrollToItem(uiState.messages.size - 1)
@@ -67,24 +71,84 @@ fun ChatScreen(
         }
     }
 
+    if (showModelDialog) {
+        AlertDialog(
+            onDismissRequest = { showModelDialog = false },
+            title = { Text("Switch Model") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Provider: ${providerLabel(uiState.cliProvider)}",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Text(
+                        text = "Current: ${modelLabel(uiState.cliModel)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    OutlinedTextField(
+                        value = modelInput,
+                        onValueChange = { modelInput = it },
+                        label = { Text("Model") },
+                        placeholder = { Text("Leave blank for Auto") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.changeModel(modelInput)
+                        showModelDialog = false
+                    }
+                ) {
+                    Text("Apply")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showModelDialog = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(uiState.projectName.ifEmpty { projectName })
-                        Spacer(modifier = Modifier.width(8.dp))
-                        // Connection status dot
-                        Surface(
-                            modifier = Modifier.size(8.dp),
-                            shape = RoundedCornerShape(50),
-                            color = if (uiState.isConnected) Color(0xFF4CAF50) else Color(0xFFF44336)
-                        ) {}
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(uiState.projectName.ifEmpty { projectName })
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Surface(
+                                modifier = Modifier.size(8.dp),
+                                shape = RoundedCornerShape(50),
+                                color = if (uiState.isConnected) Color(0xFF4CAF50) else Color(0xFFF44336)
+                            ) {}
+                        }
+                        Text(
+                            text = "${providerLabel(uiState.cliProvider)} · ${modelLabel(uiState.cliModel)}",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
-            },
+                },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
+                    }
+                },
+                actions = {
+                    TextButton(
+                        onClick = {
+                            modelInput = uiState.cliModel
+                            showModelDialog = true
+                        },
+                        enabled = uiState.isConnected && !uiState.isSending
+                    ) {
+                        Text("Model")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -131,6 +195,12 @@ fun ChatScreen(
         }
     }
 }
+
+private fun providerLabel(provider: String): String =
+    if (provider == "codex") "OpenAI Codex" else "Claude Code"
+
+private fun modelLabel(model: String?): String =
+    model?.trim().takeUnless { it.isNullOrEmpty() } ?: "Auto"
 
 @Composable
 private fun MessageBubble(message: Message) {

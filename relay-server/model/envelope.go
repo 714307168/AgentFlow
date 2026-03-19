@@ -12,10 +12,12 @@ const (
 	EventAuthError   = "auth.error"
 
 	// Project events
-	EventProjectBind   = "project.bind"
-	EventProjectBound  = "project.bound"
-	EventProjectList   = "project.list"
-	EventProjectListed = "project.listed"
+	EventProjectBind        = "project.bind"
+	EventProjectBound       = "project.bound"
+	EventProjectList        = "project.list"
+	EventProjectListed      = "project.listed"
+	EventSessionSyncRequest = "session.sync.request"
+	EventSessionSync        = "session.sync"
 
 	// Message events
 	EventMessageSend  = "message.send"
@@ -88,9 +90,24 @@ type AuthOKPayload struct {
 
 // ProjectBindPayload is the payload for project.bind
 type ProjectBindPayload struct {
-	ProjectID string `json:"project_id"`
-	Path      string `json:"path"`
-	Name      string `json:"name"`
+	ProjectID   string `json:"project_id"`
+	Path        string `json:"path"`
+	Name        string `json:"name"`
+	CLIProvider string `json:"cli_provider,omitempty"`
+	CLIModel    string `json:"cli_model,omitempty"`
+}
+
+type ProjectListItem struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Path        string `json:"path"`
+	CLIProvider string `json:"cli_provider,omitempty"`
+	CLIModel    string `json:"cli_model,omitempty"`
+}
+
+type ProjectListPayload struct {
+	AgentID  string            `json:"agent_id,omitempty"`
+	Projects []ProjectListItem `json:"projects"`
 }
 
 // MessageSendPayload is the payload for message.send

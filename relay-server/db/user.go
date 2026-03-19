@@ -250,3 +250,36 @@ func (db *DB) GetDeviceAgentID(deviceID string) (string, error) {
 	}
 	return agentID.String, nil
 }
+
+// GetSingleAgentIDForUser returns the agent id only when user has exactly one agent.
+func (db *DB) GetSingleAgentIDForUser(userID int) (string, error) {
+	var count int
+	if err := db.QueryRow("SELECT COUNT(*) FROM agents WHERE user_id = ?", userID).Scan(&count); err != nil {
+		return "", fmt.Errorf("failed to count user agents: %w", err)
+	}
+	if count != 1 {
+		return "", nil
+	}
+
+	var agentID string
+	if err := db.QueryRow("SELECT id FROM agents WHERE user_id = ? LIMIT 1", userID).Scan(&agentID); err != nil {
+		return "", fmt.Errorf("failed to get single agent id: %w", err)
+	}
+	return agentID, nil
+}
+
+// UpdateDeviceAgent updates the bound agent for a device.
+func (db *DB) UpdateDeviceAgent(deviceID, agentID string) error {
+	res, err := db.Exec("UPDATE devices SET agent_id = ? WHERE id = ?", agentID, deviceID)
+	if err != nil {
+		return fmt.Errorf("failed to update device agent: %w", err)
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to read update result: %w", err)
+	}
+	if rowsAffected == 0 {
+		return fmt.Errorf("device not found")
+	}
+	return nil
+}

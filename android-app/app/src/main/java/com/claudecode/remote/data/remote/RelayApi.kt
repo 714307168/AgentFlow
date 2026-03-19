@@ -60,7 +60,9 @@ data class BindProjectRequest(
     @SerialName("project_id") val projectId: String,
     @SerialName("agent_id") val agentId: String,
     val path: String,
-    val name: String
+    val name: String,
+    @SerialName("cli_provider") val cliProvider: String = "claude",
+    @SerialName("cli_model") val cliModel: String? = null
 )
 
 @Serializable
@@ -82,5 +84,7 @@ data class SyncResponse(
 data class ProjectInfo(
     val id: String,
     val name: String,
-    val path: String
+    val path: String,
+    @SerialName("cli_provider") val cliProvider: String = "claude",
+    @SerialName("cli_model") val cliModel: String? = null
 )
