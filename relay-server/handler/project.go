@@ -3,7 +3,6 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/claudecode/relay-server/auth"
@@ -30,12 +29,14 @@ func ProjectBindHandler(h *hub.Hub, cfg *config.Config) http.HandlerFunc {
 			return
 		}
 
-		token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if token == "" {
-			http.Error(w, "missing authorization", http.StatusUnauthorized)
+		token, err := readBearerToken(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusUnauthorized)
 			return
 		}
-		if _, err := auth.VerifyToken(cfg.JWTSecret, token); err != nil {
+
+		claims, err := auth.VerifyToken(cfg.JWTSecret, token)
+		if err != nil {
 			http.Error(w, "invalid token", http.StatusUnauthorized)
 			return
 		}
@@ -47,6 +48,14 @@ func ProjectBindHandler(h *hub.Hub, cfg *config.Config) http.HandlerFunc {
 		}
 		if req.ProjectID == "" || req.AgentID == "" {
 			http.Error(w, "project_id and agent_id are required", http.StatusBadRequest)
+			return
+		}
+		if claims.Type != model.ClientTypeAgent {
+			http.Error(w, "only agents can bind projects", http.StatusForbidden)
+			return
+		}
+		if claims.AgentID == "" || claims.AgentID != req.AgentID {
+			http.Error(w, "token is not authorized for this agent", http.StatusForbidden)
 			return
 		}
 

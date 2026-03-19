@@ -8,6 +8,7 @@ import (
 
 	"github.com/claudecode/relay-server/config"
 	"github.com/claudecode/relay-server/model"
+	"github.com/claudecode/relay-server/store"
 	"github.com/rs/zerolog/log"
 )
 
@@ -29,12 +30,13 @@ type Hub struct {
 	projectInfos sync.Map // projectID -> *ProjectInfo
 	queues       sync.Map // projectID -> *Queue
 	cfg          *config.Config
+	store        *store.Store
 	seq          int64 // atomic sequence counter
 }
 
 // NewHub creates a Hub with the given configuration.
-func NewHub(cfg *config.Config) *Hub {
-	return &Hub{cfg: cfg}
+func NewHub(cfg *config.Config, st *store.Store) *Hub {
+	return &Hub{cfg: cfg, store: st}
 }
 
 // NextSeq atomically increments and returns the next sequence number.
@@ -104,42 +106,78 @@ func (h *Hub) HandleMessage(from *Client, env *model.Envelope) {
 
 	switch env.Event {
 	case model.EventMessageSend:
-		// Device -> Agent: route by project_id.
-		agentID, ok := h.resolveAgent(env.ProjectID)
-		if !ok {
-			log.Warn().Str("project_id", env.ProjectID).Msg("no agent for project")
-			h.sendError(from, env.ID, "no_agent", "no agent registered for project")
+		if from.Type != model.ClientTypeDevice {
+			h.sendError(from, env.ID, "forbidden", "only devices can send messages")
 			return
 		}
-		// Track the resolved agent on the device connection so response broadcasts reach it.
-		if from.Type == model.ClientTypeDevice {
-			from.AgentID = agentID
+		agentID, ok := h.authorizeProjectAccess(from, env.ID, env.ProjectID)
+		if !ok {
+			return
 		}
 		h.Route(env, agentID)
 
 	case model.EventMessageChunk, model.EventMessageDone, model.EventMessageError:
-		// Agent -> Devices: broadcast to all devices wat the project.
+		if from.Type != model.ClientTypeAgent {
+			h.sendError(from, env.ID, "forbidden", "only agents can stream message responses")
+			return
+		}
+		if _, ok := h.authorizeProjectAccess(from, env.ID, env.ProjectID); !ok {
+			return
+		}
 		h.BroadcastToDevices(env, env.ProjectID)
 
 	case model.EventSessionSyncRequest:
-		agentID, ok := h.resolveAgent(env.ProjectID)
-		if !ok {
-			log.Warn().Str("project_id", env.ProjectID).Msg("no agent for project session sync")
-			h.sendError(from, env.ID, "no_agent", "no agent registered for project")
+		if from.Type != model.ClientTypeDevice {
+			h.sendError(from, env.ID, "forbidden", "only devices can request session sync")
 			return
 		}
-		if from.Type == model.ClientTypeDevice {
-			from.AgentID = agentID
+		agentID, ok := h.authorizeProjectAccess(from, env.ID, env.ProjectID)
+		if !ok {
+			return
 		}
 		h.Route(env, agentID)
 
 	case model.EventSessionSync:
+		if from.Type != model.ClientTypeAgent {
+			h.sendError(from, env.ID, "forbidden", "only agents can publish session sync")
+			return
+		}
+		if _, ok := h.authorizeProjectAccess(from, env.ID, env.ProjectID); !ok {
+			return
+		}
 		h.BroadcastToDevices(env, env.ProjectID)
 
+	case model.EventProjectListRequest:
+		if from.Type != model.ClientTypeDevice {
+			log.Warn().Str("client_id", from.ID).Msg("project.list.request ignored for non-device client")
+			return
+		}
+		if !h.refreshDeviceBinding(from, env.ID) {
+			return
+		}
+		if from.AgentID == "" {
+			h.sendError(from, env.ID, "no_agent", "device is not bound to an agent")
+			return
+		}
+		h.Route(env, from.AgentID)
+
 	case model.EventProjectBind:
+		if from.Type != model.ClientTypeAgent {
+			h.sendError(from, env.ID, "forbidden", "only agents can bind projects")
+			return
+		}
 		var p model.ProjectBindPayload
 		if err := json.Unmarshal(env.Payload, &p); err != nil {
 			log.Warn().Err(err).Msg("invalid project.bind payload")
+			h.sendError(from, env.ID, "bad_request", "invalid project.bind payload")
+			return
+		}
+		if p.ProjectID == "" {
+			h.sendError(from, env.ID, "bad_request", "project_id is required")
+			return
+		}
+		if env.ProjectID != "" && env.ProjectID != p.ProjectID {
+			h.sendError(from, env.ID, "bad_request", "project_id mismatch")
 			return
 		}
 		h.projects.Store(p.ProjectID, from.AgentID)
@@ -164,6 +202,11 @@ func (h *Hub) HandleMessage(from *Client, env *model.Envelope) {
 		}
 		_ = from.Send(ack)
 
+	case model.EventProjectBound:
+		if from.Type != model.ClientTypeAgent {
+			h.sendError(from, env.ID, "forbidden", "only agents can acknowledge project bindings")
+		}
+
 	case model.EventProjectList:
 		if from.Type != model.ClientTypeAgent {
 			log.Warn().Str("client_id", from.ID).Msg("project.list ignored for non-agent client")
@@ -177,8 +220,9 @@ func (h *Hub) HandleMessage(from *Client, env *model.Envelope) {
 		}
 
 		agentID := from.AgentID
-		if agentID == "" {
-			agentID = p.AgentID
+		if p.AgentID != "" && agentID != "" && p.AgentID != agentID {
+			h.sendError(from, env.ID, "forbidden", "agent mismatch")
+			return
 		}
 		if agentID == "" {
 			log.Warn().Str("client_id", from.ID).Msg("project.list missing agent id")
@@ -202,47 +246,66 @@ func (h *Hub) HandleMessage(from *Client, env *model.Envelope) {
 
 	case model.EventFileSync:
 		if from.Type == model.ClientTypeAgent {
-			h.BroadcastToDevices(env, env.ProjectID)
-		} else {
-			agentID, ok := h.resolveAgent(env.ProjectID)
-			if ok {
-				h.Route(env, agentID)
+			if _, ok := h.authorizeProjectAccess(from, env.ID, env.ProjectID); !ok {
+				return
 			}
+			h.BroadcastToDevices(env, env.ProjectID)
+		} else if from.Type == model.ClientTypeDevice {
+			agentID, ok := h.authorizeProjectAccess(from, env.ID, env.ProjectID)
+			if !ok {
+				return
+			}
+			h.Route(env, agentID)
+		} else {
+			h.sendError(from, env.ID, "forbidden", "unknown client type")
 		}
 
 	case model.EventFileUpload, model.EventFileChunk, model.EventFileDone, model.EventFileError:
-		// Bidirectional file transfer: route based on sender type
 		if from.Type == model.ClientTypeAgent {
-			// Agent -> Devices
-			h.BroadcastToDevices(env, env.ProjectID)
-		} else {
-			// Device -> Agent
-			agentID, ok := h.resolveAgent(env.ProjectID)
-			if ok {
-				h.Route(env, agentID)
+			if _, ok := h.authorizeProjectAccess(from, env.ID, env.ProjectID); !ok {
+				return
 			}
+			h.BroadcastToDevices(env, env.ProjectID)
+		} else if from.Type == model.ClientTypeDevice {
+			agentID, ok := h.authorizeProjectAccess(from, env.ID, env.ProjectID)
+			if !ok {
+				return
+			}
+			h.Route(env, agentID)
+		} else {
+			h.sendError(from, env.ID, "forbidden", "unknown client type")
 		}
 
 	case model.EventE2EOffer:
-		// Forward public key offer: agent->devices or device->agent
 		if from.Type == model.ClientTypeAgent {
-			h.BroadcastToDevices(env, env.ProjectID)
-		} else {
-			agentID, ok := h.resolveAgent(env.ProjectID)
-			if ok {
-				h.Route(env, agentID)
+			if _, ok := h.authorizeProjectAccess(from, env.ID, env.ProjectID); !ok {
+				return
 			}
+			h.BroadcastToDevices(env, env.ProjectID)
+		} else if from.Type == model.ClientTypeDevice {
+			agentID, ok := h.authorizeProjectAccess(from, env.ID, env.ProjectID)
+			if !ok {
+				return
+			}
+			h.Route(env, agentID)
+		} else {
+			h.sendError(from, env.ID, "forbidden", "unknown client type")
 		}
 
 	case model.EventE2EAnswer:
-		// Forward public key answer: device->agent or agent->devices
 		if from.Type == model.ClientTypeDevice {
-			agentID, ok := h.resolveAgent(env.ProjectID)
-			if ok {
-				h.Route(env, agentID)
+			agentID, ok := h.authorizeProjectAccess(from, env.ID, env.ProjectID)
+			if !ok {
+				return
 			}
-		} else {
+			h.Route(env, agentID)
+		} else if from.Type == model.ClientTypeAgent {
+			if _, ok := h.authorizeProjectAccess(from, env.ID, env.ProjectID); !ok {
+				return
+			}
 			h.BroadcastToDevices(env, env.ProjectID)
+		} else {
+			h.sendError(from, env.ID, "forbidden", "unknown client type")
 		}
 
 	default:
@@ -289,6 +352,57 @@ func (h *Hub) broadcastToDevicesByAgent(agentID string, env *model.Envelope) {
 		}
 		return true
 	})
+}
+
+func (h *Hub) authorizeProjectAccess(from *Client, refID, projectID string) (string, bool) {
+	if projectID == "" {
+		h.sendError(from, refID, "bad_request", "project_id is required")
+		return "", false
+	}
+
+	agentID, ok := h.resolveAgent(projectID)
+	if !ok {
+		log.Warn().Str("project_id", projectID).Msg("no agent for project")
+		h.sendError(from, refID, "no_agent", "no agent registered for project")
+		return "", false
+	}
+
+	switch from.Type {
+	case model.ClientTypeAgent:
+		if from.AgentID == "" || from.AgentID != agentID {
+			h.sendError(from, refID, "forbidden", "agent is not authorized for project")
+			return "", false
+		}
+	case model.ClientTypeDevice:
+		if !h.refreshDeviceBinding(from, refID) {
+			return "", false
+		}
+		if from.AgentID == "" || from.AgentID != agentID {
+			h.sendError(from, refID, "forbidden", "device is not authorized for project")
+			return "", false
+		}
+	default:
+		h.sendError(from, refID, "forbidden", "unknown client type")
+		return "", false
+	}
+
+	return agentID, true
+}
+
+func (h *Hub) refreshDeviceBinding(from *Client, refID string) bool {
+	if from.Type != model.ClientTypeDevice || from.DeviceID == "" || h.store == nil {
+		return true
+	}
+
+	agentID, ok := h.store.GetDeviceAgentID(from.DeviceID)
+	if !ok || agentID == "" {
+		from.AgentID = ""
+		h.sendError(from, refID, "no_agent", "device is not bound to an agent")
+		return false
+	}
+
+	from.AgentID = agentID
+	return true
 }
 
 // resolveAgent returns the agentID responsible for projectID.

@@ -22,6 +22,12 @@ local-agent/dist/
 local-agent/out/
 local-agent/.env
 local-agent/*.log
+local-agent/*token*.txt
+local-agent/release/
+local-agent/test-appdata-*/
+local-agent/tmp-extracted/
+local-agent/renderer/*.js
+local-agent/renderer/*.js.map
 
 # === Android (android-app) ===
 android-app/.gradle/
@@ -30,8 +36,12 @@ android-app/app/build/
 android-app/local.properties
 android-app/captures/
 android-app/.cxx/
+apk-output/
 
 # === General ===
 *.log
 *.env
 *.env.*
+relay-server/data/*.db
+relay-server/test-data/*.db
+relay-server/release/

@@ -3,26 +3,31 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/claudecode/relay-server/auth"
 	"github.com/claudecode/relay-server/config"
 	"github.com/claudecode/relay-server/hub"
 	"github.com/claudecode/relay-server/model"
+	"github.com/claudecode/relay-server/store"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog/log"
 )
 
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  4096,
-	WriteBufferSize: 4096,
-	CheckOrigin:     func(r *http.Request) bool { return true },
-}
-
 // WSHandler upgrades HTTP connections to WebSocket and handles the auth handshake.
-func WSHandler(h *hub.Hub, cfg *config.Config) http.HandlerFunc {
+func WSHandler(h *hub.Hub, cfg *config.Config, st *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		upgrader := websocket.Upgrader{
+			ReadBufferSize:  4096,
+			WriteBufferSize: 4096,
+			CheckOrigin: func(r *http.Request) bool {
+				return isAllowedWSOrigin(r, cfg.CORSOrigins)
+			},
+		}
+
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			log.Warn().Err(err).Msg("ws upgrade failed")
@@ -85,20 +90,38 @@ func WSHandler(h *hub.Hub, cfg *config.Config) http.HandlerFunc {
 			conn.Close()
 			return
 		}
+		if loginPayload.Type != "" && loginPayload.Type != claims.Type {
+			writeError(conn, env.ID, "auth_failed", "client type mismatch")
+			conn.Close()
+			return
+		}
 
 		// Build client.
 		client := hub.NewClient(h, conn)
 		client.ID = uuid.New().String()
 		client.Type = claims.Type
-		client.AgentID = claims.AgentID
-		client.DeviceID = claims.DeviceID
 
 		// Register with hub.
 		switch claims.Type {
 		case model.ClientTypeAgent:
+			if claims.AgentID == "" || !st.AgentExists(claims.AgentID) {
+				writeError(conn, env.ID, "auth_failed", "agent not registered")
+				conn.Close()
+				return
+			}
+			client.AgentID = claims.AgentID
 			h.RegisterAgent(client)
 			client.ProjectIDs = h.GetProjectIDsByAgent(client.AgentID)
 		case model.ClientTypeDevice:
+			if claims.DeviceID == "" || !st.DeviceExists(claims.DeviceID) {
+				writeError(conn, env.ID, "auth_failed", "device not registered")
+				conn.Close()
+				return
+			}
+			client.DeviceID = claims.DeviceID
+			if boundAgentID, ok := st.GetDeviceAgentID(claims.DeviceID); ok {
+				client.AgentID = boundAgentID
+			}
 			h.RegisterDevice(client)
 		default:
 			writeError(conn, env.ID, "auth_failed", "unknown client type")
@@ -145,6 +168,36 @@ func WSHandler(h *hub.Hub, cfg *config.Config) http.HandlerFunc {
 		go client.WritePump()
 		go client.ReadPump()
 	}
+}
+
+func isAllowedWSOrigin(r *http.Request, allowedOrigins string) bool {
+	origin := strings.TrimSpace(r.Header.Get("Origin"))
+	if origin == "" {
+		return true
+	}
+	if allowedOrigins == "*" {
+		return true
+	}
+
+	parsedOrigin, err := url.Parse(origin)
+	if err != nil || parsedOrigin.Scheme == "" || parsedOrigin.Host == "" {
+		return false
+	}
+
+	requestScheme := "http"
+	if isHTTPSRequest(r) {
+		requestScheme = "https"
+	}
+	if strings.EqualFold(parsedOrigin.Scheme, requestScheme) && strings.EqualFold(parsedOrigin.Host, r.Host) {
+		return true
+	}
+
+	for _, allowed := range strings.Split(allowedOrigins, ",") {
+		if strings.EqualFold(strings.TrimSpace(allowed), origin) {
+			return true
+		}
+	}
+	return false
 }
 
 func writeError(conn *websocket.Conn, refID, code, message string) {

@@ -23,7 +23,13 @@ data class ChatUiState(
     val projectName: String = "",
     val agentId: String = "",
     val cliProvider: String = "claude",
-    val cliModel: String = ""
+    val cliModel: String = "",
+    val isAgentOnline: Boolean = true,
+    val isRunning: Boolean = false,
+    val queuedCount: Int = 0,
+    val currentPrompt: String? = null,
+    val queuePreview: String? = null,
+    val currentStartedAt: Long? = null
 )
 
 class ChatViewModel(
@@ -74,7 +80,13 @@ class ChatViewModel(
                             projectName = session?.name?.ifBlank { current.projectName } ?: current.projectName,
                             agentId = session?.agentId?.ifBlank { current.agentId } ?: current.agentId,
                             cliProvider = session?.cliProvider?.ifBlank { "claude" } ?: current.cliProvider,
-                            cliModel = session?.cliModel?.orEmpty() ?: ""
+                            cliModel = session?.cliModel?.orEmpty() ?: "",
+                            isAgentOnline = session?.isAgentOnline ?: current.isAgentOnline,
+                            isRunning = session?.isRunning ?: false,
+                            queuedCount = session?.queuedCount ?: 0,
+                            currentPrompt = session?.currentPrompt,
+                            queuePreview = session?.queuePreview,
+                            currentStartedAt = session?.currentStartedAt
                         )
                     }
                 }

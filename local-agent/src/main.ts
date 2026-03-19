@@ -194,12 +194,6 @@ function broadcastSessionSync(snapshot: ProjectSessionSnapshot): void {
     return;
   }
 
-  // Mobile already receives remote-triggered assistant output as streamed chunks.
-  // Reserve full session sync for desktop-originated activity and final reconciliation.
-  if (snapshot.isRunning && snapshot.currentSource !== "desktop") {
-    return;
-  }
-
   relayClient.send({
     id: uuidv4(),
     event: Events.SESSION_SYNC,
@@ -209,6 +203,12 @@ function broadcastSessionSync(snapshot: ProjectSessionSnapshot): void {
       project_id: snapshot.projectId,
       provider: snapshot.provider,
       model: snapshot.model,
+      isRunning: snapshot.isRunning,
+      queuedCount: snapshot.queuedCount,
+      currentSource: snapshot.currentSource,
+      currentPrompt: snapshot.currentPrompt,
+      currentStartedAt: snapshot.currentStartedAt,
+      queue: snapshot.queue,
       messages: snapshot.messages,
       activities: snapshot.activities,
     },
@@ -422,6 +422,7 @@ function initRelay(config: AgentConfig): void {
     revealProjectWindow: (projectId: string) => showWorkspaceWindow(projectId),
     runtimeManager,
     getDefaultCliProvider,
+    syncProjectCatalog: () => syncProjectCatalog(loadConfig().agentId),
     onProjectsChanged: () => {
       rebuildTrayMenu();
       broadcastProjectsChanged();

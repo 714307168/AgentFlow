@@ -61,6 +61,7 @@ func (db *DB) initSchema() error {
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		username TEXT NOT NULL UNIQUE,
 		password_hash TEXT NOT NULL,
+		is_admin INTEGER NOT NULL DEFAULT 0,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
@@ -112,7 +113,77 @@ func (db *DB) initSchema() error {
 		return fmt.Errorf("failed to create schema: %w", err)
 	}
 
+	if err := db.ensureUserAdminColumn(); err != nil {
+		return err
+	}
+	if err := db.ensureAtLeastOneAdmin(); err != nil {
+		return err
+	}
+
 	log.Info().Msg("Database schema initialized")
+	return nil
+}
+
+func (db *DB) ensureUserAdminColumn() error {
+	rows, err := db.Query("PRAGMA table_info(users)")
+	if err != nil {
+		return fmt.Errorf("failed to inspect users schema: %w", err)
+	}
+	defer rows.Close()
+
+	hasIsAdmin := false
+	for rows.Next() {
+		var (
+			cid        int
+			name       string
+			columnType string
+			notNull    int
+			defaultVal sql.NullString
+			pk         int
+		)
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultVal, &pk); err != nil {
+			return fmt.Errorf("failed to scan users schema: %w", err)
+		}
+		if name == "is_admin" {
+			hasIsAdmin = true
+			break
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("failed to read users schema: %w", err)
+	}
+	if hasIsAdmin {
+		return nil
+	}
+
+	if _, err := db.Exec("ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return fmt.Errorf("failed to add users.is_admin column: %w", err)
+	}
+	log.Info().Msg("Added users.is_admin column")
+	return nil
+}
+
+func (db *DB) ensureAtLeastOneAdmin() error {
+	var adminCount int
+	if err := db.QueryRow("SELECT COUNT(*) FROM users WHERE is_admin = 1").Scan(&adminCount); err != nil {
+		return fmt.Errorf("failed to count admin users: %w", err)
+	}
+	if adminCount > 0 {
+		return nil
+	}
+
+	var totalCount int
+	if err := db.QueryRow("SELECT COUNT(*) FROM users").Scan(&totalCount); err != nil {
+		return fmt.Errorf("failed to count users: %w", err)
+	}
+	if totalCount == 0 {
+		return nil
+	}
+
+	if _, err := db.Exec("UPDATE users SET is_admin = 1 WHERE id = (SELECT id FROM users ORDER BY id ASC LIMIT 1)"); err != nil {
+		return fmt.Errorf("failed to promote initial admin user: %w", err)
+	}
+	log.Warn().Msg("No admin user found; promoted the earliest user to admin")
 	return nil
 }
 
@@ -157,7 +228,7 @@ func (db *DB) InitializeDefaultUser() error {
 
 	// Create default user
 	_, err = db.Exec(
-		"INSERT INTO users (username, password_hash) VALUES (?, ?)",
+		"INSERT INTO users (username, password_hash, is_admin) VALUES (?, ?, 1)",
 		"admin", hash,
 	)
 	if err != nil {
@@ -186,29 +257,20 @@ func (db *DB) SyncUserFromEnv() error {
 		return fmt.Errorf("failed to check user existence: %w", err)
 	}
 
-	hash, err := auth.HashPassword(password)
-	if err != nil {
-		return fmt.Errorf("failed to hash password: %w", err)
-	}
-
 	if !exists {
-		// Create user
-		_, err = db.Exec(
-			"INSERT INTO users (username, password_hash) VALUES (?, ?)",
-			username, hash,
-		)
-		if err != nil {
+		if _, err := db.CreateUser(username, password, true); err != nil {
 			return fmt.Errorf("failed to create user: %w", err)
 		}
 		log.Info().Str("username", username).Msg("User created from environment variables")
 	} else {
-		// Update password
-		_, err = db.Exec(
-			"UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE username = ?",
-			hash, username,
-		)
-		if err != nil {
+		if err := db.SetUserPasswordByUsername(username, password); err != nil {
 			return fmt.Errorf("failed to update user password: %w", err)
+		}
+		if _, err := db.Exec(
+			"UPDATE users SET is_admin = 1, updated_at = CURRENT_TIMESTAMP WHERE username = ?",
+			username,
+		); err != nil {
+			return fmt.Errorf("failed to update user admin status: %w", err)
 		}
 		log.Info().Str("username", username).Msg("User password updated from environment variables")
 	}

@@ -11,6 +11,9 @@ interface MessageDao {
     @Query("SELECT * FROM messages WHERE projectId = :projectId ORDER BY timestamp ASC")
     fun getMessagesByProject(projectId: String): Flow<List<MessageEntity>>
 
+    @Query("SELECT * FROM messages WHERE id = :messageId LIMIT 1")
+    suspend fun getMessageById(messageId: String): MessageEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMessage(message: MessageEntity)
 

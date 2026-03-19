@@ -11,11 +11,11 @@ import com.claudecode.remote.data.model.Events
 import com.claudecode.remote.data.model.FileInfo
 import com.claudecode.remote.data.model.Message
 import com.claudecode.remote.data.model.MessageRole
-import com.claudecode.remote.data.model.Session
 import com.claudecode.remote.data.model.MessageType
+import com.claudecode.remote.data.model.Session
 import com.claudecode.remote.data.model.StreamBuffer
-import com.claudecode.remote.data.remote.RelayApi
 import com.claudecode.remote.data.remote.RelayWebSocket
+import com.claudecode.remote.data.remote.RelayApi
 import com.claudecode.remote.data.remote.WakeupRequest
 import com.claudecode.remote.util.CrashLogger
 import kotlinx.coroutines.Dispatchers
@@ -23,11 +23,13 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
@@ -36,7 +38,7 @@ import java.util.UUID
 
 class MessageRepository(
     private val webSocket: RelayWebSocket,
-    private val relayApi: RelayApi,
+    private val relayApiProvider: () -> RelayApi,
     private val tokenStore: TokenStore,
     private val context: Context
 ) {
@@ -61,10 +63,13 @@ class MessageRepository(
     suspend fun sendMessage(projectId: String, content: String, agentId: String? = null) {
         wakeupAgent(agentId)
 
+        val runId = UUID.randomUUID().toString()
+        val streamId = "$runId:assistant"
         val envelope = Envelope(
-            id = UUID.randomUUID().toString(),
+            id = runId,
             event = Events.MESSAGE_SEND,
             projectId = projectId,
+            streamId = streamId,
             payload = buildJsonObject { put("content", JsonPrimitive(content)) },
             ts = System.currentTimeMillis()
         )
@@ -180,7 +185,17 @@ class MessageRepository(
                 val chunk = payloadObj["content"]?.jsonPrimitive?.content ?: return
                 if (chunk.isBlank()) return
 
-                val buffer = streamBuffers.getOrPut(streamId) { StreamBuffer(streamId, startedAt = envelope.ts) }
+                val existingBuffer = streamBuffers[streamId]
+                val buffer = if (existingBuffer != null) {
+                    existingBuffer
+                } else {
+                    val existingMessage = messageDao.getMessageById(streamId)
+                    StreamBuffer(
+                        streamId = streamId,
+                        startedAt = existingMessage?.timestamp ?: envelope.ts,
+                        baseContent = existingMessage?.content.orEmpty()
+                    ).also { streamBuffers[streamId] = it }
+                }
                 if (buffer.chunks.containsKey(seq)) {
                     return
                 }
@@ -198,20 +213,60 @@ class MessageRepository(
                     val assembled = buffer.assembledContent()
                     upsertStreamingMessage(projectId, streamId, assembled, isStreaming = false, timestamp = buffer.startedAt)
                     streamBuffers.remove(streamId)
+                } else {
+                    val existingMessage = messageDao.getMessageById(streamId)
+                    if (existingMessage != null) {
+                        upsertStreamingMessage(
+                            projectId = projectId,
+                            streamId = streamId,
+                            content = existingMessage.content,
+                            isStreaming = false,
+                            timestamp = existingMessage.timestamp
+                        )
+                    }
                 }
             }
             Events.MESSAGE_ERROR -> {
                 val streamId = envelope.streamId
                 if (streamId != null) {
                     streamBuffers.remove(streamId)
-                    upsertStreamingMessage(projectId, streamId, "[Error receiving response]", isStreaming = false, timestamp = envelope.ts)
+                    val existingMessage = messageDao.getMessageById(streamId)
+                    upsertStreamingMessage(
+                        projectId = projectId,
+                        streamId = streamId,
+                        content = existingMessage?.content?.ifBlank { "[Error receiving response]" } ?: "[Error receiving response]",
+                        isStreaming = false,
+                        timestamp = existingMessage?.timestamp ?: envelope.ts
+                    )
                 }
             }
             Events.SESSION_SYNC -> {
                 val payloadObj = envelope.payload?.jsonObject ?: return
                 val provider = payloadObj["provider"]?.jsonPrimitive?.contentOrNull?.trim().takeUnless { it.isNullOrBlank() } ?: "claude"
                 val model = payloadObj["model"]?.jsonPrimitive?.contentOrNull?.trim().takeUnless { it.isNullOrBlank() }
-                sessionDao.updateSessionRuntime(projectId, provider, model, envelope.ts)
+                val isRunning = payloadObj["isRunning"]?.jsonPrimitive?.booleanOrNull ?: false
+                val queuedCount = payloadObj["queuedCount"]?.jsonPrimitive?.intOrNull ?: 0
+                val currentPrompt = payloadObj["currentPrompt"]?.jsonPrimitive?.contentOrNull?.trim().takeUnless { it.isNullOrBlank() }
+                val currentStartedAt = payloadObj["currentStartedAt"]?.jsonPrimitive?.longOrNull
+                val queuePreview = payloadObj["queue"]?.jsonArray
+                    ?.firstOrNull()
+                    ?.jsonObject
+                    ?.get("prompt")
+                    ?.jsonPrimitive
+                    ?.contentOrNull
+                    ?.trim()
+                    .takeUnless { it.isNullOrBlank() }
+                sessionDao.updateSessionRuntime(
+                    projectId = projectId,
+                    cliProvider = provider,
+                    cliModel = model,
+                    isRunning = isRunning,
+                    queuedCount = queuedCount,
+                    currentPrompt = currentPrompt,
+                    queuePreview = queuePreview,
+                    currentStartedAt = currentStartedAt,
+                    lastActiveAt = envelope.ts
+                )
                 val messages = payloadObj["messages"]?.jsonArray ?: JsonArray(emptyList())
                 val activities = payloadObj["activities"]?.jsonArray ?: JsonArray(emptyList())
                 replaceProjectMessagesFromDesktop(projectId, messages, activities, envelope.ts)
@@ -289,7 +344,7 @@ class MessageRepository(
         }
 
         try {
-            relayApi.wakeupAgent(
+            relayApiProvider().wakeupAgent(
                 auth = "Bearer $token",
                 request = WakeupRequest(agentId)
             )
@@ -390,6 +445,12 @@ class MessageRepository(
         projectPath = projectPath,
         cliProvider = cliProvider,
         cliModel = cliModel,
+        isAgentOnline = isAgentOnline,
+        isRunning = isRunning,
+        queuedCount = queuedCount,
+        currentPrompt = currentPrompt,
+        queuePreview = queuePreview,
+        currentStartedAt = currentStartedAt,
         createdAt = createdAt,
         lastActiveAt = lastActiveAt
     )

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/claudecode/relay-server/auth"
 	"github.com/claudecode/relay-server/config"
 	"github.com/claudecode/relay-server/hub"
 	"github.com/claudecode/relay-server/model"
@@ -24,9 +25,25 @@ func WakeupHandler(h *hub.Hub, cfg *config.Config) http.HandlerFunc {
 			return
 		}
 
+		token, err := readBearerToken(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusUnauthorized)
+			return
+		}
+
+		claims, err := auth.VerifyToken(cfg.JWTSecret, token)
+		if err != nil {
+			http.Error(w, "invalid token", http.StatusUnauthorized)
+			return
+		}
+
 		var req wakeupRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.AgentID == "" {
 			http.Error(w, "agent_id is required", http.StatusBadRequest)
+			return
+		}
+		if claims.AgentID == "" || claims.AgentID != req.AgentID {
+			http.Error(w, "token is not authorized for this agent", http.StatusForbidden)
 			return
 		}
 

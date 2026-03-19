@@ -1,23 +1,26 @@
 package com.claudecode.remote
 
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import com.claudecode.remote.data.crypto.E2ECrypto
-import com.claudecode.remote.data.local.TokenStore
-import com.claudecode.remote.data.remote.RelayApi
-import com.claudecode.remote.data.remote.RelayWebSocket
-import com.claudecode.remote.domain.MessageRepository
-import com.claudecode.remote.domain.SessionRepository
+import androidx.core.content.ContextCompat
+import com.claudecode.remote.data.remote.LoginRequest
+import com.claudecode.remote.service.RelayConnectionService
 import com.claudecode.remote.ui.chat.ChatScreen
 import com.claudecode.remote.ui.chat.ChatViewModel
 import com.claudecode.remote.ui.session.SessionListScreen
@@ -25,67 +28,61 @@ import com.claudecode.remote.ui.session.SessionViewModel
 import com.claudecode.remote.ui.settings.SettingsScreen
 import com.claudecode.remote.ui.settings.SettingsState
 import com.claudecode.remote.util.CrashLogger
-import kotlinx.serialization.json.Json
-import okhttp3.MediaType.Companion.toMediaType
-import retrofit2.Retrofit
-import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
 import java.util.Locale
 
 class MainActivity : ComponentActivity() {
+    private lateinit var appContainer: AppContainer
+
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        appContainer = applicationContext.appContainer()
 
-        // Initialize crash logger
         CrashLogger.init(applicationContext)
         CrashLogger.logInfo("MainActivity", "App started")
 
-        // Apply saved language before setting content
-        val tempStore = TokenStore(applicationContext)
-        val savedLang = tempStore.getLanguage()
-        val locale = Locale(savedLang)
-        Locale.setDefault(locale)
-        val config = resources.configuration
-        config.setLocale(locale)
-        @Suppress("DEPRECATION")
-        resources.updateConfiguration(config, resources.displayMetrics)
+        applySavedLanguage()
+        requestNotificationPermissionIfNeeded()
+        appContainer.chatNavigationBus.publishFromIntent(intent)
+
+        if (!appContainer.tokenStore.getToken().isNullOrBlank()) {
+            RelayConnectionService.start(applicationContext)
+        }
 
         enableEdgeToEdge()
         setContent {
             MaterialTheme {
                 val navController = rememberNavController()
-                val tokenStore = remember { TokenStore(applicationContext) }
-                val initialServerUrl = remember {
-                    normalizeHttpBaseUrl(tokenStore.getServerUrl() ?: "http://192.168.31.207:8080")
-                }
-                val e2eCrypto = remember { E2ECrypto() }
+                val coroutineScope = rememberCoroutineScope()
+                val tokenStore = appContainer.tokenStore
+                val relayWebSocket = appContainer.relayWebSocket
+                val sessionRepository = appContainer.sessionRepository
+                val messageRepository = appContainer.messageRepository
+                val e2eCrypto = appContainer.e2eCrypto
                 val json = remember {
                     Json { ignoreUnknownKeys = true; encodeDefaults = true }
                 }
-                val relayApi = remember { createRelayApi(initialServerUrl, json) }
-                val relayWebSocket = remember { RelayWebSocket(initialServerUrl, tokenStore) }
-                val sessionRepository = remember { SessionRepository(relayApi, tokenStore, applicationContext) }
-                val messageRepository = remember { MessageRepository(relayWebSocket, relayApi, tokenStore, applicationContext) }
+                val navigationTarget by appContainer.chatNavigationBus.target.collectAsState()
 
-                LaunchedEffect(relayWebSocket) {
-                    relayWebSocket.incomingEnvelopes.collect { envelope ->
-                        sessionRepository.processEnvelope(envelope)
-                        messageRepository.processEnvelope(envelope)
+                LaunchedEffect(navigationTarget) {
+                    val target = navigationTarget ?: return@LaunchedEffect
+                    val encodedName = android.net.Uri.encode(target.projectName.ifEmpty { "Project" })
+                    val encodedAgentId = android.net.Uri.encode(target.agentId)
+                    navController.navigate("chat/${target.projectId}/$encodedName/$encodedAgentId") {
+                        launchSingleTop = true
                     }
-                }
-
-                LaunchedEffect(relayWebSocket) {
-                    relayWebSocket.connectionState.collect { state ->
-                        if (state == RelayWebSocket.ConnectionState.CONNECTED) {
-                            sessionRepository.syncFromServer()
-                        }
-                    }
+                    appContainer.chatNavigationBus.consume(target)
                 }
 
                 NavHost(navController = navController, startDestination = "sessions") {
                     composable("sessions") {
                         val viewModel = remember {
-                            SessionViewModel(sessionRepository)
+                            SessionViewModel(sessionRepository, relayWebSocket)
                         }
 
                         SessionListScreen(
@@ -110,11 +107,13 @@ class MainActivity : ComponentActivity() {
                             backStackEntry.arguments?.getString("agentId") ?: ""
                         )
 
-                        CrashLogger.logInfo("MainActivity", "Navigating to chat: projectId=$projectId, projectName=$projectName, agentId=$agentId")
+                        CrashLogger.logInfo(
+                            "MainActivity",
+                            "Navigating to chat: projectId=$projectId, projectName=$projectName, agentId=$agentId"
+                        )
 
                         if (projectId.isEmpty()) {
                             CrashLogger.logError("MainActivity", "Empty projectId, navigating back")
-                            // Navigate back if projectId is invalid
                             LaunchedEffect(Unit) {
                                 navController.popBackStack()
                             }
@@ -122,7 +121,6 @@ class MainActivity : ComponentActivity() {
                         }
 
                         val viewModel = remember(projectId) {
-                            CrashLogger.logInfo("MainActivity", "Creating ChatViewModel for projectId=$projectId")
                             ChatViewModel(messageRepository, relayWebSocket)
                         }
                         ChatScreen(
@@ -130,12 +128,11 @@ class MainActivity : ComponentActivity() {
                             projectName = projectName,
                             agentId = agentId,
                             viewModel = viewModel,
+                            uiPresenceTracker = appContainer.uiPresenceTracker,
                             onNavigateBack = { navController.popBackStack() }
                         )
                     }
                     composable("settings") {
-                        val coroutineScope = rememberCoroutineScope()
-
                         SettingsScreen(
                             initialState = SettingsState(
                                 serverUrl = tokenStore.getServerUrl() ?: "",
@@ -149,25 +146,27 @@ class MainActivity : ComponentActivity() {
                             ),
                             onSave = { url, devId, e2e ->
                                 val normalizedUrl = normalizeHttpBaseUrl(url)
-                                tokenStore.saveServerUrl(normalizedUrl)
+                                appContainer.updateServerUrl(normalizedUrl)
                                 tokenStore.saveDeviceId(devId)
                                 tokenStore.saveE2EEnabled(e2e)
-                                relayWebSocket.updateServerUrl(normalizedUrl)
+                                if (!tokenStore.getToken().isNullOrBlank()) {
+                                    relayWebSocket.disconnect()
+                                    coroutineScope.launch {
+                                        relayWebSocket.connect()
+                                    }
+                                    RelayConnectionService.start(applicationContext)
+                                }
                             },
                             onLogin = { url, username, password, deviceId ->
                                 val normalizedUrl = normalizeHttpBaseUrl(url)
-
-                                tokenStore.saveServerUrl(normalizedUrl)
+                                appContainer.updateServerUrl(normalizedUrl)
                                 tokenStore.saveDeviceId(deviceId)
                                 tokenStore.saveUsername(username)
 
-                                // Call login API
                                 coroutineScope.launch {
                                     try {
-                                        val dynamicApi = createRelayApi(normalizedUrl, json)
-
-                                        val response = dynamicApi.login(
-                                            com.claudecode.remote.data.remote.LoginRequest(
+                                        val response = createRelayApi(normalizedUrl, json).login(
+                                            LoginRequest(
                                                 username = username,
                                                 password = password,
                                                 clientType = "device",
@@ -177,16 +176,10 @@ class MainActivity : ComponentActivity() {
                                         tokenStore.saveToken(response.token)
                                         CrashLogger.logInfo("MainActivity", "Login successful: ${response.user.username}")
 
-                                        relayWebSocket.updateServerUrl(normalizedUrl)
                                         relayWebSocket.disconnect()
                                         relayWebSocket.connect()
-
-                                        // Rebuild app-scoped repositories if server URL changed.
-                                        if (normalizedUrl != initialServerUrl) {
-                                            runOnUiThread { recreate() }
-                                        } else {
-                                            sessionRepository.syncFromServer()
-                                        }
+                                        RelayConnectionService.start(applicationContext)
+                                        sessionRepository.syncFromServer()
                                     } catch (e: Exception) {
                                         CrashLogger.logError("MainActivity", "Login failed", e)
                                     }
@@ -194,13 +187,7 @@ class MainActivity : ComponentActivity() {
                             },
                             onLanguageChange = { lang ->
                                 tokenStore.saveLanguage(lang)
-                                val locale = Locale(lang)
-                                Locale.setDefault(locale)
-                                val config = resources.configuration
-                                config.setLocale(locale)
-                                @Suppress("DEPRECATION")
-                                resources.updateConfiguration(config, resources.displayMetrics)
-                                // Recreate to apply
+                                applyLanguage(lang)
                                 recreate()
                             },
                             onNavigateBack = { navController.popBackStack() }
@@ -210,25 +197,47 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-}
 
-private fun normalizeHttpBaseUrl(rawUrl: String): String {
-    val trimmed = rawUrl.trim().trimEnd('/')
-    val normalized = when {
-        trimmed.startsWith("ws://") -> "http://${trimmed.removePrefix("ws://")}"
-        trimmed.startsWith("wss://") -> "https://${trimmed.removePrefix("wss://")}"
-        trimmed.startsWith("http://") || trimmed.startsWith("https://") -> trimmed
-        trimmed.isEmpty() -> "http://localhost:8080"
-        else -> "http://$trimmed"
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        appContainer.chatNavigationBus.publishFromIntent(intent)
     }
-    return "$normalized/"
-}
 
-private fun createRelayApi(baseUrl: String, json: Json): RelayApi {
-    val normalizedBaseUrl = normalizeHttpBaseUrl(baseUrl)
-    return Retrofit.Builder()
-        .baseUrl(normalizedBaseUrl)
-        .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
-        .build()
-        .create(RelayApi::class.java)
+    override fun onStart() {
+        super.onStart()
+        appContainer.uiPresenceTracker.setAppInForeground(true)
+    }
+
+    override fun onStop() {
+        appContainer.uiPresenceTracker.setAppInForeground(false)
+        super.onStop()
+    }
+
+    private fun requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            return
+        }
+        if (ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
+
+    private fun applySavedLanguage() {
+        applyLanguage(appContainer.tokenStore.getLanguage())
+    }
+
+    private fun applyLanguage(lang: String) {
+        val locale = Locale(lang)
+        Locale.setDefault(locale)
+        val config = resources.configuration
+        config.setLocale(locale)
+        @Suppress("DEPRECATION")
+        resources.updateConfiguration(config, resources.displayMetrics)
+    }
 }

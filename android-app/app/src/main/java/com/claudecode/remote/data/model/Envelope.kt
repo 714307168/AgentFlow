@@ -22,6 +22,7 @@ object Events {
     const val AUTH_ERROR = "auth.error"
     const val PROJECT_BIND = "project.bind"
     const val PROJECT_BOUND = "project.bound"
+    const val PROJECT_LIST_REQUEST = "project.list.request"
     const val PROJECT_LIST = "project.list"
     const val PROJECT_LISTED = "project.listed"
     const val SESSION_SYNC_REQUEST = "session.sync.request"

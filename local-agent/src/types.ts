@@ -34,6 +34,7 @@ export const Events = {
   AUTH_ERROR:    "auth.error",
   PROJECT_BIND:  "project.bind",
   PROJECT_BOUND: "project.bound",
+  PROJECT_LIST_REQUEST: "project.list.request",
   PROJECT_LIST:  "project.list",
   PROJECT_LISTED:"project.listed",
   SESSION_SYNC_REQUEST: "session.sync.request",

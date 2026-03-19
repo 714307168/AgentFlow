@@ -248,6 +248,19 @@ func RegisterClientHandler(database *db.DB, cfg *config.Config) http.HandlerFunc
 			return
 		}
 
+		if req.ClientType == "device" {
+			belongs, err := database.AgentBelongsToUser(req.AgentID, user.ID)
+			if err != nil {
+				log.Error().Err(err).Str("agent_id", req.AgentID).Int("user_id", user.ID).Msg("Failed to check requested device binding")
+				http.Error(w, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			if !belongs {
+				http.Error(w, "agent_id does not belong to the authenticated user", http.StatusForbidden)
+				return
+			}
+		}
+
 		// Register client
 		if req.ClientType == "agent" {
 			err = database.RegisterAgent(req.ClientID, user.ID, req.Note)

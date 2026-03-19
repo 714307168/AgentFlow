@@ -14,6 +14,7 @@ const (
 	// Project events
 	EventProjectBind        = "project.bind"
 	EventProjectBound       = "project.bound"
+	EventProjectListRequest = "project.list.request"
 	EventProjectList        = "project.list"
 	EventProjectListed      = "project.listed"
 	EventSessionSyncRequest = "session.sync.request"

@@ -30,7 +30,7 @@ func Load() *Config {
 	flag.IntVar(&c.QueueSize, "queue-size", getEnvInt("QUEUE_SIZE", 100), "Per-project message queue size")
 	flag.StringVar(&c.TLSCert, "tls-cert", getEnv("TLS_CERT", ""), "TLS certificate file path")
 	flag.StringVar(&c.TLSKey, "tls-key", getEnv("TLS_KEY", ""), "TLS private key file path")
-	flag.StringVar(&c.CORSOrigins, "cors-origins", getEnv("CORS_ORIGINS", "*"), "Allowed CORS origins (comma-separated)")
+	flag.StringVar(&c.CORSOrigins, "cors-origins", getEnv("CORS_ORIGINS", ""), "Allowed CORS origins (comma-separated)")
 	flag.StringVar(&c.AdminUser, "admin-user", getEnv("ADMIN_USER", ""), "Deprecated: Admin panel username")
 	flag.StringVar(&c.AdminPassword, "admin-password", getEnv("ADMIN_PASSWORD", ""), "Deprecated: Admin panel password")
 	flag.StringVar(&c.DataDir, "data-dir", getEnv("DATA_DIR", "./data"), "Directory for persistent data files")

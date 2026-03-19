@@ -30,6 +30,7 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.stringResource
 import com.claudecode.remote.R
+import com.claudecode.remote.UiPresenceTracker
 import com.claudecode.remote.data.model.Message
 import com.claudecode.remote.data.model.MessageRole
 import com.claudecode.remote.data.model.MessageType
@@ -42,6 +43,7 @@ fun ChatScreen(
     projectName: String,
     agentId: String,
     viewModel: ChatViewModel,
+    uiPresenceTracker: UiPresenceTracker,
     onNavigateBack: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -59,6 +61,13 @@ fun ChatScreen(
     LaunchedEffect(projectId) {
         if (projectId.isNotEmpty()) {
             viewModel.loadProject(projectId, projectName, agentId)
+        }
+    }
+
+    DisposableEffect(projectId) {
+        uiPresenceTracker.setActiveProject(projectId)
+        onDispose {
+            uiPresenceTracker.setActiveProject(null)
         }
     }
 
@@ -167,30 +176,34 @@ fun ChatScreen(
             )
         }
     ) { padding ->
-        if (uiState.messages.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .padding(padding)
-                    .fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = stringResource(R.string.no_messages),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        } else {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier
-                    .padding(padding)
-                    .fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(uiState.messages, key = { it.id }) { message ->
-                    MessageBubble(message = message)
+        Column(
+            modifier = Modifier
+                .padding(padding)
+                .fillMaxSize()
+        ) {
+            RuntimeStatusCard(uiState)
+
+            if (uiState.messages.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = stringResource(R.string.no_messages),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            } else {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(uiState.messages, key = { it.id }) { message ->
+                        MessageBubble(message = message)
+                    }
                 }
             }
         }
@@ -202,6 +215,62 @@ private fun providerLabel(provider: String): String =
 
 private fun modelLabel(model: String?): String =
     model?.trim().takeUnless { it.isNullOrEmpty() } ?: "Auto"
+
+@Composable
+private fun RuntimeStatusCard(uiState: ChatUiState) {
+    val title = when {
+        !uiState.isAgentOnline -> "桌面端离线"
+        uiState.isRunning -> "正在运行"
+        uiState.queuedCount > 0 -> "排队中"
+        else -> null
+    } ?: return
+
+    val detail = when {
+        !uiState.isAgentOnline -> "桌面 agent 目前不在线，后台服务会继续重连。"
+        uiState.isRunning -> uiState.currentPrompt?.trim().takeUnless { it.isNullOrEmpty() } ?: "正在处理最新一条消息。"
+        else -> uiState.queuePreview?.trim().takeUnless { it.isNullOrEmpty() }
+            ?: "还有 ${uiState.queuedCount} 条消息等待执行。"
+    }
+
+    val tone = when {
+        !uiState.isAgentOnline -> MaterialTheme.colorScheme.errorContainer
+        uiState.isRunning -> MaterialTheme.colorScheme.secondaryContainer
+        else -> MaterialTheme.colorScheme.tertiaryContainer
+    }
+    val textColor = when {
+        !uiState.isAgentOnline -> MaterialTheme.colorScheme.onErrorContainer
+        uiState.isRunning -> MaterialTheme.colorScheme.onSecondaryContainer
+        else -> MaterialTheme.colorScheme.onTertiaryContainer
+    }
+
+    Surface(
+        color = tone,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        shape = RoundedCornerShape(18.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(
+                text = if (uiState.queuedCount > 0 && !uiState.isRunning) {
+                    "$title · ${uiState.queuedCount} 条"
+                } else {
+                    title
+                },
+                style = MaterialTheme.typography.labelLarge,
+                color = textColor
+            )
+            Text(
+                text = detail,
+                style = MaterialTheme.typography.bodyMedium,
+                color = textColor.copy(alpha = 0.92f)
+            )
+        }
+    }
+}
 
 @Composable
 private fun MessageBubble(message: Message) {

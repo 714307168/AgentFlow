@@ -12,6 +12,7 @@ interface MessageRouterOptions {
   revealWakeupWindow?: () => void;
   runtimeManager?: RuntimeManager;
   getDefaultCliProvider?: () => CliProvider;
+  syncProjectCatalog?: () => void;
   onProjectsChanged?: () => void;
 }
 
@@ -47,6 +48,9 @@ class MessageRouter {
         break;
       case Events.PROJECT_BOUND:
         this.handleProjectBound(env);
+        break;
+      case Events.PROJECT_LIST_REQUEST:
+        this.handleProjectListRequest();
         break;
       case Events.SESSION_SYNC_REQUEST:
         this.handleSessionSyncRequest(env);
@@ -120,6 +124,8 @@ class MessageRouter {
       cwd: project.path,
       prompt: content,
       source: "remote",
+      runId: env.id,
+      responseMessageId: streamId,
       onTextDelta: (chunk) => {
         if (chunk) {
           this.sendChunk(projectId, streamId, chunk, false);
@@ -200,6 +206,10 @@ class MessageRouter {
     console.log("[MessageRouter] Project bind acknowledged:", projectId);
   }
 
+  private handleProjectListRequest(): void {
+    this.options.syncProjectCatalog?.();
+  }
+
   private handleSessionSyncRequest(env: Envelope): void {
     const projectId = env.project_id;
     if (!projectId || !this.options.runtimeManager) {
@@ -216,7 +226,14 @@ class MessageRouter {
         project_id: projectId,
         provider: snapshot.provider,
         model: snapshot.model,
+        isRunning: snapshot.isRunning,
+        queuedCount: snapshot.queuedCount,
+        currentSource: snapshot.currentSource,
+        currentPrompt: snapshot.currentPrompt,
+        currentStartedAt: snapshot.currentStartedAt,
+        queue: snapshot.queue,
         messages: snapshot.messages,
+        activities: snapshot.activities,
       },
     });
   }
@@ -236,9 +253,10 @@ class MessageRouter {
       return;
     }
 
+    const safeFileName = this.sanitizeUploadFileName(String(fileName));
     console.log(`[MessageRouter] File upload started: ${fileName} (${fileId})`);
     this.fileBuffers.set(fileId, {
-      fileName,
+      fileName: safeFileName,
       chunks: new Map(),
       totalChunks: 0
     });
@@ -270,7 +288,6 @@ class MessageRouter {
   private handleFileDone(env: Envelope): void {
     const payload = env.payload as any;
     const fileId = payload?.file_id;
-    const fileName = payload?.file_name;
 
     if (!fileId) {
       console.error("[MessageRouter] file.done missing file_id");
@@ -326,6 +343,12 @@ class MessageRouter {
       });
       this.fileBuffers.delete(fileId);
     }
+  }
+
+  private sanitizeUploadFileName(fileName: string): string {
+    const baseName = path.basename(fileName).trim();
+    const sanitized = baseName.replace(/[<>:"/\\|?*\u0000-\u001F]/g, "_");
+    return sanitized || "download.bin";
   }
 
   private sendChunk(

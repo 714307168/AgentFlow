@@ -30,8 +30,9 @@ data class FileInfo(
 data class StreamBuffer(
     val streamId: String,
     val startedAt: Long = System.currentTimeMillis(),
+    var baseContent: String = "",
     val chunks: MutableMap<Long, String> = mutableMapOf(),
     var isDone: Boolean = false
 ) {
-    fun assembledContent(): String = chunks.toSortedMap().values.joinToString("")
+    fun assembledContent(): String = baseContent + chunks.toSortedMap().values.joinToString("")
 }

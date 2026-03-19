@@ -1,22 +1,32 @@
 package handler
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/claudecode/relay-server/config"
 	"github.com/claudecode/relay-server/db"
-	"github.com/claudecode/relay-server/store"
 )
 
-// In-memory admin sessions (token -> expiry)
+type adminSession struct {
+	UserID    int
+	Username  string
+	IsAdmin   bool
+	ExpiresAt time.Time
+}
+
+type adminSessionContextKey struct{}
+
+// In-memory admin sessions (token -> session)
 var (
-	adminSessions   = map[string]time.Time{}
+	adminSessions   = map[string]adminSession{}
 	adminSessionsMu sync.Mutex
 )
 
@@ -27,7 +37,8 @@ const adminCookieName = "admin_session"
 func adminAuth(cfg *config.Config, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		cookie, err := r.Cookie(adminCookieName)
-		if err != nil || !isValidAdminSession(cookie.Value) {
+		session, ok := getAdminSession(cookie.Value)
+		if err != nil || !ok {
 			if strings.HasPrefix(r.URL.Path, "/admin/api/") {
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 			} else {
@@ -35,32 +46,67 @@ func adminAuth(cfg *config.Config, next http.HandlerFunc) http.HandlerFunc {
 			}
 			return
 		}
-		next(w, r)
+		ctx := context.WithValue(r.Context(), adminSessionContextKey{}, session)
+		next(w, r.WithContext(ctx))
 	}
 }
 
-func isValidAdminSession(token string) bool {
+func getAdminSession(token string) (adminSession, bool) {
 	adminSessionsMu.Lock()
 	defer adminSessionsMu.Unlock()
-	exp, ok := adminSessions[token]
+	session, ok := adminSessions[token]
 	if !ok {
-		return false
+		return adminSession{}, false
 	}
-	if time.Now().After(exp) {
+	if time.Now().After(session.ExpiresAt) {
 		delete(adminSessions, token)
-		return false
+		return adminSession{}, false
 	}
-	return true
+	return session, true
 }
 
-func newAdminSession() string {
+func newAdminSession(user *db.User) string {
 	b := make([]byte, 24)
 	_, _ = rand.Read(b)
 	token := hex.EncodeToString(b)
 	adminSessionsMu.Lock()
-	adminSessions[token] = time.Now().Add(adminSessionTTL)
+	adminSessions[token] = adminSession{
+		UserID:    user.ID,
+		Username:  user.Username,
+		IsAdmin:   user.IsAdmin,
+		ExpiresAt: time.Now().Add(adminSessionTTL),
+	}
 	adminSessionsMu.Unlock()
 	return token
+}
+
+func currentAdminSession(r *http.Request) (adminSession, bool) {
+	session, ok := r.Context().Value(adminSessionContextKey{}).(adminSession)
+	return session, ok
+}
+
+func setAdminSessionCookie(w http.ResponseWriter, r *http.Request, token string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     adminCookieName,
+		Value:    token,
+		Path:     "/admin",
+		HttpOnly: true,
+		MaxAge:   int(adminSessionTTL.Seconds()),
+		SameSite: http.SameSiteStrictMode,
+		Secure:   isHTTPSRequest(r),
+	})
+}
+
+func clearAdminSessionCookie(w http.ResponseWriter, r *http.Request) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     adminCookieName,
+		Value:    "",
+		Path:     "/admin",
+		HttpOnly: true,
+		MaxAge:   -1,
+		SameSite: http.SameSiteStrictMode,
+		Secure:   isHTTPSRequest(r),
+	})
 }
 
 // AdminUIHandler serves the admin SPA (login page + dashboard).
@@ -87,47 +133,53 @@ func AdminLoginHandler(database *db.DB) http.HandlerFunc {
 			return
 		}
 		// Authenticate against database
-		_, err := database.AuthenticateUser(body.Username, body.Password)
+		user, err := database.AuthenticateUser(body.Username, body.Password)
 		if err != nil {
 			http.Error(w, "invalid credentials", http.StatusUnauthorized)
 			return
 		}
-		token := newAdminSession()
-		http.SetCookie(w, &http.Cookie{
-			Name:     adminCookieName,
-			Value:    token,
-			Path:     "/admin",
-			HttpOnly: true,
-			MaxAge:   int(adminSessionTTL.Seconds()),
-		})
+		token := newAdminSession(user)
+		setAdminSessionCookie(w, r, token)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status": "ok",
+			"user": map[string]interface{}{
+				"id":       user.ID,
+				"username": user.Username,
+				"is_admin": user.IsAdmin,
+			},
+		})
 	}
 }
 
 // AdminLogoutHandler handles POST /admin/api/logout.
 func AdminLogoutHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
 		if cookie, err := r.Cookie(adminCookieName); err == nil {
 			adminSessionsMu.Lock()
 			delete(adminSessions, cookie.Value)
 			adminSessionsMu.Unlock()
 		}
-		http.SetCookie(w, &http.Cookie{
-			Name:   adminCookieName,
-			Value:  "",
-			Path:   "/admin",
-			MaxAge: -1,
-		})
+		clearAdminSessionCookie(w, r)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	}
 }
 
 // AdminAgentsHandler handles GET/POST /admin/api/agents and DELETE /admin/api/agents/{id}.
-func AdminAgentsHandler(cfg *config.Config, st *store.Store) http.HandlerFunc {
+func AdminAgentsHandler(cfg *config.Config, database *db.DB) http.HandlerFunc {
 	return adminAuth(cfg, func(w http.ResponseWriter, r *http.Request) {
+		session, ok := currentAdminSession(r)
+		if !ok {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
+
 		// DELETE /admin/api/agents/{id}
 		if r.Method == http.MethodDelete {
 			id := strings.TrimPrefix(r.URL.Path, "/admin/api/agents/")
@@ -135,7 +187,7 @@ func AdminAgentsHandler(cfg *config.Config, st *store.Store) http.HandlerFunc {
 				http.Error(w, "id required", http.StatusBadRequest)
 				return
 			}
-			if err := st.DeleteAgent(id); err != nil {
+			if err := database.DeleteAgentForUser(id, session.UserID); err != nil {
 				http.Error(w, err.Error(), http.StatusNotFound)
 				return
 			}
@@ -152,7 +204,7 @@ func AdminAgentsHandler(cfg *config.Config, st *store.Store) http.HandlerFunc {
 				http.Error(w, "id is required", http.StatusBadRequest)
 				return
 			}
-			if err := st.RegisterAgent(body.ID, body.Note); err != nil {
+			if err := database.RegisterAgent(body.ID, session.UserID, body.Note); err != nil {
 				http.Error(w, err.Error(), http.StatusConflict)
 				return
 			}
@@ -160,15 +212,27 @@ func AdminAgentsHandler(cfg *config.Config, st *store.Store) http.HandlerFunc {
 			json.NewEncoder(w).Encode(map[string]string{"status": "created"})
 			return
 		}
+
 		// GET /admin/api/agents
-		json.NewEncoder(w).Encode(st.ListAgents())
+		agents, err := database.GetUserAgents(session.UserID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		json.NewEncoder(w).Encode(agents)
 	})
 }
 
 // AdminDevicesHandler handles GET/POST /admin/api/devices and DELETE /admin/api/devices/{id}.
-func AdminDevicesHandler(cfg *config.Config, st *store.Store) http.HandlerFunc {
+func AdminDevicesHandler(cfg *config.Config, database *db.DB) http.HandlerFunc {
 	return adminAuth(cfg, func(w http.ResponseWriter, r *http.Request) {
+		session, ok := currentAdminSession(r)
+		if !ok {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
+
 		// DELETE /admin/api/devices/{id}
 		if r.Method == http.MethodDelete {
 			id := strings.TrimPrefix(r.URL.Path, "/admin/api/devices/")
@@ -176,7 +240,7 @@ func AdminDevicesHandler(cfg *config.Config, st *store.Store) http.HandlerFunc {
 				http.Error(w, "id required", http.StatusBadRequest)
 				return
 			}
-			if err := st.DeleteDevice(id); err != nil {
+			if err := database.DeleteDeviceForUser(id, session.UserID); err != nil {
 				http.Error(w, err.Error(), http.StatusNotFound)
 				return
 			}
@@ -194,7 +258,18 @@ func AdminDevicesHandler(cfg *config.Config, st *store.Store) http.HandlerFunc {
 				http.Error(w, "id is required", http.StatusBadRequest)
 				return
 			}
-			if err := st.RegisterDevice(body.ID, body.AgentID, body.Note); err != nil {
+			if body.AgentID != "" {
+				belongs, err := database.AgentBelongsToUser(body.AgentID, session.UserID)
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+				if !belongs {
+					http.Error(w, "agent_id does not belong to current user", http.StatusForbidden)
+					return
+				}
+			}
+			if err := database.RegisterDevice(body.ID, session.UserID, body.AgentID, body.Note); err != nil {
 				http.Error(w, err.Error(), http.StatusConflict)
 				return
 			}
@@ -202,16 +277,153 @@ func AdminDevicesHandler(cfg *config.Config, st *store.Store) http.HandlerFunc {
 			json.NewEncoder(w).Encode(map[string]string{"status": "created"})
 			return
 		}
+
 		// GET /admin/api/devices
-		json.NewEncoder(w).Encode(st.ListDevices())
+		devices, err := database.GetUserDevices(session.UserID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		json.NewEncoder(w).Encode(devices)
 	})
 }
 
 // AdminCheckHandler returns 200 if session is valid (used by UI to detect login state).
 func AdminCheckHandler(cfg *config.Config) http.HandlerFunc {
 	return adminAuth(cfg, func(w http.ResponseWriter, r *http.Request) {
+		session, ok := currentAdminSession(r)
+		if !ok {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status": "ok",
+			"user": map[string]interface{}{
+				"id":       session.UserID,
+				"username": session.Username,
+				"is_admin": session.IsAdmin,
+			},
+		})
+	})
+}
+
+// AdminUsersHandler handles GET/POST /admin/api/users, POST /admin/api/users/{id}/password,
+// and DELETE /admin/api/users/{id}.
+func AdminUsersHandler(cfg *config.Config, database *db.DB) http.HandlerFunc {
+	return adminAuth(cfg, func(w http.ResponseWriter, r *http.Request) {
+		session, ok := currentAdminSession(r)
+		if !ok {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if !session.IsAdmin {
+			http.Error(w, "admin access required", http.StatusForbidden)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		path := strings.TrimPrefix(r.URL.Path, "/admin/api/users")
+
+		switch {
+		case path == "" || path == "/":
+			switch r.Method {
+			case http.MethodGet:
+				users, err := database.ListUsers()
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+				json.NewEncoder(w).Encode(users)
+				return
+			case http.MethodPost:
+				var body struct {
+					Username string `json:"username"`
+					Password string `json:"password"`
+					IsAdmin  bool   `json:"is_admin"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					http.Error(w, "invalid request body", http.StatusBadRequest)
+					return
+				}
+				user, err := database.CreateUser(body.Username, body.Password, body.IsAdmin)
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+				w.WriteHeader(http.StatusCreated)
+				json.NewEncoder(w).Encode(map[string]interface{}{
+					"status": "created",
+					"user": map[string]interface{}{
+						"id":       user.ID,
+						"username": user.Username,
+						"is_admin": user.IsAdmin,
+					},
+				})
+				return
+			default:
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+
+		case strings.HasSuffix(path, "/password") && r.Method == http.MethodPost:
+			idValue := strings.Trim(strings.TrimSuffix(path, "/password"), "/")
+			userID, err := strconv.Atoi(idValue)
+			if err != nil {
+				http.Error(w, "invalid user id", http.StatusBadRequest)
+				return
+			}
+			var body struct {
+				Password string `json:"password"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				http.Error(w, "invalid request body", http.StatusBadRequest)
+				return
+			}
+			if err := database.SetUserPassword(userID, body.Password); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]string{"status": "password_reset"})
+			return
+
+		case r.Method == http.MethodDelete:
+			idValue := strings.Trim(path, "/")
+			userID, err := strconv.Atoi(idValue)
+			if err != nil {
+				http.Error(w, "invalid user id", http.StatusBadRequest)
+				return
+			}
+			if userID == session.UserID {
+				http.Error(w, "cannot delete the current admin user", http.StatusBadRequest)
+				return
+			}
+
+			targetUser, err := database.GetUserByID(userID)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusNotFound)
+				return
+			}
+			if targetUser.IsAdmin {
+				adminCount, err := database.CountAdminUsers()
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+				if adminCount <= 1 {
+					http.Error(w, "cannot delete the last admin user", http.StatusBadRequest)
+					return
+				}
+			}
+			if err := database.DeleteUser(userID); err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
+			return
+		}
+
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	})
 }
 
@@ -259,6 +471,8 @@ const adminHTML = `<!DOCTYPE html>
             padding:12px 24px; background:var(--surface); border-bottom:1px solid var(--border); }
   .topbar h1 { font-size:14px; font-weight:600; }
   .topbar-right { display:flex; align-items:center; gap:10px; }
+  .user-badge { padding:5px 10px; border:1px solid var(--border); border-radius:999px;
+                color:var(--label); font-size:12px; background:var(--surface2); }
   .lang-switch { padding:5px 10px; background:transparent; border:1px solid var(--border);
                  border-radius:4px; color:var(--label); font-size:12px; cursor:pointer; }
   .lang-switch:hover { border-color:var(--text); color:var(--text); }
@@ -286,6 +500,8 @@ const adminHTML = `<!DOCTYPE html>
   .btn-primary:hover { background:var(--accent-h); }
   .btn-danger { background:transparent; border:1px solid #555; color:var(--error); }
   .btn-danger:hover { background:rgba(244,67,54,0.1); border-color:var(--error); }
+  .toolbar-check { display:flex; align-items:center; gap:6px; padding:0 4px; color:var(--label); font-size:12px; white-space:nowrap; }
+  .toolbar-check input { width:auto; }
 
   table { width:100%; border-collapse:collapse; }
   th { text-align:left; font-size:11px; font-weight:600; text-transform:uppercase;
@@ -404,6 +620,7 @@ const adminHTML = `<!DOCTYPE html>
       </div>
     </div>
     <div class="topbar-right">
+      <span class="user-badge" id="currentUserLabel">Not signed in</span>
       <select class="lang-switch" id="langSwitch">
         <option value="en">English</option>
         <option value="zh">中文</option>
@@ -416,6 +633,7 @@ const adminHTML = `<!DOCTYPE html>
       <div class="tab active" data-tab="overview" data-i18n="tab.overview">Overview</div>
       <div class="tab" data-tab="agents" data-i18n="tab.agents">Agents</div>
       <div class="tab" data-tab="devices" data-i18n="tab.devices">Devices</div>
+      <div class="tab" data-tab="users" id="usersTab" style="display:none;">Users</div>
     </div>
 
     <div class="panel active" id="overviewPanel">
@@ -513,6 +731,25 @@ const adminHTML = `<!DOCTYPE html>
         <tbody id="devicesTbody"></tbody>
       </table>
     </div>
+    <div class="panel" id="usersPanel">
+      <div class="toolbar">
+        <input type="text" id="newUsername" placeholder="Username">
+        <input type="password" id="newUserPassword" placeholder="Temporary password">
+        <label class="toolbar-check"><input type="checkbox" id="newUserIsAdmin">Admin</label>
+        <button class="btn btn-primary" id="addUserBtn">Create User</button>
+      </div>
+      <table id="usersTable">
+        <thead><tr>
+          <th>Username</th>
+          <th>Role</th>
+          <th>Agents</th>
+          <th>Devices</th>
+          <th>Created</th>
+          <th></th>
+        </tr></thead>
+        <tbody id="usersTbody"></tbody>
+      </table>
+    </div>
   </div>
 </div>
 
@@ -520,6 +757,10 @@ const adminHTML = `<!DOCTYPE html>
 
 <script>
 const $ = id => document.getElementById(id);
+let currentAdminUser = null;
+let agents = [];
+let devices = [];
+let users = [];
 
 // i18n translations
 const i18n = {
@@ -657,12 +898,40 @@ function applyI18n() {
   $('langSwitch').value = currentLang;
 }
 
+function activateTab(name) {
+  document.querySelectorAll('.tab').forEach(tab => {
+    tab.classList.toggle('active', tab.dataset.tab === name);
+  });
+  document.querySelectorAll('.panel').forEach(panel => {
+    panel.classList.toggle('active', panel.id === name + 'Panel');
+  });
+}
+
+function applySessionUI() {
+  const label = $('currentUserLabel');
+  const usersTab = $('usersTab');
+
+  if (!currentAdminUser) {
+    label.textContent = 'Not signed in';
+    usersTab.style.display = 'none';
+    return;
+  }
+
+  label.textContent = currentAdminUser.username + (currentAdminUser.is_admin ? ' (Admin)' : ' (User)');
+  usersTab.style.display = currentAdminUser.is_admin ? '' : 'none';
+
+  if (!currentAdminUser.is_admin && $('usersPanel').classList.contains('active')) {
+    activateTab('overview');
+  }
+}
+
 $('langSwitch').addEventListener('change', (e) => {
   currentLang = e.target.value;
   localStorage.setItem('adminLang', currentLang);
   applyI18n();
   renderAgents();
   renderDevices();
+  renderUsers();
 });
 
 function showToast(msg, ok) {
@@ -698,7 +967,8 @@ $('loginBtn').addEventListener('click', async () => {
   const u = $('loginUser').value.trim();
   const p = $('loginPass').value;
   try {
-    await api('POST', '/admin/api/login', {username: u, password: p});
+    const resp = await api('POST', '/admin/api/login', {username: u, password: p});
+    currentAdminUser = resp.user || null;
     $('loginErr').style.display = 'none';
     showDashboard();
   } catch {
@@ -709,6 +979,8 @@ $('loginPass').addEventListener('keydown', e => { if (e.key === 'Enter') $('logi
 
 $('logoutBtn').addEventListener('click', async () => {
   await api('POST', '/admin/api/logout', {}).catch(() => {});
+  currentAdminUser = null;
+  users = [];
   $('dashboard').style.display = 'none';
   $('loginPage').style.display = 'flex';
 });
@@ -716,10 +988,7 @@ $('logoutBtn').addEventListener('click', async () => {
 // ---- Tabs ----
 document.querySelectorAll('.tab').forEach(tab => {
   tab.addEventListener('click', () => {
-    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-    tab.classList.add('active');
-    document.getElementById(tab.dataset.tab + 'Panel').classList.add('active');
+    activateTab(tab.dataset.tab);
   });
 });
 
@@ -740,7 +1009,7 @@ async function getAgentToken() {
     return;
   }
   try {
-    const res = await fetch('/api/session', {
+    const res = await fetch('/admin/api/session', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({type: 'agent', agent_id: agentId})
@@ -766,7 +1035,7 @@ async function getDeviceToken() {
     return;
   }
   try {
-    const res = await fetch('/api/session', {
+    const res = await fetch('/admin/api/session', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({type: 'device', device_id: deviceId})
@@ -795,7 +1064,6 @@ window.addEventListener('DOMContentLoaded', () => {
 });
 
 // ---- Agents ----
-let agents = [];
 
 async function loadAgents() {
   agents = await api('GET', '/admin/api/agents');
@@ -841,7 +1109,6 @@ async function deleteAgent(id) {
 }
 
 // ---- Devices ----
-let devices = [];
 
 async function loadDevices() {
   devices = await api('GET', '/admin/api/devices');
@@ -898,16 +1165,118 @@ async function deleteDevice(id) {
   } catch(e) { showToast(e.message, false); }
 }
 
+// ---- Users ----
+async function loadUsers() {
+  if (!currentAdminUser || !currentAdminUser.is_admin) {
+    users = [];
+    renderUsers();
+    return;
+  }
+  users = await api('GET', '/admin/api/users');
+  if (!Array.isArray(users)) users = [];
+  renderUsers();
+}
+
+function renderUsers() {
+  const tbody = $('usersTbody');
+  if (!tbody) return;
+  if (!currentAdminUser || !currentAdminUser.is_admin) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty">Admin access required</td></tr>';
+    return;
+  }
+  if (!users.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty">No users created</td></tr>';
+    return;
+  }
+  tbody.innerHTML = users.map(function(user) {
+    const actions = [];
+    actions.push('<button class="btn btn-danger" onclick="resetUserPassword(' + user.id + ', ' + encodeJsString(user.username) + ')">Reset Password</button>');
+    if (!currentAdminUser || user.id !== currentAdminUser.id) {
+      actions.push('<button class="btn btn-danger" onclick="deleteUser(' + user.id + ', ' + encodeJsString(user.username) + ')">Delete</button>');
+    }
+    return '<tr>' +
+      '<td class="mono">' + esc(user.username) + '</td>' +
+      '<td>' + (user.is_admin ? 'Admin' : 'User') + '</td>' +
+      '<td class="mono">' + esc(user.agent_count) + '</td>' +
+      '<td class="mono">' + esc(user.device_count) + '</td>' +
+      '<td class="mono">' + fmtDate(user.created_at) + '</td>' +
+      '<td style="display:flex; gap:8px; flex-wrap:wrap;">' + actions.join('') + '</td>' +
+      '</tr>';
+  }).join('');
+}
+
+$('addUserBtn').addEventListener('click', async () => {
+  const username = $('newUsername').value.trim();
+  const password = $('newUserPassword').value;
+  if (!username || !password) {
+    showToast('Username and password are required', false);
+    return;
+  }
+  try {
+    await api('POST', '/admin/api/users', {
+      username,
+      password,
+      is_admin: $('newUserIsAdmin').checked,
+    });
+    $('newUsername').value = '';
+    $('newUserPassword').value = '';
+    $('newUserIsAdmin').checked = false;
+    showToast('User created', true);
+    loadUsers();
+  } catch (e) {
+    showToast(e.message, false);
+  }
+});
+
+async function resetUserPassword(id, username) {
+  const password = window.prompt('Enter a new password for ' + username);
+  if (password === null) return;
+  if (!password.trim()) {
+    showToast('Password cannot be empty', false);
+    return;
+  }
+  try {
+    await api('POST', '/admin/api/users/' + encodeURIComponent(id) + '/password', {
+      password,
+    });
+    showToast('Password reset', true);
+  } catch (e) {
+    showToast(e.message, false);
+  }
+}
+
+async function deleteUser(id, username) {
+  if (!confirm('Delete user ' + username + '?')) return;
+  try {
+    await api('DELETE', '/admin/api/users/' + encodeURIComponent(id));
+    showToast('User deleted', true);
+    loadUsers();
+  } catch (e) {
+    showToast(e.message, false);
+  }
+}
+
 function esc(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+function encodeJsString(s) {
+  return JSON.stringify(String(s));
+}
+
 // ---- Init ----
 async function showDashboard() {
+  const session = await api('GET', '/admin/api/check');
+  currentAdminUser = session.user || null;
   $('loginPage').style.display = 'none';
   $('dashboard').style.display = 'block';
   applyI18n();
-  await Promise.all([loadAgents(), loadDevices()]);
+  applySessionUI();
+  await Promise.all([
+    loadAgents(),
+    loadDevices(),
+    currentAdminUser && currentAdminUser.is_admin ? loadUsers() : Promise.resolve(),
+  ]);
 }
 
 // Check if already logged in

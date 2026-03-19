@@ -17,6 +17,7 @@ import (
 
 func main() {
 	cfg := config.Load()
+	validateStartupConfig(cfg)
 
 	// Configure zerolog JSON output.
 	zerolog.TimeFieldFormat = time.RFC3339
@@ -49,15 +50,15 @@ func main() {
 		log.Warn().Err(err).Msg("Failed to migrate from JSON files")
 	}
 
-	h := hub.NewHub(cfg)
 	st := store.NewStore(database)
+	h := hub.NewHub(cfg, st)
 
 	if cfg.AdminPassword != "" && cfg.AdminPassword == "changeme" {
 		log.Warn().Msg("ADMIN_PASSWORD is set to default 'changeme' — change it in production")
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/ws", handler.WSHandler(h, cfg))
+	mux.HandleFunc("/ws", handler.WSHandler(h, cfg, st))
 
 	// Authentication endpoints
 	mux.HandleFunc("/api/auth/login", handler.LoginHandler(database, cfg))
@@ -78,10 +79,13 @@ func main() {
 	mux.HandleFunc("/admin/api/login", handler.AdminLoginHandler(database))
 	mux.HandleFunc("/admin/api/logout", handler.AdminLogoutHandler())
 	mux.HandleFunc("/admin/api/check", handler.AdminCheckHandler(cfg))
-	mux.HandleFunc("/admin/api/agents/", handler.AdminAgentsHandler(cfg, st))
-	mux.HandleFunc("/admin/api/agents", handler.AdminAgentsHandler(cfg, st))
-	mux.HandleFunc("/admin/api/devices/", handler.AdminDevicesHandler(cfg, st))
-	mux.HandleFunc("/admin/api/devices", handler.AdminDevicesHandler(cfg, st))
+	mux.HandleFunc("/admin/api/session", handler.AdminSessionHandler(cfg, database))
+	mux.HandleFunc("/admin/api/agents/", handler.AdminAgentsHandler(cfg, database))
+	mux.HandleFunc("/admin/api/agents", handler.AdminAgentsHandler(cfg, database))
+	mux.HandleFunc("/admin/api/devices/", handler.AdminDevicesHandler(cfg, database))
+	mux.HandleFunc("/admin/api/devices", handler.AdminDevicesHandler(cfg, database))
+	mux.HandleFunc("/admin/api/users/", handler.AdminUsersHandler(cfg, database))
+	mux.HandleFunc("/admin/api/users", handler.AdminUsersHandler(cfg, database))
 	mux.HandleFunc("/admin", handler.AdminUIHandler(cfg))
 	mux.HandleFunc("/admin/", handler.AdminUIHandler(cfg))
 
@@ -102,17 +106,29 @@ func main() {
 	}
 }
 
+func validateStartupConfig(cfg *config.Config) {
+	jwtSecret := strings.TrimSpace(cfg.JWTSecret)
+	if jwtSecret == "" || jwtSecret == "change-me-in-production" {
+		log.Fatal().Msg("JWT_SECRET must be set to a unique non-default value before exposing the relay server")
+	}
+	if (cfg.TLSCert == "") != (cfg.TLSKey == "") {
+		log.Fatal().Msg("TLS_CERT and TLS_KEY must be configured together")
+	}
+	if cfg.CORSOrigins == "*" {
+		log.Warn().Msg("CORS_ORIGINS='*' allows any browser origin; use explicit origins for public deployments")
+	}
+	if cfg.TLSCert == "" && cfg.TLSKey == "" {
+		log.Warn().Msg("TLS is not configured on relay-server; terminate HTTPS/WSS at a trusted reverse proxy before public exposure")
+	}
+}
+
 func corsMiddleware(next http.Handler, origins string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		origin := r.Header.Get("Origin")
-		if origins == "*" {
-			w.Header().Set("Access-Control-Allow-Origin", "*")
-		} else if origin != "" {
-			for _, allowed := range strings.Split(origins, ",") {
-				if strings.TrimSpace(allowed) == origin {
-					w.Header().Set("Access-Control-Allow-Origin", origin)
-					break
-				}
+		origin := strings.TrimSpace(r.Header.Get("Origin"))
+		if origin != "" {
+			w.Header().Add("Vary", "Origin")
+			if origins == "*" || originAllowed(origin, origins) {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
 			}
 		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
@@ -123,4 +139,13 @@ func corsMiddleware(next http.Handler, origins string) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func originAllowed(origin, origins string) bool {
+	for _, allowed := range strings.Split(origins, ",") {
+		if strings.EqualFold(strings.TrimSpace(allowed), origin) {
+			return true
+		}
+	}
+	return false
 }

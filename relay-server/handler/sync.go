@@ -3,7 +3,6 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
-	"strings"
 
 	"github.com/claudecode/relay-server/auth"
 	"github.com/claudecode/relay-server/config"
@@ -24,9 +23,9 @@ func SyncHandler(h *hub.Hub, cfg *config.Config, st *store.Store) http.HandlerFu
 			return
 		}
 
-		token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if token == "" {
-			http.Error(w, "missing authorization", http.StatusUnauthorized)
+		token, err := readBearerToken(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusUnauthorized)
 			return
 		}
 
@@ -42,11 +41,6 @@ func SyncHandler(h *hub.Hub, cfg *config.Config, st *store.Store) http.HandlerFu
 		}
 
 		agentID, ok := st.GetDeviceAgentID(claims.DeviceID)
-		if (!ok || agentID == "") && claims.AgentID != "" {
-			agentID = claims.AgentID
-			_ = st.UpdateDeviceAgent(claims.DeviceID, agentID)
-			ok = true
-		}
 		if !ok || agentID == "" {
 			http.Error(w, "device not bound to agent", http.StatusNotFound)
 			return

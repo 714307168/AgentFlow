@@ -46,6 +46,12 @@ fun SessionListScreen(
         webSocket.connect()
     }
 
+    LaunchedEffect(connectionState) {
+        if (connectionState == com.claudecode.remote.data.remote.RelayWebSocket.ConnectionState.CONNECTED) {
+            viewModel.syncFromDesktop()
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
