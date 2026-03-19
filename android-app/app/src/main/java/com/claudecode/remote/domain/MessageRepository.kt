@@ -26,6 +26,8 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
@@ -210,8 +212,9 @@ class MessageRepository(
                 val provider = payloadObj["provider"]?.jsonPrimitive?.contentOrNull?.trim().takeUnless { it.isNullOrBlank() } ?: "claude"
                 val model = payloadObj["model"]?.jsonPrimitive?.contentOrNull?.trim().takeUnless { it.isNullOrBlank() }
                 sessionDao.updateSessionRuntime(projectId, provider, model, envelope.ts)
-                val messages = payloadObj["messages"]?.jsonArray ?: return
-                replaceProjectMessagesFromDesktop(projectId, messages, envelope.ts)
+                val messages = payloadObj["messages"]?.jsonArray ?: JsonArray(emptyList())
+                val activities = payloadObj["activities"]?.jsonArray ?: JsonArray(emptyList())
+                replaceProjectMessagesFromDesktop(projectId, messages, activities, envelope.ts)
             }
         }
     }
@@ -233,28 +236,22 @@ class MessageRepository(
     private suspend fun replaceProjectMessagesFromDesktop(
         projectId: String,
         rawMessages: kotlinx.serialization.json.JsonArray,
+        rawActivities: kotlinx.serialization.json.JsonArray,
         fallbackTimestamp: Long
     ) {
-        val messages = rawMessages.mapNotNull { item ->
-            val messageObj = item.jsonObject
-            val id = messageObj["id"]?.jsonPrimitive?.content ?: return@mapNotNull null
-            val roleValue = messageObj["role"]?.jsonPrimitive?.content?.lowercase() ?: "assistant"
-            val content = messageObj["content"]?.jsonPrimitive?.content ?: ""
-            val createdAt = messageObj["createdAt"]?.jsonPrimitive?.longOrNull
-                ?: messageObj["updatedAt"]?.jsonPrimitive?.longOrNull
-                ?: fallbackTimestamp
-            val status = messageObj["status"]?.jsonPrimitive?.content ?: "done"
-
-            Message(
-                id = id,
-                projectId = projectId,
-                role = if (roleValue == "user") MessageRole.USER else MessageRole.ASSISTANT,
-                content = if (roleValue == "error") "[Error] $content" else content,
-                type = MessageType.TEXT,
-                timestamp = createdAt,
-                isStreaming = status == "streaming"
-            ).toEntity()
-        }
+        val messages = buildList {
+            rawMessages.forEachIndexed { index, item ->
+                parseDesktopMessage(projectId, item.jsonObject, fallbackTimestamp)?.let { entity ->
+                    add(index to entity)
+                }
+            }
+            rawActivities.forEachIndexed { index, item ->
+                parseDesktopActivity(projectId, item.jsonObject, fallbackTimestamp)?.let { entity ->
+                    add((rawMessages.size + index) to entity)
+                }
+            }
+        }.sortedWith(compareBy<Pair<Int, MessageEntity>>({ it.second.timestamp }, { it.first }))
+            .map { it.second }
 
         messageDao.deleteMessagesByProject(projectId)
         if (messages.isNotEmpty()) {
@@ -317,12 +314,68 @@ class MessageRepository(
         isStreaming = isStreaming
     )
 
+    private fun parseDesktopMessage(
+        projectId: String,
+        messageObj: JsonObject,
+        fallbackTimestamp: Long
+    ): MessageEntity? {
+        val id = messageObj["id"]?.jsonPrimitive?.content ?: return null
+        val roleValue = messageObj["role"]?.jsonPrimitive?.content?.lowercase() ?: "assistant"
+        val content = messageObj["content"]?.jsonPrimitive?.content ?: ""
+        val createdAt = messageObj["createdAt"]?.jsonPrimitive?.longOrNull
+            ?: messageObj["updatedAt"]?.jsonPrimitive?.longOrNull
+            ?: fallbackTimestamp
+        val status = messageObj["status"]?.jsonPrimitive?.content ?: "done"
+
+        return Message(
+            id = id,
+            projectId = projectId,
+            role = if (roleValue == "user") MessageRole.USER else MessageRole.ASSISTANT,
+            content = if (roleValue == "error") "[Error] $content" else content,
+            type = parseMessageType(messageObj["type"]?.jsonPrimitive?.contentOrNull),
+            timestamp = createdAt,
+            isStreaming = status == "streaming"
+        ).toEntity()
+    }
+
+    private fun parseDesktopActivity(
+        projectId: String,
+        activityObj: JsonObject,
+        fallbackTimestamp: Long
+    ): MessageEntity? {
+        val id = activityObj["id"]?.jsonPrimitive?.content ?: return null
+        val kind = activityObj["kind"]?.jsonPrimitive?.content?.lowercase() ?: return null
+        if (kind != "thinking") {
+            return null
+        }
+
+        val detail = activityObj["detail"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        if (detail.isEmpty()) {
+            return null
+        }
+
+        val timestamp = activityObj["createdAt"]?.jsonPrimitive?.longOrNull
+            ?: activityObj["updatedAt"]?.jsonPrimitive?.longOrNull
+            ?: fallbackTimestamp
+        val status = activityObj["status"]?.jsonPrimitive?.content?.lowercase().orEmpty()
+
+        return Message(
+            id = "thinking:$id",
+            projectId = projectId,
+            role = MessageRole.ASSISTANT,
+            content = detail,
+            type = MessageType.THINKING,
+            timestamp = timestamp,
+            isStreaming = status == "running" || status == "pending"
+        ).toEntity()
+    }
+
     private fun MessageEntity.toMessage() = Message(
         id = id,
         projectId = projectId,
-        role = MessageRole.valueOf(role),
+        role = parseMessageRole(role),
         content = content,
-        type = MessageType.valueOf(type),
+        type = parseMessageType(type),
         fileInfo = if (fileName != null) FileInfo(fileName, fileSize ?: 0, mimeType ?: "", filePath) else null,
         streamId = streamId,
         timestamp = timestamp,
@@ -340,4 +393,10 @@ class MessageRepository(
         createdAt = createdAt,
         lastActiveAt = lastActiveAt
     )
+
+    private fun parseMessageRole(raw: String): MessageRole =
+        enumValues<MessageRole>().firstOrNull { it.name == raw.uppercase() } ?: MessageRole.ASSISTANT
+
+    private fun parseMessageType(raw: String?): MessageType =
+        enumValues<MessageType>().firstOrNull { it.name == raw?.uppercase() } ?: MessageType.TEXT
 }

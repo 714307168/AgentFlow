@@ -210,6 +210,7 @@ function broadcastSessionSync(snapshot: ProjectSessionSnapshot): void {
       provider: snapshot.provider,
       model: snapshot.model,
       messages: snapshot.messages,
+      activities: snapshot.activities,
     },
   });
 }

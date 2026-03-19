@@ -16,9 +16,9 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AttachFile
-import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -26,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.stringResource
 import com.claudecode.remote.R
@@ -205,8 +206,17 @@ private fun modelLabel(model: String?): String =
 @Composable
 private fun MessageBubble(message: Message) {
     val isUser = message.role == MessageRole.USER
-    val bubbleColor = if (isUser) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
-    val textColor = if (isUser) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+    val isThinking = message.type == MessageType.THINKING
+    val bubbleColor = when {
+        isUser -> MaterialTheme.colorScheme.primary
+        isThinking -> MaterialTheme.colorScheme.secondaryContainer
+        else -> MaterialTheme.colorScheme.surfaceVariant
+    }
+    val textColor = when {
+        isUser -> MaterialTheme.colorScheme.onPrimary
+        isThinking -> MaterialTheme.colorScheme.onSecondaryContainer
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
     val alignment = if (isUser) Alignment.End else Alignment.Start
 
     Column(
@@ -230,7 +240,7 @@ private fun MessageBubble(message: Message) {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
-                        imageVector = Icons.Default.InsertDriveFile,
+                        imageVector = Icons.AutoMirrored.Filled.InsertDriveFile,
                         contentDescription = "File",
                         tint = textColor,
                         modifier = Modifier.size(24.dp)
@@ -253,20 +263,37 @@ private fun MessageBubble(message: Message) {
                 }
             } else {
                 // Text message
-                Row(
+                Column(
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.Bottom
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Text(
-                        text = message.content,
-                        color = textColor,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontFamily = if (!isUser) FontFamily.Monospace else FontFamily.Default,
-                        modifier = Modifier.weight(1f, fill = false)
-                    )
-                    if (message.isStreaming) {
-                        Spacer(modifier = Modifier.width(4.dp))
-                        BlinkingCursor(color = textColor)
+                    if (isThinking) {
+                        Text(
+                            text = "Thinking",
+                            color = textColor.copy(alpha = 0.8f),
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
+                    Row(
+                        verticalAlignment = Alignment.Bottom
+                    ) {
+                        Text(
+                            text = message.content,
+                            color = textColor,
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                fontStyle = if (isThinking) FontStyle.Italic else FontStyle.Normal
+                            ),
+                            fontFamily = when {
+                                isUser -> FontFamily.Default
+                                isThinking -> FontFamily.Default
+                                else -> FontFamily.Monospace
+                            },
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                        if (message.isStreaming) {
+                            Spacer(modifier = Modifier.width(4.dp))
+                            BlinkingCursor(color = textColor)
+                        }
                     }
                 }
             }
