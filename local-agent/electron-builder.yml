@@ -18,10 +18,15 @@ extraResources:
 
 win:
   icon: app-icon.ico
+  artifactName: "${productName}-${version}-${arch}-setup.${ext}"
   target:
-    - target: dir
+    - target: nsis
       arch:
         - x64
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
 
 mac:
   target:

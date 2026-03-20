@@ -9,7 +9,8 @@
     "dev": "tsc --watch",
     "rebuild": "electron-rebuild",
     "generate-icons": "powershell -ExecutionPolicy Bypass -File .\\scripts\\generate-icons.ps1",
-    "dist": "npm run generate-icons && electron-builder"
+    "dist": "npm run generate-icons && electron-builder",
+    "dist:win": "npm run generate-icons && electron-builder --win nsis"
   },
   "dependencies": {
     "electron-store": "^8.1.0",
