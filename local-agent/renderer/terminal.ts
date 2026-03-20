@@ -11,6 +11,7 @@ interface ClaudeAgentApi {
   onProjectSessionSnapshot: (callback: (snapshot: SessionSnapshot) => void) => void;
   getProjectSession: (projectId: string) => Promise<ProjectSessionResponse>;
   sendProjectPrompt: (data: { projectId: string; prompt: string }) => Promise<{ success: boolean; error?: string }>;
+  stopProjectRun: (projectId: string) => Promise<{ success: boolean; error?: string }>;
   removeQueuedProjectPrompt: (data: { projectId: string; runId: string }) => Promise<{ success: boolean; error?: string }>;
   onProjectId: (callback: (projectId: string) => void) => void;
   getLang?: () => Promise<Lang>;
@@ -51,6 +52,13 @@ interface QueuedRunItem {
   queuedAt: number;
 }
 
+interface CliTraceEntry {
+  id: string;
+  stream: "system" | "stdout" | "stderr";
+  text: string;
+  createdAt: number;
+}
+
 interface SessionSnapshot {
   projectId: string;
   provider: "claude" | "codex";
@@ -62,6 +70,7 @@ interface SessionSnapshot {
   currentPrompt?: string | null;
   currentStartedAt?: number | null;
   queue: QueuedRunItem[];
+  cliTrace: CliTraceEntry[];
   messages: SessionMessage[];
   activities: SessionActivity[];
 }
@@ -106,12 +115,17 @@ const elements = {
   queueTitle: document.getElementById("queueTitle"),
   queueCount: document.getElementById("queueCount"),
   queueList: document.getElementById("queueList"),
+  cliTitle: document.getElementById("cliTitle"),
+  cliSubtitle: document.getElementById("cliSubtitle"),
+  cliState: document.getElementById("cliState"),
+  cliTrace: document.getElementById("cliTrace"),
   projectList: document.getElementById("projectList"),
   messages: document.getElementById("messages"),
   activityList: document.getElementById("activityList"),
   composerForm: document.getElementById("composerForm") as HTMLFormElement | null,
   composerInput: document.getElementById("composerInput") as HTMLTextAreaElement | null,
   composerHint: document.getElementById("composerHint"),
+  stopBtn: document.getElementById("stopBtn") as HTMLButtonElement | null,
   sendBtn: document.getElementById("sendBtn") as HTMLButtonElement | null,
   openActivityBtn: document.getElementById("openActivityBtn") as HTMLButtonElement | null,
   closeActivityBtn: document.getElementById("closeActivityBtn") as HTMLButtonElement | null,
@@ -217,6 +231,15 @@ function translateKind(kind: SessionActivity["kind"]): string {
     error: "Error",
   };
   return msg(`terminal.kind.${kind}`, fallbackMap[kind]);
+}
+
+function translateCliStream(stream: CliTraceEntry["stream"]): string {
+  const labels: Record<CliTraceEntry["stream"], string> = {
+    system: inlineText("System", "系统"),
+    stdout: "stdout",
+    stderr: "stderr",
+  };
+  return labels[stream];
 }
 
 function translateActivityStatus(status: SessionActivity["status"]): string {
@@ -448,7 +471,16 @@ function applyStaticI18n(): void {
     elements.openActivityBtn.textContent = msg("terminal.action.viewActivity", "View activity");
   }
   if (elements.queueTitle) {
-    elements.queueTitle.textContent = inlineText("Queued prompts", "Queue");
+    elements.queueTitle.textContent = inlineText("Queued prompts", "排队提示");
+  }
+  if (elements.cliTitle) {
+    elements.cliTitle.textContent = inlineText("CLI Live", "CLI 实时执行");
+  }
+  if (elements.cliSubtitle) {
+    elements.cliSubtitle.textContent = inlineText(
+      "See the live local CLI command stream, stdout, and stderr here.",
+      "这里会实时显示本地 CLI 命令流、stdout 和 stderr。",
+    );
   }
   if (elements.closeActivityBtn) {
     elements.closeActivityBtn.textContent = msg("terminal.action.close", "Close");
@@ -464,6 +496,11 @@ function applyStaticI18n(): void {
   }
   if (elements.sendBtn) {
     elements.sendBtn.textContent = msg("terminal.action.send", "Send");
+  }
+  if (elements.stopBtn) {
+    const stopLabel = inlineText("Terminate", "终止");
+    elements.stopBtn.textContent = stopLabel;
+    elements.stopBtn.title = stopLabel;
   }
   if (elements.activityKicker) {
     elements.activityKicker.textContent = msg("terminal.panel.activity", "Activity");
@@ -556,6 +593,56 @@ function renderProjectList(): void {
       ].join("");
     })
     .join("");
+}
+
+function renderCliTrace(): void {
+  if (!elements.cliTrace || !elements.cliState) {
+    return;
+  }
+
+  const project = getCurrentProject();
+  const session = getCurrentSession();
+
+  elements.cliState.textContent = session?.isRunning
+    ? inlineText("Running", "运行中")
+    : inlineText("Idle", "空闲");
+  elements.cliState.className = `project-status-pill ${session?.isRunning ? "running" : "idle"}`;
+
+  if (!project) {
+    elements.cliTrace.innerHTML = formatEmptyState(
+      inlineText("No project selected", "未选择项目"),
+      inlineText("Select a project to inspect the live CLI execution stream.", "选择一个项目后，这里会显示实时 CLI 执行流。"),
+    );
+    return;
+  }
+
+  const entries = session?.cliTrace ?? [];
+  if (entries.length === 0) {
+    elements.cliTrace.innerHTML = formatEmptyState(
+      inlineText("No CLI trace yet", "暂无 CLI 轨迹"),
+      inlineText("Run or queue a prompt and the live CLI activity will appear here.", "发起或排队一个提示后，这里会出现实时 CLI 活动。"),
+    );
+    return;
+  }
+
+  const stickToBottom =
+    elements.cliTrace.scrollHeight - elements.cliTrace.scrollTop - elements.cliTrace.clientHeight < 80;
+
+  elements.cliTrace.innerHTML = entries
+    .map((entry) => [
+      `<article class="cli-line ${escapeHtml(entry.stream)}">`,
+      '<div class="cli-line-meta">',
+      `<span class="cli-stream-badge ${escapeHtml(entry.stream)}">${escapeHtml(translateCliStream(entry.stream))}</span>`,
+      `<span class="activity-time">${escapeHtml(formatTime(entry.createdAt))}</span>`,
+      "</div>",
+      `<div class="cli-line-text">${escapeHtml(entry.text)}</div>`,
+      "</article>",
+    ].join(""))
+    .join("");
+
+  if (stickToBottom) {
+    elements.cliTrace.scrollTop = elements.cliTrace.scrollHeight;
+  }
 }
 
 function renderMessages(): void {
@@ -725,6 +812,9 @@ function renderHeader(): void {
   if (elements.sendBtn) {
     elements.sendBtn.disabled = !state.projectId;
   }
+  if (elements.stopBtn) {
+    elements.stopBtn.disabled = !session?.isRunning;
+  }
   if (elements.openActivityBtn) {
     elements.openActivityBtn.toggleAttribute("disabled", !state.projectId);
   }
@@ -745,6 +835,7 @@ function render(): void {
   renderProjectList();
   renderHeader();
   renderQueue();
+  renderCliTrace();
   renderMessages();
   renderActivities();
   renderActivityModal();
@@ -806,13 +897,19 @@ async function submitPrompt(): Promise<void> {
     return;
   }
 
-  const prompt = elements.composerInput.value.trim();
-  if (!prompt) {
+  const prompt = elements.composerInput.value.replace(/\r\n/g, "\n");
+  if (!prompt.trim()) {
     setHintMessage("terminal.hint.emptyPrompt", "Prompt cannot be empty.", undefined, true);
     return;
   }
 
-  setHintMessage("terminal.hint.queued", "Queued for execution. Full-auto mode is active.");
+  const session = getCurrentSession();
+  setHintText(
+    session?.isRunning
+      ? inlineText("Queued behind the current run.", "已加入队列，将在当前任务结束后执行。")
+      : msg("terminal.hint.queued", "Queued for execution. Full-auto mode is active."),
+    false,
+  );
   const result = await api.sendProjectPrompt({
     projectId: state.projectId,
     prompt,
@@ -825,6 +922,26 @@ async function submitPrompt(): Promise<void> {
 
   elements.composerInput.value = "";
   elements.composerInput.focus();
+}
+
+async function stopActiveRun(): Promise<void> {
+  if (!state.projectId) {
+    return;
+  }
+
+  const result = await api.stopProjectRun(state.projectId);
+  if (!result.success) {
+    setHintText(
+      result.error ?? inlineText("Failed to stop the current run.", "终止当前任务失败。"),
+      true,
+    );
+    return;
+  }
+
+  setHintText(
+    inlineText("Stopping the current run.", "正在终止当前任务。"),
+    false,
+  );
 }
 
 async function removeQueuedRun(runId: string): Promise<void> {
@@ -912,6 +1029,10 @@ function closeActivityModal(): void {
 elements.composerForm?.addEventListener("submit", (event) => {
   event.preventDefault();
   void submitPrompt();
+});
+
+elements.stopBtn?.addEventListener("click", () => {
+  void stopActiveRun();
 });
 
 elements.composerInput?.addEventListener("keydown", (event) => {

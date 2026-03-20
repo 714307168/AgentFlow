@@ -2,6 +2,7 @@ import { ChildProcessWithoutNullStreams, spawn } from "child_process";
 import { EventEmitter } from "events";
 import Store from "electron-store";
 import { v4 as uuidv4 } from "uuid";
+import appLogger from "./app-logger";
 
 export type CliProvider = "claude" | "codex";
 export type RunSource = "remote" | "desktop";
@@ -42,6 +43,13 @@ export interface QueuedRunSnapshot {
   queuedAt: number;
 }
 
+export interface CliTraceEntry {
+  id: string;
+  stream: "system" | "stdout" | "stderr";
+  text: string;
+  createdAt: number;
+}
+
 export interface ProjectSessionSnapshot {
   projectId: string;
   provider: CliProvider;
@@ -53,6 +61,7 @@ export interface ProjectSessionSnapshot {
   currentPrompt: string | null;
   currentStartedAt: number | null;
   queue: QueuedRunSnapshot[];
+  cliTrace: CliTraceEntry[];
   messages: SessionMessage[];
   activities: SessionActivity[];
   sessionRefs: {
@@ -66,6 +75,8 @@ export interface EnqueueMessageOptions {
   cwd: string;
   prompt: string;
   source: RunSource;
+  interruptCurrent?: boolean;
+  interruptReason?: string;
   runId?: string;
   responseMessageId?: string;
   onTextDelta?: (chunk: string) => void;
@@ -87,11 +98,18 @@ interface ProjectState {
   currentSource: RunSource | null;
   currentPrompt: string | null;
   currentStartedAt: number | null;
+  cliTrace: CliTraceEntry[];
   messages: SessionMessage[];
   activities: SessionActivity[];
   claudeSessionId: string | null;
   codexThreadId: string | null;
   process: ChildProcessWithoutNullStreams | null;
+  pendingStop: PendingStop | null;
+}
+
+interface PendingStop {
+  reason: string;
+  notifyAsError: boolean;
 }
 
 interface PersistedProjectState {
@@ -124,6 +142,16 @@ interface PreparedRunResult {
   completionDetail?: string;
 }
 
+class StopRunError extends Error {
+  constructor(
+    message: string,
+    readonly notifyAsError: boolean,
+  ) {
+    super(message);
+    this.name = "StopRunError";
+  }
+}
+
 class RuntimeManager extends EventEmitter {
   private readonly states = new Map<string, ProjectState>();
   private readonly store = new Store<RuntimeStoreSchema>({
@@ -139,21 +167,43 @@ class RuntimeManager extends EventEmitter {
   }
 
   enqueueMessage(options: EnqueueMessageOptions): void {
-    const prompt = options.prompt.trim();
-    if (!prompt) {
+    const prompt = options.prompt.replace(/\r\n/g, "\n");
+    if (!prompt.trim()) {
       options.onError?.("Prompt cannot be empty");
       return;
     }
 
     const state = this.ensureState(options.projectId);
-    state.queue.push({
+    const pendingRun: PendingRun = {
       ...options,
       prompt,
       runId: options.runId ?? uuidv4(),
       queuedAt: Date.now(),
-    });
+    };
+
+    if (options.interruptCurrent && state.active) {
+      state.queue.unshift(pendingRun);
+      this.stopCurrentRun(
+        options.projectId,
+        options.interruptReason ?? "Interrupted by a newer prompt.",
+        false,
+      );
+    } else {
+      state.queue.push(pendingRun);
+    }
     this.emitSnapshot(options.projectId);
     void this.processNext(options.projectId);
+  }
+
+  stopCurrentRun(projectId: string, reason = "Run interrupted.", notifyAsError = true): boolean {
+    const state = this.states.get(projectId);
+    if (!state?.active || !state.process) {
+      return false;
+    }
+    this.appendCliTrace(state, "system", `Interrupt requested: ${reason}`);
+    state.pendingStop = { reason, notifyAsError };
+    state.process.kill();
+    return true;
   }
 
   removeQueuedRun(projectId: string, runId: string): boolean {
@@ -187,6 +237,7 @@ class RuntimeManager extends EventEmitter {
         source: entry.source,
         queuedAt: entry.queuedAt,
       })),
+      cliTrace: state.cliTrace.map((entry) => ({ ...entry })),
       messages: state.messages.map((message) => ({ ...message })),
       activities: state.activities.map((activity) => ({
         ...activity,
@@ -230,6 +281,7 @@ class RuntimeManager extends EventEmitter {
       return;
     }
 
+    state.cliTrace = [];
     state.active = true;
     state.provider = this.getResolvedProvider(projectId);
     state.model = this.getResolvedModel(projectId);
@@ -293,33 +345,41 @@ class RuntimeManager extends EventEmitter {
       next.onDone?.();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      this.finalizeRun(state, context, "error", message);
-      this.addMessage(state, {
-        id: uuidv4(),
-        role: "error",
-        content: message,
-        provider: state.provider,
-        source: next.source,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        status: "done",
-      });
-      this.addActivity(state, {
-        id: uuidv4(),
-        kind: "error",
-        title: `${this.getProviderLabel(state.provider)} failed`,
-        detail: message,
-        status: "error",
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      });
-      next.onError?.(message);
+      if (error instanceof StopRunError) {
+        this.finalizeRun(state, context, "completed", message);
+        if (error.notifyAsError) {
+          next.onError?.(message);
+        }
+      } else {
+        this.finalizeRun(state, context, "error", message);
+        this.addMessage(state, {
+          id: uuidv4(),
+          role: "error",
+          content: message,
+          provider: state.provider,
+          source: next.source,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          status: "done",
+        });
+        this.addActivity(state, {
+          id: uuidv4(),
+          kind: "error",
+          title: `${this.getProviderLabel(state.provider)} failed`,
+          detail: message,
+          status: "error",
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        });
+        next.onError?.(message);
+      }
     } finally {
       state.active = false;
       state.currentSource = null;
       state.currentPrompt = null;
       state.currentStartedAt = null;
       state.process = null;
+      state.pendingStop = null;
       this.emitSnapshot(projectId);
       void this.processNext(projectId);
     }
@@ -343,7 +403,6 @@ class RuntimeManager extends EventEmitter {
     if (state.claudeSessionId) {
       args.push("-r", state.claudeSessionId);
     }
-    args.push(run.prompt);
 
     return this.runProcess(
       state,
@@ -468,6 +527,7 @@ class RuntimeManager extends EventEmitter {
           }
         }
       },
+      run.prompt,
     );
   }
 
@@ -482,7 +542,6 @@ class RuntimeManager extends EventEmitter {
           "--skip-git-repo-check",
           ...(state.model ? ["--model", state.model] : []),
           state.codexThreadId,
-          run.prompt,
         ]
       : [
           "exec",
@@ -490,7 +549,6 @@ class RuntimeManager extends EventEmitter {
           "--dangerously-bypass-approvals-and-sandbox",
           "--skip-git-repo-check",
           ...(state.model ? ["--model", state.model] : []),
-          run.prompt,
         ];
 
     return this.runProcess(
@@ -593,6 +651,7 @@ class RuntimeManager extends EventEmitter {
           });
         }
       },
+      run.prompt,
     );
   }
 
@@ -662,6 +721,7 @@ class RuntimeManager extends EventEmitter {
     args: string[],
     cwd: string,
     onStdoutLine: (line: string) => void,
+    stdinData?: string,
   ): Promise<void> {
     return new Promise((resolve, reject) => {
       const child = spawn(command, args, {
@@ -674,10 +734,17 @@ class RuntimeManager extends EventEmitter {
       });
 
       state.process = child;
+      this.appendCliTrace(state, "system", `$ ${this.formatCliCommand(command, args)}`);
+      this.appendCliTrace(state, "system", `cwd ${cwd}`);
+      this.appendCliTrace(state, "system", `pid ${child.pid ?? "unknown"}`);
+      if (stdinData) {
+        child.stdin.write(stdinData, "utf8");
+      }
       child.stdin.end();
 
       let stdoutBuffer = "";
       let stderrBuffer = "";
+      let stderrTraceBuffer = "";
 
       child.stdout.setEncoding("utf8");
       child.stderr.setEncoding("utf8");
@@ -691,6 +758,7 @@ class RuntimeManager extends EventEmitter {
           if (!trimmed) {
             continue;
           }
+          this.appendCliTrace(state, "stdout", trimmed);
           onStdoutLine(trimmed);
           this.emitSnapshot(state.projectId);
         }
@@ -698,27 +766,94 @@ class RuntimeManager extends EventEmitter {
 
       child.stderr.on("data", (chunk: string) => {
         stderrBuffer += chunk;
+        stderrTraceBuffer += chunk;
+        const lines = stderrTraceBuffer.split(/\r?\n/);
+        stderrTraceBuffer = lines.pop() ?? "";
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) {
+            continue;
+          }
+          this.appendCliTrace(state, "stderr", trimmed);
+        }
       });
 
       child.on("error", (error) => {
+        this.appendCliTrace(state, "stderr", `Spawn error: ${error.message}`);
+        if (state.pendingStop) {
+          reject(new StopRunError(state.pendingStop.reason, state.pendingStop.notifyAsError));
+          return;
+        }
         reject(error);
+      });
+
+      child.on("exit", () => {
+        // Force-destroy streams so inherited handles from grandchild processes
+        // don't prevent the "close" event from firing on Windows.
+        child.stdout.destroy();
+        child.stderr.destroy();
       });
 
       child.on("close", (code) => {
         if (stdoutBuffer.trim()) {
-          onStdoutLine(stdoutBuffer.trim());
+          const finalStdout = stdoutBuffer.trim();
+          this.appendCliTrace(state, "stdout", finalStdout);
+          onStdoutLine(finalStdout);
           this.emitSnapshot(state.projectId);
+        }
+        if (stderrTraceBuffer.trim()) {
+          this.appendCliTrace(state, "stderr", stderrTraceBuffer.trim());
+        }
+
+        if (state.pendingStop) {
+          const pendingStop = state.pendingStop;
+          this.appendCliTrace(state, "system", `Interrupted: ${pendingStop.reason}`);
+          reject(new StopRunError(pendingStop.reason, pendingStop.notifyAsError));
+          return;
         }
 
         if (code === 0) {
+          this.appendCliTrace(state, "system", `${command} exited with code 0`);
           resolve();
           return;
         }
 
         const stderr = stderrBuffer.trim();
+        this.appendCliTrace(state, "system", `${command} exited with code ${code ?? "unknown"}`);
         reject(new Error(stderr || `${command} exited with code ${code ?? "unknown"}`));
       });
     });
+  }
+
+  private appendCliTrace(
+    state: ProjectState,
+    stream: CliTraceEntry["stream"],
+    text: string,
+  ): void {
+    const normalized = text.replace(/\r\n/g, "\n").trim();
+    if (!normalized) {
+      return;
+    }
+
+    state.cliTrace.push({
+      id: uuidv4(),
+      stream,
+      text: normalized,
+      createdAt: Date.now(),
+    });
+    this.trimCliTrace(state);
+    appLogger.info("runtime", normalized, {
+      projectId: state.projectId,
+      provider: state.provider,
+      stream,
+    });
+    this.emitSnapshot(state.projectId);
+  }
+
+  private formatCliCommand(command: string, args: string[]): string {
+    return [command, ...args]
+      .map((part) => (/[\s"]/u.test(part) ? `"${part.replace(/"/g, '\\"')}"` : part))
+      .join(" ");
   }
 
   private appendAssistantText(
@@ -985,6 +1120,7 @@ class RuntimeManager extends EventEmitter {
         currentSource: null,
         currentPrompt: null,
         currentStartedAt: null,
+        cliTrace: [],
         messages: (snapshot.messages ?? []).map((message) => ({
           ...message,
           status: "done",
@@ -997,6 +1133,7 @@ class RuntimeManager extends EventEmitter {
         claudeSessionId: snapshot.claudeSessionId ?? null,
         codexThreadId: snapshot.codexThreadId ?? null,
         process: null,
+        pendingStop: null,
       });
     }
   }
@@ -1041,11 +1178,13 @@ class RuntimeManager extends EventEmitter {
       currentSource: null,
       currentPrompt: null,
       currentStartedAt: null,
+      cliTrace: [],
       messages: [],
       activities: [],
       claudeSessionId: null,
       codexThreadId: null,
       process: null,
+      pendingStop: null,
     };
     this.states.set(projectId, created);
     return created;
@@ -1067,6 +1206,13 @@ class RuntimeManager extends EventEmitter {
     const maxActivities = 160;
     if (state.activities.length > maxActivities) {
       state.activities.splice(0, state.activities.length - maxActivities);
+    }
+  }
+
+  private trimCliTrace(state: ProjectState): void {
+    const maxCliTraceEntries = 240;
+    if (state.cliTrace.length > maxCliTraceEntries) {
+      state.cliTrace.splice(0, state.cliTrace.length - maxCliTraceEntries);
     }
   }
 

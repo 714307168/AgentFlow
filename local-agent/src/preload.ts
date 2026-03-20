@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('claudeAgent', {
   },
   getProjectSession: (projectId: string) => ipcRenderer.invoke('get-project-session', projectId),
   sendProjectPrompt: (data: { projectId: string; prompt: string }) => ipcRenderer.invoke('send-project-prompt', data),
+  stopProjectRun: (projectId: string) => ipcRenderer.invoke('stop-project-run', projectId),
   removeQueuedProjectPrompt: (data: { projectId: string; runId: string }) => ipcRenderer.invoke('remove-queued-project-prompt', data),
   addProject: (data: { name: string; path: string; cliProvider?: string; cliModel?: string | null }) => ipcRenderer.invoke('add-project', data),
   updateProject: (data: { projectId: string; updates: Record<string, string | null> }) => ipcRenderer.invoke('update-project', data),

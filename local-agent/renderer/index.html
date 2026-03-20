@@ -58,6 +58,17 @@
           <div class="queue-list" id="queueList"></div>
         </section>
 
+        <section class="cli-panel" id="cliPanel" aria-live="polite">
+          <div class="cli-panel-header">
+            <div>
+              <div class="queue-title" id="cliTitle">CLI Live</div>
+              <div class="cli-panel-subtitle" id="cliSubtitle">See the live local CLI command stream, stdout, and stderr here.</div>
+            </div>
+            <span class="project-status-pill idle" id="cliState">Idle</span>
+          </div>
+          <div class="cli-trace" id="cliTrace"></div>
+        </section>
+
         <div class="messages" id="messages"></div>
 
         <form class="composer" id="composerForm">
@@ -71,7 +82,10 @@
             <div class="composer-hint" id="composerHint">
               Full-auto mode is enabled for both providers. Press Enter to send, Shift+Enter for a new line.
             </div>
-            <button class="primary-button" id="sendBtn" type="submit">Send</button>
+            <div class="composer-buttons">
+              <button class="danger-button" id="stopBtn" type="button">Stop</button>
+              <button class="primary-button" id="sendBtn" type="submit">Send</button>
+            </div>
           </div>
         </form>
       </section>

@@ -144,6 +144,10 @@
       gap: 16px;
       padding: 6px 0;
     }
+    .toggle-copy {
+      flex: 1;
+      min-width: 0;
+    }
     .toggle-row + .toggle-row {
       margin-top: 8px;
       padding-top: 12px;
@@ -186,6 +190,12 @@
     }
     .toggle input:checked + .slider::before {
       transform: translateX(20px);
+    }
+    .toggle-help {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+      margin-top: 4px;
     }
     .btn-row {
       display: flex;
@@ -453,6 +463,24 @@
     </div>
 
     <div class="section">
+      <div class="section-title" id="diagnosticsSection">Diagnostics</div>
+      <div class="toggle-row">
+        <div class="toggle-copy">
+          <label id="saveLogsLabel" for="saveLogsToggle">Save local logs</label>
+          <div class="toggle-help" id="saveLogsHint">When enabled, the desktop app writes runtime logs locally for later review.</div>
+        </div>
+        <div class="toggle">
+          <input type="checkbox" id="saveLogsToggle">
+          <span class="slider"></span>
+        </div>
+      </div>
+      <div class="field" style="margin-top: 12px;">
+        <label id="logPathLabel">Log Directory</label>
+        <div class="pubkey" id="logPath">—</div>
+      </div>
+    </div>
+
+    <div class="section">
       <div class="section-title" id="runtimeSection">Runtime</div>
       <div class="field">
         <label id="cliProviderLabel">CLI Provider</label>
@@ -580,6 +608,13 @@
       document.getElementById("launchSection").textContent = msg("settings.launch", "Launch");
       document.getElementById("autoStartLabel").textContent = msg("settings.autoStart", "Start on Boot");
       document.getElementById("silentLaunchLabel").textContent = msg("settings.silentLaunch", "Silent Launch (minimize to tray)");
+      document.getElementById("diagnosticsSection").textContent = inlineText("Diagnostics", "诊断");
+      document.getElementById("saveLogsLabel").textContent = inlineText("Save local logs", "保存本地日志");
+      document.getElementById("saveLogsHint").textContent = inlineText(
+        "When enabled, the desktop app writes runtime logs locally for later review.",
+        "开启后，桌面端会把运行日志保存在本地，便于后续回溯审查。"
+      );
+      document.getElementById("logPathLabel").textContent = inlineText("Log Directory", "日志目录");
       document.getElementById("runtimeSection").textContent = msg("settings.runtime", "Runtime");
       document.getElementById("cliProviderLabel").textContent = msg("settings.cliProvider", "CLI Provider");
       document.getElementById("runtimeHint").textContent = msg("settings.runtimeHint", "Both providers run in full-auto mode with no approval prompts or click-throughs.");
@@ -785,6 +820,8 @@
       document.getElementById("pubkey").textContent = e2e.publicKey || "—";
       document.getElementById("autoStartToggle").checked = appSettings.autoStart || false;
       document.getElementById("silentLaunchToggle").checked = appSettings.silentLaunch || false;
+      document.getElementById("saveLogsToggle").checked = appSettings.saveLogs || false;
+      document.getElementById("logPath").textContent = appSettings.logDirectory || "—";
       await syncLanguage(lang || "en", i18nMessages || {});
     }
 
@@ -840,6 +877,11 @@
 
     document.getElementById("silentLaunchToggle").addEventListener("change", async (event) => {
       await api.setAppSettings({ silentLaunch: event.target.checked });
+      flashSaved();
+    });
+
+    document.getElementById("saveLogsToggle").addEventListener("change", async (event) => {
+      await api.setAppSettings({ saveLogs: event.target.checked });
       flashSaved();
     });
 

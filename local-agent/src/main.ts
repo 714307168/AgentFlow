@@ -4,6 +4,7 @@ import * as path from "path";
 import Store from "electron-store";
 import { v4 as uuidv4 } from "uuid";
 import { createAppIcon, createTrayIcon } from "./app-icon";
+import appLogger from "./app-logger";
 import RelayClient from "./relay-client";
 import MessageRouter from "./message-router";
 import projectStore, { Project } from "./project-store";
@@ -23,6 +24,7 @@ interface AgentConfig {
 interface AppSettings {
   autoStart: boolean;
   silentLaunch: boolean;
+  saveLogs: boolean;
 }
 
 const configStore = new Store<AgentConfig>({
@@ -40,8 +42,12 @@ const appSettingsStore = new Store<AppSettings>({
   defaults: {
     autoStart: false,
     silentLaunch: false,
+    saveLogs: false,
   },
 });
+
+appLogger.setEnabled(appSettingsStore.get("saveLogs") as boolean);
+appLogger.installConsoleCapture();
 
 let tray: Tray | null = null;
 let mainWindow: BrowserWindow | null = null;
@@ -622,6 +628,8 @@ ipcMain.handle("get-app-settings", () => {
   return {
     autoStart: appSettingsStore.get("autoStart") as boolean,
     silentLaunch: appSettingsStore.get("silentLaunch") as boolean,
+    saveLogs: appSettingsStore.get("saveLogs") as boolean,
+    logDirectory: appLogger.getLogDirectory(),
   };
 });
 
@@ -632,6 +640,16 @@ ipcMain.handle("set-app-settings", (_event, settings: Partial<AppSettings>) => {
   }
   if (settings.silentLaunch !== undefined) {
     appSettingsStore.set("silentLaunch", settings.silentLaunch);
+  }
+  if (settings.saveLogs !== undefined) {
+    if (!settings.saveLogs) {
+      appLogger.info("settings", "Local log persistence disabled by user.");
+    }
+    appSettingsStore.set("saveLogs", settings.saveLogs);
+    appLogger.setEnabled(settings.saveLogs);
+    if (settings.saveLogs) {
+      appLogger.info("settings", "Local log persistence enabled by user.");
+    }
   }
   return true;
 });
@@ -692,6 +710,24 @@ ipcMain.handle("send-project-prompt", (_event, data: { projectId: string; prompt
     prompt: data.prompt,
     source: "desktop",
   });
+
+  return { success: true };
+});
+
+ipcMain.handle("stop-project-run", (_event, projectId: string) => {
+  const project = projectStore.getById(projectId);
+  if (!project) {
+    return { success: false, error: "Project not found" };
+  }
+
+  const stopped = runtimeManager.stopCurrentRun(
+    project.id,
+    "Run interrupted by desktop user.",
+    false,
+  );
+  if (!stopped) {
+    return { success: false, error: "No active run" };
+  }
 
   return { success: true };
 });
