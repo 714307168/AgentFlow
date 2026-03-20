@@ -1,4 +1,5 @@
 import { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage } from "electron";
+import "./user-data-bootstrap";
 import * as path from "path";
 import Store from "electron-store";
 import { v4 as uuidv4 } from "uuid";
