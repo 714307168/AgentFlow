@@ -37,8 +37,16 @@ const adminCookieName = "admin_session"
 func adminAuth(cfg *config.Config, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		cookie, err := r.Cookie(adminCookieName)
+		if err != nil || cookie == nil || cookie.Value == "" {
+			if strings.HasPrefix(r.URL.Path, "/admin/api/") {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+			} else {
+				http.Redirect(w, r, "/admin", http.StatusFound)
+			}
+			return
+		}
 		session, ok := getAdminSession(cookie.Value)
-		if err != nil || !ok {
+		if !ok {
 			if strings.HasPrefix(r.URL.Path, "/admin/api/") {
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 			} else {
@@ -128,7 +136,7 @@ func AdminLoginHandler(database *db.DB) http.HandlerFunc {
 			Username string `json:"username"`
 			Password string `json:"password"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if err := decodeJSONBody(w, r, &body); err != nil {
 			http.Error(w, "invalid body", http.StatusBadRequest)
 			return
 		}
@@ -200,7 +208,7 @@ func AdminAgentsHandler(cfg *config.Config, database *db.DB) http.HandlerFunc {
 				ID   string `json:"id"`
 				Note string `json:"note"`
 			}
-			if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.ID == "" {
+			if err := decodeJSONBody(w, r, &body); err != nil || body.ID == "" {
 				http.Error(w, "id is required", http.StatusBadRequest)
 				return
 			}
@@ -254,7 +262,7 @@ func AdminDevicesHandler(cfg *config.Config, database *db.DB) http.HandlerFunc {
 				AgentID string `json:"agent_id"`
 				Note    string `json:"note"`
 			}
-			if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.ID == "" {
+			if err := decodeJSONBody(w, r, &body); err != nil || body.ID == "" {
 				http.Error(w, "id is required", http.StatusBadRequest)
 				return
 			}
@@ -342,7 +350,7 @@ func AdminUsersHandler(cfg *config.Config, database *db.DB) http.HandlerFunc {
 					Password string `json:"password"`
 					IsAdmin  bool   `json:"is_admin"`
 				}
-				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				if err := decodeJSONBody(w, r, &body); err != nil {
 					http.Error(w, "invalid request body", http.StatusBadRequest)
 					return
 				}
@@ -376,7 +384,7 @@ func AdminUsersHandler(cfg *config.Config, database *db.DB) http.HandlerFunc {
 			var body struct {
 				Password string `json:"password"`
 			}
-			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			if err := decodeJSONBody(w, r, &body); err != nil {
 				http.Error(w, "invalid request body", http.StatusBadRequest)
 				return
 			}

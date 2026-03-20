@@ -58,12 +58,17 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
+	loginRateLimiter := newIPRateLimiter(10, 5*time.Minute)
+	registerRateLimiter := newIPRateLimiter(12, 10*time.Minute)
+	changePasswordRateLimiter := newIPRateLimiter(10, 10*time.Minute)
+	adminLoginRateLimiter := newIPRateLimiter(8, 10*time.Minute)
+
 	mux.HandleFunc("/ws", handler.WSHandler(h, cfg, st))
 
 	// Authentication endpoints
-	mux.HandleFunc("/api/auth/login", handler.LoginHandler(database, cfg))
-	mux.HandleFunc("/api/auth/register-client", handler.RegisterClientHandler(database, cfg))
-	mux.HandleFunc("/api/auth/change-password", handler.ChangePasswordHandler(database))
+	mux.HandleFunc("/api/auth/login", rateLimitMiddleware("user-login", loginRateLimiter, handler.LoginHandler(database, cfg)))
+	mux.HandleFunc("/api/auth/register-client", rateLimitMiddleware("client-register", registerRateLimiter, handler.RegisterClientHandler(database, cfg)))
+	mux.HandleFunc("/api/auth/change-password", rateLimitMiddleware("password-change", changePasswordRateLimiter, handler.ChangePasswordHandler(database)))
 
 	// Legacy endpoints (kept for backward compatibility)
 	mux.HandleFunc("/api/session", handler.SessionHandler(cfg, st))
@@ -76,7 +81,7 @@ func main() {
 		_, _ = w.Write([]byte("ok"))
 	})
 	// Admin panel
-	mux.HandleFunc("/admin/api/login", handler.AdminLoginHandler(database))
+	mux.HandleFunc("/admin/api/login", rateLimitMiddleware("admin-login", adminLoginRateLimiter, handler.AdminLoginHandler(database)))
 	mux.HandleFunc("/admin/api/logout", handler.AdminLogoutHandler())
 	mux.HandleFunc("/admin/api/check", handler.AdminCheckHandler(cfg))
 	mux.HandleFunc("/admin/api/session", handler.AdminSessionHandler(cfg, database))
@@ -91,16 +96,17 @@ func main() {
 
 	// CORS middleware
 	corsHandler := corsMiddleware(mux, cfg.CORSOrigins)
+	securedHandler := recoveryMiddleware(securityHeadersMiddleware(corsHandler))
 
 	addr := ":" + cfg.Port
 	if cfg.TLSCert != "" && cfg.TLSKey != "" {
 		log.Info().Str("addr", addr).Msg("relay server starting (TLS)")
-		if err := http.ListenAndServeTLS(addr, cfg.TLSCert, cfg.TLSKey, corsHandler); err != nil {
+		if err := http.ListenAndServeTLS(addr, cfg.TLSCert, cfg.TLSKey, securedHandler); err != nil {
 			log.Fatal().Err(err).Msg("server exited")
 		}
 	} else {
 		log.Info().Str("addr", addr).Msg("relay server starting")
-		if err := http.ListenAndServe(addr, corsHandler); err != nil {
+		if err := http.ListenAndServe(addr, securedHandler); err != nil {
 			log.Fatal().Err(err).Msg("server exited")
 		}
 	}

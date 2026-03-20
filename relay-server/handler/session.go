@@ -57,7 +57,7 @@ func AdminSessionHandler(cfg *config.Config, database *db.DB) http.HandlerFunc {
 		}
 
 		var req sessionRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := decodeJSONBody(w, r, &req); err != nil {
 			http.Error(w, "invalid request body", http.StatusBadRequest)
 			return
 		}

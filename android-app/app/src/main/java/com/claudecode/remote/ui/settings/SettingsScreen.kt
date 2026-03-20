@@ -1,16 +1,56 @@
 package com.claudecode.remote.ui.settings
 
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material3.AlertDialogDefaults
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -45,241 +85,361 @@ fun SettingsScreen(
     var password by remember { mutableStateOf("") }
     var e2eEnabled by remember { mutableStateOf(initialState.e2eEnabled) }
     var selectedLang by remember { mutableStateOf(initialState.language) }
-    var langExpanded by remember { mutableStateOf(false) }
-    var message by remember { mutableStateOf<String?>(null) }
-    var isLoggedIn by remember { mutableStateOf(initialState.isLoggedIn) }
+    var showLogDialog by remember { mutableStateOf(false) }
+    var bannerMessage by remember { mutableStateOf(initialState.message) }
+    val loginRequestSentMessage = stringResource(R.string.settings_login_request_sent)
+    val saveReconnectMessage = stringResource(R.string.save_reconnect)
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.settings_title)) },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        MaterialTheme.colorScheme.background,
+                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.38f),
+                        MaterialTheme.colorScheme.surface
+                    )
                 )
             )
-        }
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .padding(padding)
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            // Server Connection Section
-            Text(
-                text = stringResource(R.string.server_connection),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary
-            )
-
-            OutlinedTextField(
-                value = serverUrl,
-                onValueChange = { serverUrl = it },
-                label = { Text(stringResource(R.string.relay_server_url)) },
-                placeholder = { Text("http://localhost:8080") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            OutlinedTextField(
-                value = username,
-                onValueChange = { username = it },
-                label = { Text("用户名") },
-                placeholder = { Text("输入用户名") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            OutlinedTextField(
-                value = password,
-                onValueChange = { password = it },
-                label = { Text("密码") },
-                placeholder = { Text("输入密码") },
-                singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            OutlinedTextField(
-                value = deviceId,
-                onValueChange = { deviceId = it },
-                label = { Text(stringResource(R.string.device_id)) },
-                placeholder = { Text(stringResource(R.string.device_id_placeholder)) },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Button(
-                    onClick = {
-                        if (serverUrl.isNotBlank() && username.isNotBlank() && password.isNotBlank() && deviceId.isNotBlank()) {
-                            onLogin(serverUrl, username, password, deviceId)
+    ) {
+        Scaffold(
+            containerColor = Color.Transparent,
+            topBar = {
+                TopAppBar(
+                    title = { Text(stringResource(R.string.settings_title)) },
+                    navigationIcon = {
+                        IconButton(onClick = onNavigateBack) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = stringResource(R.string.back)
+                            )
                         }
                     },
-                    modifier = Modifier.weight(1f),
-                    enabled = serverUrl.isNotBlank() && username.isNotBlank() && password.isNotBlank() && deviceId.isNotBlank()
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = Color.Transparent,
+                        titleContentColor = MaterialTheme.colorScheme.onBackground
+                    )
+                )
+            }
+        ) { padding ->
+            Column(
+                modifier = Modifier
+                    .padding(padding)
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                HeroPanel(initialState.isLoggedIn)
+
+                bannerMessage?.let { message ->
+                    Surface(
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        shape = MaterialTheme.shapes.medium,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = message,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)
+                        )
+                    }
+                }
+
+                SettingsSection(
+                    icon = Icons.Default.Link,
+                    title = stringResource(R.string.settings_account_title),
+                    subtitle = stringResource(R.string.settings_account_subtitle)
                 ) {
-                    Text("登录")
+                    OutlinedTextField(
+                        value = serverUrl,
+                        onValueChange = { serverUrl = it },
+                        label = { Text(stringResource(R.string.relay_server_url)) },
+                        placeholder = { Text(stringResource(R.string.settings_server_placeholder)) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    OutlinedTextField(
+                        value = username,
+                        onValueChange = { username = it },
+                        label = { Text(stringResource(R.string.settings_username)) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    OutlinedTextField(
+                        value = password,
+                        onValueChange = { password = it },
+                        label = { Text(stringResource(R.string.settings_password)) },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    OutlinedTextField(
+                        value = deviceId,
+                        onValueChange = { deviceId = it },
+                        label = { Text(stringResource(R.string.device_id)) },
+                        placeholder = { Text(stringResource(R.string.device_id_placeholder)) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Button(
+                            onClick = {
+                                onLogin(serverUrl.trim(), username.trim(), password, deviceId.trim())
+                                bannerMessage = loginRequestSentMessage
+                            },
+                            enabled = serverUrl.isNotBlank() &&
+                                username.isNotBlank() &&
+                                password.isNotBlank() &&
+                                deviceId.isNotBlank(),
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary
+                            )
+                        ) {
+                            Text(stringResource(R.string.settings_sign_in))
+                        }
+
+                        FilledTonalButton(
+                            onClick = {
+                                onSave(serverUrl.trim(), deviceId.trim(), e2eEnabled)
+                                bannerMessage = saveReconnectMessage
+                            },
+                            enabled = serverUrl.isNotBlank(),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(stringResource(R.string.settings_apply))
+                        }
+                    }
+                }
+
+                SettingsSection(
+                    icon = Icons.Default.Lock,
+                    title = stringResource(R.string.e2e_encryption),
+                    subtitle = stringResource(R.string.settings_security_subtitle)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = stringResource(R.string.e2e_enable),
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                            Text(
+                                text = stringResource(R.string.settings_e2e_hint),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Switch(checked = e2eEnabled, onCheckedChange = { e2eEnabled = it })
+                    }
+
+                    if (initialState.e2ePublicKey.isNotEmpty()) {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.18f))
+                        Text(
+                            text = stringResource(R.string.public_key),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
+                            shape = RoundedCornerShape(18.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = initialState.e2ePublicKey,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontFamily = FontFamily.Monospace,
+                                modifier = Modifier.padding(14.dp)
+                            )
+                        }
+                    }
+                }
+
+                SettingsSection(
+                    icon = Icons.Default.Language,
+                    title = stringResource(R.string.language),
+                    subtitle = stringResource(R.string.settings_language_subtitle)
+                ) {
+                    Text(
+                        text = stringResource(R.string.language_label),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        LanguageOptionButton(
+                            label = stringResource(R.string.lang_en),
+                            selected = selectedLang == "en",
+                            onClick = {
+                                selectedLang = "en"
+                                onLanguageChange("en")
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
+                        LanguageOptionButton(
+                            label = stringResource(R.string.lang_zh),
+                            selected = selectedLang == "zh",
+                            onClick = {
+                                selectedLang = "zh"
+                                onLanguageChange("zh")
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+
+                SettingsSection(
+                    icon = Icons.Default.BugReport,
+                    title = stringResource(R.string.settings_diagnostics_title),
+                    subtitle = stringResource(R.string.settings_diagnostics_subtitle)
+                ) {
+                    OutlinedButton(
+                        onClick = { showLogDialog = true },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(stringResource(R.string.settings_open_crash_log))
+                    }
                 }
             }
+        }
+    }
 
-            if (isLoggedIn) {
+    if (showLogDialog) {
+        CrashLogDialog(onDismiss = { showLogDialog = false })
+    }
+}
+
+@Composable
+private fun HeroPanel(isLoggedIn: Boolean) {
+    Surface(
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+        shadowElevation = 10.dp,
+        tonalElevation = 3.dp,
+        shape = MaterialTheme.shapes.large,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                text = stringResource(R.string.settings_hero_title),
+                style = MaterialTheme.typography.headlineSmall,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = stringResource(R.string.settings_hero_subtitle),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Surface(
+                color = if (isLoggedIn) {
+                    MaterialTheme.colorScheme.primaryContainer
+                } else {
+                    MaterialTheme.colorScheme.secondaryContainer
+                },
+                shape = RoundedCornerShape(999.dp)
+            ) {
+                Text(
+                    text = if (isLoggedIn) {
+                        stringResource(R.string.settings_signed_in)
+                    } else {
+                        stringResource(R.string.settings_sign_in_required)
+                    },
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (isLoggedIn) {
+                        MaterialTheme.colorScheme.onPrimaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.onSecondaryContainer
+                    },
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun LanguageOptionButton(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (selected) {
+        FilledTonalButton(
+            onClick = onClick,
+            modifier = modifier
+        ) {
+            Text(label)
+        }
+    } else {
+        OutlinedButton(
+            onClick = onClick,
+            modifier = modifier
+        ) {
+            Text(label)
+        }
+    }
+}
+
+@Composable
+private fun SettingsSection(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    subtitle: String,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+        shadowElevation = 8.dp,
+        tonalElevation = 2.dp,
+        shape = MaterialTheme.shapes.medium,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
                 Surface(
                     color = MaterialTheme.colorScheme.primaryContainer,
-                    shape = MaterialTheme.shapes.small,
-                    modifier = Modifier.fillMaxWidth()
+                    shape = RoundedCornerShape(14.dp)
                 ) {
-                    Text(
-                        text = "✓ 已登录",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.padding(12.dp)
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.padding(10.dp)
                     )
                 }
-            }
-
-            HorizontalDivider()
-
-            // E2E Encryption Section
-            Text(
-                text = stringResource(R.string.e2e_encryption),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary
-            )
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(stringResource(R.string.e2e_enable), style = MaterialTheme.typography.bodyLarge)
-                Switch(checked = e2eEnabled, onCheckedChange = { e2eEnabled = it })
-            }
-
-            if (initialState.e2ePublicKey.isNotEmpty()) {
-                Text(
-                    text = stringResource(R.string.public_key),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Surface(
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    shape = MaterialTheme.shapes.small,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(
-                        text = initialState.e2ePublicKey,
+                        text = title,
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Text(
+                        text = subtitle,
                         style = MaterialTheme.typography.bodySmall,
-                        fontFamily = FontFamily.Monospace,
-                        modifier = Modifier.padding(12.dp)
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            HorizontalDivider()
-
-            // Language Section
-            Text(
-                text = stringResource(R.string.language),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary
-            )
-
-            ExposedDropdownMenuBox(
-                expanded = langExpanded,
-                onExpandedChange = { langExpanded = it }
-            ) {
-                OutlinedTextField(
-                    value = if (selectedLang == "zh") stringResource(R.string.lang_zh) else stringResource(R.string.lang_en),
-                    onValueChange = {},
-                    readOnly = true,
-                    label = { Text(stringResource(R.string.language_label)) },
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = langExpanded) },
-                    modifier = Modifier.menuAnchor().fillMaxWidth()
-                )
-                ExposedDropdownMenu(
-                    expanded = langExpanded,
-                    onDismissRequest = { langExpanded = false }
-                ) {
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.lang_en)) },
-                        onClick = {
-                            selectedLang = "en"
-                            langExpanded = false
-                            onLanguageChange("en")
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.lang_zh)) },
-                        onClick = {
-                            selectedLang = "zh"
-                            langExpanded = false
-                            onLanguageChange("zh")
-                        }
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            HorizontalDivider()
-
-            // Debug Section
-            Text(
-                text = "调试工具",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary
-            )
-
-            var showLogDialog by remember { mutableStateOf(false) }
-
-            Button(
-                onClick = { showLogDialog = true },
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
-                )
-            ) {
-                Text("查看崩溃日志")
-            }
-
-            if (showLogDialog) {
-                CrashLogDialog(onDismiss = { showLogDialog = false })
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Button(
-                onClick = {
-                    onSave(serverUrl.trim(), deviceId.trim(), e2eEnabled)
-                    message = "Settings saved"
-                },
-                modifier = Modifier.fillMaxWidth(),
-                enabled = serverUrl.isNotBlank()
-            ) {
-                Text(stringResource(R.string.save_reconnect))
-            }
-
-            message?.let {
-                Text(
-                    text = it,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary
-                )
-            }
+            content()
         }
     }
 }
@@ -293,32 +453,29 @@ private fun CrashLogDialog(onDismiss: () -> Unit) {
         Surface(
             shape = MaterialTheme.shapes.large,
             color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 6.dp,
+            tonalElevation = AlertDialogDefaults.TonalElevation,
             modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxHeight(0.8f)
+                .fillMaxHeight(0.82f)
         ) {
             Column(
                 modifier = Modifier
-                    .padding(16.dp)
-                    .fillMaxSize()
+                    .padding(18.dp)
+                    .fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text(
-                    text = "崩溃日志",
-                    style = MaterialTheme.typography.titleLarge,
-                    modifier = Modifier.padding(bottom = 8.dp)
+                    text = stringResource(R.string.settings_crash_log_title),
+                    style = MaterialTheme.typography.titleLarge
                 )
-
                 Text(
-                    text = "日志位置: $logPath",
+                    text = logPath,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(bottom = 16.dp)
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-
                 Surface(
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    shape = MaterialTheme.shapes.small,
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
+                    shape = MaterialTheme.shapes.medium,
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
@@ -329,17 +486,11 @@ private fun CrashLogDialog(onDismiss: () -> Unit) {
                         style = MaterialTheme.typography.bodySmall,
                         fontFamily = FontFamily.Monospace,
                         modifier = Modifier
-                            .padding(12.dp)
+                            .padding(14.dp)
                             .verticalScroll(scrollState)
                     )
                 }
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedButton(
                         onClick = {
                             CrashLogger.clearLog()
@@ -347,14 +498,13 @@ private fun CrashLogDialog(onDismiss: () -> Unit) {
                         },
                         modifier = Modifier.weight(1f)
                     ) {
-                        Text("清除日志")
+                        Text(stringResource(R.string.settings_clear))
                     }
-
                     Button(
                         onClick = onDismiss,
                         modifier = Modifier.weight(1f)
                     ) {
-                        Text("关闭")
+                        Text(stringResource(R.string.settings_close))
                     }
                 }
             }

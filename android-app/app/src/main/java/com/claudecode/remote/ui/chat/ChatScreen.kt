@@ -1,34 +1,68 @@
 package com.claudecode.remote.ui.chat
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import android.net.Uri
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AttachFile
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.res.stringResource
 import com.claudecode.remote.R
 import com.claudecode.remote.UiPresenceTracker
 import com.claudecode.remote.data.model.Message
@@ -71,7 +105,6 @@ fun ChatScreen(
         }
     }
 
-    // Auto-scroll to bottom when new messages arrive
     val lastMessage = uiState.messages.lastOrNull()
     LaunchedEffect(lastMessage?.id, lastMessage?.content, lastMessage?.isStreaming, uiState.messages.size) {
         if (uiState.messages.isNotEmpty()) {
@@ -84,23 +117,23 @@ fun ChatScreen(
     if (showModelDialog) {
         AlertDialog(
             onDismissRequest = { showModelDialog = false },
-            title = { Text("Switch Model") },
+            title = { Text(stringResource(R.string.chat_switch_model_title)) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        text = "Provider: ${providerLabel(uiState.cliProvider)}",
+                        text = stringResource(R.string.chat_provider_label, providerLabel(uiState.cliProvider)),
                         style = MaterialTheme.typography.bodyMedium
                     )
                     Text(
-                        text = "Current: ${modelLabel(uiState.cliModel)}",
+                        text = stringResource(R.string.chat_current_model_label, modelLabel(uiState.cliModel)),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     OutlinedTextField(
                         value = modelInput,
                         onValueChange = { modelInput = it },
-                        label = { Text("Model") },
-                        placeholder = { Text("Leave blank for Auto") },
+                        label = { Text(stringResource(R.string.chat_model_field)) },
+                        placeholder = { Text(stringResource(R.string.chat_model_placeholder)) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -113,7 +146,7 @@ fun ChatScreen(
                         showModelDialog = false
                     }
                 ) {
-                    Text("Apply")
+                    Text(stringResource(R.string.settings_apply))
                 }
             },
             dismissButton = {
@@ -124,85 +157,116 @@ fun ChatScreen(
         )
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(uiState.projectName.ifEmpty { projectName })
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Surface(
-                                modifier = Modifier.size(8.dp),
-                                shape = RoundedCornerShape(50),
-                                color = if (uiState.isConnected) Color(0xFF4CAF50) else Color(0xFFF44336)
-                            ) {}
-                        }
-                        Text(
-                            text = "${providerLabel(uiState.cliProvider)} · ${modelLabel(uiState.cliModel)}",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.back))
-                    }
-                },
-                actions = {
-                    TextButton(
-                        onClick = {
-                            modelInput = uiState.cliModel
-                            showModelDialog = true
-                        },
-                        enabled = uiState.isConnected && !uiState.isSending
-                    ) {
-                        Text("Model")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        MaterialTheme.colorScheme.background,
+                        MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.28f),
+                        MaterialTheme.colorScheme.surface
+                    )
                 )
             )
-        },
-        bottomBar = {
-            InputBar(
-                text = uiState.inputText,
-                onTextChange = { viewModel.updateInput(it) },
-                onSend = { viewModel.sendMessage() },
-                onAttachFile = { filePickerLauncher.launch("*/*") },
-                enabled = uiState.isConnected && !uiState.isSending
-            )
-        }
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .padding(padding)
-                .fillMaxSize()
-        ) {
-            RuntimeStatusCard(uiState)
-
-            if (uiState.messages.isEmpty()) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = stringResource(R.string.no_messages),
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+    ) {
+        Scaffold(
+            containerColor = Color.Transparent,
+            topBar = {
+                TopAppBar(
+                    title = {
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(uiState.projectName.ifEmpty { projectName })
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                RuntimePill(
+                                    text = connectionLabel(uiState.isConnected),
+                                    color = if (uiState.isConnected) Color(0xFF4CAF50) else Color(0xFFEF5350)
+                                )
+                                RuntimePill(
+                                    text = runtimeLabel(uiState),
+                                    color = runtimeColor(uiState)
+                                )
+                            }
+                            Text(
+                                text = "${providerLabel(uiState.cliProvider)} / ${modelLabel(uiState.cliModel)}",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onNavigateBack) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = stringResource(R.string.back)
+                            )
+                        }
+                    },
+                    actions = {
+                        TextButton(
+                            onClick = {
+                                modelInput = uiState.cliModel
+                                showModelDialog = true
+                            },
+                            enabled = uiState.isConnected && !uiState.isSending
+                        ) {
+                            Text(stringResource(R.string.action_model))
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = Color.Transparent
                     )
-                }
-            } else {
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(uiState.messages, key = { it.id }) { message ->
-                        MessageBubble(message = message)
+                )
+            },
+            bottomBar = {
+                InputBar(
+                    text = uiState.inputText,
+                    onTextChange = { viewModel.updateInput(it) },
+                    onSend = { viewModel.sendMessage() },
+                    onAttachFile = { filePickerLauncher.launch("*/*") },
+                    enabled = uiState.isConnected && !uiState.isSending
+                )
+            }
+        ) { padding ->
+            Column(
+                modifier = Modifier
+                    .padding(padding)
+                    .fillMaxSize()
+            ) {
+                RuntimeStatusCard(uiState)
+
+                if (uiState.messages.isEmpty()) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                        shape = RoundedCornerShape(28.dp),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = stringResource(R.string.no_messages),
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                } else {
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        items(uiState.messages, key = { it.id }) { message ->
+                            MessageBubble(message = message)
+                        }
                     }
                 }
             }
@@ -217,30 +281,64 @@ private fun modelLabel(model: String?): String =
     model?.trim().takeUnless { it.isNullOrEmpty() } ?: "Auto"
 
 @Composable
-private fun RuntimeStatusCard(uiState: ChatUiState) {
-    val title = when {
-        !uiState.isAgentOnline -> "桌面端离线"
-        uiState.isRunning -> "正在运行"
-        uiState.queuedCount > 0 -> "排队中"
-        else -> null
-    } ?: return
+private fun connectionLabel(isConnected: Boolean): String =
+    if (isConnected) stringResource(R.string.status_connected) else stringResource(R.string.status_offline)
 
+@Composable
+private fun runtimeLabel(uiState: ChatUiState): String =
+    when {
+        !uiState.isAgentOnline -> stringResource(R.string.status_agent_offline)
+        uiState.isRunning -> stringResource(R.string.status_running)
+        uiState.queuedCount > 0 -> stringResource(R.string.status_queued, uiState.queuedCount)
+        else -> stringResource(R.string.status_ready)
+    }
+
+@Composable
+private fun runtimeColor(uiState: ChatUiState): Color =
+    when {
+        !uiState.isAgentOnline -> MaterialTheme.colorScheme.error
+        uiState.isRunning -> MaterialTheme.colorScheme.tertiary
+        uiState.queuedCount > 0 -> MaterialTheme.colorScheme.tertiary
+        else -> MaterialTheme.colorScheme.secondary
+    }
+
+@Composable
+private fun RuntimePill(text: String, color: Color) {
+    Surface(
+        color = color.copy(alpha = 0.16f),
+        shape = RoundedCornerShape(999.dp)
+    ) {
+        Text(
+            text = text,
+            color = color,
+            style = MaterialTheme.typography.labelSmall,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+        )
+    }
+}
+
+@Composable
+private fun RuntimeStatusCard(uiState: ChatUiState) {
     val detail = when {
-        !uiState.isAgentOnline -> "桌面 agent 目前不在线，后台服务会继续重连。"
-        uiState.isRunning -> uiState.currentPrompt?.trim().takeUnless { it.isNullOrEmpty() } ?: "正在处理最新一条消息。"
-        else -> uiState.queuePreview?.trim().takeUnless { it.isNullOrEmpty() }
-            ?: "还有 ${uiState.queuedCount} 条消息等待执行。"
+        !uiState.isAgentOnline -> stringResource(R.string.chat_runtime_offline_detail)
+        uiState.isRunning -> uiState.currentPrompt?.trim().takeUnless { it.isNullOrEmpty() }
+            ?: stringResource(R.string.chat_runtime_running_detail)
+        uiState.queuedCount > 0 -> uiState.queuePreview?.trim().takeUnless { it.isNullOrEmpty() }
+            ?: stringResource(R.string.chat_runtime_queued_detail, uiState.queuedCount)
+        else -> stringResource(R.string.chat_runtime_ready_detail)
     }
 
     val tone = when {
         !uiState.isAgentOnline -> MaterialTheme.colorScheme.errorContainer
         uiState.isRunning -> MaterialTheme.colorScheme.secondaryContainer
-        else -> MaterialTheme.colorScheme.tertiaryContainer
+        uiState.queuedCount > 0 -> MaterialTheme.colorScheme.tertiaryContainer
+        else -> MaterialTheme.colorScheme.primaryContainer
     }
     val textColor = when {
         !uiState.isAgentOnline -> MaterialTheme.colorScheme.onErrorContainer
         uiState.isRunning -> MaterialTheme.colorScheme.onSecondaryContainer
-        else -> MaterialTheme.colorScheme.onTertiaryContainer
+        uiState.queuedCount > 0 -> MaterialTheme.colorScheme.onTertiaryContainer
+        else -> MaterialTheme.colorScheme.onPrimaryContainer
     }
 
     Surface(
@@ -248,18 +346,15 @@ private fun RuntimeStatusCard(uiState: ChatUiState) {
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp),
-        shape = RoundedCornerShape(18.dp)
+        shape = RoundedCornerShape(20.dp),
+        shadowElevation = 6.dp
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Text(
-                text = if (uiState.queuedCount > 0 && !uiState.isRunning) {
-                    "$title · ${uiState.queuedCount} 条"
-                } else {
-                    title
-                },
+                text = runtimeLabel(uiState),
                 style = MaterialTheme.typography.labelLarge,
                 color = textColor
             )
@@ -279,12 +374,12 @@ private fun MessageBubble(message: Message) {
     val bubbleColor = when {
         isUser -> MaterialTheme.colorScheme.primary
         isThinking -> MaterialTheme.colorScheme.secondaryContainer
-        else -> MaterialTheme.colorScheme.surfaceVariant
+        else -> MaterialTheme.colorScheme.surface.copy(alpha = 0.94f)
     }
     val textColor = when {
         isUser -> MaterialTheme.colorScheme.onPrimary
         isThinking -> MaterialTheme.colorScheme.onSecondaryContainer
-        else -> MaterialTheme.colorScheme.onSurfaceVariant
+        else -> MaterialTheme.colorScheme.onSurface
     }
     val alignment = if (isUser) Alignment.End else Alignment.Start
 
@@ -294,25 +389,26 @@ private fun MessageBubble(message: Message) {
     ) {
         Surface(
             shape = RoundedCornerShape(
-                topStart = 16.dp,
-                topEnd = 16.dp,
-                bottomStart = if (isUser) 16.dp else 4.dp,
-                bottomEnd = if (isUser) 4.dp else 16.dp
+                topStart = 18.dp,
+                topEnd = 18.dp,
+                bottomStart = if (isUser) 18.dp else 6.dp,
+                bottomEnd = if (isUser) 6.dp else 18.dp
             ),
             color = bubbleColor,
-            modifier = Modifier.widthIn(max = 300.dp)
+            tonalElevation = if (isUser) 0.dp else 2.dp,
+            shadowElevation = if (isUser) 0.dp else 3.dp,
+            modifier = Modifier.widthIn(max = 320.dp)
         ) {
             if (message.type == MessageType.FILE) {
-                // File message
                 Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.InsertDriveFile,
-                        contentDescription = "File",
+                        contentDescription = stringResource(R.string.chat_file),
                         tint = textColor,
-                        modifier = Modifier.size(24.dp)
+                        modifier = Modifier.size(22.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Column(modifier = Modifier.weight(1f, fill = false)) {
@@ -331,21 +427,18 @@ private fun MessageBubble(message: Message) {
                     }
                 }
             } else {
-                // Text message
                 Column(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     if (isThinking) {
                         Text(
-                            text = "Thinking",
+                            text = stringResource(R.string.chat_thinking),
                             color = textColor.copy(alpha = 0.8f),
                             style = MaterialTheme.typography.labelSmall
                         )
                     }
-                    Row(
-                        verticalAlignment = Alignment.Bottom
-                    ) {
+                    Row(verticalAlignment = Alignment.Bottom) {
                         Text(
                             text = message.content,
                             color = textColor,
@@ -399,7 +492,8 @@ private fun InputBar(
     enabled: Boolean
 ) {
     Surface(
-        tonalElevation = 3.dp,
+        tonalElevation = 4.dp,
+        shadowElevation = 8.dp,
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
@@ -413,7 +507,10 @@ private fun InputBar(
                 onClick = onAttachFile,
                 enabled = enabled
             ) {
-                Icon(Icons.Default.AttachFile, contentDescription = "Attach file")
+                Icon(
+                    Icons.Default.AttachFile,
+                    contentDescription = stringResource(R.string.chat_attach_file)
+                )
             }
             Spacer(modifier = Modifier.width(4.dp))
             OutlinedTextField(
@@ -430,7 +527,10 @@ private fun InputBar(
                 onClick = onSend,
                 enabled = enabled && text.isNotBlank()
             ) {
-                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = stringResource(R.string.send_message))
+                Icon(
+                    Icons.AutoMirrored.Filled.Send,
+                    contentDescription = stringResource(R.string.send_message)
+                )
             }
         }
     }

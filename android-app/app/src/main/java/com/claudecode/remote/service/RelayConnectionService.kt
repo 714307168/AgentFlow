@@ -40,7 +40,12 @@ class RelayConnectionService : Service() {
             container.relayWebSocket.connectionState.collect { state ->
                 notificationHelper.updateServiceNotification(state)
                 if (state == RelayWebSocket.ConnectionState.CONNECTED) {
-                    container.sessionRepository.syncFromServer()
+                    val syncResult = container.sessionRepository.syncFromServer()
+                    if (syncResult.isSuccess) {
+                        container.messageRepository.requestProjectSyncs(
+                            container.sessionRepository.getSessions()
+                        )
+                    }
                 }
             }
         }

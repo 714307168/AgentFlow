@@ -9,7 +9,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -27,6 +26,7 @@ import com.claudecode.remote.ui.session.SessionListScreen
 import com.claudecode.remote.ui.session.SessionViewModel
 import com.claudecode.remote.ui.settings.SettingsScreen
 import com.claudecode.remote.ui.settings.SettingsState
+import com.claudecode.remote.ui.theme.RemoteTheme
 import com.claudecode.remote.util.CrashLogger
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
@@ -56,7 +56,7 @@ class MainActivity : ComponentActivity() {
 
         enableEdgeToEdge()
         setContent {
-            MaterialTheme {
+            RemoteTheme {
                 val navController = rememberNavController()
                 val coroutineScope = rememberCoroutineScope()
                 val tokenStore = appContainer.tokenStore
@@ -82,7 +82,7 @@ class MainActivity : ComponentActivity() {
                 NavHost(navController = navController, startDestination = "sessions") {
                     composable("sessions") {
                         val viewModel = remember {
-                            SessionViewModel(sessionRepository, relayWebSocket)
+                            SessionViewModel(sessionRepository, messageRepository, relayWebSocket)
                         }
 
                         SessionListScreen(

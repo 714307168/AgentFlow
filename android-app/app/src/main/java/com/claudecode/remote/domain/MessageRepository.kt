@@ -60,6 +60,14 @@ class MessageRepository(
         )
     }
 
+    suspend fun requestProjectSyncs(sessions: List<Session>) {
+        sessions.forEach { session ->
+            if (session.projectId.isNotBlank()) {
+                requestProjectSync(session.projectId, session.agentId)
+            }
+        }
+    }
+
     suspend fun sendMessage(projectId: String, content: String, agentId: String? = null) {
         wakeupAgent(agentId)
 

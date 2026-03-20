@@ -6,6 +6,7 @@ import com.claudecode.remote.data.model.Envelope
 import com.claudecode.remote.data.model.Events
 import com.claudecode.remote.data.model.Session
 import com.claudecode.remote.data.remote.RelayWebSocket
+import com.claudecode.remote.domain.MessageRepository
 import com.claudecode.remote.domain.SessionRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -24,6 +25,7 @@ data class SessionUiState(
 
 class SessionViewModel(
     private val repository: SessionRepository,
+    private val messageRepository: MessageRepository,
     private val webSocket: RelayWebSocket
 ) : ViewModel() {
 
@@ -64,7 +66,12 @@ class SessionViewModel(
                 delay(400)
             }
             repository.syncFromServer().fold(
-                onSuccess = { _uiState.update { it.copy(isLoading = false) } },
+                onSuccess = {
+                    if (webSocket.connectionState.value == RelayWebSocket.ConnectionState.CONNECTED) {
+                        messageRepository.requestProjectSyncs(repository.getSessions())
+                    }
+                    _uiState.update { it.copy(isLoading = false) }
+                },
                 onFailure = { e -> _uiState.update { it.copy(isLoading = false, error = e.message) } }
             )
         }

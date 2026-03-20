@@ -21,7 +21,7 @@
   --success: #3fd88f;
   --warning: #ffbf69;
   --danger: #ff7a7a;
-  --shadow: 0 28px 80px rgba(0, 0, 0, 0.38);
+  --shadow: 0 18px 52px rgba(0, 0, 0, 0.34);
 }
 
 html,
@@ -55,9 +55,9 @@ body {
   background: rgba(7, 14, 23, 0.78);
   border-bottom: 1px solid var(--border);
   display: flex;
-  gap: 16px;
-  min-height: 60px;
-  padding: 10px 18px;
+  gap: 12px;
+  min-height: 54px;
+  padding: 8px 16px;
 }
 
 .titlebar-copy {
@@ -175,10 +175,10 @@ body {
 .workspace {
   display: grid;
   flex: 1;
-  gap: 18px;
-  grid-template-columns: minmax(280px, 320px) minmax(0, 1fr);
+  gap: 12px;
+  grid-template-columns: minmax(250px, 292px) minmax(0, 1fr);
   min-height: 0;
-  padding: 18px;
+  padding: 14px;
 }
 
 .sidebar-panel,
@@ -186,7 +186,7 @@ body {
   backdrop-filter: blur(14px);
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 22px;
+  border-radius: 18px;
   box-shadow: var(--shadow);
   min-height: 0;
 }
@@ -208,9 +208,9 @@ body {
 .activity-modal-header {
   align-items: flex-start;
   display: flex;
-  gap: 16px;
+  gap: 12px;
   justify-content: space-between;
-  padding: 22px 22px 18px;
+  padding: 18px 18px 14px;
 }
 
 .panel-kicker {
@@ -218,26 +218,26 @@ body {
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.12em;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
   text-transform: uppercase;
 }
 
 .sidebar-title,
 .panel-title {
-  font-size: 28px;
+  font-size: 24px;
   font-weight: 700;
   line-height: 1.08;
 }
 
 .panel-title.small {
-  font-size: 22px;
+  font-size: 20px;
 }
 
 .panel-subtitle {
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.5;
-  margin-top: 8px;
+  margin-top: 6px;
   max-width: 48ch;
 }
 
@@ -251,9 +251,9 @@ body {
   font-size: 13px;
   font-weight: 700;
   gap: 8px;
-  height: 40px;
+  height: 36px;
   justify-content: center;
-  padding: 0 16px;
+  padding: 0 14px;
   transition: transform 120ms ease, background 120ms ease, border-color 120ms ease;
 }
 
@@ -296,7 +296,7 @@ body {
 .activity-list {
   min-height: 0;
   overflow: auto;
-  padding: 0 22px 22px;
+  padding: 0 18px 18px;
 }
 
 .project-list,
@@ -304,7 +304,7 @@ body {
 .activity-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 
 .project-list {
@@ -319,8 +319,8 @@ body {
   display: flex;
   flex: 0 0 auto;
   flex-direction: column;
-  gap: 12px;
-  padding: 14px 22px 16px;
+  gap: 10px;
+  padding: 12px 18px 14px;
 }
 
 .queue-panel.hidden {
@@ -355,8 +355,8 @@ body {
 .queue-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  max-height: 180px;
+  gap: 8px;
+  max-height: 160px;
   overflow-x: hidden;
   overflow-y: auto;
 }
@@ -365,18 +365,18 @@ body {
   align-items: flex-start;
   background: rgba(255, 255, 255, 0.035);
   border: 1px solid rgba(255, 191, 105, 0.18);
-  border-radius: 16px;
+  border-radius: 14px;
   display: flex;
-  gap: 12px;
+  gap: 10px;
   justify-content: space-between;
-  padding: 12px 14px;
+  padding: 10px 12px;
 }
 
 .queue-item-copy {
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
 }
 
@@ -410,8 +410,8 @@ body {
 
 .queue-text {
   color: var(--text-muted);
-  font-size: 13px;
-  line-height: 1.55;
+  font-size: 12px;
+  line-height: 1.5;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
   word-break: break-word;
@@ -420,15 +420,15 @@ body {
 .queue-remove {
   background: rgba(255, 122, 122, 0.08);
   border: 1px solid rgba(255, 122, 122, 0.18);
-  border-radius: 12px;
+  border-radius: 10px;
   color: #ffe1e1;
   cursor: pointer;
   flex: 0 0 auto;
   font-family: inherit;
   font-size: 12px;
   font-weight: 700;
-  min-width: 74px;
-  padding: 9px 12px;
+  min-width: 68px;
+  padding: 8px 10px;
   transition: background 120ms ease, border-color 120ms ease;
 }
 
@@ -444,7 +444,7 @@ body {
 
 .messages {
   flex: 1;
-  gap: 14px;
+  gap: 10px;
   overflow-x: hidden;
   overflow-y: auto;
 }
@@ -453,12 +453,12 @@ body {
   align-items: flex-start;
   background: linear-gradient(180deg, rgba(93, 208, 255, 0.08), rgba(93, 208, 255, 0.02));
   border: 1px dashed rgba(93, 208, 255, 0.24);
-  border-radius: 18px;
+  border-radius: 16px;
   color: var(--text-muted);
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 20px;
+  gap: 6px;
+  padding: 18px;
 }
 
 .empty-state strong {
@@ -470,13 +470,13 @@ body {
   appearance: none;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.02));
   border: 1px solid var(--border);
-  border-radius: 18px;
+  border-radius: 16px;
   color: inherit;
   cursor: pointer;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 16px;
+  gap: 8px;
+  padding: 14px;
   text-align: left;
   transition: border-color 120ms ease, background 120ms ease, transform 120ms ease;
 }
@@ -502,7 +502,7 @@ body {
 
 .project-list-name {
   color: var(--text);
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 700;
   min-width: 0;
 }
@@ -510,7 +510,7 @@ body {
 .project-list-detail,
 .project-list-path {
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 11px;
   line-height: 1.5;
 }
 
@@ -531,7 +531,7 @@ body {
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.04em;
-  padding: 5px 10px;
+  padding: 4px 8px;
   text-transform: uppercase;
 }
 
@@ -569,7 +569,7 @@ body {
 .activity-card {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.025));
   border: 1px solid var(--border);
-  border-radius: 20px;
+  border-radius: 16px;
   position: relative;
 }
 
@@ -611,8 +611,8 @@ body {
 .activity-shell {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 18px 18px 16px;
+  gap: 10px;
+  padding: 16px 16px 14px;
 }
 
 .message-meta,
@@ -658,7 +658,7 @@ body {
 .activity-detail {
   color: var(--text);
   font-size: 14px;
-  line-height: 1.65;
+  line-height: 1.58;
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -676,13 +676,13 @@ body {
   border-top: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 18px 22px 22px;
+  gap: 10px;
+  padding: 14px 18px 18px;
 }
 
 .composer-label {
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -691,14 +691,14 @@ body {
 .composer textarea {
   background: rgba(3, 10, 17, 0.78);
   border: 1px solid var(--border);
-  border-radius: 18px;
+  border-radius: 16px;
   color: var(--text);
   font-family: inherit;
   font-size: 14px;
   line-height: 1.6;
-  min-height: 112px;
+  min-height: 84px;
   outline: none;
-  padding: 14px 16px;
+  padding: 12px 14px;
   resize: vertical;
   transition: border-color 120ms ease, box-shadow 120ms ease, background 120ms ease;
 }
@@ -712,7 +712,7 @@ body {
 .composer-actions {
   align-items: center;
   display: flex;
-  gap: 14px;
+  gap: 10px;
   justify-content: space-between;
 }
 
@@ -720,7 +720,7 @@ body {
   color: var(--text-muted);
   font-size: 12px;
   line-height: 1.5;
-  max-width: 52ch;
+  max-width: 44ch;
 }
 
 .kind-badge {
@@ -795,11 +795,11 @@ body {
   backdrop-filter: blur(14px);
   background: rgba(11, 22, 34, 0.96);
   border: 1px solid var(--border);
-  border-radius: 24px;
+  border-radius: 20px;
   box-shadow: var(--shadow);
   display: flex;
   flex-direction: column;
-  inset: 42px 42px 42px min(26vw, 340px);
+  inset: 34px 34px 34px min(24vw, 320px);
   min-height: 0;
   position: absolute;
 }
@@ -835,11 +835,11 @@ body {
 
 @media (max-width: 1120px) {
   .workspace {
-    grid-template-columns: minmax(240px, 290px) minmax(0, 1fr);
+    grid-template-columns: minmax(230px, 272px) minmax(0, 1fr);
   }
 
   .activity-modal-card {
-    inset: 30px 24px 24px 24px;
+    inset: 26px 22px 22px 22px;
   }
 }
 

@@ -38,7 +38,7 @@ func WakeupHandler(h *hub.Hub, cfg *config.Config) http.HandlerFunc {
 		}
 
 		var req wakeupRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.AgentID == "" {
+		if err := decodeJSONBody(w, r, &req); err != nil || req.AgentID == "" {
 			http.Error(w, "agent_id is required", http.StatusBadRequest)
 			return
 		}

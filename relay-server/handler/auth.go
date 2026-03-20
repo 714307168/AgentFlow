@@ -42,7 +42,7 @@ func LoginHandler(database *db.DB, cfg *config.Config) http.HandlerFunc {
 		}
 
 		var req loginRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := decodeJSONBody(w, r, &req); err != nil {
 			http.Error(w, "invalid request body", http.StatusBadRequest)
 			return
 		}
@@ -217,7 +217,7 @@ func RegisterClientHandler(database *db.DB, cfg *config.Config) http.HandlerFunc
 		}
 
 		var req registerClientRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := decodeJSONBody(w, r, &req); err != nil {
 			http.Error(w, "invalid request body", http.StatusBadRequest)
 			return
 		}
@@ -303,7 +303,7 @@ func ChangePasswordHandler(database *db.DB) http.HandlerFunc {
 		}
 
 		var req changePasswordRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := decodeJSONBody(w, r, &req); err != nil {
 			http.Error(w, "invalid request body", http.StatusBadRequest)
 			return
 		}

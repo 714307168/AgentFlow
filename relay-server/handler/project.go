@@ -42,7 +42,7 @@ func ProjectBindHandler(h *hub.Hub, cfg *config.Config) http.HandlerFunc {
 		}
 
 		var req projectBindRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := decodeJSONBody(w, r, &req); err != nil {
 			http.Error(w, "invalid request body", http.StatusBadRequest)
 			return
 		}
