@@ -119,7 +119,8 @@ class SessionRepository(
                         name = projectObj["name"]?.jsonPrimitive?.contentOrNull.orEmpty(),
                         path = projectObj["path"]?.jsonPrimitive?.contentOrNull.orEmpty(),
                         cliProvider = projectObj["cli_provider"]?.jsonPrimitive?.contentOrNull?.ifBlank { "claude" } ?: "claude",
-                        cliModel = projectObj["cli_model"]?.jsonPrimitive?.contentOrNull?.trim().takeUnless { it.isNullOrEmpty() }
+                        cliModel = projectObj["cli_model"]?.jsonPrimitive?.contentOrNull?.trim().takeUnless { it.isNullOrEmpty() },
+                        online = projectObj["online"]?.jsonPrimitive?.booleanOrNull
                     )
                 } ?: emptyList()
 
@@ -151,7 +152,7 @@ class SessionRepository(
                 projectPath = project.path,
                 cliProvider = project.cliProvider,
                 cliModel = project.cliModel,
-                isAgentOnline = existing?.isAgentOnline ?: true,
+                isAgentOnline = project.online ?: existing?.isAgentOnline ?: true,
                 isRunning = existing?.isRunning ?: false,
                 queuedCount = existing?.queuedCount ?: 0,
                 currentPrompt = existing?.currentPrompt,

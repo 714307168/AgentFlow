@@ -54,6 +54,7 @@ func (h *Hub) GetOrCreateQueue(projectID string) *Queue {
 func (h *Hub) RegisterAgent(client *Client) {
 	h.agents.Store(client.AgentID, client)
 	log.Info().Str("agent_id", client.AgentID).Msg("agent registered")
+	h.broadcastAgentStatus(client.AgentID, true)
 }
 
 // RegisterDevice stores the device client.
@@ -70,28 +71,7 @@ func (h *Hub) Unregister(client *Client) {
 	case model.ClientTypeAgent:
 		h.agents.Delete(client.AgentID)
 		log.Info().Str("agent_id", client.AgentID).Msg("agent unregistered")
-
-		// Notify all devices watching this agent's projects.
-		h.projects.Range(func(k, v interface{}) bool {
-			if v.(string) == client.AgentID {
-				projectID := k.(string)
-				payload, _ := json.Marshal(model.AgentStatusPayload{
-					AgentID:   client.AgentID,
-					Online:    false,
-					ProjectID: projectID,
-				})
-				env := &model.Envelope{
-					ID:        newID(),
-					Event:     model.EventAgentStatus,
-					ProjectID: projectID,
-					Seq:       h.NextSeq(),
-					Timestamp: time.Now().UnixMilli(),
-					Payload:   payload,
-				}
-				h.BroadcastToDevices(env, projectID)
-			}
-			return true
-		})
+		h.broadcastAgentStatus(client.AgentID, false)
 
 	case model.ClientTypeDevice:
 		h.devices.Delete(client.DeviceID)
@@ -147,6 +127,36 @@ func (h *Hub) HandleMessage(from *Client, env *model.Envelope) {
 		}
 		h.BroadcastToDevices(env, env.ProjectID)
 
+	case model.EventAgentStatus:
+		if from.Type != model.ClientTypeAgent {
+			h.sendError(from, env.ID, "forbidden", "only agents can publish agent status")
+			return
+		}
+
+		var p model.AgentStatusPayload
+		if len(env.Payload) > 0 {
+			if err := json.Unmarshal(env.Payload, &p); err != nil {
+				log.Warn().Err(err).Msg("invalid agent.status payload")
+				h.sendError(from, env.ID, "bad_request", "invalid agent.status payload")
+				return
+			}
+		}
+
+		p.AgentID = from.AgentID
+		if p.ProjectID == "" {
+			p.ProjectID = env.ProjectID
+		}
+
+		if p.ProjectID != "" {
+			if _, ok := h.authorizeProjectAccess(from, env.ID, p.ProjectID); !ok {
+				return
+			}
+			h.broadcastAgentStatus(from.AgentID, p.Online, p.ProjectID)
+			return
+		}
+
+		h.broadcastAgentStatus(from.AgentID, p.Online)
+
 	case model.EventProjectListRequest:
 		if from.Type != model.ClientTypeDevice {
 			log.Warn().Str("client_id", from.ID).Msg("project.list.request ignored for non-device client")
@@ -192,6 +202,7 @@ func (h *Hub) HandleMessage(from *Client, env *model.Envelope) {
 		from.ProjectIDs = h.GetProjectIDsByAgent(from.AgentID)
 		log.Info().Str("project_id", p.ProjectID).Str("agent_id", from.AgentID).Msg("project bound")
 		h.broadcastProjectList(from.AgentID)
+		h.broadcastAgentStatus(from.AgentID, true, p.ProjectID)
 
 		ack := &model.Envelope{
 			ID:        newID(),
@@ -440,6 +451,9 @@ func (h *Hub) BindProject(projectID, agentID, name, path, cliProvider, cliModel 
 	})
 	log.Info().Str("project_id", projectID).Str("agent_id", agentID).Msg("project bound via REST")
 	h.broadcastProjectList(agentID)
+	if h.isAgentOnline(agentID) {
+		h.broadcastAgentStatus(agentID, true, projectID)
+	}
 }
 
 // SendToAgent delivers env to the agent if online; returns true if delivered.
@@ -454,22 +468,8 @@ func (h *Hub) SendToAgent(agentID string, env *model.Envelope) bool {
 }
 
 // GetAgentProjects returns all projects bound to the given agent.
-func (h *Hub) GetAgentProjects(agentID string) []map[string]string {
-	projects := []map[string]string{}
-	h.projectInfos.Range(func(k, v interface{}) bool {
-		info := v.(*ProjectInfo)
-		if info.AgentID == agentID {
-			projects = append(projects, map[string]string{
-				"id":           info.ID,
-				"name":         info.Name,
-				"path":         info.Path,
-				"cli_provider": info.CLIProvider,
-				"cli_model":    info.CLIModel,
-			})
-		}
-		return true
-	})
-	return projects
+func (h *Hub) GetAgentProjects(agentID string) []model.ProjectListItem {
+	return h.getAgentProjectListItems(agentID)
 }
 
 func (h *Hub) ReplaceAgentProjects(agentID string, projects []model.ProjectListItem) {
@@ -522,6 +522,16 @@ func (h *Hub) ReplaceAgentProjects(agentID string, projects []model.ProjectListI
 	}
 
 	h.broadcastProjectList(agentID)
+	if h.isAgentOnline(agentID) {
+		projectIDs := make([]string, 0, len(keep))
+		for _, project := range projects {
+			if project.ID == "" {
+				continue
+			}
+			projectIDs = append(projectIDs, project.ID)
+		}
+		h.broadcastAgentStatus(agentID, true, projectIDs...)
+	}
 }
 
 func (h *Hub) broadcastProjectList(agentID string) {
@@ -546,6 +556,7 @@ func (h *Hub) broadcastProjectList(agentID string) {
 
 func (h *Hub) getAgentProjectListItems(agentID string) []model.ProjectListItem {
 	projects := make([]model.ProjectListItem, 0)
+	online := h.isAgentOnline(agentID)
 	h.projectInfos.Range(func(_, value interface{}) bool {
 		info := value.(*ProjectInfo)
 		if info.AgentID != agentID {
@@ -557,10 +568,55 @@ func (h *Hub) getAgentProjectListItems(agentID string) []model.ProjectListItem {
 			Path:        info.Path,
 			CLIProvider: info.CLIProvider,
 			CLIModel:    info.CLIModel,
+			Online:      online,
 		})
 		return true
 	})
 	return projects
+}
+
+func (h *Hub) broadcastAgentStatus(agentID string, online bool, projectIDs ...string) {
+	if agentID == "" {
+		return
+	}
+
+	if len(projectIDs) == 0 {
+		projectIDs = h.GetProjectIDsByAgent(agentID)
+	}
+
+	for _, projectID := range projectIDs {
+		if projectID == "" {
+			continue
+		}
+
+		payload, err := json.Marshal(model.AgentStatusPayload{
+			AgentID:   agentID,
+			Online:    online,
+			ProjectID: projectID,
+		})
+		if err != nil {
+			log.Warn().Err(err).Str("agent_id", agentID).Str("project_id", projectID).Msg("failed to marshal agent.status payload")
+			continue
+		}
+
+		env := &model.Envelope{
+			ID:        newID(),
+			Event:     model.EventAgentStatus,
+			ProjectID: projectID,
+			Seq:       h.NextSeq(),
+			Timestamp: time.Now().UnixMilli(),
+			Payload:   payload,
+		}
+		h.BroadcastToDevices(env, projectID)
+	}
+}
+
+func (h *Hub) isAgentOnline(agentID string) bool {
+	if agentID == "" {
+		return false
+	}
+	_, ok := h.agents.Load(agentID)
+	return ok
 }
 
 // GetProjectIDsByAgent returns all project IDs currently bound to agentID.

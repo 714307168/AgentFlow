@@ -7,12 +7,13 @@ import (
 	"github.com/claudecode/relay-server/auth"
 	"github.com/claudecode/relay-server/config"
 	"github.com/claudecode/relay-server/hub"
+	"github.com/claudecode/relay-server/model"
 	"github.com/claudecode/relay-server/store"
 )
 
 type syncResponse struct {
-	AgentID  string              `json:"agent_id"`
-	Projects []map[string]string `json:"projects"`
+	AgentID  string                  `json:"agent_id"`
+	Projects []model.ProjectListItem `json:"projects"`
 }
 
 // SyncHandler returns the agent and projects bound to the device

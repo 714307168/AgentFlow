@@ -86,5 +86,6 @@ data class ProjectInfo(
     val name: String,
     val path: String,
     @SerialName("cli_provider") val cliProvider: String = "claude",
-    @SerialName("cli_model") val cliModel: String? = null
+    @SerialName("cli_model") val cliModel: String? = null,
+    val online: Boolean? = null
 )

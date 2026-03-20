@@ -104,6 +104,7 @@ type ProjectListItem struct {
 	Path        string `json:"path"`
 	CLIProvider string `json:"cli_provider,omitempty"`
 	CLIModel    string `json:"cli_model,omitempty"`
+	Online      bool   `json:"online"`
 }
 
 type ProjectListPayload struct {
