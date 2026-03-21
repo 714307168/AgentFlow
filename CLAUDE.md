@@ -1,97 +1,140 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This repository contains a three-part remote control system for Claude Code:
 
-## Project Overview
+- `local-agent/`: Electron desktop agent
+- `relay-server/`: Go relay server and update center
+- `android-app/`: Kotlin Android client
 
-Three-component system for remotely controlling local Claude Code via an Android app, with a Go relay server doing minimal message routing and optional E2E encryption.
-
-```
-Android App  <—WS/HTTPS—>  Relay Server  <—WS/HTTPS—>  Local Agent
-   (E2E)                    (透传)                        (E2E)
-                                                            │
-                                                            └── Claude Code
-```
-
-| Directory | Stack | Role |
-|---|---|---|
-| `local-agent/` | Electron + TypeScript | Desktop tray app, bridges Relay ↔ Claude Code via PTY |
-| `relay-server/` | Go 1.21 | Public relay, JWT auth, WebSocket routing, message queue |
-| `android-app/` | Kotlin + Compose | Android client, session management, settings |
-
-## Commands
+## Main Commands
 
 ### Local Agent
+
 ```bash
 cd local-agent
 npm install
-npm run build        # tsc compile to dist/
-npm start            # electron dist/src/main.js
-npm run dev          # tsc --watch
-npm run rebuild      # electron-rebuild (after native dep changes)
-npm run dist         # electron-builder package
+npm run build
+npm start
+npm run dist:win
 ```
 
 ### Relay Server
+
 ```bash
 cd relay-server
-go build -o relay-server ./...
+go build ./...
+go test ./...
 ./relay-server
-./relay-server -port 8080 -jwt-secret "secret" -tls-cert cert.pem -tls-key key.pem
 ```
 
-### Android App
-Open `android-app/` in Android Studio, Sync Gradle, then Run.
+### Android
 
-## Architecture
-
-### Local Agent (`local-agent/src/`)
-- `main.ts` — Electron main process: tray, windows, IPC handlers, relay lifecycle
-- `relay-client.ts` — WebSocket client connecting to relay server, handles auth + reconnect
-- `message-router.ts` — Routes incoming Envelope events to PTY or project actions
-- `pty-manager.ts` — Manages node-pty sessions per project (one PTY = one Claude Code instance)
-- `output-parser.ts` — Parses PTY output for structured Claude Code responses
-- `project-store.ts` — Persists project list via electron-store
-- `crypto.ts` — X25519 key exchange + AES-256-GCM E2E encryption
-- `i18n.ts` — Language store (en/zh), `t(key)` for translations, `setLang()` persists to electron-store
-- `types.ts` — Shared `Envelope` type and `Events` constants
-- `preload.ts` — contextBridge exposing `window.claudeAgent` API to renderer
-
-### Renderer (`local-agent/renderer/`)
-- `settings.html` — Settings window (inline JS, calls `window.claud*` IPC)
-- `index.html` + `terminal.ts` — Project terminal window using xterm.js
-
-### Relay Server (`relay-server/`)
-- `main.go` — HTTP server setup, routes, CORS middleware
-- `hub/hub.go` — Central message hub, manages connected clients
-- `hub/client.go` — Per-connection WebSocket client
-- `hub/queue.go` — Per-project offline message queue
-- `handler/ws.go` — WebSocket upgrade + auth
-- `handler/session.go` — REST: session token issuance
-- `handler/project.go` — REST: project bind
-- `handler/wakeup.go` — REST: remote wakeup trigger
-- `auth/` — JWT validation and device auth
-- `config/config.go` — Env var + flag config loading
-- `model/envelope.go` — Shared Envelope struct
-
-### Message Protocol
-All WebSocket messages use a unified Envelope:
-```json
-{ "id": "uuid", "event": "message.send", "project_id": "uuid", "seq": 1, "ts": 0, "payload": {} }
+```bash
+cd android-app
+./gradlew.bat :app:compileDebugKotlin
+./gradlew.bat :app:assembleRelease
 ```
-E2E encrypted payload: `{ "encrypted": true, "ciphertext": "base64", "nonce": "base64" }`
 
-Key events: `auth.login`, `auth.ok`, `project.bind`, `message.send/chunk/done/error`, `agent.status`, `e2e.offer/answer`, `ping/pong`
+## Architecture Notes
 
-### i18n Pattern
-- `i18n.ts` holds all strings for `en` and `zh`
-- `setLang(lang)` updates in-memory + persists; `t(key)` reads current lang
-- After language change in renderer: call `api.setLang()` then `api.getI18nMessages()` and re-apply to DOM
-- Tray menu rebuilds via `rebuildTrayMenu()` on lang change (called in `set-lang` IPC handler)
+### Local Agent
 
-### Config Storage
-- Agent connection config: default electron-store (`serverUrl`, `agentId`, `token`)
-- App settings: `app-settings` store (`autoStart`, `silentLaunch`)
-- i18n: `i18n` store (`language`)
-- E2E keys: managed in `relay-client.ts` / `crypto.ts`
-- Env vars override stored config: `RELAY_SERVER_URL`, `AGENT_ID`, `AGENT_TOKEN`
+Important files:
+
+- `src/main.ts`: Electron entrypoint, tray, windows, IPC, updater wiring
+- `src/runtime-manager.ts`: Claude Code runtime coordination
+- `src/message-router.ts`: WebSocket event routing
+- `src/session-history-store.ts`: structured per-project history persistence
+- `src/session-sync-payload.ts`: incremental sync payload builder
+- `src/update-manager.ts`: desktop update check, download, hash verification, manual install handoff
+- `renderer/settings.html`: desktop settings UI, including update toggles
+
+### Relay Server
+
+Important files:
+
+- `main.go`: route registration and middleware
+- `handler/update.go`: public update check and package download endpoints
+- `handler/update_admin.go`: release center UI
+- `db/release.go`: release table access
+- `db/db.go`: schema setup and migrations
+
+### Android
+
+Important files:
+
+- `MainActivity.kt`: top-level wiring
+- `domain/MessageRepository.kt`: sync handling and local cache updates
+- `update/AppUpdateManager.kt`: Android update flow
+- `ui/settings/SettingsScreen.kt`: update toggles and status UI
+- `ui/session/SessionListScreen.kt`: update banner on the project list
+
+## Sync Model
+
+The desktop agent is the source of truth.
+
+- Each project has its own persisted history file.
+- Messages and activities receive monotonically increasing `seq` values.
+- Android requests sync with `after_seq`.
+- The desktop returns only missing items in `sync_version: 2`.
+- Android upserts by `id + seq`.
+- Android keeps only the latest 200 synced interactions per project.
+
+This design replaced the old full-history sync because large projects could stop syncing reliably.
+
+## Update Model
+
+There is no silent install on either platform.
+
+- Desktop: optional auto check, optional auto download, manual installer launch
+- Android: optional auto check, optional auto download, manual system install confirmation
+- Relay server hosts both update metadata and package files
+
+Public endpoints:
+
+- `GET /api/update/check`
+- `GET /api/update/download/{id}`
+
+Admin release UI:
+
+- `GET /admin/releases`
+
+## Local Storage
+
+### Desktop
+
+User data directory:
+
+- `%APPDATA%\\claude-code-agent`
+
+Important files:
+
+- `config.json`
+- `app-settings.json`
+- `i18n.json`
+- `runtime-history/<projectId>.json`
+
+Legacy `runtime-sessions.json` is migrated into the new structured history directory.
+
+### Android
+
+Room and preferences store:
+
+- `lastSyncSeq` per project
+- `syncSeq` per message
+- auto update preferences
+
+## Release Workflow
+
+Use the root deployment script for the relay server:
+
+```bash
+powershell -ExecutionPolicy Bypass -File .\deploy-relay-server.local.ps1
+```
+
+Then publish packages through the relay release center or the release API.
+
+See:
+
+- `README.md`
+- `docs/release-and-update-center.md`

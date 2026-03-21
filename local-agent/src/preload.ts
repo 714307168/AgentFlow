@@ -9,7 +9,8 @@ contextBridge.exposeInMainWorld('claudeAgent', {
     ipcRenderer.on('projects-changed', (_event, projects: unknown[]) => callback(projects));
   },
   getProjectSession: (projectId: string) => ipcRenderer.invoke('get-project-session', projectId),
-  sendProjectPrompt: (data: { projectId: string; prompt: string }) => ipcRenderer.invoke('send-project-prompt', data),
+  sendProjectPrompt: (data: { projectId: string; prompt: string; attachments?: unknown[] }) => ipcRenderer.invoke('send-project-prompt', data),
+  pickProjectAttachments: (data: { projectId: string; kind: 'image' | 'file' }) => ipcRenderer.invoke('pick-project-attachments', data),
   stopProjectRun: (projectId: string) => ipcRenderer.invoke('stop-project-run', projectId),
   removeQueuedProjectPrompt: (data: { projectId: string; runId: string }) => ipcRenderer.invoke('remove-queued-project-prompt', data),
   addProject: (data: { name: string; path: string; cliProvider?: string; cliModel?: string | null }) => ipcRenderer.invoke('add-project', data),
@@ -35,6 +36,13 @@ contextBridge.exposeInMainWorld('claudeAgent', {
   },
   getAppSettings: () => ipcRenderer.invoke('get-app-settings'),
   setAppSettings: (settings: Record<string, boolean>) => ipcRenderer.invoke('set-app-settings', settings),
+  getUpdateState: () => ipcRenderer.invoke('get-update-state'),
+  checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
+  downloadAvailableUpdate: () => ipcRenderer.invoke('download-available-update'),
+  installDownloadedUpdate: () => ipcRenderer.invoke('install-downloaded-update'),
+  onUpdateStateChanged: (callback: (state: unknown) => void) => {
+    ipcRenderer.on('update-state-changed', (_event, state: unknown) => callback(state));
+  },
   getConnectionStatus: () => ipcRenderer.invoke('get-connection-status'),
   openProject: (projectId: string) => ipcRenderer.invoke('open-project', projectId),
   openSettingsWindow: () => ipcRenderer.send('open-settings-window'),

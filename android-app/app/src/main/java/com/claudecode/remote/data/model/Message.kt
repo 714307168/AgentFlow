@@ -16,6 +16,7 @@ data class Message(
     val fileInfo: FileInfo? = null,
     val streamId: String? = null,
     val timestamp: Long,
+    val syncSeq: Long = 0L,
     val isStreaming: Boolean = false
 )
 

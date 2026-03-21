@@ -75,6 +75,8 @@ func main() {
 	mux.HandleFunc("/api/project/bind", handler.ProjectBindHandler(h, cfg))
 	mux.HandleFunc("/api/agent/wakeup", handler.WakeupHandler(h, cfg))
 	mux.HandleFunc("/api/device/sync", handler.SyncHandler(h, cfg, st))
+	mux.HandleFunc("/api/update/check", handler.UpdateCheckHandler(cfg, database))
+	mux.HandleFunc("/api/update/download/", handler.UpdateDownloadHandler(cfg, database))
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -91,6 +93,10 @@ func main() {
 	mux.HandleFunc("/admin/api/devices", handler.AdminDevicesHandler(cfg, database))
 	mux.HandleFunc("/admin/api/users/", handler.AdminUsersHandler(cfg, database))
 	mux.HandleFunc("/admin/api/users", handler.AdminUsersHandler(cfg, database))
+	mux.HandleFunc("/admin/api/releases/", handler.AdminReleasesHandler(cfg, database))
+	mux.HandleFunc("/admin/api/releases", handler.AdminReleasesHandler(cfg, database))
+	mux.HandleFunc("/admin/releases/", handler.AdminReleasesPageHandler(cfg))
+	mux.HandleFunc("/admin/releases", handler.AdminReleasesPageHandler(cfg))
 	mux.HandleFunc("/admin", handler.AdminUIHandler(cfg))
 	mux.HandleFunc("/admin/", handler.AdminUIHandler(cfg))
 

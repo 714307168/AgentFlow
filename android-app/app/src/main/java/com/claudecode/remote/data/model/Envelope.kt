@@ -31,6 +31,7 @@ object Events {
     const val MESSAGE_CHUNK = "message.chunk"
     const val MESSAGE_DONE = "message.done"
     const val MESSAGE_ERROR = "message.error"
+    const val TASK_STOP = "task.stop"
     const val AGENT_STATUS = "agent.status"
     const val E2E_OFFER = "e2e.offer"
     const val E2E_ANSWER = "e2e.answer"

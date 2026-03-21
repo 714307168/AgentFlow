@@ -61,6 +61,18 @@ class TokenStore(context: Context) {
 
     fun getUsername(): String? = prefs.getString(KEY_USERNAME, null)
 
+    fun saveAutoUpdateCheckEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_AUTO_UPDATE_CHECK, enabled).apply()
+    }
+
+    fun isAutoUpdateCheckEnabled(): Boolean = prefs.getBoolean(KEY_AUTO_UPDATE_CHECK, true)
+
+    fun saveAutoUpdateDownloadEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_AUTO_UPDATE_DOWNLOAD, enabled).apply()
+    }
+
+    fun isAutoUpdateDownloadEnabled(): Boolean = prefs.getBoolean(KEY_AUTO_UPDATE_DOWNLOAD, false)
+
     fun clear() {
         prefs.edit().clear().apply()
     }
@@ -74,5 +86,7 @@ class TokenStore(context: Context) {
         private const val KEY_E2E_PUBLIC = "e2e_public_key"
         private const val KEY_LANGUAGE = "language"
         private const val KEY_USERNAME = "username"
+        private const val KEY_AUTO_UPDATE_CHECK = "auto_update_check"
+        private const val KEY_AUTO_UPDATE_DOWNLOAD = "auto_update_download"
     }
 }

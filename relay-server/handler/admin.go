@@ -435,7 +435,7 @@ func AdminUsersHandler(cfg *config.Config, database *db.DB) http.HandlerFunc {
 	})
 }
 
-const adminHTML = `<!DOCTYPE html>
+const legacyAdminHTML = `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">

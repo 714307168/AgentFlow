@@ -15,16 +15,15 @@ import androidx.core.content.ContextCompat
 import com.claudecode.remote.ChatNavigationBus
 import com.claudecode.remote.MainActivity
 import com.claudecode.remote.UiPresenceTracker
+import com.claudecode.remote.data.local.AppDatabase
 import com.claudecode.remote.data.model.Envelope
 import com.claudecode.remote.data.model.Events
 import com.claudecode.remote.data.remote.RelayWebSocket
 import com.claudecode.remote.domain.SessionRepository
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 
 class RelayNotificationHelper(private val context: Context) {
     private val notificationManager = NotificationManagerCompat.from(context)
+    private val messageDao by lazy { AppDatabase.getInstance(context).messageDao() }
 
     fun ensureChannels() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
@@ -82,21 +81,19 @@ class RelayNotificationHelper(private val context: Context) {
         uiPresenceTracker: UiPresenceTracker,
         sessionRepository: SessionRepository
     ) {
-        if (envelope.event != Events.MESSAGE_CHUNK) {
+        if (envelope.event != Events.MESSAGE_DONE) {
             return
         }
 
         val projectId = envelope.projectId ?: return
+        val streamId = envelope.streamId ?: return
         if (uiPresenceTracker.shouldSuppressNotifications(projectId)) {
             return
         }
 
-        val preview = envelope.payload
-            ?.jsonObject
-            ?.get("content")
-            ?.jsonPrimitive
-            ?.contentOrNull
-            ?.trim()
+        val preview = messageDao.getMessageById(streamId)
+            ?.content
+            ?.let(::normalizePreview)
             .orEmpty()
         if (preview.isEmpty()) {
             return
@@ -127,6 +124,20 @@ class RelayNotificationHelper(private val context: Context) {
                 .setCategory(NotificationCompat.CATEGORY_MESSAGE)
                 .build()
         )
+    }
+
+    private fun normalizePreview(content: String): String {
+        val singleLine = content
+            .replace("\r", " ")
+            .replace("\n", " ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+
+        return if (singleLine.length <= 120) {
+            singleLine
+        } else {
+            singleLine.take(117) + "..."
+        }
     }
 
     private fun buildAppPendingIntent(): PendingIntent =

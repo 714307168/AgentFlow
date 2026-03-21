@@ -43,7 +43,12 @@ class SessionViewModel(
     }
 
     fun initialize(serverUrl: String) {
-        _uiState.update { it.copy(serverUrl = serverUrl, isLoading = true) }
+        _uiState.update { current ->
+            current.copy(
+                serverUrl = serverUrl,
+                isLoading = current.sessions.isEmpty()
+            )
+        }
         viewModelScope.launch {
             repository.initialize().fold(
                 onSuccess = { _uiState.update { it.copy(isLoading = false) } },

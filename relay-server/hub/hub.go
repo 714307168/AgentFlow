@@ -106,6 +106,17 @@ func (h *Hub) HandleMessage(from *Client, env *model.Envelope) {
 		}
 		h.BroadcastToDevices(env, env.ProjectID)
 
+	case model.EventTaskStop:
+		if from.Type != model.ClientTypeDevice {
+			h.sendError(from, env.ID, "forbidden", "only devices can stop tasks")
+			return
+		}
+		agentID, ok := h.authorizeProjectAccess(from, env.ID, env.ProjectID)
+		if !ok {
+			return
+		}
+		h.Route(env, agentID)
+
 	case model.EventSessionSyncRequest:
 		if from.Type != model.ClientTypeDevice {
 			h.sendError(from, env.ID, "forbidden", "only devices can request session sync")

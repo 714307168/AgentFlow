@@ -18,6 +18,7 @@ data class SessionEntity(
     val currentPrompt: String? = null,
     val queuePreview: String? = null,
     val currentStartedAt: Long? = null,
+    val lastSyncSeq: Long = 0,
     val createdAt: Long,
     val lastActiveAt: Long
 )

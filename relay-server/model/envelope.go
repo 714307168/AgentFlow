@@ -26,6 +26,9 @@ const (
 	EventMessageDone  = "message.done"
 	EventMessageError = "message.error"
 
+	// Task events
+	EventTaskStop = "task.stop"
+
 	// Agent events
 	EventAgentStatus = "agent.status"
 	EventAgentWakeup = "agent.wakeup"

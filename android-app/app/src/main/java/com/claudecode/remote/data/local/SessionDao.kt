@@ -9,7 +9,7 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface SessionDao {
-    @Query("SELECT * FROM sessions ORDER BY lastActiveAt DESC")
+    @Query("SELECT * FROM sessions ORDER BY createdAt ASC, name COLLATE NOCASE ASC, id ASC")
     fun getAllSessions(): Flow<List<SessionEntity>>
 
     @Query("SELECT * FROM sessions")
@@ -63,11 +63,28 @@ interface SessionDao {
         lastActiveAt: Long
     )
 
-    @Query("UPDATE sessions SET isAgentOnline = :isOnline, lastActiveAt = :lastActiveAt WHERE projectId = :projectId")
+    @Query("UPDATE sessions SET lastSyncSeq = :lastSyncSeq WHERE projectId = :projectId")
+    suspend fun updateLastSyncSeq(projectId: String, lastSyncSeq: Long)
+
+    @Query(
+        """
+        UPDATE sessions
+        SET isAgentOnline = :isOnline,
+            lastActiveAt = :lastActiveAt
+        WHERE projectId = :projectId
+          AND lastActiveAt <= :lastActiveAt
+        """
+    )
     suspend fun updateAgentStatus(projectId: String, isOnline: Boolean, lastActiveAt: Long)
+
+    @Query("UPDATE sessions SET isRunning = 0, currentPrompt = NULL, currentStartedAt = NULL WHERE projectId = :projectId AND isRunning = 1")
+    suspend fun resetRunningState(projectId: String)
 
     @Query("DELETE FROM sessions WHERE id = :id")
     suspend fun deleteSession(id: String)
+
+    @Query("DELETE FROM sessions WHERE projectId = :projectId")
+    suspend fun deleteSessionByProjectId(projectId: String)
 
     @Query("DELETE FROM sessions")
     suspend fun deleteAllSessions()

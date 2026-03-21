@@ -133,6 +133,9 @@ func (db *DB) CreateUser(username, password string, isAdmin bool) (*User, error)
 		VALUES (?, ?, ?)
 	`, username, hash, isAdmin)
 	if err != nil {
+		if isUniqueConstraintError(err, "users.username") {
+			return nil, fmt.Errorf("username already exists")
+		}
 		return nil, fmt.Errorf("failed to create user: %w", err)
 	}
 
@@ -391,6 +394,9 @@ func (db *DB) RegisterAgent(agentID string, userID int, note string) error {
 	`, agentID, userID, note)
 
 	if err != nil {
+		if isUniqueConstraintError(err, "agents.id") {
+			return fmt.Errorf("agent id already exists")
+		}
 		return fmt.Errorf("failed to register agent: %w", err)
 	}
 
@@ -410,6 +416,9 @@ func (db *DB) RegisterDevice(deviceID string, userID int, agentID, note string) 
 	`, deviceID, userID, agentIDNull, note)
 
 	if err != nil {
+		if isUniqueConstraintError(err, "devices.id") {
+			return fmt.Errorf("device id already exists")
+		}
 		return fmt.Errorf("failed to register device: %w", err)
 	}
 
@@ -483,4 +492,11 @@ func validateUsername(username string) error {
 		return fmt.Errorf("username cannot contain whitespace")
 	}
 	return nil
+}
+
+func isUniqueConstraintError(err error, key string) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "UNIQUE constraint failed: "+key)
 }

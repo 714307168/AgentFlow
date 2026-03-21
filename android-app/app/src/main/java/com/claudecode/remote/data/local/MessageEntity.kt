@@ -18,5 +18,6 @@ data class MessageEntity(
     val filePath: String? = null,
     val streamId: String? = null,
     val timestamp: Long,
+    val syncSeq: Long = 0,
     val isStreaming: Boolean = false
 )

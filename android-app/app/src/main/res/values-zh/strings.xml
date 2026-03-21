@@ -1,16 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Claude Code 远程</string>
-    <string name="no_sessions">还没有项目。先连接桌面端 agent，这里就会同步出来。</string>
+    <string name="no_sessions">还没有项目。先连接桌面端 Agent，这里就会同步出来。</string>
     <string name="send_message">发送</string>
-    <string name="message_hint">给当前项目发一条消息</string>
+    <string name="message_hint">发送消息</string>
     <string name="no_messages">暂时没有消息，先发一条提示词吧。</string>
     <string name="back">返回</string>
     <string name="dismiss">关闭</string>
     <string name="settings">设置</string>
     <string name="settings_title">设置</string>
     <string name="server_connection">连接</string>
-    <string name="relay_server_url">中继服务器地址</string>
+    <string name="relay_server_url">中继服务地址</string>
     <string name="device_id">设备 ID</string>
     <string name="device_id_placeholder">请输入设备 ID</string>
     <string name="e2e_encryption">安全</string>
@@ -49,6 +49,23 @@
     <string name="settings_hero_subtitle">不离开 App 也能调整中继地址、安全设置和诊断信息。</string>
     <string name="settings_signed_in">已登录</string>
     <string name="settings_sign_in_required">需要登录</string>
+    <string name="settings_updates_title">更新</string>
+    <string name="settings_updates_subtitle">检查新的 Android 版本，并在你准备好时下载。</string>
+    <string name="settings_auto_check_updates">自动检查更新</string>
+    <string name="settings_auto_check_updates_hint">启动应用和回到前台时检查中继更新中心。</string>
+    <string name="settings_auto_download_updates">自动下载更新包</string>
+    <string name="settings_auto_download_updates_hint">发现新版本后后台下载 APK，但安装仍需要你手动确认。</string>
+    <string name="settings_update_status">更新状态</string>
+    <string name="settings_check_updates">检查更新</string>
+    <string name="settings_download_update">下载更新</string>
+    <string name="settings_install_update">安装更新</string>
+    <string name="settings_update_idle">还没有执行过更新检查。</string>
+    <string name="settings_update_checking">正在检查更新...</string>
+    <string name="settings_update_available">发现版本 %1$s。</string>
+    <string name="settings_update_downloading">正在下载版本 %1$s...</string>
+    <string name="settings_update_downloaded">版本 %1$s 已可安装。</string>
+    <string name="settings_update_uptodate">当前已经是最新版本。</string>
+    <string name="settings_update_error">更新失败，请稍后重试。</string>
     <string name="settings_crash_log_title">崩溃日志</string>
     <string name="settings_clear">清空</string>
     <string name="settings_close">关闭</string>
@@ -64,11 +81,18 @@
     <string name="chat_runtime_running_detail">当前任务仍在运行。</string>
     <string name="chat_runtime_queued_detail">%1$d 条提示词正在排队等待执行。</string>
     <string name="chat_runtime_ready_detail">当前项目已就绪，可以直接发送新消息。</string>
+    <string name="chat_runtime_expand">展开运行详情</string>
+    <string name="chat_runtime_collapse">收起运行详情</string>
     <string name="chat_thinking">思考中</string>
     <string name="chat_file">文件</string>
     <string name="chat_attach_file">附加文件</string>
+    <string name="chat_stop_task">停止任务</string>
     <string name="session_projects_count">%1$d 个项目</string>
     <string name="session_running_count">%1$d 个运行中</string>
     <string name="session_queued_count">%1$d 个排队中</string>
-    <string name="session_synced_summary">与桌面端 agent 保持实时同步。</string>
+    <string name="session_synced_summary">与桌面端 Agent 保持实时同步。</string>
+    <string name="session_update_available_title">发现版本 %1$s</string>
+    <string name="session_update_ready_title">版本 %1$s 已可安装</string>
+    <string name="session_download_update">下载更新</string>
+    <string name="session_install_update">安装更新</string>
 </resources>

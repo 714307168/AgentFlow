@@ -193,6 +193,18 @@ class ChatViewModel(
         }
     }
 
+    fun stopTask() {
+        val state = _uiState.value
+        if (state.projectId.isBlank() || !state.isRunning) return
+        viewModelScope.launch {
+            try {
+                messageRepository.sendStopTask(state.projectId)
+            } catch (e: Exception) {
+                CrashLogger.logError("ChatViewModel", "Error sending stop task", e)
+            }
+        }
+    }
+
     fun clearInput() {
         _uiState.update { it.copy(inputText = "") }
     }

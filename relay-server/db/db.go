@@ -101,12 +101,35 @@ func (db *DB) initSchema() error {
 		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 	);
 
+	-- Published releases for desktop and Android updates
+	CREATE TABLE IF NOT EXISTS releases (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		platform TEXT NOT NULL,
+		channel TEXT NOT NULL DEFAULT 'stable',
+		arch TEXT NOT NULL DEFAULT '',
+		version TEXT NOT NULL,
+		build INTEGER NOT NULL DEFAULT 0,
+		filename TEXT NOT NULL,
+		original_filename TEXT NOT NULL,
+		file_path TEXT NOT NULL,
+		sha256 TEXT NOT NULL,
+		size INTEGER NOT NULL DEFAULT 0,
+		notes TEXT NOT NULL DEFAULT '',
+		mandatory INTEGER NOT NULL DEFAULT 0,
+		min_supported_version TEXT NOT NULL DEFAULT '',
+		published INTEGER NOT NULL DEFAULT 1,
+		created_by INTEGER NOT NULL DEFAULT 0,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		published_at DATETIME
+	);
+
 	-- Indexes
 	CREATE INDEX IF NOT EXISTS idx_agents_user_id ON agents(user_id);
 	CREATE INDEX IF NOT EXISTS idx_devices_user_id ON devices(user_id);
 	CREATE INDEX IF NOT EXISTS idx_devices_agent_id ON devices(agent_id);
 	CREATE INDEX IF NOT EXISTS idx_login_sessions_user_id ON login_sessions(user_id);
 	CREATE INDEX IF NOT EXISTS idx_login_sessions_token_hash ON login_sessions(token_hash);
+	CREATE INDEX IF NOT EXISTS idx_releases_lookup ON releases(platform, channel, arch, published, created_at);
 	`
 
 	if _, err := db.Exec(schema); err != nil {

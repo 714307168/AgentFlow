@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"encoding/json"
 	"net/http"
 	"time"
 
@@ -46,30 +45,12 @@ func SessionHandler(cfg *config.Config, st *store.Store) http.HandlerFunc {
 // AdminSessionHandler issues JWT tokens for the logged-in user's pre-registered agents and devices.
 func AdminSessionHandler(cfg *config.Config, database *db.DB) http.HandlerFunc {
 	return adminAuth(cfg, func(w http.ResponseWriter, r *http.Request) {
-		session, ok := currentAdminSession(r)
-		if !ok {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
+		_, _ = cfg, database
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-
-		var req sessionRequest
-		if err := decodeJSONBody(w, r, &req); err != nil {
-			http.Error(w, "invalid request body", http.StatusBadRequest)
-			return
-		}
-
-		resp, issueErr := issueAdminSessionToken(cfg, database, session.UserID, req)
-		if issueErr != nil {
-			http.Error(w, issueErr.Message, issueErr.Status)
-			return
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		http.Error(w, "manual token issuance is retired; sign in from the local agent or Android app with username/password instead", http.StatusGone)
 	})
 }
 

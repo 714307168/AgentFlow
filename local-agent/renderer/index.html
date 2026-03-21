@@ -31,48 +31,83 @@
     <main class="workspace">
       <aside class="sidebar-panel">
         <div class="sidebar-header">
-          <div>
-            <p class="panel-kicker" id="projectsKicker">Projects</p>
-            <h1 class="sidebar-title" id="projectsTitle">Project sessions</h1>
-            <p class="panel-subtitle" id="projectsSubtitle">Choose a project to view conversation and runtime status.</p>
-          </div>
+          <h1 class="sidebar-title" id="projectsTitle">Projects</h1>
         </div>
         <div class="project-list" id="projectList"></div>
       </aside>
 
       <section class="conversation-panel">
-        <div class="panel-header">
-          <div>
-            <p class="panel-kicker" id="conversationKicker">Conversation</p>
-            <h1 class="panel-title" id="sessionViewTitle">Structured session view</h1>
-            <p class="panel-subtitle" id="runState">Ready to send prompts.</p>
+        <div class="panel-header panel-header-workspace">
+          <div class="panel-header-main">
+            <div class="panel-heading panel-heading-stack panel-heading-grow">
+              <h1 class="panel-title" id="sessionViewTitle">Project</h1>
+              <div class="panel-status-row">
+                <span class="project-status-pill idle" id="runState">Idle</span>
+                <span class="panel-inline-summary" id="headerSummary">Ready for the next prompt</span>
+              </div>
+            </div>
           </div>
-          <button class="ghost-button" id="openActivityBtn" type="button">View activity</button>
+
+          <nav class="workbench-tabs workbench-tabs-inline" id="workbenchTabs" aria-label="Workbench views">
+            <button class="workbench-tab active" id="messagesTab" type="button" data-view-switch="messages">
+              <span id="messagesTabLabel">Conversation</span>
+            </button>
+            <button class="workbench-tab" id="activityTab" type="button" data-view-switch="activity">
+              <span id="activityTabLabel">Activity</span>
+              <span class="workbench-tab-badge" id="activityTabCount">0</span>
+            </button>
+            <button class="workbench-tab" id="cliTab" type="button" data-view-switch="cli">
+              <span id="cliTabLabel">CLI</span>
+              <span class="workbench-tab-badge" id="cliTabState">Idle</span>
+            </button>
+            <button class="workbench-tab" id="queueTab" type="button" data-view-switch="queue">
+              <span id="queueTabLabel">Queue</span>
+              <span class="workbench-tab-badge" id="queueTabCount">0</span>
+            </button>
+          </nav>
         </div>
 
-        <section class="queue-panel hidden" id="queuePanel" aria-live="polite">
-          <div class="queue-header">
-            <div class="queue-title" id="queueTitle">Queued prompts</div>
-            <div class="queue-count" id="queueCount">0</div>
-          </div>
-          <div class="queue-list" id="queueList"></div>
-        </section>
+        <div class="workspace-stage">
+          <section class="messages-stage" id="messagesView">
+            <div class="messages" id="messages"></div>
+          </section>
 
-        <section class="cli-panel" id="cliPanel" aria-live="polite">
-          <div class="cli-panel-header">
-            <div>
-              <div class="queue-title" id="cliTitle">CLI Live</div>
-              <div class="cli-panel-subtitle" id="cliSubtitle">See the live local CLI command stream, stdout, and stderr here.</div>
-            </div>
-            <span class="project-status-pill idle" id="cliState">Idle</span>
-          </div>
-          <div class="cli-trace" id="cliTrace"></div>
-        </section>
+          <section class="detail-dock" id="detailDock">
+            <section class="workbench-view" id="activityView">
+              <div class="activity-list activity-list-compact" id="activityList"></div>
+            </section>
 
-        <div class="messages" id="messages"></div>
+            <section class="workbench-view" id="cliView">
+              <div class="cli-panel" id="cliPanel" aria-live="polite">
+                <div class="cli-panel-header">
+                  <div class="queue-title" id="cliTitle">CLI</div>
+                  <span class="project-status-pill idle" id="cliState">Idle</span>
+                </div>
+                <div class="cli-trace" id="cliTrace"></div>
+              </div>
+            </section>
+
+            <section class="workbench-view" id="queueView">
+              <div class="queue-panel" id="queuePanel" aria-live="polite">
+                <div class="queue-header">
+                  <div class="queue-title" id="queueTitle">Queued prompts</div>
+                  <div class="queue-count" id="queueCount">0</div>
+                </div>
+                <div class="queue-list" id="queueList"></div>
+              </div>
+            </section>
+          </section>
+        </div>
 
         <form class="composer" id="composerForm">
-          <label class="composer-label" for="composerInput" id="composerLabel">Prompt</label>
+          <div class="composer-toolbar">
+            <label class="composer-label" for="composerInput" id="composerLabel">Prompt</label>
+            <div class="composer-tools">
+              <button class="ghost-button attach-button" id="attachImageBtn" type="button">Image</button>
+              <button class="ghost-button attach-button" id="attachFileBtn" type="button">File</button>
+            </div>
+          </div>
+          <div class="attachment-tray" id="attachmentTray"></div>
           <textarea
             id="composerInput"
             rows="4"
@@ -90,21 +125,6 @@
         </form>
       </section>
     </main>
-  </div>
-
-  <div class="activity-modal hidden" id="activityModal">
-    <div class="activity-modal-backdrop" id="activityModalBackdrop"></div>
-    <section class="activity-modal-card" role="dialog" aria-modal="true" aria-labelledby="executionTraceTitle">
-      <div class="activity-modal-header">
-        <div>
-          <p class="panel-kicker" id="activityKicker">Activity</p>
-          <h2 class="panel-title small" id="executionTraceTitle">Execution trace</h2>
-          <p class="panel-subtitle" id="activitySubtitle">Thinking, tools, commands, and runtime status.</p>
-        </div>
-        <button class="ghost-button" id="closeActivityBtn" type="button">Close</button>
-      </div>
-      <div class="activity-list" id="activityList"></div>
-    </section>
   </div>
 
   <script src="terminal.js"></script>

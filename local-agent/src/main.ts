@@ -1,5 +1,6 @@
-import { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage } from "electron";
+import { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, dialog } from "electron";
 import "./user-data-bootstrap";
+import * as fs from "fs";
 import * as path from "path";
 import Store from "electron-store";
 import { v4 as uuidv4 } from "uuid";
@@ -9,7 +10,9 @@ import RelayClient from "./relay-client";
 import MessageRouter from "./message-router";
 import projectStore, { Project } from "./project-store";
 import ptyManager from "./pty-manager";
-import RuntimeManager, { CliProvider, ProjectSessionSnapshot } from "./runtime-manager";
+import RuntimeManager, { CliProvider, ProjectSessionSnapshot, RunAttachment } from "./runtime-manager";
+import { buildSessionSyncPayload } from "./session-sync-payload";
+import UpdateManager, { UpdateState } from "./update-manager";
 import { Events } from "./types";
 import { t, getLang, setLang, getAllMessages, Lang } from "./i18n";
 
@@ -25,6 +28,9 @@ interface AppSettings {
   autoStart: boolean;
   silentLaunch: boolean;
   saveLogs: boolean;
+  e2eEnabled: boolean;
+  autoUpdateCheck: boolean;
+  autoUpdateDownload: boolean;
 }
 
 const configStore = new Store<AgentConfig>({
@@ -43,6 +49,9 @@ const appSettingsStore = new Store<AppSettings>({
     autoStart: false,
     silentLaunch: false,
     saveLogs: false,
+    e2eEnabled: false,
+    autoUpdateCheck: true,
+    autoUpdateDownload: false,
   },
 });
 
@@ -54,6 +63,57 @@ let mainWindow: BrowserWindow | null = null;
 let workspaceWindow: BrowserWindow | null = null;
 let activeWorkspaceProjectId: string | null = null;
 let relayClient: RelayClient | null = null;
+const lastBroadcastSyncSeqByProject = new Map<string, number>();
+const updateManager = new UpdateManager({
+  getServerUrl: () => loadConfig().serverUrl,
+  getAutoCheckEnabled: () => appSettingsStore.get("autoUpdateCheck") as boolean,
+  getAutoDownloadEnabled: () => appSettingsStore.get("autoUpdateDownload") as boolean,
+  getParentWindow: () => workspaceWindow ?? mainWindow ?? null,
+});
+
+function isImageAttachment(filePath: string): boolean {
+  const extension = path.extname(filePath).toLowerCase();
+  return [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".ico", ".avif", ".heic"].includes(extension);
+}
+
+function toRunAttachment(filePath: string): RunAttachment {
+  const stats = fs.statSync(filePath);
+  return {
+    id: uuidv4(),
+    name: path.basename(filePath),
+    path: filePath,
+    size: stats.isFile() ? stats.size : 0,
+    kind: isImageAttachment(filePath) ? "image" : "file",
+  };
+}
+
+function normalizeIncomingAttachments(payload: unknown): RunAttachment[] {
+  if (!Array.isArray(payload)) {
+    return [];
+  }
+
+  return payload
+    .filter((entry): entry is Partial<RunAttachment> => Boolean(entry) && typeof entry === "object")
+    .map((entry) => {
+      const filePath = typeof entry.path === "string" ? path.resolve(entry.path) : "";
+      if (!filePath || !fs.existsSync(filePath)) {
+        return null;
+      }
+      const stats = fs.statSync(filePath);
+      if (!stats.isFile()) {
+        return null;
+      }
+
+      return {
+        id: typeof entry.id === "string" && entry.id.trim() ? entry.id : uuidv4(),
+        name: typeof entry.name === "string" && entry.name.trim() ? entry.name.trim() : path.basename(filePath),
+        path: filePath,
+        size: Number.isFinite(entry.size) ? Math.max(0, Number(entry.size)) : stats.size,
+        kind: entry.kind === "image" || isImageAttachment(filePath) ? "image" : "file",
+      } satisfies RunAttachment;
+    })
+    .filter((entry): entry is RunAttachment => entry !== null);
+}
 
 function getDefaultCliProvider(): CliProvider {
   return loadConfig().cliProvider === "codex" ? "codex" : "claude";
@@ -171,11 +231,25 @@ function broadcastLangChange(): void {
   }
 }
 
+function broadcastUpdateState(state: UpdateState): void {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("update-state-changed", state);
+  }
+
+  if (workspaceWindow && !workspaceWindow.isDestroyed()) {
+    workspaceWindow.webContents.send("update-state-changed", state);
+  }
+}
+
 runtimeManager.on("snapshot", (projectId: string, snapshot: ProjectSessionSnapshot) => {
   if (workspaceWindow && !workspaceWindow.isDestroyed()) {
     workspaceWindow.webContents.send("project-session-snapshot", snapshot);
   }
   broadcastSessionSync(snapshot);
+});
+
+updateManager.on("state-changed", (state: UpdateState) => {
+  broadcastUpdateState(state);
 });
 
 function broadcastProjectsChanged(): void {
@@ -201,24 +275,18 @@ function broadcastSessionSync(snapshot: ProjectSessionSnapshot): void {
     return;
   }
 
+  const afterSeq = lastBroadcastSyncSeqByProject.has(snapshot.projectId)
+    ? (lastBroadcastSyncSeqByProject.get(snapshot.projectId) ?? 0)
+    : 0;
+  const delta = runtimeManager.buildSyncDelta(snapshot.projectId, afterSeq);
+  const payload = buildSessionSyncPayload(snapshot, delta, afterSeq);
+  lastBroadcastSyncSeqByProject.set(snapshot.projectId, delta.latestSeq);
   relayClient.send({
     id: uuidv4(),
     event: Events.SESSION_SYNC,
     project_id: snapshot.projectId,
     ts: Date.now(),
-    payload: {
-      project_id: snapshot.projectId,
-      provider: snapshot.provider,
-      model: snapshot.model,
-      isRunning: snapshot.isRunning,
-      queuedCount: snapshot.queuedCount,
-      currentSource: snapshot.currentSource,
-      currentPrompt: snapshot.currentPrompt,
-      currentStartedAt: snapshot.currentStartedAt,
-      queue: snapshot.queue,
-      messages: snapshot.messages,
-      activities: snapshot.activities,
-    },
+    payload,
   });
 }
 
@@ -311,6 +379,7 @@ function showMainWindow(parentWindow?: BrowserWindow | null): void {
   mainWindow.webContents.on("did-finish-load", () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send("lang-changed", getLangPayload());
+      mainWindow.webContents.send("update-state-changed", updateManager.getState());
     }
   });
   mainWindow.once("ready-to-show", () => {
@@ -348,6 +417,7 @@ function createWorkspaceWindow(): BrowserWindow {
 
   win.webContents.on("did-finish-load", () => {
     win.webContents.send("lang-changed", getLangPayload());
+    win.webContents.send("update-state-changed", updateManager.getState());
     win.webContents.send("projects-changed", projectStore.getAll());
     for (const project of projectStore.getAll()) {
       win.webContents.send("project-session-snapshot", runtimeManager.getSnapshot(project.id));
@@ -424,7 +494,12 @@ function initRelay(config: AgentConfig): void {
     return;
   }
 
-  relayClient = new RelayClient(config.serverUrl, config.agentId, config.token);
+  relayClient = new RelayClient(
+    config.serverUrl,
+    config.agentId,
+    config.token,
+    appSettingsStore.get("e2eEnabled") as boolean,
+  );
   new MessageRouter(relayClient, {
     revealProjectWindow: (projectId: string) => showWorkspaceWindow(projectId),
     runtimeManager,
@@ -439,6 +514,10 @@ function initRelay(config: AgentConfig): void {
 
   relayClient.on("connected", () => {
     console.log("[Main] Relay connected");
+    lastBroadcastSyncSeqByProject.clear();
+    for (const project of projectStore.getAll()) {
+      lastBroadcastSyncSeqByProject.set(project.id, runtimeManager.getLatestSyncSeq(project.id));
+    }
     updateTrayTooltip();
     syncProjectCatalog(config.agentId);
   });
@@ -520,6 +599,7 @@ ipcMain.handle("delete-project", (_event, projectId: string) => {
   const project = projectStore.getById(projectId);
   projectStore.remove(projectId);
   runtimeManager.clearProject(projectId);
+  lastBroadcastSyncSeqByProject.delete(projectId);
 
   if (activeWorkspaceProjectId === projectId) {
     activeWorkspaceProjectId = null;
@@ -592,12 +672,13 @@ ipcMain.handle("login", async (_event, data: { username: string; password: strin
 
 ipcMain.handle("get-e2e-status", () => {
   return {
-    enabled: relayClient?.isE2EEnabled() ?? false,
+    enabled: relayClient?.isE2EEnabled() ?? (appSettingsStore.get("e2eEnabled") as boolean),
     publicKey: relayClient?.getE2E().getPublicKey() ?? "",
   };
 });
 
 ipcMain.handle("set-e2e-enabled", (_event, enabled: boolean) => {
+  appSettingsStore.set("e2eEnabled", enabled);
   if (relayClient) relayClient.setE2EEnabled(enabled);
   return true;
 });
@@ -629,6 +710,9 @@ ipcMain.handle("get-app-settings", () => {
     autoStart: appSettingsStore.get("autoStart") as boolean,
     silentLaunch: appSettingsStore.get("silentLaunch") as boolean,
     saveLogs: appSettingsStore.get("saveLogs") as boolean,
+    e2eEnabled: appSettingsStore.get("e2eEnabled") as boolean,
+    autoUpdateCheck: appSettingsStore.get("autoUpdateCheck") as boolean,
+    autoUpdateDownload: appSettingsStore.get("autoUpdateDownload") as boolean,
     logDirectory: appLogger.getLogDirectory(),
   };
 });
@@ -651,8 +735,26 @@ ipcMain.handle("set-app-settings", (_event, settings: Partial<AppSettings>) => {
       appLogger.info("settings", "Local log persistence enabled by user.");
     }
   }
+  if (settings.e2eEnabled !== undefined) {
+    appSettingsStore.set("e2eEnabled", settings.e2eEnabled);
+    if (relayClient) {
+      relayClient.setE2EEnabled(settings.e2eEnabled);
+    }
+  }
+  if (settings.autoUpdateCheck !== undefined) {
+    appSettingsStore.set("autoUpdateCheck", settings.autoUpdateCheck);
+    updateManager.start();
+  }
+  if (settings.autoUpdateDownload !== undefined) {
+    appSettingsStore.set("autoUpdateDownload", settings.autoUpdateDownload);
+  }
   return true;
 });
+
+ipcMain.handle("get-update-state", () => updateManager.getState());
+ipcMain.handle("check-for-updates", async () => updateManager.checkForUpdates(true));
+ipcMain.handle("download-available-update", async () => updateManager.downloadAvailableUpdate());
+ipcMain.handle("install-downloaded-update", async () => updateManager.installDownloadedUpdate());
 
 ipcMain.handle("get-connection-status", () => {
   if (!relayClient) {
@@ -698,16 +800,55 @@ ipcMain.handle("get-project-session", (_event, projectId: string) => {
   };
 });
 
-ipcMain.handle("send-project-prompt", (_event, data: { projectId: string; prompt: string }) => {
+ipcMain.handle("pick-project-attachments", async (event, data: { projectId: string; kind: "image" | "file" }) => {
   const project = projectStore.getById(data.projectId);
   if (!project) {
     return { success: false, error: "Project not found" };
+  }
+
+  const senderWindow = BrowserWindow.fromWebContents(event.sender) ?? workspaceWindow ?? undefined;
+  const filters = data.kind === "image"
+    ? [{
+        name: "Images",
+        extensions: ["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "ico", "avif", "heic"],
+      }]
+    : undefined;
+
+  const dialogOptions: Electron.OpenDialogOptions = {
+    defaultPath: project.path,
+    properties: ["openFile", "multiSelections"],
+    filters,
+  };
+  const result = senderWindow
+    ? await dialog.showOpenDialog(senderWindow, dialogOptions)
+    : await dialog.showOpenDialog(dialogOptions);
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return { success: true, attachments: [] };
+  }
+
+  return {
+    success: true,
+    attachments: result.filePaths.map((filePath) => toRunAttachment(filePath)),
+  };
+});
+
+ipcMain.handle("send-project-prompt", (_event, data: { projectId: string; prompt: string; attachments?: unknown[] }) => {
+  const project = projectStore.getById(data.projectId);
+  if (!project) {
+    return { success: false, error: "Project not found" };
+  }
+
+  const attachments = normalizeIncomingAttachments(data.attachments);
+  if (!data.prompt.trim() && attachments.length === 0) {
+    return { success: false, error: "Prompt cannot be empty" };
   }
 
   runtimeManager.enqueueMessage({
     projectId: project.id,
     cwd: project.path,
     prompt: data.prompt,
+    attachments,
     source: "desktop",
   });
 
@@ -772,6 +913,7 @@ app.whenReady().then(() => {
   tray = createTray();
   const config = loadConfig();
   initRelay(config);
+  updateManager.start();
 
   // Open workspace window unless silent launch is configured
   const silentLaunch = appSettingsStore.get("silentLaunch") as boolean;
@@ -787,6 +929,7 @@ app.on("window-all-closed", (_event: Electron.Event) => {
 
 app.on("before-quit", () => {
   if (relayClient) relayClient.disconnect();
+  updateManager.stop();
   runtimeManager.dispose();
   for (const project of projectStore.getAll()) {
     ptyManager.kill(project.id);

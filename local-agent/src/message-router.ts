@@ -5,6 +5,7 @@ import { app } from "electron";
 import RelayClient from "./relay-client";
 import projectStore from "./project-store";
 import RuntimeManager, { CliProvider } from "./runtime-manager";
+import { buildSessionSyncPayload } from "./session-sync-payload";
 import { Envelope, Events } from "./types";
 
 interface MessageRouterOptions {
@@ -54,6 +55,9 @@ class MessageRouter {
         break;
       case Events.SESSION_SYNC_REQUEST:
         this.handleSessionSyncRequest(env);
+        break;
+      case Events.TASK_STOP:
+        this.handleTaskStop(env);
         break;
       case Events.AGENT_WAKEUP:
         this.handleAgentWakeup(env);
@@ -217,25 +221,26 @@ class MessageRouter {
     }
 
     const snapshot = this.options.runtimeManager.getSnapshot(projectId);
+    const payloadObject = env.payload as { after_seq?: number } | undefined;
+    const afterSeq = Number(payloadObject?.after_seq) > 0 ? Number(payloadObject?.after_seq) : 0;
+    const delta = this.options.runtimeManager.buildSyncDelta(projectId, afterSeq);
+    const payload = buildSessionSyncPayload(snapshot, delta, afterSeq);
     this.relayClient.send({
       id: uuidv4(),
       event: Events.SESSION_SYNC,
       project_id: projectId,
       ts: Date.now(),
-      payload: {
-        project_id: projectId,
-        provider: snapshot.provider,
-        model: snapshot.model,
-        isRunning: snapshot.isRunning,
-        queuedCount: snapshot.queuedCount,
-        currentSource: snapshot.currentSource,
-        currentPrompt: snapshot.currentPrompt,
-        currentStartedAt: snapshot.currentStartedAt,
-        queue: snapshot.queue,
-        messages: snapshot.messages,
-        activities: snapshot.activities,
-      },
+      payload,
     });
+  }
+
+  private handleTaskStop(env: Envelope): void {
+    const projectId = env.project_id;
+    if (!projectId || !this.options.runtimeManager) {
+      return;
+    }
+    const stopped = this.options.runtimeManager.stopCurrentRun(projectId);
+    console.log(`[MessageRouter] task.stop for project ${projectId}: stopped=${stopped}`);
   }
 
   private handleAgentWakeup(env: Envelope): void {

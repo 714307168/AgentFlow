@@ -8,6 +8,7 @@ import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.Header
 import retrofit2.http.POST
+import retrofit2.http.Query
 
 interface RelayApi {
     @POST("api/session")
@@ -32,6 +33,15 @@ interface RelayApi {
     suspend fun syncDevice(
         @Header("Authorization") auth: String
     ): SyncResponse
+
+    @GET("api/update/check")
+    suspend fun checkForUpdate(
+        @Query("platform") platform: String,
+        @Query("channel") channel: String,
+        @Query("arch") arch: String,
+        @Query("version") version: String,
+        @Query("build") build: Int
+    ): UpdateCheckResponse
 }
 
 @Serializable
@@ -88,4 +98,20 @@ data class ProjectInfo(
     @SerialName("cli_provider") val cliProvider: String = "claude",
     @SerialName("cli_model") val cliModel: String? = null,
     val online: Boolean? = null
+)
+
+@Serializable
+data class UpdateCheckResponse(
+    val available: Boolean = false,
+    @SerialName("releaseId") val releaseId: Int? = null,
+    @SerialName("latestVersion") val latestVersion: String? = null,
+    val build: Int? = null,
+    @SerialName("minSupportedVersion") val minSupportedVersion: String? = null,
+    val url: String? = null,
+    @SerialName("downloadUrl") val downloadUrl: String? = null,
+    val sha256: String? = null,
+    val size: Long? = null,
+    val notes: String? = null,
+    val mandatory: Boolean? = null,
+    val filename: String? = null
 )

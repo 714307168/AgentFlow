@@ -3,6 +3,7 @@ package com.claudecode.remote.domain
 import android.content.Context
 import android.net.Uri
 import android.util.Base64
+import androidx.room.withTransaction
 import com.claudecode.remote.data.local.AppDatabase
 import com.claudecode.remote.data.local.MessageEntity
 import com.claudecode.remote.data.local.TokenStore
@@ -42,6 +43,10 @@ class MessageRepository(
     private val tokenStore: TokenStore,
     private val context: Context
 ) {
+    companion object {
+        private const val MAX_PROJECT_MESSAGES = 200
+    }
+
     private val db = AppDatabase.getInstance(context)
     private val messageDao = db.messageDao()
     private val sessionDao = db.sessionDao()
@@ -49,12 +54,16 @@ class MessageRepository(
 
     suspend fun requestProjectSync(projectId: String, agentId: String? = null) {
         wakeupAgent(agentId)
+        val afterSeq = sessionDao.getSessionByProjectId(projectId)?.lastSyncSeq ?: 0L
 
         webSocket.send(
             Envelope(
                 id = UUID.randomUUID().toString(),
                 event = Events.SESSION_SYNC_REQUEST,
                 projectId = projectId,
+                payload = buildJsonObject {
+                    put("after_seq", JsonPrimitive(afterSeq))
+                },
                 ts = System.currentTimeMillis()
             )
         )
@@ -66,6 +75,17 @@ class MessageRepository(
                 requestProjectSync(session.projectId, session.agentId)
             }
         }
+    }
+
+    suspend fun sendStopTask(projectId: String) {
+        webSocket.send(
+            Envelope(
+                id = UUID.randomUUID().toString(),
+                event = Events.TASK_STOP,
+                projectId = projectId,
+                ts = System.currentTimeMillis()
+            )
+        )
     }
 
     suspend fun sendMessage(projectId: String, content: String, agentId: String? = null) {
@@ -233,6 +253,8 @@ class MessageRepository(
                         )
                     }
                 }
+                // Reset running state — SESSION_SYNC may not arrive if connection drops
+                sessionDao.resetRunningState(projectId)
             }
             Events.MESSAGE_ERROR -> {
                 val streamId = envelope.streamId
@@ -247,6 +269,8 @@ class MessageRepository(
                         timestamp = existingMessage?.timestamp ?: envelope.ts
                     )
                 }
+                // Reset running state on error too
+                sessionDao.resetRunningState(projectId)
             }
             Events.SESSION_SYNC -> {
                 val payloadObj = envelope.payload?.jsonObject ?: return
@@ -275,9 +299,24 @@ class MessageRepository(
                     currentStartedAt = currentStartedAt,
                     lastActiveAt = envelope.ts
                 )
-                val messages = payloadObj["messages"]?.jsonArray ?: JsonArray(emptyList())
-                val activities = payloadObj["activities"]?.jsonArray ?: JsonArray(emptyList())
-                replaceProjectMessagesFromDesktop(projectId, messages, activities, envelope.ts)
+                val syncObj = payloadObj["sync"]?.jsonObject
+                if (syncObj != null) {
+                    val latestSeq = syncObj["latest_seq"]?.jsonPrimitive?.longOrNull ?: 0L
+                    val items = syncObj["items"]?.jsonArray ?: JsonArray(emptyList())
+                    CrashLogger.logInfo(
+                        "MessageRepository",
+                        "Received session.sync v2 for projectId=$projectId items=${items.size} latestSeq=$latestSeq running=$isRunning queued=$queuedCount"
+                    )
+                    applyProjectSyncDelta(projectId, items, latestSeq, envelope.ts)
+                } else {
+                    val messages = payloadObj["messages"]?.jsonArray ?: JsonArray(emptyList())
+                    val activities = payloadObj["activities"]?.jsonArray ?: JsonArray(emptyList())
+                    CrashLogger.logInfo(
+                        "MessageRepository",
+                        "Received legacy session.sync for projectId=$projectId messages=${messages.size} activities=${activities.size} running=$isRunning queued=$queuedCount"
+                    )
+                    mergeProjectMessagesFromDesktop(projectId, messages, activities, envelope.ts)
+                }
             }
         }
     }
@@ -296,29 +335,95 @@ class MessageRepository(
         messageDao.insertMessage(message.toEntity())
     }
 
-    private suspend fun replaceProjectMessagesFromDesktop(
+    private suspend fun applyProjectSyncDelta(
         projectId: String,
-        rawMessages: kotlinx.serialization.json.JsonArray,
-        rawActivities: kotlinx.serialization.json.JsonArray,
+        rawItems: JsonArray,
+        latestSeq: Long,
         fallbackTimestamp: Long
     ) {
+        db.withTransaction {
+            rawItems.forEachIndexed { index, item ->
+                val entity = runCatching {
+                    parseSyncItem(projectId, item.jsonObject, fallbackTimestamp)
+                }.onFailure { error ->
+                    CrashLogger.logError(
+                        "MessageRepository",
+                        "Failed to parse sync item at index=$index for projectId=$projectId",
+                        error as? Exception ?: Exception(error)
+                    )
+                }.getOrNull() ?: return@forEachIndexed
+
+                val existing = messageDao.getMessageById(entity.id)
+                if (existing != null && existing.syncSeq > entity.syncSeq) {
+                    return@forEachIndexed
+                }
+                messageDao.insertMessage(entity)
+            }
+
+            messageDao.pruneProjectMessages(projectId, MAX_PROJECT_MESSAGES)
+            sessionDao.updateLastSyncSeq(projectId, latestSeq)
+        }
+    }
+
+    private suspend fun mergeProjectMessagesFromDesktop(
+        projectId: String,
+        rawMessages: JsonArray,
+        rawActivities: JsonArray,
+        fallbackTimestamp: Long
+    ) {
+        val currentLastSeq = sessionDao.getSessionByProjectId(projectId)?.lastSyncSeq ?: 0L
         val messages = buildList {
             rawMessages.forEachIndexed { index, item ->
-                parseDesktopMessage(projectId, item.jsonObject, fallbackTimestamp)?.let { entity ->
+                runCatching {
+                    parseDesktopMessage(
+                        projectId = projectId,
+                        messageObj = item.jsonObject,
+                        fallbackTimestamp = fallbackTimestamp,
+                        syncSeq = currentLastSeq + index + 1L
+                    )
+                }.onFailure { error ->
+                    CrashLogger.logError(
+                        "MessageRepository",
+                        "Failed to parse desktop message at index=$index for projectId=$projectId",
+                        error as? Exception ?: Exception(error)
+                    )
+                }.getOrNull()?.let { entity ->
                     add(index to entity)
                 }
             }
             rawActivities.forEachIndexed { index, item ->
-                parseDesktopActivity(projectId, item.jsonObject, fallbackTimestamp)?.let { entity ->
+                runCatching {
+                    parseDesktopActivity(
+                        projectId = projectId,
+                        activityObj = item.jsonObject,
+                        fallbackTimestamp = fallbackTimestamp,
+                        syncSeq = currentLastSeq + rawMessages.size + index + 1L
+                    )
+                }.onFailure { error ->
+                    CrashLogger.logError(
+                        "MessageRepository",
+                        "Failed to parse desktop activity at index=$index for projectId=$projectId",
+                        error as? Exception ?: Exception(error)
+                    )
+                }.getOrNull()?.let { entity ->
                     add((rawMessages.size + index) to entity)
                 }
             }
         }.sortedWith(compareBy<Pair<Int, MessageEntity>>({ it.second.timestamp }, { it.first }))
             .map { it.second }
 
-        messageDao.deleteMessagesByProject(projectId)
-        if (messages.isNotEmpty()) {
+        if (messages.isEmpty()) {
+            CrashLogger.logInfo(
+                "MessageRepository",
+                "Desktop sync contained no parsable messages for projectId=$projectId"
+            )
+            return
+        }
+
+        db.withTransaction {
             messageDao.insertMessages(messages)
+            messageDao.pruneProjectMessages(projectId, MAX_PROJECT_MESSAGES)
+            sessionDao.updateLastSyncSeq(projectId, currentLastSeq + messages.size)
         }
     }
 
@@ -336,6 +441,7 @@ class MessageRepository(
             content = content,
             streamId = streamId,
             timestamp = timestamp,
+            syncSeq = 0L,
             isStreaming = isStreaming
         )
         messageDao.insertMessage(message.toEntity())
@@ -374,37 +480,98 @@ class MessageRepository(
         filePath = fileInfo?.filePath,
         streamId = streamId,
         timestamp = timestamp,
+        syncSeq = syncSeq,
         isStreaming = isStreaming
     )
 
     private fun parseDesktopMessage(
         projectId: String,
         messageObj: JsonObject,
-        fallbackTimestamp: Long
+        fallbackTimestamp: Long,
+        syncSeq: Long
     ): MessageEntity? {
         val id = messageObj["id"]?.jsonPrimitive?.content ?: return null
         val roleValue = messageObj["role"]?.jsonPrimitive?.content?.lowercase() ?: "assistant"
-        val content = messageObj["content"]?.jsonPrimitive?.content ?: ""
+        val attachments = parseDesktopAttachments(messageObj["attachments"]).ifEmpty {
+            parseDesktopFileInfo(messageObj)?.let(::listOf) ?: emptyList()
+        }
+        val content = messageObj["content"]?.jsonPrimitive?.contentOrNull
+            ?: attachments.firstOrNull()?.fileName
+            ?: ""
         val createdAt = messageObj["createdAt"]?.jsonPrimitive?.longOrNull
             ?: messageObj["updatedAt"]?.jsonPrimitive?.longOrNull
             ?: fallbackTimestamp
         val status = messageObj["status"]?.jsonPrimitive?.content ?: "done"
+        val desktopFile = attachments.firstOrNull()
+        val messageType = when {
+            parseMessageType(messageObj["type"]?.jsonPrimitive?.contentOrNull) == MessageType.FILE -> MessageType.FILE
+            desktopFile != null -> MessageType.FILE
+            else -> parseMessageType(messageObj["type"]?.jsonPrimitive?.contentOrNull)
+        }
 
         return Message(
             id = id,
             projectId = projectId,
             role = if (roleValue == "user") MessageRole.USER else MessageRole.ASSISTANT,
             content = if (roleValue == "error") "[Error] $content" else content,
-            type = parseMessageType(messageObj["type"]?.jsonPrimitive?.contentOrNull),
+            type = messageType,
+            fileInfo = desktopFile,
             timestamp = createdAt,
+            syncSeq = syncSeq,
             isStreaming = status == "streaming"
         ).toEntity()
+    }
+
+    private fun parseDesktopFileInfo(messageObj: JsonObject): FileInfo? {
+        val fileName = messageObj["fileName"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        val filePath = messageObj["filePath"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        if (fileName.isBlank() && filePath.isBlank()) {
+            return null
+        }
+
+        return FileInfo(
+            fileName = fileName.ifBlank {
+                filePath.substringAfterLast('/').substringAfterLast('\\').ifBlank { "attachment" }
+            },
+            fileSize = messageObj["fileSize"]?.jsonPrimitive?.longOrNull ?: 0L,
+            mimeType = messageObj["mimeType"]?.jsonPrimitive?.contentOrNull ?: "application/octet-stream",
+            filePath = filePath.ifBlank { null }
+        )
+    }
+
+    private fun parseDesktopAttachments(rawAttachments: kotlinx.serialization.json.JsonElement?): List<FileInfo> {
+        val attachmentArray = runCatching { rawAttachments?.jsonArray }.getOrNull() ?: return emptyList()
+        return attachmentArray.mapNotNull { item ->
+            val attachmentObj = runCatching { item.jsonObject }.getOrNull() ?: return@mapNotNull null
+            val filePath = attachmentObj["path"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+            val fileName = attachmentObj["name"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+            if (filePath.isBlank() && fileName.isBlank()) {
+                return@mapNotNull null
+            }
+
+            val kind = attachmentObj["kind"]?.jsonPrimitive?.contentOrNull?.lowercase().orEmpty()
+            val mimeType = when {
+                kind == "image" -> "image/*"
+                else -> attachmentObj["mimeType"]?.jsonPrimitive?.contentOrNull ?: "application/octet-stream"
+            }
+            val fileSize = attachmentObj["size"]?.jsonPrimitive?.longOrNull ?: 0L
+
+            FileInfo(
+                fileName = fileName.ifBlank {
+                    filePath.substringAfterLast('/').substringAfterLast('\\').ifBlank { "attachment" }
+                },
+                fileSize = fileSize,
+                mimeType = mimeType,
+                filePath = filePath.ifBlank { null }
+            )
+        }
     }
 
     private fun parseDesktopActivity(
         projectId: String,
         activityObj: JsonObject,
-        fallbackTimestamp: Long
+        fallbackTimestamp: Long,
+        syncSeq: Long
     ): MessageEntity? {
         val id = activityObj["id"]?.jsonPrimitive?.content ?: return null
         val kind = activityObj["kind"]?.jsonPrimitive?.content?.lowercase() ?: return null
@@ -429,8 +596,70 @@ class MessageRepository(
             content = detail,
             type = MessageType.THINKING,
             timestamp = timestamp,
+            syncSeq = syncSeq,
             isStreaming = status == "running" || status == "pending"
         ).toEntity()
+    }
+
+    private fun parseSyncItem(
+        projectId: String,
+        itemObj: JsonObject,
+        fallbackTimestamp: Long
+    ): MessageEntity? {
+        val id = itemObj["id"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        if (id.isBlank()) {
+            return null
+        }
+        val kind = itemObj["kind"]?.jsonPrimitive?.contentOrNull?.lowercase().orEmpty()
+        val syncSeq = itemObj["seq"]?.jsonPrimitive?.longOrNull ?: 0L
+        val timestamp = itemObj["createdAt"]?.jsonPrimitive?.longOrNull
+            ?: itemObj["updatedAt"]?.jsonPrimitive?.longOrNull
+            ?: fallbackTimestamp
+        val isStreaming = when (itemObj["status"]?.jsonPrimitive?.contentOrNull?.lowercase()) {
+            "streaming", "running", "pending" -> true
+            else -> false
+        }
+
+        return when (kind) {
+            "thinking" -> MessageEntity(
+                id = id,
+                projectId = projectId,
+                role = MessageRole.ASSISTANT.name,
+                content = itemObj["content"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                type = MessageType.THINKING.name,
+                timestamp = timestamp,
+                syncSeq = syncSeq,
+                isStreaming = isStreaming
+            )
+            else -> {
+                val attachments = parseDesktopAttachments(itemObj["attachments"]).ifEmpty {
+                    parseDesktopFileInfo(itemObj)?.let(::listOf) ?: emptyList()
+                }
+                val fileInfo = attachments.firstOrNull()
+                val roleValue = itemObj["role"]?.jsonPrimitive?.contentOrNull?.lowercase() ?: "assistant"
+                val content = itemObj["content"]?.jsonPrimitive?.contentOrNull
+                    ?: fileInfo?.fileName
+                    ?: ""
+                val messageType = when {
+                    fileInfo != null -> MessageType.FILE
+                    else -> MessageType.TEXT
+                }
+                Message(
+                    id = id,
+                    projectId = projectId,
+                    role = when (roleValue) {
+                        "user" -> MessageRole.USER
+                        else -> MessageRole.ASSISTANT
+                    },
+                    content = if (roleValue == "error") "[Error] $content" else content,
+                    type = messageType,
+                    fileInfo = fileInfo,
+                    timestamp = timestamp,
+                    syncSeq = syncSeq,
+                    isStreaming = isStreaming
+                ).toEntity()
+            }
+        }
     }
 
     private fun MessageEntity.toMessage() = Message(
@@ -442,6 +671,7 @@ class MessageRepository(
         fileInfo = if (fileName != null) FileInfo(fileName, fileSize ?: 0, mimeType ?: "", filePath) else null,
         streamId = streamId,
         timestamp = timestamp,
+        syncSeq = syncSeq,
         isStreaming = isStreaming
     )
 

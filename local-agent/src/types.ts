@@ -45,6 +45,7 @@ export const Events = {
   MESSAGE_ERROR: "message.error",
   AGENT_STATUS:  "agent.status",
   AGENT_WAKEUP:  "agent.wakeup",
+  TASK_STOP:     "task.stop",
   FILE_SYNC:     "file.sync",
   FILE_UPLOAD:   "file.upload",
   FILE_CHUNK:    "file.chunk",

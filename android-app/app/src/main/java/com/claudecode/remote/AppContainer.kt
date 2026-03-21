@@ -9,6 +9,7 @@ import com.claudecode.remote.data.remote.RelayApi
 import com.claudecode.remote.data.remote.RelayWebSocket
 import com.claudecode.remote.domain.MessageRepository
 import com.claudecode.remote.domain.SessionRepository
+import com.claudecode.remote.update.AppUpdateManager
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -53,6 +54,12 @@ class AppContainer(private val appContext: Context) {
         relayApiProvider = { relayApi },
         tokenStore = tokenStore,
         context = appContext
+    )
+
+    val appUpdateManager = AppUpdateManager(
+        context = appContext,
+        tokenStore = tokenStore,
+        relayApiProvider = { relayApi }
     )
 
     fun updateServerUrl(rawUrl: String) {

@@ -1,6 +1,7 @@
 package com.claudecode.remote.domain
 
 import android.content.Context
+import androidx.room.withTransaction
 import com.claudecode.remote.data.local.AppDatabase
 import com.claudecode.remote.data.local.SessionEntity
 import com.claudecode.remote.data.local.TokenStore
@@ -10,14 +11,21 @@ import com.claudecode.remote.data.model.Session
 import com.claudecode.remote.data.remote.ProjectInfo
 import com.claudecode.remote.data.remote.RelayApi
 import com.claudecode.remote.util.CrashLogger
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import java.util.concurrent.ConcurrentHashMap
 import java.util.UUID
 
 class SessionRepository(
@@ -25,9 +33,15 @@ class SessionRepository(
     private val tokenStore: TokenStore,
     private val context: Context
 ) {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val db = AppDatabase.getInstance(context)
     private val sessionDao = db.sessionDao()
     private val messageDao = db.messageDao()
+    private val pendingOfflineJobs = ConcurrentHashMap<String, Job>()
+
+    companion object {
+        private const val OFFLINE_STATUS_DEBOUNCE_MS = 8_000L
+    }
 
     val sessions: Flow<List<Session>> = sessionDao.getAllSessions().map { entities ->
         entities.map { it.toSession() }
@@ -130,7 +144,12 @@ class SessionRepository(
                 val payloadObj = envelope.payload?.jsonObject ?: return
                 val projectId = payloadObj["project_id"]?.jsonPrimitive?.contentOrNull ?: envelope.projectId ?: return
                 val isOnline = payloadObj["online"]?.jsonPrimitive?.booleanOrNull ?: return
-                sessionDao.updateAgentStatus(projectId, isOnline, envelope.ts)
+                if (isOnline) {
+                    cancelPendingOffline(projectId)
+                    sessionDao.updateAgentStatus(projectId, true, envelope.ts)
+                } else {
+                    scheduleOfflineStatus(projectId, envelope.ts)
+                }
             }
         }
     }
@@ -138,58 +157,67 @@ class SessionRepository(
     private suspend fun replaceSessionsFromDesktop(agentId: String, projects: List<ProjectInfo>) {
         val now = System.currentTimeMillis()
         val existingByProjectId = sessionDao.getAllSessionsSnapshot().associateBy { it.projectId }
-        val existingProjectIds = sessionDao.getAllProjectIds().toSet()
-        val nextProjectIds = projects.map { it.id }.toSet()
-        val removedProjectIds = existingProjectIds - nextProjectIds
-
-        val sessions = projects.map { project ->
-            val existing = existingByProjectId[project.id]
-            Session(
-                id = project.id,
-                name = project.name.ifEmpty { "Project ${project.id.take(8)}" },
-                agentId = agentId,
-                projectId = project.id,
-                projectPath = project.path,
-                cliProvider = project.cliProvider,
-                cliModel = project.cliModel,
-                isAgentOnline = project.online ?: existing?.isAgentOnline ?: true,
-                isRunning = existing?.isRunning ?: false,
-                queuedCount = existing?.queuedCount ?: 0,
-                currentPrompt = existing?.currentPrompt,
-                queuePreview = existing?.queuePreview,
-                currentStartedAt = existing?.currentStartedAt,
-                createdAt = existing?.createdAt ?: now,
-                lastActiveAt = now
+        if (projects.isEmpty() && existingByProjectId.isNotEmpty()) {
+            CrashLogger.logInfo(
+                "SessionRepository",
+                "Ignoring empty project sync because local cache already has sessions"
             )
+            return
         }
+        val nextProjectIds = projects.map { it.id }.toSet()
+        val removedProjectIds = existingByProjectId.keys - nextProjectIds
 
-        sessionDao.deleteAllSessions()
-        if (sessions.isNotEmpty()) {
-            sessionDao.insertSessions(sessions.map { it.toEntity() })
-        }
+        db.withTransaction {
+            projects.forEach { project ->
+                val existing = existingByProjectId[project.id]
+                if (project.online == true) {
+                    cancelPendingOffline(project.id)
+                }
+                sessionDao.insertSession(
+                    SessionEntity(
+                        id = project.id,
+                        name = project.name.ifEmpty { "Project ${project.id.take(8)}" },
+                        agentId = agentId.ifBlank { existing?.agentId.orEmpty() },
+                        projectId = project.id,
+                        projectPath = project.path,
+                        cliProvider = project.cliProvider,
+                        cliModel = project.cliModel,
+                        isAgentOnline = project.online ?: existing?.isAgentOnline ?: true,
+                        isRunning = existing?.isRunning ?: false,
+                        queuedCount = existing?.queuedCount ?: 0,
+                        currentPrompt = existing?.currentPrompt,
+                        queuePreview = existing?.queuePreview,
+                        currentStartedAt = existing?.currentStartedAt,
+                        lastSyncSeq = existing?.lastSyncSeq ?: 0,
+                        createdAt = existing?.createdAt ?: now,
+                        lastActiveAt = if (project.online != null) now else (existing?.lastActiveAt ?: now)
+                    )
+                )
+            }
 
-        removedProjectIds.forEach { projectId ->
-            messageDao.deleteMessagesByProject(projectId)
+            removedProjectIds.forEach { projectId ->
+                sessionDao.deleteSessionByProjectId(projectId)
+                messageDao.deleteMessagesByProject(projectId)
+            }
         }
     }
 
-    private fun Session.toEntity() = SessionEntity(
-        id = id,
-        name = name,
-        agentId = agentId,
-        projectId = projectId,
-        projectPath = projectPath,
-        cliProvider = cliProvider,
-        cliModel = cliModel,
-        isAgentOnline = isAgentOnline,
-        isRunning = isRunning,
-        queuedCount = queuedCount,
-        currentPrompt = currentPrompt,
-        queuePreview = queuePreview,
-        currentStartedAt = currentStartedAt,
-        createdAt = createdAt,
-        lastActiveAt = lastActiveAt
-    )
+    private fun cancelPendingOffline(projectId: String) {
+        pendingOfflineJobs.remove(projectId)?.cancel()
+    }
+
+    private fun scheduleOfflineStatus(projectId: String, timestamp: Long) {
+        pendingOfflineJobs.remove(projectId)?.cancel()
+        pendingOfflineJobs[projectId] = scope.launch {
+            delay(OFFLINE_STATUS_DEBOUNCE_MS)
+            sessionDao.updateAgentStatus(projectId, false, timestamp)
+            pendingOfflineJobs.remove(projectId)
+            CrashLogger.logInfo(
+                "SessionRepository",
+                "Applied delayed offline status for projectId=$projectId after debounce"
+            )
+        }
+    }
 
     private fun SessionEntity.toSession() = Session(
         id = id,

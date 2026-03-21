@@ -63,10 +63,56 @@
     .content {
       flex: 1;
       width: 100%;
-      max-width: 840px;
+      max-width: 1180px;
       margin: 0 auto;
       padding: 24px;
       overflow: auto;
+    }
+    .settings-shell {
+      display: grid;
+      grid-template-columns: 220px minmax(0, 1fr);
+      gap: 18px;
+      align-items: start;
+    }
+    .settings-nav {
+      position: sticky;
+      top: 24px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 10px;
+      box-shadow: 0 8px 24px var(--shadow);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .settings-nav-item {
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      min-height: 42px;
+      padding: 0 14px;
+      border-radius: 12px;
+      color: var(--text);
+      font-weight: 600;
+      background: transparent;
+      border: 1px solid transparent;
+      width: 100%;
+    }
+    .settings-nav-item:hover {
+      background: var(--panel-2);
+      border-color: var(--border);
+    }
+    .settings-nav-item.active {
+      background: rgba(88, 166, 255, 0.14);
+      border-color: rgba(88, 166, 255, 0.24);
+      color: #fff;
+    }
+    .settings-main {
+      min-width: 0;
+    }
+    .settings-pane.hidden {
+      display: none;
     }
     .header {
       display: flex;
@@ -376,6 +422,19 @@
       color: var(--muted);
       font-size: 12px;
     }
+    @media (max-width: 960px) {
+      .settings-shell {
+        grid-template-columns: 1fr;
+      }
+      .settings-nav {
+        position: static;
+        flex-direction: row;
+        flex-wrap: wrap;
+      }
+      .settings-nav-item {
+        justify-content: center;
+      }
+    }
   </style>
 </head>
 <body>
@@ -400,141 +459,194 @@
       </div>
     </div>
 
-    <div class="section">
-      <div class="section-title" id="langSection">Language</div>
-      <div class="field">
-        <label id="langLabel">Interface Language</label>
-        <select id="langSelect">
-          <option value="en">English</option>
-          <option value="zh">中文</option>
-        </select>
-      </div>
-    </div>
+    <div class="settings-shell">
+      <aside class="settings-nav">
+        <button class="settings-nav-item" id="connectionMenuItem" type="button" data-pane="connection">Connection</button>
+        <button class="settings-nav-item" id="projectMenuItem" type="button" data-pane="project">Projects</button>
+        <button class="settings-nav-item" id="systemMenuItem" type="button" data-pane="system">System</button>
+      </aside>
 
-    <div class="section">
-      <div class="section-title" id="projectSection">Projects</div>
-      <div class="btn-row">
-        <button class="btn-primary" id="addProjectBtn">Add Project</button>
-      </div>
-      <div class="add-project-form" id="addProjectForm">
-        <div class="field">
-          <label id="projectNameLabel">Project Name</label>
-          <input type="text" id="projectName" placeholder="Enter project name">
-        </div>
-        <div class="field">
-          <label id="projectPathLabel">Project Path</label>
-          <input type="text" id="projectPath" placeholder="Enter project path">
-        </div>
-        <div class="field">
-          <label id="projectProviderLabel">CLI Provider</label>
-          <select id="projectProvider">
-            <option value="claude">Claude Code</option>
-            <option value="codex">OpenAI Codex</option>
-          </select>
-        </div>
-        <div class="field">
-          <label id="projectModelLabel">Project Model</label>
-          <input type="text" id="projectModel" placeholder="Leave blank to use the provider default">
-        </div>
-        <div class="btn-row">
-          <button class="btn-primary btn-small" id="saveProjectBtn">Save</button>
-          <button class="btn-secondary btn-small" id="cancelProjectBtn">Cancel</button>
-        </div>
-      </div>
-      <div class="project-list" id="projectList" data-empty-message="No projects yet. Add one above to get started."></div>
-    </div>
+      <div class="settings-main">
+        <section class="settings-pane hidden" id="connectionPane" data-pane-content="connection">
+          <div class="section" id="connectionSectionCard">
+            <div class="section-title" id="serverSection">Server Connection</div>
+            <div class="field">
+              <label id="serverUrlLabel">Relay Server URL</label>
+              <input type="text" id="serverUrl" placeholder="http://localhost:8080">
+            </div>
+            <div class="field">
+              <label id="usernameLabel">Username</label>
+              <input type="text" id="username" placeholder="Enter username">
+            </div>
+            <div class="field">
+              <label id="passwordLabel">Password</label>
+              <input type="password" id="password" placeholder="Enter password">
+            </div>
+            <div class="field">
+              <label id="agentIdLabel">Agent ID</label>
+              <input type="text" id="agentId" placeholder="Enter your agent ID">
+            </div>
+            <div class="btn-row">
+              <button class="btn-primary" id="loginBtn">Login</button>
+              <button class="btn-secondary" id="reconnectBtn">Reconnect</button>
+            </div>
+            <div class="field" style="margin-top: 12px;">
+              <label id="loginStatusLabel">Login Status</label>
+              <div class="connection-status disconnected" id="loginStatus">
+                <span class="status-dot"></span>
+                <span class="status-text" id="loginStatusText">Not logged in</span>
+              </div>
+            </div>
+          </div>
+        </section>
 
-    <div class="section">
-      <div class="section-title" id="launchSection">Launch</div>
-      <div class="toggle-row">
-        <label id="autoStartLabel" for="autoStartToggle">Start on Boot</label>
-        <div class="toggle">
-          <input type="checkbox" id="autoStartToggle">
-          <span class="slider"></span>
-        </div>
-      </div>
-      <div class="toggle-row">
-        <label id="silentLaunchLabel" for="silentLaunchToggle">Silent Launch (minimize to tray)</label>
-        <div class="toggle">
-          <input type="checkbox" id="silentLaunchToggle">
-          <span class="slider"></span>
-        </div>
-      </div>
-    </div>
+        <section class="settings-pane hidden" id="projectPane" data-pane-content="project">
+          <div class="section" id="projectSectionCard">
+            <div class="section-title" id="projectSection">Projects</div>
+            <div class="btn-row">
+              <button class="btn-primary" id="addProjectBtn">Add Project</button>
+            </div>
+            <div class="add-project-form" id="addProjectForm">
+              <div class="field">
+                <label id="projectNameLabel">Project Name</label>
+                <input type="text" id="projectName" placeholder="Enter project name">
+              </div>
+              <div class="field">
+                <label id="projectPathLabel">Project Path</label>
+                <input type="text" id="projectPath" placeholder="Enter project path">
+              </div>
+              <div class="field">
+                <label id="projectProviderLabel">CLI Provider</label>
+                <select id="projectProvider">
+                  <option value="claude">Claude Code</option>
+                  <option value="codex">OpenAI Codex</option>
+                </select>
+              </div>
+              <div class="field">
+                <label id="projectModelLabel">Project Model</label>
+                <input type="text" id="projectModel" placeholder="Leave blank to use the provider default">
+              </div>
+              <div class="btn-row">
+                <button class="btn-primary btn-small" id="saveProjectBtn">Save</button>
+                <button class="btn-secondary btn-small" id="cancelProjectBtn">Cancel</button>
+              </div>
+            </div>
+            <div class="project-list" id="projectList" data-empty-message="No projects yet. Add one above to get started."></div>
+          </div>
+        </section>
 
-    <div class="section">
-      <div class="section-title" id="diagnosticsSection">Diagnostics</div>
-      <div class="toggle-row">
-        <div class="toggle-copy">
-          <label id="saveLogsLabel" for="saveLogsToggle">Save local logs</label>
-          <div class="toggle-help" id="saveLogsHint">When enabled, the desktop app writes runtime logs locally for later review.</div>
-        </div>
-        <div class="toggle">
-          <input type="checkbox" id="saveLogsToggle">
-          <span class="slider"></span>
-        </div>
-      </div>
-      <div class="field" style="margin-top: 12px;">
-        <label id="logPathLabel">Log Directory</label>
-        <div class="pubkey" id="logPath">—</div>
-      </div>
-    </div>
+        <section class="settings-pane" id="systemPane" data-pane-content="system">
+          <div class="section" id="generalSectionCard">
+            <div class="section-title" id="langSection">Language</div>
+            <div class="field">
+              <label id="langLabel">Interface Language</label>
+              <select id="langSelect">
+                <option value="en">English</option>
+                <option value="zh">中文</option>
+              </select>
+            </div>
+          </div>
 
-    <div class="section">
-      <div class="section-title" id="runtimeSection">Runtime</div>
-      <div class="field">
-        <label id="cliProviderLabel">CLI Provider</label>
-        <select id="cliProvider">
-          <option value="claude">Claude Code</option>
-          <option value="codex">OpenAI Codex</option>
-        </select>
-        <div id="runtimeHint">Both providers run in full-auto mode with no approval prompts or click-throughs.</div>
-      </div>
-    </div>
+          <div class="section">
+            <div class="section-title" id="launchSection">Launch</div>
+            <div class="toggle-row">
+              <label id="autoStartLabel" for="autoStartToggle">Start on Boot</label>
+              <div class="toggle">
+                <input type="checkbox" id="autoStartToggle">
+                <span class="slider"></span>
+              </div>
+            </div>
+            <div class="toggle-row">
+              <label id="silentLaunchLabel" for="silentLaunchToggle">Silent Launch (minimize to tray)</label>
+              <div class="toggle">
+                <input type="checkbox" id="silentLaunchToggle">
+                <span class="slider"></span>
+              </div>
+            </div>
+          </div>
 
-    <div class="section">
-      <div class="section-title" id="serverSection">Server Connection</div>
-      <div class="field">
-        <label id="serverUrlLabel">Relay Server URL</label>
-        <input type="text" id="serverUrl" placeholder="http://localhost:8080">
-      </div>
-      <div class="field">
-        <label id="usernameLabel">Username</label>
-        <input type="text" id="username" placeholder="Enter username">
-      </div>
-      <div class="field">
-        <label id="passwordLabel">Password</label>
-        <input type="password" id="password" placeholder="Enter password">
-      </div>
-      <div class="field">
-        <label id="agentIdLabel">Agent ID</label>
-        <input type="text" id="agentId" placeholder="Enter your agent ID">
-      </div>
-      <div class="btn-row">
-        <button class="btn-primary" id="loginBtn">Login</button>
-        <button class="btn-secondary" id="reconnectBtn">Reconnect</button>
-      </div>
-      <div class="field" style="margin-top: 12px;">
-        <label id="loginStatusLabel">Login Status</label>
-        <div class="connection-status disconnected" id="loginStatus">
-          <span class="status-dot"></span>
-          <span class="status-text" id="loginStatusText">Not logged in</span>
-        </div>
-      </div>
-    </div>
+          <div class="section">
+            <div class="section-title" id="diagnosticsSection">Diagnostics</div>
+            <div class="toggle-row">
+              <div class="toggle-copy">
+                <label id="saveLogsLabel" for="saveLogsToggle">Save local logs</label>
+                <div class="toggle-help" id="saveLogsHint">When enabled, the desktop app writes runtime logs locally for later review.</div>
+              </div>
+              <div class="toggle">
+                <input type="checkbox" id="saveLogsToggle">
+                <span class="slider"></span>
+              </div>
+            </div>
+            <div class="field" style="margin-top: 12px;">
+              <label id="logPathLabel">Log Directory</label>
+              <div class="pubkey" id="logPath">—</div>
+            </div>
+          </div>
 
-    <div class="section">
-      <div class="section-title" id="e2eSection">End-to-End Encryption</div>
-      <div class="toggle-row">
-        <label id="e2eLabel" for="e2eToggle">Enable E2E Encryption</label>
-        <div class="toggle">
-          <input type="checkbox" id="e2eToggle">
-          <span class="slider"></span>
-        </div>
-      </div>
-      <div class="field" style="margin-top: 10px;">
-        <label id="pubkeyLabel">Public Key</label>
-        <div class="pubkey" id="pubkey">&mdash;</div>
+          <div class="section">
+            <div class="section-title" id="updatesSection">Updates</div>
+            <div class="toggle-row">
+              <div class="toggle-copy">
+                <label id="autoUpdateCheckLabel" for="autoUpdateCheckToggle">Automatically check for updates</label>
+                <div class="toggle-help" id="autoUpdateCheckHint">When enabled, the desktop app checks the relay update center on launch and every few hours.</div>
+              </div>
+              <div class="toggle">
+                <input type="checkbox" id="autoUpdateCheckToggle">
+                <span class="slider"></span>
+              </div>
+            </div>
+            <div class="toggle-row">
+              <div class="toggle-copy">
+                <label id="autoUpdateDownloadLabel" for="autoUpdateDownloadToggle">Automatically download new installers</label>
+                <div class="toggle-help" id="autoUpdateDownloadHint">The installer is downloaded in the background, but you still need to click install manually.</div>
+              </div>
+              <div class="toggle">
+                <input type="checkbox" id="autoUpdateDownloadToggle">
+                <span class="slider"></span>
+              </div>
+            </div>
+            <div class="field" style="margin-top: 12px;">
+              <label id="updateStatusLabel">Update Status</label>
+              <div class="pubkey" id="updateStatusText">—</div>
+            </div>
+            <div class="field" style="margin-top: 12px;">
+              <label id="updateNotesLabel">Release Notes</label>
+              <div class="pubkey" id="updateNotes">—</div>
+            </div>
+            <div class="btn-row">
+              <button class="btn-secondary" id="checkUpdatesBtn">Check for Updates</button>
+              <button class="btn-secondary" id="downloadUpdateBtn">Download Update</button>
+              <button class="btn-primary" id="installUpdateBtn">Install Downloaded Update</button>
+            </div>
+          </div>
+
+          <div class="section">
+            <div class="section-title" id="runtimeSection">Runtime</div>
+            <div class="field">
+              <label id="cliProviderLabel">CLI Provider</label>
+              <select id="cliProvider">
+                <option value="claude">Claude Code</option>
+                <option value="codex">OpenAI Codex</option>
+              </select>
+              <div id="runtimeHint">Both providers run in full-auto mode with no approval prompts or click-throughs.</div>
+            </div>
+          </div>
+
+          <div class="section" id="securitySectionCard">
+            <div class="section-title" id="e2eSection">End-to-End Encryption</div>
+            <div class="toggle-row">
+              <label id="e2eLabel" for="e2eToggle">Enable E2E Encryption</label>
+              <div class="toggle">
+                <input type="checkbox" id="e2eToggle">
+                <span class="slider"></span>
+              </div>
+            </div>
+            <div class="field" style="margin-top: 10px;">
+              <label id="pubkeyLabel">Public Key</label>
+              <div class="pubkey" id="pubkey">&mdash;</div>
+            </div>
+          </div>
+        </section>
       </div>
     </div>
 
@@ -545,6 +657,8 @@
     const api = window.claudeAgent;
     let currentLang = "en";
     let msgs = {};
+    let activeSettingsPane = "system";
+    let latestUpdateState = null;
 
     function formatTemplate(template, vars) {
       if (!vars) return template;
@@ -573,6 +687,18 @@
       return currentLang === "zh" ? zh : en;
     }
 
+    function setActiveSettingsPane(pane) {
+      activeSettingsPane = pane;
+      document.querySelectorAll("[data-pane-content]").forEach((node) => {
+        node.classList.toggle("hidden", node.dataset.paneContent !== pane);
+      });
+      document.querySelectorAll("[data-pane]").forEach((node) => {
+        const isActive = node.dataset.pane === pane;
+        node.classList.toggle("active", isActive);
+        node.setAttribute("aria-current", isActive ? "page" : "false");
+      });
+    }
+
     function modelLabel(model) {
       const value = String(model || "").trim();
       return value || inlineText("Auto", "自动");
@@ -591,6 +717,9 @@
       document.getElementById("titlebarTitle").textContent = msg("settings.titlebarTitle", "Settings");
       document.getElementById("title").textContent = msg("settings.title", "Agent Settings");
       document.getElementById("savedText").textContent = msg("settings.saved.short", "Saved");
+      document.getElementById("connectionMenuItem").textContent = inlineText("Server Connection", "服务器连接");
+      document.getElementById("projectMenuItem").textContent = inlineText("Project Settings", "项目设置");
+      document.getElementById("systemMenuItem").textContent = inlineText("System Settings", "系统设置");
       document.getElementById("langSection").textContent = msg("settings.language", "Language");
       document.getElementById("langLabel").textContent = msg("settings.languageLabel", "Interface Language");
       document.getElementById("projectSection").textContent = msg("settings.projects", "Projects");
@@ -615,6 +744,22 @@
         "开启后，桌面端会把运行日志保存在本地，便于后续回溯审查。"
       );
       document.getElementById("logPathLabel").textContent = inlineText("Log Directory", "日志目录");
+      document.getElementById("updatesSection").textContent = inlineText("Updates", "更新");
+      document.getElementById("autoUpdateCheckLabel").textContent = inlineText("Automatically check for updates", "自动检查更新");
+      document.getElementById("autoUpdateCheckHint").textContent = inlineText(
+        "When enabled, the desktop app checks the relay update center on launch and every few hours.",
+        "开启后，桌面端会在启动时和后续间隔内自动检查 relay 更新中心。"
+      );
+      document.getElementById("autoUpdateDownloadLabel").textContent = inlineText("Automatically download new installers", "自动下载新安装包");
+      document.getElementById("autoUpdateDownloadHint").textContent = inlineText(
+        "The installer is downloaded in the background, but you still need to click install manually.",
+        "安装包会在后台自动下载，但安装仍然需要你手动点一下。"
+      );
+      document.getElementById("updateStatusLabel").textContent = inlineText("Update Status", "更新状态");
+      document.getElementById("updateNotesLabel").textContent = inlineText("Release Notes", "版本说明");
+      document.getElementById("checkUpdatesBtn").textContent = inlineText("Check for Updates", "检查更新");
+      document.getElementById("downloadUpdateBtn").textContent = inlineText("Download Update", "下载更新");
+      document.getElementById("installUpdateBtn").textContent = inlineText("Install Downloaded Update", "安装已下载更新");
       document.getElementById("runtimeSection").textContent = msg("settings.runtime", "Runtime");
       document.getElementById("cliProviderLabel").textContent = msg("settings.cliProvider", "CLI Provider");
       document.getElementById("runtimeHint").textContent = msg("settings.runtimeHint", "Both providers run in full-auto mode with no approval prompts or click-throughs.");
@@ -635,6 +780,7 @@
       document.getElementById("minimizeBtn").title = msg("common.minimize", "Minimize");
       document.getElementById("maximizeBtn").title = msg("common.maximize", "Maximize");
       document.getElementById("closeBtn").title = msg("common.close", "Close");
+      renderUpdateState(latestUpdateState);
     }
 
     function flashSaved() {
@@ -686,6 +832,43 @@
       } catch (error) {
         console.error("Failed to get connection status:", error);
       }
+    }
+
+    function localizeUpdateStatus(state) {
+      if (!state) {
+        return inlineText("No update check has run yet.", "还没有执行过更新检查。");
+      }
+
+      if (state.message) {
+        return state.message;
+      }
+
+      const labels = {
+        idle: inlineText("Idle", "空闲"),
+        checking: inlineText("Checking for updates...", "正在检查更新..."),
+        available: inlineText(`Update ${state.latestVersion || ""} is available.`, `发现新版本 ${state.latestVersion || ""}。`),
+        downloading: inlineText(`Downloading ${state.latestVersion || ""}...`, `正在下载 ${state.latestVersion || ""}...`),
+        downloaded: inlineText(`Version ${state.latestVersion || ""} is ready to install.`, `版本 ${state.latestVersion || ""} 已可安装。`),
+        up_to_date: inlineText("You already have the latest version.", "当前已经是最新版本。"),
+        error: inlineText("Update check failed.", "更新检查失败。"),
+      };
+      return labels[state.status] || labels.idle;
+    }
+
+    function renderUpdateState(state) {
+      latestUpdateState = state || latestUpdateState;
+      const normalized = latestUpdateState || {
+        status: "idle",
+        currentVersion: "",
+        latestVersion: null,
+        notes: "",
+        downloadedPath: null,
+        message: null,
+      };
+      document.getElementById("updateStatusText").textContent = localizeUpdateStatus(normalized);
+      document.getElementById("updateNotes").textContent = normalized.notes || "—";
+      document.getElementById("downloadUpdateBtn").disabled = !["available", "error"].includes(normalized.status);
+      document.getElementById("installUpdateBtn").disabled = normalized.status !== "downloaded";
     }
 
     function showStatus(text, isError) {
@@ -803,12 +986,13 @@
     }
 
     async function loadSettings() {
-      const [config, e2e, lang, i18nMessages, appSettings] = await Promise.all([
+      const [config, e2e, lang, i18nMessages, appSettings, updateState] = await Promise.all([
         api.getConfig(),
         api.getE2EStatus(),
         api.getLang(),
         api.getI18nMessages(),
         api.getAppSettings(),
+        api.getUpdateState(),
       ]);
       document.getElementById("serverUrl").value = config.serverUrl || "";
       document.getElementById("username").value = config.username || "";
@@ -821,7 +1005,10 @@
       document.getElementById("autoStartToggle").checked = appSettings.autoStart || false;
       document.getElementById("silentLaunchToggle").checked = appSettings.silentLaunch || false;
       document.getElementById("saveLogsToggle").checked = appSettings.saveLogs || false;
+      document.getElementById("autoUpdateCheckToggle").checked = appSettings.autoUpdateCheck !== false;
+      document.getElementById("autoUpdateDownloadToggle").checked = appSettings.autoUpdateDownload || false;
       document.getElementById("logPath").textContent = appSettings.logDirectory || "—";
+      renderUpdateState(updateState);
       await syncLanguage(lang || "en", i18nMessages || {});
     }
 
@@ -885,6 +1072,16 @@
       flashSaved();
     });
 
+    document.getElementById("autoUpdateCheckToggle").addEventListener("change", async (event) => {
+      await api.setAppSettings({ autoUpdateCheck: event.target.checked });
+      flashSaved();
+    });
+
+    document.getElementById("autoUpdateDownloadToggle").addEventListener("change", async (event) => {
+      await api.setAppSettings({ autoUpdateDownload: event.target.checked });
+      flashSaved();
+    });
+
     document.getElementById("e2eToggle").addEventListener("change", async (event) => {
       await api.setE2EEnabled(event.target.checked);
       flashSaved();
@@ -906,6 +1103,35 @@
         }, 1000);
       } catch (error) {
         showStatus(msg("settings.saveFailed", "Failed: {error}", { error: getErrorMessage(error) }), true);
+      }
+    });
+
+    document.getElementById("checkUpdatesBtn").addEventListener("click", async () => {
+      try {
+        const state = await api.checkForUpdates();
+        renderUpdateState(state);
+      } catch (error) {
+        showStatus(getErrorMessage(error), true);
+      }
+    });
+
+    document.getElementById("downloadUpdateBtn").addEventListener("click", async () => {
+      try {
+        const state = await api.downloadAvailableUpdate();
+        renderUpdateState(state);
+      } catch (error) {
+        showStatus(getErrorMessage(error), true);
+      }
+    });
+
+    document.getElementById("installUpdateBtn").addEventListener("click", async () => {
+      try {
+        const success = await api.installDownloadedUpdate();
+        if (success) {
+          showStatus(inlineText("Installer launched.", "安装程序已启动。"), false);
+        }
+      } catch (error) {
+        showStatus(getErrorMessage(error), true);
       }
     });
 
@@ -945,6 +1171,12 @@
       }
     });
 
+    document.querySelectorAll("[data-pane]").forEach((item) => {
+      item.addEventListener("click", () => {
+        setActiveSettingsPane(item.dataset.pane || "system");
+      });
+    });
+
     if (typeof api.onLangChanged === "function") {
       api.onLangChanged((payload) => { void syncLanguage(payload.lang, payload.messages); });
     }
@@ -953,12 +1185,17 @@
       api.onProjectsChanged(() => { void loadProjects(); });
     }
 
+    if (typeof api.onUpdateStateChanged === "function") {
+      api.onUpdateStateChanged((state) => { renderUpdateState(state); });
+    }
+
     document.getElementById("minimizeBtn").addEventListener("click", () => api.minimizeWindow());
     document.getElementById("maximizeBtn").addEventListener("click", () => api.maximizeWindow());
     document.getElementById("closeBtn").addEventListener("click", () => api.closeWindow());
 
     async function initialize() {
       await loadSettings();
+      setActiveSettingsPane(activeSettingsPane);
       setInterval(updateConnectionStatus, 3000);
     }
 

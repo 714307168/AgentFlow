@@ -1,8 +1,18 @@
 type Lang = "en" | "zh";
+type WorkspaceView = "messages" | "activity" | "cli" | "queue";
+type AttachmentKind = "image" | "file";
 
 interface LangPayload {
   lang: Lang;
   messages: Record<string, string>;
+}
+
+interface AttachmentRef {
+  id: string;
+  name: string;
+  path: string;
+  size: number;
+  kind: AttachmentKind;
 }
 
 interface ClaudeAgentApi {
@@ -10,7 +20,12 @@ interface ClaudeAgentApi {
   onProjectsChanged?: (callback: (projects: ProjectState[]) => void) => void;
   onProjectSessionSnapshot: (callback: (snapshot: SessionSnapshot) => void) => void;
   getProjectSession: (projectId: string) => Promise<ProjectSessionResponse>;
-  sendProjectPrompt: (data: { projectId: string; prompt: string }) => Promise<{ success: boolean; error?: string }>;
+  sendProjectPrompt: (data: { projectId: string; prompt: string; attachments?: AttachmentRef[] }) => Promise<{ success: boolean; error?: string }>;
+  pickProjectAttachments?: (data: { projectId: string; kind: AttachmentKind }) => Promise<{
+    success: boolean;
+    error?: string;
+    attachments?: AttachmentRef[];
+  }>;
   stopProjectRun: (projectId: string) => Promise<{ success: boolean; error?: string }>;
   removeQueuedProjectPrompt: (data: { projectId: string; runId: string }) => Promise<{ success: boolean; error?: string }>;
   onProjectId: (callback: (projectId: string) => void) => void;
@@ -28,6 +43,7 @@ interface SessionMessage {
   id: string;
   role: "user" | "assistant" | "error";
   content: string;
+  attachments?: AttachmentRef[];
   provider?: "claude" | "codex" | null;
   source: "remote" | "desktop";
   createdAt: number;
@@ -98,6 +114,15 @@ interface HintState {
   isError: boolean;
 }
 
+interface OverviewState {
+  tone: "idle" | "ready" | "running" | "queued" | "error";
+  kicker: string;
+  title: string;
+  detail: string;
+  source: string;
+  signal: string;
+}
+
 interface Window {
   claudeAgent: ClaudeAgentApi;
 }
@@ -111,35 +136,55 @@ const elements = {
   modelBadge: document.getElementById("modelBadge") as HTMLButtonElement | null,
   modeBadge: document.getElementById("modeBadge"),
   runState: document.getElementById("runState"),
+  headerSummary: document.getElementById("headerSummary"),
+  sessionOverview: document.getElementById("sessionOverview"),
+  overviewLabel: document.getElementById("overviewLabel"),
+  overviewTitle: document.getElementById("overviewTitle"),
+  overviewDetail: document.getElementById("overviewDetail"),
+  overviewQueueLabel: document.getElementById("overviewQueueLabel"),
+  overviewQueueValue: document.getElementById("overviewQueueValue"),
+  overviewSourceLabel: document.getElementById("overviewSourceLabel"),
+  overviewSourceValue: document.getElementById("overviewSourceValue"),
+  overviewSignalLabel: document.getElementById("overviewSignalLabel"),
+  overviewSignalValue: document.getElementById("overviewSignalValue"),
+  detailDock: document.getElementById("detailDock"),
   queuePanel: document.getElementById("queuePanel"),
   queueTitle: document.getElementById("queueTitle"),
   queueCount: document.getElementById("queueCount"),
   queueList: document.getElementById("queueList"),
   cliTitle: document.getElementById("cliTitle"),
-  cliSubtitle: document.getElementById("cliSubtitle"),
   cliState: document.getElementById("cliState"),
   cliTrace: document.getElementById("cliTrace"),
   projectList: document.getElementById("projectList"),
+  workbenchTabs: document.getElementById("workbenchTabs"),
+  messagesTab: document.getElementById("messagesTab") as HTMLButtonElement | null,
+  messagesTabLabel: document.getElementById("messagesTabLabel"),
+  activityTab: document.getElementById("activityTab") as HTMLButtonElement | null,
+  activityTabLabel: document.getElementById("activityTabLabel"),
+  activityTabCount: document.getElementById("activityTabCount"),
+  cliTab: document.getElementById("cliTab") as HTMLButtonElement | null,
+  cliTabLabel: document.getElementById("cliTabLabel"),
+  cliTabState: document.getElementById("cliTabState"),
+  queueTab: document.getElementById("queueTab") as HTMLButtonElement | null,
+  queueTabLabel: document.getElementById("queueTabLabel"),
+  queueTabCount: document.getElementById("queueTabCount"),
+  messagesView: document.getElementById("messagesView"),
+  activityView: document.getElementById("activityView"),
+  cliView: document.getElementById("cliView"),
+  queueView: document.getElementById("queueView"),
   messages: document.getElementById("messages"),
   activityList: document.getElementById("activityList"),
   composerForm: document.getElementById("composerForm") as HTMLFormElement | null,
   composerInput: document.getElementById("composerInput") as HTMLTextAreaElement | null,
   composerHint: document.getElementById("composerHint"),
+  attachImageBtn: document.getElementById("attachImageBtn") as HTMLButtonElement | null,
+  attachFileBtn: document.getElementById("attachFileBtn") as HTMLButtonElement | null,
+  attachmentTray: document.getElementById("attachmentTray"),
   stopBtn: document.getElementById("stopBtn") as HTMLButtonElement | null,
   sendBtn: document.getElementById("sendBtn") as HTMLButtonElement | null,
-  openActivityBtn: document.getElementById("openActivityBtn") as HTMLButtonElement | null,
-  closeActivityBtn: document.getElementById("closeActivityBtn") as HTMLButtonElement | null,
-  activityModal: document.getElementById("activityModal"),
-  activityModalBackdrop: document.getElementById("activityModalBackdrop"),
-  projectsKicker: document.getElementById("projectsKicker"),
   projectsTitle: document.getElementById("projectsTitle"),
-  projectsSubtitle: document.getElementById("projectsSubtitle"),
-  conversationKicker: document.getElementById("conversationKicker"),
   sessionViewTitle: document.getElementById("sessionViewTitle"),
   composerLabel: document.getElementById("composerLabel"),
-  activityKicker: document.getElementById("activityKicker"),
-  executionTraceTitle: document.getElementById("executionTraceTitle"),
-  activitySubtitle: document.getElementById("activitySubtitle"),
   settingsBtn: document.getElementById("settingsBtn") as HTMLButtonElement | null,
   minimizeBtn: document.getElementById("minimizeBtn"),
   maximizeBtn: document.getElementById("maximizeBtn"),
@@ -152,7 +197,9 @@ const state: {
   sessionsByProjectId: Map<string, SessionSnapshot>;
   lang: Lang;
   messages: Record<string, string>;
-  activityModalOpen: boolean;
+  activeView: WorkspaceView;
+  pendingAttachments: AttachmentRef[];
+  preferredViews: Record<"claude" | "codex", WorkspaceView>;
   hint: HintState;
 } = {
   projectId: null,
@@ -160,10 +207,15 @@ const state: {
   sessionsByProjectId: new Map<string, SessionSnapshot>(),
   lang: "en",
   messages: {},
-  activityModalOpen: false,
+  activeView: "messages",
+  pendingAttachments: [],
+  preferredViews: {
+    claude: "messages",
+    codex: "cli",
+  },
   hint: {
     key: "terminal.hint.default",
-    fallback: "Full-auto mode is enabled for both providers. Press Enter to send, Shift+Enter for a new line, and use /help to see slash-command support.",
+    fallback: "Press Enter to send, Shift+Enter for a new line. Conversation stays in front, with Activity, CLI, and Queue one tab away.",
     isError: false,
   },
 };
@@ -276,6 +328,95 @@ function queuePreview(prompt: string): string {
   return `${trimmed.slice(0, 237)}...`;
 }
 
+function previewText(value: string | null | undefined, maxLength = 160): string {
+  const normalized = (value ?? "").replace(/\s+/g, " ").trim();
+  if (!normalized) {
+    return "";
+  }
+
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, maxLength - 3)}...`;
+}
+
+function formatFileSize(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) {
+    return "0 B";
+  }
+
+  const units = ["B", "KB", "MB", "GB"];
+  let value = bytes;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+
+  const digits = value >= 10 || unitIndex === 0 ? 0 : 1;
+  return `${value.toFixed(digits)} ${units[unitIndex]}`;
+}
+
+function buildAttachmentOnlyPrompt(attachments: AttachmentRef[]): string {
+  if (attachments.length === 1) {
+    return attachments[0].kind === "image"
+      ? inlineText(`Please inspect the attached image: ${attachments[0].name}`, `请查看我附上的图片：${attachments[0].name}`)
+      : inlineText(`Please inspect the attached file: ${attachments[0].name}`, `请查看我附上的文件：${attachments[0].name}`);
+  }
+
+  return inlineText("Please inspect the attached files.", "请查看我附上的这些文件。");
+}
+
+function renderDockBlank(): string {
+  return '<div class="dock-blank"></div>';
+}
+
+function mergeAttachments(current: AttachmentRef[], incoming: AttachmentRef[]): AttachmentRef[] {
+  const merged = [...current];
+  const existingPaths = new Set(current.map((attachment) => attachment.path));
+  for (const attachment of incoming) {
+    if (existingPaths.has(attachment.path)) {
+      continue;
+    }
+    merged.push(attachment);
+    existingPaths.add(attachment.path);
+  }
+  return merged;
+}
+
+function renderAttachmentCard(attachment: AttachmentRef): string {
+  return [
+    '<div class="attachment-card">',
+    `<span class="attachment-kind ${escapeHtml(attachment.kind)}">${escapeHtml(attachment.kind === "image" ? inlineText("Image", "图片") : inlineText("File", "文件"))}</span>`,
+    `<div class="attachment-name">${escapeHtml(attachment.name)}</div>`,
+    `<div class="attachment-meta">${escapeHtml(formatFileSize(attachment.size))}</div>`,
+    `<div class="attachment-meta">${escapeHtml(attachment.path)}</div>`,
+    "</div>",
+  ].join("");
+}
+
+function renderAttachmentChip(attachment: AttachmentRef): string {
+  return [
+    `<div class="attachment-chip" data-attachment-id="${escapeHtml(attachment.id)}">`,
+    '<div class="attachment-copy">',
+    `<span class="attachment-kind ${escapeHtml(attachment.kind)}">${escapeHtml(attachment.kind === "image" ? inlineText("Image", "图片") : inlineText("File", "文件"))}</span>`,
+    `<div class="attachment-name">${escapeHtml(attachment.name)}</div>`,
+    `<div class="attachment-meta">${escapeHtml(formatFileSize(attachment.size))} · ${escapeHtml(attachment.path)}</div>`,
+    "</div>",
+    `<button class="attachment-remove" type="button" data-remove-attachment="${escapeHtml(attachment.id)}">×</button>`,
+    "</div>",
+  ].join("");
+}
+
+function isWorkspaceView(value: string | undefined): value is WorkspaceView {
+  return value === "messages" || value === "activity" || value === "cli" || value === "queue";
+}
+
+function defaultViewForProvider(provider: "claude" | "codex"): WorkspaceView {
+  return provider === "codex" ? "cli" : "messages";
+}
+
 function getCurrentProject(): ProjectState | null {
   return state.projects.find((project) => project.id === state.projectId) ?? null;
 }
@@ -294,6 +435,22 @@ function getLatestActivity(session: SessionSnapshot | null): SessionActivity | n
   }
 
   return session.activities[session.activities.length - 1] ?? null;
+}
+
+function getLatestCliEntry(session: SessionSnapshot | null): CliTraceEntry | null {
+  if (!session || session.cliTrace.length === 0) {
+    return null;
+  }
+
+  return session.cliTrace[session.cliTrace.length - 1] ?? null;
+}
+
+function getLatestMessage(session: SessionSnapshot | null): SessionMessage | null {
+  if (!session || session.messages.length === 0) {
+    return null;
+  }
+
+  return session.messages[session.messages.length - 1] ?? null;
 }
 
 function getConfiguredProvider(project: ProjectState | null, session: SessionSnapshot | null): "claude" | "codex" {
@@ -393,11 +550,26 @@ function getProjectStatusMeta(projectId: string): { label: string; tone: string;
 }
 
 function setActiveProject(projectId: string | null): void {
-  state.projectId = projectId;
-  if (!projectId) {
-    state.activityModalOpen = false;
+  if (state.projectId !== projectId) {
+    state.pendingAttachments = [];
   }
+  state.projectId = projectId;
   api.setActiveProject?.(projectId);
+}
+
+function setActiveView(view: WorkspaceView, persistPreference = true): void {
+  state.activeView = view;
+  if (!persistPreference) {
+    return;
+  }
+
+  const provider = getConfiguredProvider(getCurrentProject(), getCurrentSession());
+  state.preferredViews[provider] = view;
+}
+
+function syncActiveViewForCurrentProject(): void {
+  const provider = getConfiguredProvider(getCurrentProject(), getCurrentSession());
+  state.activeView = state.preferredViews[provider] ?? defaultViewForProvider(provider);
 }
 
 function updateDocumentTitle(): void {
@@ -446,47 +618,63 @@ function setHintText(text: string, isError: boolean): void {
   renderHint();
 }
 
+function renderPendingAttachments(): void {
+  if (!elements.attachmentTray) {
+    return;
+  }
+
+  const hasItems = state.pendingAttachments.length > 0;
+  elements.attachmentTray.classList.toggle("has-items", hasItems);
+  elements.attachmentTray.innerHTML = hasItems
+    ? state.pendingAttachments.map((attachment) => renderAttachmentChip(attachment)).join("")
+    : "";
+}
+
 function applyStaticI18n(): void {
   document.documentElement.lang = state.lang;
 
-  if (elements.projectsKicker) {
-    elements.projectsKicker.textContent = msg("terminal.panel.projects", "Projects");
-  }
   if (elements.projectsTitle) {
-    elements.projectsTitle.textContent = msg("terminal.panel.projectsTitle", "Project sessions");
+    elements.projectsTitle.textContent = msg("terminal.panel.projects", "Projects");
   }
-  if (elements.projectsSubtitle) {
-    elements.projectsSubtitle.textContent = msg(
-      "terminal.panel.projectsSubtitle",
-      "Choose a project to view conversation and runtime status.",
-    );
+  if (elements.messagesTabLabel) {
+    elements.messagesTabLabel.textContent = inlineText("Conversation", "\u5bf9\u8bdd");
   }
-  if (elements.conversationKicker) {
-    elements.conversationKicker.textContent = msg("terminal.panel.conversation", "Conversation");
+  if (elements.activityTabLabel) {
+    elements.activityTabLabel.textContent = inlineText("Activity", "\u6d3b\u52a8");
   }
-  if (elements.sessionViewTitle) {
-    elements.sessionViewTitle.textContent = msg("terminal.panel.sessionView", "Structured session view");
+  if (elements.cliTabLabel) {
+    elements.cliTabLabel.textContent = "CLI";
   }
-  if (elements.openActivityBtn) {
-    elements.openActivityBtn.textContent = msg("terminal.action.viewActivity", "View activity");
+  if (elements.queueTabLabel) {
+    elements.queueTabLabel.textContent = inlineText("Queue", "\u961f\u5217");
+  }
+  if (elements.overviewQueueLabel) {
+    elements.overviewQueueLabel.textContent = inlineText("Queue", "\u961f\u5217");
+  }
+  if (elements.overviewSourceLabel) {
+    elements.overviewSourceLabel.textContent = inlineText("Source", "\u6765\u6e90");
+  }
+  if (elements.overviewSignalLabel) {
+    elements.overviewSignalLabel.textContent = inlineText("Latest", "\u6700\u65b0");
   }
   if (elements.queueTitle) {
     elements.queueTitle.textContent = inlineText("Queued prompts", "排队提示");
   }
   if (elements.cliTitle) {
-    elements.cliTitle.textContent = inlineText("CLI Live", "CLI 实时执行");
-  }
-  if (elements.cliSubtitle) {
-    elements.cliSubtitle.textContent = inlineText(
-      "See the live local CLI command stream, stdout, and stderr here.",
-      "这里会实时显示本地 CLI 命令流、stdout 和 stderr。",
-    );
-  }
-  if (elements.closeActivityBtn) {
-    elements.closeActivityBtn.textContent = msg("terminal.action.close", "Close");
+    elements.cliTitle.textContent = inlineText("CLI stream", "CLI \u6267\u884c\u6d41");
   }
   if (elements.composerLabel) {
     elements.composerLabel.textContent = msg("terminal.promptLabel", "Prompt");
+  }
+  if (elements.attachImageBtn) {
+    const label = inlineText("Image", "图片");
+    elements.attachImageBtn.textContent = label;
+    elements.attachImageBtn.title = label;
+  }
+  if (elements.attachFileBtn) {
+    const label = inlineText("File", "文件");
+    elements.attachFileBtn.textContent = label;
+    elements.attachFileBtn.title = label;
   }
   if (elements.composerInput) {
     elements.composerInput.placeholder = msg(
@@ -501,18 +689,6 @@ function applyStaticI18n(): void {
     const stopLabel = inlineText("Terminate", "终止");
     elements.stopBtn.textContent = stopLabel;
     elements.stopBtn.title = stopLabel;
-  }
-  if (elements.activityKicker) {
-    elements.activityKicker.textContent = msg("terminal.panel.activity", "Activity");
-  }
-  if (elements.executionTraceTitle) {
-    elements.executionTraceTitle.textContent = msg("terminal.panel.executionTrace", "Execution trace");
-  }
-  if (elements.activitySubtitle) {
-    elements.activitySubtitle.textContent = msg(
-      "terminal.panel.activitySubtitle",
-      "Thinking, tools, commands, and runtime status.",
-    );
   }
   if (elements.minimizeBtn) {
     elements.minimizeBtn.title = msg("common.minimize", "Minimize");
@@ -530,20 +706,233 @@ function applyStaticI18n(): void {
   }
 }
 
+function buildOverviewState(
+  project: ProjectState | null,
+  session: SessionSnapshot | null,
+  provider: "claude" | "codex",
+): OverviewState {
+  if (!project) {
+    return {
+      tone: "idle",
+      kicker: inlineText("Workbench", "\u5de5\u4f5c\u53f0"),
+      title: inlineText("Select a project to start", "\u9009\u62e9\u4e00\u4e2a\u9879\u76ee\u5f00\u59cb"),
+      detail: inlineText(
+        "Conversation stays in front. Activity, CLI, and Queue are organized as secondary views.",
+        "\u5bf9\u8bdd\u4f18\u5148\u5c55\u793a\uff0c\u6d3b\u52a8\u3001CLI \u548c\u961f\u5217\u653e\u5728\u4e0b\u65b9\u5207\u6362\u533a\u3002",
+      ),
+      source: inlineText("Idle", "\u7a7a\u95f2"),
+      signal: inlineText("Waiting", "\u7b49\u5f85"),
+    };
+  }
+
+  if (!session) {
+    return {
+      tone: "idle",
+      kicker: inlineText("Loading", "\u52a0\u8f7d\u4e2d"),
+      title: inlineText("Loading session state", "\u6b63\u5728\u52a0\u8f7d\u4f1a\u8bdd\u72b6\u6001"),
+      detail: inlineText(
+        "Project context is ready. Recent messages and execution state will appear here shortly.",
+        "\u9879\u76ee\u4e0a\u4e0b\u6587\u5df2\u5c31\u7eea\uff0c\u6700\u8fd1\u7684\u6d88\u606f\u4e0e\u6267\u884c\u72b6\u6001\u4f1a\u5f88\u5feb\u51fa\u73b0\u5728\u8fd9\u91cc\u3002",
+      ),
+      source: inlineText("Idle", "\u7a7a\u95f2"),
+      signal: inlineText("Loading", "\u52a0\u8f7d"),
+    };
+  }
+
+  const latestActivity = getLatestActivity(session);
+  const latestCliEntry = getLatestCliEntry(session);
+  const latestMessage = getLatestMessage(session);
+
+  if (session.isRunning) {
+    return {
+      tone: "running",
+      kicker: provider === "codex"
+        ? inlineText("Executing now", "\u6b63\u5728\u6267\u884c")
+        : inlineText("Working now", "\u6b63\u5728\u5904\u7406"),
+      title: previewText(session.currentPrompt, 144) || inlineText("Current run in progress", "\u5f53\u524d\u4efb\u52a1\u6267\u884c\u4e2d"),
+      detail: previewText(latestActivity?.detail || latestActivity?.title || latestCliEntry?.text, 180) || inlineText(
+        "Live execution is updating below. Open Activity or CLI for full detail.",
+        "\u4e0b\u65b9\u4f1a\u6301\u7eed\u66f4\u65b0\u6267\u884c\u7ec6\u8282\uff0c\u9700\u8981\u65f6\u53ef\u4ee5\u5207\u5230\u6d3b\u52a8\u6216 CLI \u67e5\u770b\u3002",
+      ),
+      source: translateSource(session.currentSource ?? "desktop"),
+      signal: latestActivity
+        ? translateKind(latestActivity.kind)
+        : translateCliStream(latestCliEntry?.stream ?? "system"),
+    };
+  }
+
+  if (latestActivity?.status === "error") {
+    return {
+      tone: "error",
+      kicker: inlineText("Needs attention", "\u9700\u8981\u5173\u6ce8"),
+      title: previewText(latestActivity.title || latestActivity.detail, 144) || inlineText(
+        "The last run ended with an error",
+        "\u4e0a\u6b21\u8fd0\u884c\u4ee5\u9519\u8bef\u7ed3\u675f",
+      ),
+      detail: previewText(latestActivity.detail, 180) || inlineText(
+        "Open Activity or CLI to inspect the failure details.",
+        "\u53ef\u4ee5\u6253\u5f00\u6d3b\u52a8\u6216 CLI \u67e5\u770b\u5931\u8d25\u539f\u56e0\u3002",
+      ),
+      source: providerLabel(provider),
+      signal: translateActivityStatus("error"),
+    };
+  }
+
+  if (session.queue.length > 0) {
+    const nextItem = session.queue[0];
+    return {
+      tone: "queued",
+      kicker: inlineText("Queued next", "\u4e0b\u4e00\u4e2a\u961f\u5217\u4efb\u52a1"),
+      title: previewText(nextItem?.prompt, 144) || inlineText("Queued prompt", "\u5df2\u6392\u961f\u7684\u63d0\u793a"),
+      detail: session.queuedCount > 1
+        ? inlineText(
+          `${session.queuedCount} prompts are waiting to run.`,
+          `\u5171\u6709 ${session.queuedCount} \u6761\u63d0\u793a\u5728\u7b49\u5f85\u6267\u884c\u3002`,
+        )
+        : inlineText(
+          "The next prompt is ready and waiting.",
+          "\u4e0b\u4e00\u6761\u63d0\u793a\u5df2\u5728\u961f\u5217\u4e2d\u7b49\u5f85\u6267\u884c\u3002",
+        ),
+      source: translateSource(nextItem?.source ?? "desktop"),
+      signal: msg("terminal.project.status.queued", "Queued"),
+    };
+  }
+
+  if (latestMessage) {
+    const latestSource = latestMessage.role === "user"
+      ? translateSource(latestMessage.source)
+      : providerLabel(latestMessage.provider ?? provider);
+    return {
+      tone: latestMessage.status === "streaming" ? "running" : "ready",
+      kicker: latestMessage.role === "assistant"
+        ? inlineText("Latest reply", "\u6700\u65b0\u56de\u590d")
+        : inlineText("Latest message", "\u6700\u65b0\u6d88\u606f"),
+      title: previewText(latestMessage.content, 144) || inlineText("Message ready", "\u6d88\u606f\u5df2\u5c31\u7eea"),
+      detail: latestMessage.role === "user"
+        ? inlineText("Awaiting the next assistant step.", "\u6b63\u5728\u7b49\u5f85\u4e0b\u4e00\u6b65\u56de\u5e94\u3002")
+        : inlineText("Ready for the next prompt.", "\u5df2\u5c31\u7eea\uff0c\u53ef\u4ee5\u7ee7\u7eed\u53d1\u9001\u4e0b\u4e00\u6761\u63d0\u793a\u3002"),
+      source: latestSource,
+      signal: latestMessage.status === "streaming"
+        ? msg("terminal.state.running", "Running")
+        : msg("terminal.project.status.ready", "Ready"),
+    };
+  }
+
+  return {
+    tone: "ready",
+    kicker: inlineText("Ready", "\u5c31\u7eea"),
+    title: inlineText("Start the next prompt", "\u53ef\u4ee5\u5f00\u59cb\u4e0b\u4e00\u6761\u63d0\u793a"),
+    detail: provider === "codex"
+      ? inlineText(
+        "Execution details remain close by in CLI and Activity when you need them.",
+        "CLI \u4e0e\u6d3b\u52a8\u8be6\u60c5\u4ecd\u7136\u5728\u4e0b\u65b9\uff0c\u9700\u8981\u65f6\u53ef\u4ee5\u968f\u65f6\u5207\u6362\u3002",
+      )
+      : inlineText(
+        "Stay in the conversation by default, then open CLI only when you need deeper execution detail.",
+        "\u9ed8\u8ba4\u4ee5\u5bf9\u8bdd\u4e3a\u4e3b\uff0c\u9700\u8981\u66f4\u6df1\u6267\u884c\u7ec6\u8282\u65f6\u518d\u6253\u5f00 CLI\u3002",
+      ),
+    source: inlineText("Desktop", "\u684c\u9762\u7aef"),
+    signal: msg("terminal.project.status.ready", "Ready"),
+  };
+}
+
+function renderSessionOverview(): void {
+  const project = getCurrentProject();
+  const session = getCurrentSession();
+  const provider = getConfiguredProvider(project, session);
+  const overview = buildOverviewState(project, session, provider);
+
+  if (elements.sessionOverview) {
+    elements.sessionOverview.className = `session-overview ${overview.tone}`;
+  }
+  if (elements.overviewLabel) {
+    elements.overviewLabel.textContent = overview.kicker;
+  }
+  if (elements.overviewTitle) {
+    elements.overviewTitle.textContent = overview.title;
+  }
+  if (elements.overviewDetail) {
+    elements.overviewDetail.textContent = overview.detail;
+  }
+  if (elements.overviewQueueValue) {
+    elements.overviewQueueValue.textContent = String(session?.queuedCount ?? 0);
+  }
+  if (elements.overviewSourceValue) {
+    elements.overviewSourceValue.textContent = overview.source;
+  }
+  if (elements.overviewSignalValue) {
+    elements.overviewSignalValue.textContent = overview.signal;
+  }
+}
+
+function renderWorkbench(): void {
+  const session = getCurrentSession();
+  const activityCount = session?.activities.length ?? 0;
+  const queueCount = session?.queue.length ?? 0;
+  const cliRunning = Boolean(session?.isRunning);
+  const tabs: Array<{
+    button: HTMLButtonElement | null;
+    view: WorkspaceView;
+  }> = [
+    { button: elements.messagesTab, view: "messages" },
+    { button: elements.activityTab, view: "activity" },
+    { button: elements.cliTab, view: "cli" },
+    { button: elements.queueTab, view: "queue" },
+  ];
+  const detailViews: Array<{ panel: HTMLElement | null; view: Exclude<WorkspaceView, "messages"> }> = [
+    { panel: elements.activityView, view: "activity" },
+    { panel: elements.cliView, view: "cli" },
+    { panel: elements.queueView, view: "queue" },
+  ];
+  const showDock = Boolean(state.projectId) && state.activeView !== "messages";
+
+  if (elements.activityTabCount) {
+    elements.activityTabCount.textContent = String(activityCount);
+    elements.activityTabCount.classList.toggle("quiet", activityCount === 0);
+  }
+  if (elements.queueTabCount) {
+    elements.queueTabCount.textContent = String(queueCount);
+    elements.queueTabCount.classList.toggle("quiet", queueCount === 0);
+  }
+  if (elements.cliTabState) {
+    elements.cliTabState.textContent = cliRunning ? inlineText("Live", "\u5b9e\u65f6") : inlineText("Idle", "\u7a7a\u95f2");
+    elements.cliTabState.dataset.tone = cliRunning ? "running" : "idle";
+  }
+  if (elements.detailDock) {
+    elements.detailDock.classList.toggle("is-open", showDock);
+  }
+
+  tabs.forEach(({ button, view }) => {
+    const isActive = state.activeView === view;
+    button?.classList.toggle("active", isActive);
+    button?.setAttribute("aria-pressed", String(isActive));
+  });
+
+  detailViews.forEach(({ panel, view }) => {
+    panel?.classList.toggle("is-active", showDock && state.activeView === view);
+  });
+}
+
 function renderQueue(): void {
-  if (!elements.queuePanel || !elements.queueList || !elements.queueCount) {
+  if (!elements.queueList || !elements.queueCount) {
     return;
   }
 
+  const project = getCurrentProject();
   const session = getCurrentSession();
   const queuedItems = session?.queue ?? [];
-  const visible = queuedItems.length > 0;
-
-  elements.queuePanel.classList.toggle("hidden", !visible);
   elements.queueCount.textContent = String(queuedItems.length);
 
-  if (!visible) {
-    elements.queueList.innerHTML = "";
+  if (!project) {
+    elements.queueList.innerHTML = formatEmptyState(
+      msg("terminal.empty.selectProjectTitle", "No project selected"),
+      msg("terminal.empty.selectProjectDetail", "Choose a project from the left sidebar to view messages."),
+    );
+    return;
+  }
+
+  if (queuedItems.length === 0) {
+    elements.queueList.innerHTML = renderDockBlank();
     return;
   }
 
@@ -618,10 +1007,7 @@ function renderCliTrace(): void {
 
   const entries = session?.cliTrace ?? [];
   if (entries.length === 0) {
-    elements.cliTrace.innerHTML = formatEmptyState(
-      inlineText("No CLI trace yet", "暂无 CLI 轨迹"),
-      inlineText("Run or queue a prompt and the live CLI activity will appear here.", "发起或排队一个提示后，这里会出现实时 CLI 活动。"),
-    );
+    elements.cliTrace.innerHTML = renderDockBlank();
     return;
   }
 
@@ -689,7 +1075,12 @@ function renderMessages(): void {
         `<span class="source-badge">${escapeHtml(sourceBadge)}</span>`,
         `<span class="message-time">${escapeHtml(formatTime(message.updatedAt || message.createdAt))}</span>`,
         "</div>",
-        `<div class="message-content${message.status === "streaming" ? " streaming" : ""}">${escapeHtml(message.content)}</div>`,
+        message.attachments && message.attachments.length > 0
+          ? `<div class="message-attachments">${message.attachments.map((attachment) => renderAttachmentCard(attachment)).join("")}</div>`
+          : "",
+        message.content
+          ? `<div class="message-content${message.status === "streaming" ? " streaming" : ""}">${escapeHtml(message.content)}</div>`
+          : "",
         "</div>",
         "</article>",
       ].join("");
@@ -717,13 +1108,7 @@ function renderActivities(): void {
   }
 
   if (!session || session.activities.length === 0) {
-    elements.activityList.innerHTML = formatEmptyState(
-      msg("terminal.empty.activitiesTitle", "No activity yet"),
-      msg(
-        "terminal.empty.activitiesDetail",
-        "Tool calls, command executions, and thinking traces will be separated here instead of being mixed into one terminal stream.",
-      ),
-    );
+    elements.activityList.innerHTML = renderDockBlank();
     return;
   }
 
@@ -751,8 +1136,9 @@ function renderHeader(): void {
   const session = getCurrentSession();
   const provider = getConfiguredProvider(project, session);
   const model = getConfiguredModel(project, session);
-  const latestActivity = getLatestActivity(session);
-  const source = session?.currentSource === "remote" ? "remote" : "desktop";
+  const statusMeta = project ? getProjectStatusMeta(project.id) : null;
+
+  document.body.dataset.provider = provider;
 
   if (elements.projectTitle) {
     elements.projectTitle.textContent = project?.name ?? msg("terminal.defaultTitle", "Project Session");
@@ -771,42 +1157,22 @@ function renderHeader(): void {
   if (elements.modeBadge) {
     elements.modeBadge.textContent = msg("terminal.mode.fullAuto", "Full auto");
   }
+  if (elements.sessionViewTitle) {
+    elements.sessionViewTitle.textContent = project?.name ?? msg("terminal.projectFallback", "Project");
+  }
+  if (elements.headerSummary) {
+    elements.headerSummary.textContent = statusMeta?.detail ?? msg("terminal.waitingProjectContext", "Waiting for project context...");
+  }
   if (elements.runState) {
     if (!project) {
-      elements.runState.textContent = msg(
-        "terminal.empty.selectProjectDetail",
-        "Choose a project from the left sidebar to view messages.",
-      );
+      elements.runState.textContent = inlineText("Unselected", "未选择");
+      elements.runState.className = "project-status-pill idle";
     } else if (!session) {
-      elements.runState.textContent = msg("terminal.loadingSession", "Loading session...");
-    } else if (session.isRunning) {
-      elements.runState.textContent = msg(
-        "terminal.runState.processing",
-        "{provider} is processing a {source} prompt with full automation.",
-        {
-          provider: providerLabel(provider),
-          source: translateSource(source),
-        },
-      );
-    } else if (session.queuedCount > 0) {
-      elements.runState.textContent = msg(
-        "terminal.project.summary.queued",
-        "{count} queued",
-        { count: String(session.queuedCount) },
-      );
-    } else if (latestActivity?.status === "error") {
-      elements.runState.textContent = msg(
-        "terminal.runState.error",
-        "Latest run failed: {detail}",
-        {
-          detail: latestActivity.title || latestActivity.detail || msg("terminal.project.summary.error", "Latest run failed"),
-        },
-      );
+      elements.runState.textContent = inlineText("Loading", "加载中");
+      elements.runState.className = "project-status-pill idle";
     } else {
-      elements.runState.textContent = msg(
-        "terminal.ready",
-        "Ready. Send a prompt locally or wait for remote messages to arrive.",
-      );
+      elements.runState.textContent = statusMeta?.label ?? inlineText("Ready", "就绪");
+      elements.runState.className = `project-status-pill ${statusMeta?.tone ?? "ready"}`;
     }
   }
   if (elements.sendBtn) {
@@ -815,30 +1181,35 @@ function renderHeader(): void {
   if (elements.stopBtn) {
     elements.stopBtn.disabled = !session?.isRunning;
   }
-  if (elements.openActivityBtn) {
-    elements.openActivityBtn.toggleAttribute("disabled", !state.projectId);
+  if (elements.attachImageBtn) {
+    elements.attachImageBtn.disabled = !state.projectId;
+  }
+  if (elements.attachFileBtn) {
+    elements.attachFileBtn.disabled = !state.projectId;
+  }
+  if (elements.activityTab) {
+    elements.activityTab.disabled = !state.projectId;
+  }
+  if (elements.cliTab) {
+    elements.cliTab.disabled = !state.projectId;
+  }
+  if (elements.queueTab) {
+    elements.queueTab.disabled = !state.projectId;
   }
 
   updateDocumentTitle();
-}
-
-function renderActivityModal(): void {
-  if (!elements.activityModal) {
-    return;
-  }
-
-  elements.activityModal.classList.toggle("hidden", !state.activityModalOpen);
 }
 
 function render(): void {
   applyStaticI18n();
   renderProjectList();
   renderHeader();
+  renderWorkbench();
   renderQueue();
   renderCliTrace();
   renderMessages();
   renderActivities();
-  renderActivityModal();
+  renderPendingAttachments();
   renderHint();
 }
 
@@ -877,6 +1248,7 @@ async function syncProjects(projects?: ProjectState[]): Promise<void> {
     setActiveProject(nextProjects[0].id);
   }
 
+  syncActiveViewForCurrentProject();
   render();
 }
 
@@ -889,7 +1261,44 @@ async function selectProject(projectId: string): Promise<void> {
   if (!state.sessionsByProjectId.has(projectId)) {
     await loadProjectSession(projectId);
   }
+  syncActiveViewForCurrentProject();
   render();
+}
+
+async function pickAttachments(kind: AttachmentKind): Promise<void> {
+  if (!state.projectId || !api.pickProjectAttachments) {
+    return;
+  }
+
+  const result = await api.pickProjectAttachments({
+    projectId: state.projectId,
+    kind,
+  });
+
+  if (!result.success) {
+    setHintText(result.error ?? inlineText("Failed to add attachments.", "添加附件失败。"), true);
+    return;
+  }
+
+  const attachments = result.attachments ?? [];
+  if (attachments.length === 0) {
+    return;
+  }
+
+  state.pendingAttachments = mergeAttachments(state.pendingAttachments, attachments);
+  renderPendingAttachments();
+  setHintText(
+    inlineText(
+      `${state.pendingAttachments.length} attachment(s) ready to send.`,
+      `已添加 ${state.pendingAttachments.length} 个附件，发送时会一并带上。`,
+    ),
+    false,
+  );
+}
+
+function removePendingAttachment(attachmentId: string): void {
+  state.pendingAttachments = state.pendingAttachments.filter((attachment) => attachment.id !== attachmentId);
+  renderPendingAttachments();
 }
 
 async function submitPrompt(): Promise<void> {
@@ -897,11 +1306,13 @@ async function submitPrompt(): Promise<void> {
     return;
   }
 
-  const prompt = elements.composerInput.value.replace(/\r\n/g, "\n");
-  if (!prompt.trim()) {
+  const rawPrompt = elements.composerInput.value.replace(/\r\n/g, "\n");
+  const attachments = [...state.pendingAttachments];
+  if (!rawPrompt.trim() && attachments.length === 0) {
     setHintMessage("terminal.hint.emptyPrompt", "Prompt cannot be empty.", undefined, true);
     return;
   }
+  const prompt = rawPrompt.trim() ? rawPrompt : buildAttachmentOnlyPrompt(attachments);
 
   const session = getCurrentSession();
   setHintText(
@@ -913,6 +1324,7 @@ async function submitPrompt(): Promise<void> {
   const result = await api.sendProjectPrompt({
     projectId: state.projectId,
     prompt,
+    attachments,
   });
 
   if (!result.success) {
@@ -921,6 +1333,8 @@ async function submitPrompt(): Promise<void> {
   }
 
   elements.composerInput.value = "";
+  state.pendingAttachments = [];
+  renderPendingAttachments();
   elements.composerInput.focus();
 }
 
@@ -1012,20 +1426,6 @@ async function loadI18n(): Promise<void> {
   }
 }
 
-function openActivityModal(): void {
-  if (!state.projectId) {
-    return;
-  }
-
-  state.activityModalOpen = true;
-  renderActivityModal();
-}
-
-function closeActivityModal(): void {
-  state.activityModalOpen = false;
-  renderActivityModal();
-}
-
 elements.composerForm?.addEventListener("submit", (event) => {
   event.preventDefault();
   void submitPrompt();
@@ -1033,6 +1433,14 @@ elements.composerForm?.addEventListener("submit", (event) => {
 
 elements.stopBtn?.addEventListener("click", () => {
   void stopActiveRun();
+});
+
+elements.attachImageBtn?.addEventListener("click", () => {
+  void pickAttachments("image");
+});
+
+elements.attachFileBtn?.addEventListener("click", () => {
+  void pickAttachments("file");
 });
 
 elements.composerInput?.addEventListener("keydown", (event) => {
@@ -1068,26 +1476,31 @@ elements.queueList?.addEventListener("click", (event) => {
   void removeQueuedRun(runId);
 });
 
-elements.openActivityBtn?.addEventListener("click", () => {
-  openActivityModal();
+elements.attachmentTray?.addEventListener("click", (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  const button = target?.closest("[data-remove-attachment]") as HTMLElement | null;
+  const attachmentId = button?.dataset.removeAttachment;
+  if (!attachmentId) {
+    return;
+  }
+
+  removePendingAttachment(attachmentId);
 });
 
-elements.closeActivityBtn?.addEventListener("click", () => {
-  closeActivityModal();
-});
+elements.workbenchTabs?.addEventListener("click", (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  const tab = target?.closest("[data-view-switch]") as HTMLElement | null;
+  const nextView = tab?.dataset.viewSwitch;
+  if (!isWorkspaceView(nextView) || !state.projectId) {
+    return;
+  }
 
-elements.activityModalBackdrop?.addEventListener("click", () => {
-  closeActivityModal();
+  setActiveView(nextView);
+  render();
 });
 
 elements.modelBadge?.addEventListener("click", () => {
   void promptForModel();
-});
-
-window.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && state.activityModalOpen) {
-    closeActivityModal();
-  }
 });
 
 api.onProjectId((projectId) => {
@@ -1096,6 +1509,9 @@ api.onProjectId((projectId) => {
 
 api.onProjectSessionSnapshot((snapshot) => {
   state.sessionsByProjectId.set(snapshot.projectId, snapshot);
+  if (snapshot.projectId === state.projectId) {
+    syncActiveViewForCurrentProject();
+  }
   render();
 });
 

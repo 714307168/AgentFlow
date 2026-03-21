@@ -63,11 +63,13 @@ class MainActivity : ComponentActivity() {
                 val relayWebSocket = appContainer.relayWebSocket
                 val sessionRepository = appContainer.sessionRepository
                 val messageRepository = appContainer.messageRepository
+                val appUpdateManager = appContainer.appUpdateManager
                 val e2eCrypto = appContainer.e2eCrypto
                 val json = remember {
                     Json { ignoreUnknownKeys = true; encodeDefaults = true }
                 }
                 val navigationTarget by appContainer.chatNavigationBus.target.collectAsState()
+                val updateState by appUpdateManager.state.collectAsState()
 
                 LaunchedEffect(navigationTarget) {
                     val target = navigationTarget ?: return@LaunchedEffect
@@ -79,6 +81,10 @@ class MainActivity : ComponentActivity() {
                     appContainer.chatNavigationBus.consume(target)
                 }
 
+                LaunchedEffect(Unit) {
+                    appUpdateManager.maybeAutoCheck()
+                }
+
                 NavHost(navController = navController, startDestination = "sessions") {
                     composable("sessions") {
                         val viewModel = remember {
@@ -88,6 +94,14 @@ class MainActivity : ComponentActivity() {
                         SessionListScreen(
                             viewModel = viewModel,
                             webSocket = relayWebSocket,
+                            updateState = updateState,
+                            onCheckForUpdates = {
+                                coroutineScope.launch { appUpdateManager.checkForUpdates(manual = true) }
+                            },
+                            onDownloadUpdate = {
+                                coroutineScope.launch { appUpdateManager.downloadLatestUpdate() }
+                            },
+                            onInstallUpdate = { appUpdateManager.installDownloadedUpdate() },
                             onNavigateToChat = { session ->
                                 val encodedName = android.net.Uri.encode(session.name.ifEmpty { "Project" })
                                 val encodedAgentId = android.net.Uri.encode(session.agentId)
@@ -142,13 +156,18 @@ class MainActivity : ComponentActivity() {
                                 e2eEnabled = tokenStore.isE2EEnabled(),
                                 e2ePublicKey = e2eCrypto.getPublicKeyBase64(),
                                 language = tokenStore.getLanguage(),
+                                autoUpdateCheckEnabled = tokenStore.isAutoUpdateCheckEnabled(),
+                                autoUpdateDownloadEnabled = tokenStore.isAutoUpdateDownloadEnabled(),
+                                updateState = updateState,
                                 isLoggedIn = tokenStore.getToken()?.isNotEmpty() == true
                             ),
-                            onSave = { url, devId, e2e ->
+                            onSave = { url, devId, e2e, autoCheckUpdates, autoDownloadUpdates ->
                                 val normalizedUrl = normalizeHttpBaseUrl(url)
                                 appContainer.updateServerUrl(normalizedUrl)
                                 tokenStore.saveDeviceId(devId)
                                 tokenStore.saveE2EEnabled(e2e)
+                                tokenStore.saveAutoUpdateCheckEnabled(autoCheckUpdates)
+                                tokenStore.saveAutoUpdateDownloadEnabled(autoDownloadUpdates)
                                 if (!tokenStore.getToken().isNullOrBlank()) {
                                     relayWebSocket.disconnect()
                                     coroutineScope.launch {
@@ -185,6 +204,13 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
                             },
+                            onCheckForUpdates = {
+                                coroutineScope.launch { appUpdateManager.checkForUpdates(manual = true) }
+                            },
+                            onDownloadUpdate = {
+                                coroutineScope.launch { appUpdateManager.downloadLatestUpdate() }
+                            },
+                            onInstallUpdate = { appUpdateManager.installDownloadedUpdate() },
                             onLanguageChange = { lang ->
                                 tokenStore.saveLanguage(lang)
                                 applyLanguage(lang)

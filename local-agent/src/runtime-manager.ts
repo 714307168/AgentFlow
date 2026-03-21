@@ -1,11 +1,18 @@
 import { ChildProcessWithoutNullStreams, spawn } from "child_process";
 import { EventEmitter } from "events";
-import Store from "electron-store";
 import { v4 as uuidv4 } from "uuid";
 import appLogger from "./app-logger";
-
-export type CliProvider = "claude" | "codex";
-export type RunSource = "remote" | "desktop";
+import SessionHistoryStore, { PersistedProjectState, PersistedQueuedRun } from "./session-history-store";
+import type {
+  CliProvider,
+  CliTraceEntry,
+  ProjectSessionSnapshot,
+  QueuedRunSnapshot,
+  RunAttachment,
+  RunSource,
+  SessionActivity,
+  SessionMessage,
+} from "./runtime-types";
 
 export interface RuntimeConfig {
   getProjectProvider: (projectId: string) => CliProvider;
@@ -14,66 +21,11 @@ export interface RuntimeConfig {
   onProjectConfigChanged?: (projectId: string) => void;
 }
 
-export interface SessionMessage {
-  id: string;
-  role: "user" | "assistant" | "error";
-  content: string;
-  provider?: CliProvider | null;
-  source: RunSource;
-  createdAt: number;
-  updatedAt: number;
-  status: "streaming" | "done";
-}
-
-export interface SessionActivity {
-  id: string;
-  kind: "status" | "thinking" | "tool" | "command" | "agent" | "error";
-  title: string;
-  detail: string;
-  status: "pending" | "running" | "completed" | "error";
-  createdAt: number;
-  updatedAt: number;
-  meta?: Record<string, string | number | boolean>;
-}
-
-export interface QueuedRunSnapshot {
-  runId: string;
-  prompt: string;
-  source: RunSource;
-  queuedAt: number;
-}
-
-export interface CliTraceEntry {
-  id: string;
-  stream: "system" | "stdout" | "stderr";
-  text: string;
-  createdAt: number;
-}
-
-export interface ProjectSessionSnapshot {
-  projectId: string;
-  provider: CliProvider;
-  model: string | null;
-  automationMode: "full-auto";
-  isRunning: boolean;
-  queuedCount: number;
-  currentSource: RunSource | null;
-  currentPrompt: string | null;
-  currentStartedAt: number | null;
-  queue: QueuedRunSnapshot[];
-  cliTrace: CliTraceEntry[];
-  messages: SessionMessage[];
-  activities: SessionActivity[];
-  sessionRefs: {
-    claudeSessionId: string | null;
-    codexThreadId: string | null;
-  };
-}
-
 export interface EnqueueMessageOptions {
   projectId: string;
   cwd: string;
   prompt: string;
+  attachments?: RunAttachment[];
   source: RunSource;
   interruptCurrent?: boolean;
   interruptReason?: string;
@@ -112,17 +64,6 @@ interface PendingStop {
   notifyAsError: boolean;
 }
 
-interface PersistedProjectState {
-  messages: SessionMessage[];
-  activities: SessionActivity[];
-  claudeSessionId: string | null;
-  codexThreadId: string | null;
-}
-
-interface RuntimeStoreSchema {
-  sessionsByProjectId: Record<string, PersistedProjectState>;
-}
-
 interface RunContext {
   runId: string;
   runStatusActivityId: string | null;
@@ -142,6 +83,14 @@ interface PreparedRunResult {
   completionDetail?: string;
 }
 
+interface RunProcessOptions {
+  onChildSpawn?: (child: ChildProcessWithoutNullStreams) => void;
+}
+
+const MAX_CLI_TRACE_ENTRIES = 60;
+const MAX_CLI_TRACE_TOTAL_CHARS = 24_000;
+const MAX_CLI_TRACE_ENTRY_CHARS = 1_200;
+
 class StopRunError extends Error {
   constructor(
     message: string,
@@ -154,12 +103,7 @@ class StopRunError extends Error {
 
 class RuntimeManager extends EventEmitter {
   private readonly states = new Map<string, ProjectState>();
-  private readonly store = new Store<RuntimeStoreSchema>({
-    name: "runtime-sessions",
-    defaults: {
-      sessionsByProjectId: {},
-    },
-  });
+  private readonly historyStore = new SessionHistoryStore();
 
   constructor(private readonly getConfig: () => RuntimeConfig) {
     super();
@@ -168,7 +112,10 @@ class RuntimeManager extends EventEmitter {
 
   enqueueMessage(options: EnqueueMessageOptions): void {
     const prompt = options.prompt.replace(/\r\n/g, "\n");
-    if (!prompt.trim()) {
+    const attachments = this.normalizeAttachments(options.attachments);
+    const normalizedPrompt = prompt.trim() ? prompt : this.describeAttachmentPrompt(attachments);
+
+    if (!normalizedPrompt.trim()) {
       options.onError?.("Prompt cannot be empty");
       return;
     }
@@ -176,7 +123,8 @@ class RuntimeManager extends EventEmitter {
     const state = this.ensureState(options.projectId);
     const pendingRun: PendingRun = {
       ...options,
-      prompt,
+      prompt: normalizedPrompt,
+      attachments,
       runId: options.runId ?? uuidv4(),
       queuedAt: Date.now(),
     };
@@ -234,11 +182,12 @@ class RuntimeManager extends EventEmitter {
       queue: state.queue.map((entry) => ({
         runId: entry.runId,
         prompt: entry.prompt,
+        attachments: this.cloneAttachments(entry.attachments),
         source: entry.source,
         queuedAt: entry.queuedAt,
       })),
       cliTrace: state.cliTrace.map((entry) => ({ ...entry })),
-      messages: state.messages.map((message) => ({ ...message })),
+      messages: state.messages.map((message) => this.cloneMessage(message)),
       activities: state.activities.map((activity) => ({
         ...activity,
         meta: activity.meta ? { ...activity.meta } : undefined,
@@ -250,6 +199,14 @@ class RuntimeManager extends EventEmitter {
     };
   }
 
+  getLatestSyncSeq(projectId: string): number {
+    return this.historyStore.getLatestSeq(projectId);
+  }
+
+  buildSyncDelta(projectId: string, afterSeq = 0) {
+    return this.historyStore.buildSyncDelta(projectId, afterSeq);
+  }
+
   dispose(): void {
     for (const state of this.states.values()) {
       if (state.process && !state.process.killed) {
@@ -257,6 +214,7 @@ class RuntimeManager extends EventEmitter {
       }
       state.process = null;
     }
+    this.historyStore.flushAll();
   }
 
   clearProject(projectId: string): void {
@@ -265,9 +223,7 @@ class RuntimeManager extends EventEmitter {
       state.process.kill();
     }
     this.states.delete(projectId);
-    const sessionsByProjectId = { ...this.store.get("sessionsByProjectId", {}) };
-    delete sessionsByProjectId[projectId];
-    this.store.set("sessionsByProjectId", sessionsByProjectId);
+    this.historyStore.clearProject(projectId);
   }
 
   private async processNext(projectId: string): Promise<void> {
@@ -301,6 +257,7 @@ class RuntimeManager extends EventEmitter {
       id: next.runId,
       role: "user",
       content: next.prompt,
+      attachments: this.cloneAttachments(next.attachments),
       provider: state.provider,
       source: next.source,
       createdAt: Date.now(),
@@ -419,6 +376,7 @@ class RuntimeManager extends EventEmitter {
 
         const parsed = this.safeParse(line);
         if (!parsed || typeof parsed !== "object" || parsed === null) {
+          this.appendCliTrace(state, "stdout", line);
           return;
         }
 
@@ -527,12 +485,14 @@ class RuntimeManager extends EventEmitter {
           }
         }
       },
-      run.prompt,
+      this.buildPromptWithAttachments(run),
     );
   }
 
   private executeCodex(state: ProjectState, run: PendingRun, context: RunContext): Promise<void> {
     const command = process.platform === "win32" ? "codex.cmd" : "codex";
+    let codexChild: ChildProcessWithoutNullStreams | null = null;
+    let logicalCompletionSeen = false;
     const args = state.codexThreadId
       ? [
           "exec",
@@ -559,6 +519,7 @@ class RuntimeManager extends EventEmitter {
       (line) => {
         const parsed = this.safeParse(line);
         if (!parsed || typeof parsed !== "object" || parsed === null) {
+          this.appendCliTrace(state, "stdout", line);
           return;
         }
 
@@ -645,13 +606,42 @@ class RuntimeManager extends EventEmitter {
           return;
         }
 
-        if (event.type === "turn.completed" && context.assistantMessageId) {
-          this.updateMessage(state, context.assistantMessageId, {
-            status: "done",
-          });
+        if (event.type === "turn.completed") {
+          if (context.assistantMessageId) {
+            this.updateMessage(state, context.assistantMessageId, {
+              status: "done",
+            });
+          }
+          logicalCompletionSeen = true;
+          this.appendCliTrace(state, "system", "Codex turn completed.");
+          setTimeout(() => {
+            const child = codexChild;
+            if (!child) {
+              return;
+            }
+            const stillRunning = child.exitCode === null && child.signalCode === null;
+            if (!stillRunning) {
+              return;
+            }
+            if (state.process !== child) {
+              return;
+            }
+            this.appendCliTrace(state, "system", "Codex process lingered after turn.completed; terminating it.");
+            child.kill();
+          }, 1500);
+          return;
+        }
+
+        if (logicalCompletionSeen && event.type === "error") {
+          return;
         }
       },
-      run.prompt,
+      this.buildPromptWithAttachments(run),
+      {
+        onChildSpawn: (child) => {
+          codexChild = child;
+        },
+      },
     );
   }
 
@@ -722,6 +712,7 @@ class RuntimeManager extends EventEmitter {
     cwd: string,
     onStdoutLine: (line: string) => void,
     stdinData?: string,
+    options?: RunProcessOptions,
   ): Promise<void> {
     return new Promise((resolve, reject) => {
       const child = spawn(command, args, {
@@ -734,6 +725,7 @@ class RuntimeManager extends EventEmitter {
       });
 
       state.process = child;
+      options?.onChildSpawn?.(child);
       this.appendCliTrace(state, "system", `$ ${this.formatCliCommand(command, args)}`);
       this.appendCliTrace(state, "system", `cwd ${cwd}`);
       this.appendCliTrace(state, "system", `pid ${child.pid ?? "unknown"}`);
@@ -758,7 +750,6 @@ class RuntimeManager extends EventEmitter {
           if (!trimmed) {
             continue;
           }
-          this.appendCliTrace(state, "stdout", trimmed);
           onStdoutLine(trimmed);
           this.emitSnapshot(state.projectId);
         }
@@ -797,7 +788,6 @@ class RuntimeManager extends EventEmitter {
       child.on("close", (code) => {
         if (stdoutBuffer.trim()) {
           const finalStdout = stdoutBuffer.trim();
-          this.appendCliTrace(state, "stdout", finalStdout);
           onStdoutLine(finalStdout);
           this.emitSnapshot(state.projectId);
         }
@@ -835,10 +825,11 @@ class RuntimeManager extends EventEmitter {
       return;
     }
 
+    const traceText = this.limitCliTraceEntry(normalized);
     state.cliTrace.push({
       id: uuidv4(),
       stream,
-      text: normalized,
+      text: traceText,
       createdAt: Date.now(),
     });
     this.trimCliTrace(state);
@@ -891,12 +882,30 @@ class RuntimeManager extends EventEmitter {
     message.updatedAt = Date.now();
     message.status = "streaming";
     this.trimMessages(state);
+    this.historyStore.upsertMessage(state.projectId, message);
+    this.emitSnapshot(state.projectId);
   }
 
   private addMessage(state: ProjectState, message: SessionMessage): void {
     state.messages.push(message);
     this.trimMessages(state);
+    this.historyStore.upsertMessage(state.projectId, message);
     this.emitSnapshot(state.projectId);
+  }
+
+  private cloneAttachments(attachments?: RunAttachment[]): RunAttachment[] | undefined {
+    if (!attachments || attachments.length === 0) {
+      return undefined;
+    }
+
+    return attachments.map((attachment) => ({ ...attachment }));
+  }
+
+  private cloneMessage(message: SessionMessage): SessionMessage {
+    return {
+      ...message,
+      attachments: this.cloneAttachments(message.attachments),
+    };
   }
 
   private updateMessage(
@@ -916,12 +925,14 @@ class RuntimeManager extends EventEmitter {
       message.status = patch.status;
     }
     message.updatedAt = Date.now();
+    this.historyStore.upsertMessage(state.projectId, message);
     this.emitSnapshot(state.projectId);
   }
 
   private addActivity(state: ProjectState, activity: SessionActivity): string {
     state.activities.push(activity);
     this.trimActivities(state);
+    this.historyStore.upsertActivity(state.projectId, activity);
     this.emitSnapshot(state.projectId);
     return activity.id;
   }
@@ -946,6 +957,7 @@ class RuntimeManager extends EventEmitter {
       activity.meta = patch.meta;
     }
     activity.updatedAt = Date.now();
+    this.historyStore.upsertActivity(state.projectId, activity);
     this.emitSnapshot(state.projectId);
   }
 
@@ -957,6 +969,7 @@ class RuntimeManager extends EventEmitter {
 
     activity.detail += chunk;
     activity.updatedAt = Date.now();
+    this.historyStore.upsertActivity(state.projectId, activity);
     this.emitSnapshot(state.projectId);
   }
 
@@ -986,6 +999,7 @@ class RuntimeManager extends EventEmitter {
         activity.detail = detail;
       }
       activity.updatedAt = Date.now();
+      this.historyStore.upsertActivity(state.projectId, activity);
     }
 
     this.emitSnapshot(state.projectId);
@@ -1010,6 +1024,57 @@ class RuntimeManager extends EventEmitter {
 
   private getProviderLabel(provider: CliProvider): string {
     return provider === "codex" ? "OpenAI Codex" : "Claude Code";
+  }
+
+  private normalizeAttachments(attachments?: RunAttachment[]): RunAttachment[] | undefined {
+    if (!attachments || attachments.length === 0) {
+      return undefined;
+    }
+
+    const normalized = attachments
+      .filter((attachment) => attachment && typeof attachment.path === "string" && attachment.path.trim())
+      .map((attachment) => ({
+        id: attachment.id || uuidv4(),
+        name: attachment.name?.trim() || "attachment",
+        path: attachment.path.trim(),
+        size: Number.isFinite(attachment.size) ? Math.max(0, attachment.size) : 0,
+        kind: attachment.kind === "image" ? "image" as const : "file" as const,
+      }));
+
+    return normalized.length > 0 ? normalized : undefined;
+  }
+
+  private describeAttachmentPrompt(attachments?: RunAttachment[]): string {
+    if (!attachments || attachments.length === 0) {
+      return "";
+    }
+
+    if (attachments.length === 1) {
+      const [attachment] = attachments;
+      return attachment.kind === "image"
+        ? `Inspect the attached image "${attachment.name}".`
+        : `Inspect the attached file "${attachment.name}".`;
+    }
+
+    return "Inspect the attached local files.";
+  }
+
+  private buildPromptWithAttachments(run: PendingRun): string {
+    const attachments = this.normalizeAttachments(run.attachments);
+    if (!attachments || attachments.length === 0) {
+      return run.prompt;
+    }
+
+    const lines = [run.prompt.trim() || this.describeAttachmentPrompt(attachments), "", "Local attachments:"];
+    for (const attachment of attachments) {
+      lines.push(`- [${attachment.kind}] ${attachment.name}: ${attachment.path}`);
+    }
+    lines.push("Use the exact local paths above when you inspect or modify these attachments.");
+    if (attachments.some((attachment) => attachment.kind === "image")) {
+      lines.push("If an attachment is an image, open the image file directly instead of inferring from its filename.");
+    }
+
+    return lines.join("\n");
   }
 
   private parseSlashCommand(prompt: string): SlashCommand | null {
@@ -1109,11 +1174,22 @@ class RuntimeManager extends EventEmitter {
   }
 
   private restorePersistedStates(): void {
-    const persisted = this.store.get("sessionsByProjectId", {});
-    for (const [projectId, snapshot] of Object.entries(persisted)) {
+    for (const { projectId, state: snapshot } of this.historyStore.getAllProjects()) {
+      const restoredQueue = (snapshot.queue ?? [])
+        .filter((entry) => entry.source === "desktop")
+        .map((entry) => ({
+          projectId,
+          cwd: entry.cwd,
+          prompt: entry.prompt,
+          attachments: this.normalizeAttachments(entry.attachments),
+          source: entry.source,
+          runId: entry.runId,
+          queuedAt: entry.queuedAt,
+        }));
+
       this.states.set(projectId, {
         projectId,
-        queue: [],
+        queue: restoredQueue,
         active: false,
         provider: this.getResolvedProvider(projectId),
         model: this.getResolvedModel(projectId),
@@ -1135,28 +1211,11 @@ class RuntimeManager extends EventEmitter {
         process: null,
         pendingStop: null,
       });
-    }
-  }
 
-  private persistState(projectId: string): void {
-    const state = this.states.get(projectId);
-    if (!state) {
-      return;
+      if (restoredQueue.length > 0) {
+        void this.processNext(projectId);
+      }
     }
-
-    const sessionsByProjectId = {
-      ...this.store.get("sessionsByProjectId", {}),
-      [projectId]: {
-        messages: state.messages.map((message) => ({ ...message })),
-        activities: state.activities.map((activity) => ({
-          ...activity,
-          meta: activity.meta ? { ...activity.meta } : undefined,
-        })),
-        claudeSessionId: state.claudeSessionId,
-        codexThreadId: state.codexThreadId,
-      },
-    };
-    this.store.set("sessionsByProjectId", sessionsByProjectId);
   }
 
   private ensureState(projectId: string): ProjectState {
@@ -1191,29 +1250,53 @@ class RuntimeManager extends EventEmitter {
   }
 
   private emitSnapshot(projectId: string): void {
-    this.persistState(projectId);
+    const state = this.states.get(projectId);
+    if (state) {
+      this.historyStore.updateProjectMeta(projectId, {
+        queue: state.queue
+          .filter((entry) => entry.source === "desktop")
+          .map((entry) => ({
+            runId: entry.runId,
+            cwd: entry.cwd,
+            prompt: entry.prompt,
+            attachments: this.cloneAttachments(entry.attachments),
+            source: entry.source,
+            queuedAt: entry.queuedAt,
+          })),
+        claudeSessionId: state.claudeSessionId,
+        codexThreadId: state.codexThreadId,
+      });
+    }
     this.emit("snapshot", projectId, this.getSnapshot(projectId));
   }
 
   private trimMessages(state: ProjectState): void {
-    const maxMessages = 80;
-    if (state.messages.length > maxMessages) {
-      state.messages.splice(0, state.messages.length - maxMessages);
-    }
+    void state;
   }
 
   private trimActivities(state: ProjectState): void {
-    const maxActivities = 160;
-    if (state.activities.length > maxActivities) {
-      state.activities.splice(0, state.activities.length - maxActivities);
-    }
+    void state;
   }
 
   private trimCliTrace(state: ProjectState): void {
-    const maxCliTraceEntries = 240;
-    if (state.cliTrace.length > maxCliTraceEntries) {
-      state.cliTrace.splice(0, state.cliTrace.length - maxCliTraceEntries);
+    if (state.cliTrace.length > MAX_CLI_TRACE_ENTRIES) {
+      state.cliTrace.splice(0, state.cliTrace.length - MAX_CLI_TRACE_ENTRIES);
     }
+
+    let totalChars = state.cliTrace.reduce((sum, entry) => sum + entry.text.length, 0);
+    while (state.cliTrace.length > 1 && totalChars > MAX_CLI_TRACE_TOTAL_CHARS) {
+      const removed = state.cliTrace.shift();
+      totalChars -= removed?.text.length ?? 0;
+    }
+  }
+
+  private limitCliTraceEntry(text: string): string {
+    if (text.length <= MAX_CLI_TRACE_ENTRY_CHARS) {
+      return text;
+    }
+
+    const preservedTail = text.slice(-MAX_CLI_TRACE_ENTRY_CHARS);
+    return `... earlier output omitted ...\n${preservedTail}`;
   }
 
   private formatToolInput(input: unknown): string {
@@ -1259,3 +1342,13 @@ class RuntimeManager extends EventEmitter {
 }
 
 export default RuntimeManager;
+export type {
+  CliProvider,
+  CliTraceEntry,
+  ProjectSessionSnapshot,
+  QueuedRunSnapshot,
+  RunAttachment,
+  RunSource,
+  SessionActivity,
+  SessionMessage,
+} from "./runtime-types";

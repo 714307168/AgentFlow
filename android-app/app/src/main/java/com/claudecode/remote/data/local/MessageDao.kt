@@ -23,6 +23,20 @@ interface MessageDao {
     @Query("DELETE FROM messages WHERE projectId = :projectId")
     suspend fun deleteMessagesByProject(projectId: String)
 
+    @Query(
+        """
+        DELETE FROM messages
+        WHERE projectId = :projectId
+          AND id NOT IN (
+            SELECT id FROM messages
+            WHERE projectId = :projectId
+            ORDER BY syncSeq DESC, timestamp DESC, id DESC
+            LIMIT :keepCount
+          )
+        """
+    )
+    suspend fun pruneProjectMessages(projectId: String, keepCount: Int)
+
     @Query("DELETE FROM messages")
     suspend fun deleteAllMessages()
 }
