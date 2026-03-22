@@ -53,6 +53,12 @@ export interface ProjectSyncDelta {
   truncated: boolean;
 }
 
+export interface ProjectSyncRequest {
+  afterSeq?: number;
+  beforeSeq?: number;
+  limit?: number;
+}
+
 interface LegacyPersistedProjectState {
   queue?: PersistedQueuedRun[];
   messages?: SessionMessage[];
@@ -177,8 +183,14 @@ class SessionHistoryStore {
     this.scheduleWrite(projectId);
   }
 
-  buildSyncDelta(projectId: string, afterSeq = 0): ProjectSyncDelta {
+  buildSyncDelta(projectId: string, request: number | ProjectSyncRequest = 0): ProjectSyncDelta {
     const state = this.getProjectState(projectId);
+    const options = typeof request === "number"
+      ? { afterSeq: request }
+      : request;
+    const afterSeq = Number(options.afterSeq) > 0 ? Number(options.afterSeq) : 0;
+    const beforeSeq = Number(options.beforeSeq) > 0 ? Number(options.beforeSeq) : 0;
+    const limit = Number(options.limit) > 0 ? Math.max(1, Number(options.limit)) : MAX_SYNC_ITEMS;
     const changes: ProjectSyncChange[] = [];
 
     for (const message of state.messages) {
@@ -212,13 +224,15 @@ class SessionHistoryStore {
 
     changes.sort((left, right) => left.seq - right.seq || left.createdAt - right.createdAt);
 
-    let items = afterSeq > 0
-      ? changes.filter((entry) => entry.seq > afterSeq)
-      : changes;
+    let items = beforeSeq > 0
+      ? changes.filter((entry) => entry.seq < beforeSeq)
+      : (afterSeq > 0
+        ? changes.filter((entry) => entry.seq > afterSeq)
+        : changes);
 
     let truncated = false;
-    if (items.length > MAX_SYNC_ITEMS) {
-      items = items.slice(-MAX_SYNC_ITEMS);
+    if (items.length > limit) {
+      items = items.slice(-limit);
       truncated = true;
     }
 

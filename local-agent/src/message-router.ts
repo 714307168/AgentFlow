@@ -227,10 +227,17 @@ class MessageRouter {
     }
 
     const snapshot = this.options.runtimeManager.getSnapshot(projectId);
-    const payloadObject = env.payload as { after_seq?: number } | undefined;
+    const payloadObject = env.payload as { after_seq?: number; before_seq?: number } | undefined;
     const afterSeq = Number(payloadObject?.after_seq) > 0 ? Number(payloadObject?.after_seq) : 0;
-    const delta = this.options.runtimeManager.buildSyncDelta(projectId, afterSeq);
-    const payload = buildSessionSyncPayload(snapshot, delta, afterSeq);
+    const beforeSeq = Number(payloadObject?.before_seq) > 0 ? Number(payloadObject?.before_seq) : 0;
+    const delta = this.options.runtimeManager.buildSyncDelta(projectId, {
+      afterSeq,
+      beforeSeq,
+    });
+    const payload = buildSessionSyncPayload(snapshot, delta, {
+      afterSeq,
+      beforeSeq,
+    });
     this.relayClient.send({
       id: uuidv4(),
       event: Events.SESSION_SYNC,

@@ -6,6 +6,12 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import kotlinx.coroutines.flow.Flow
 
+data class ProjectSyncBounds(
+    val earliestSyncSeq: Long?,
+    val latestSyncSeq: Long?,
+    val messageCount: Int
+)
+
 @Dao
 interface MessageDao {
     @Query("SELECT * FROM messages WHERE projectId = :projectId ORDER BY timestamp ASC")
@@ -13,6 +19,18 @@ interface MessageDao {
 
     @Query("SELECT * FROM messages WHERE id = :messageId LIMIT 1")
     suspend fun getMessageById(messageId: String): MessageEntity?
+
+    @Query(
+        """
+        SELECT
+            MIN(CASE WHEN syncSeq > 0 THEN syncSeq END) AS earliestSyncSeq,
+            MAX(CASE WHEN syncSeq > 0 THEN syncSeq END) AS latestSyncSeq,
+            COUNT(CASE WHEN syncSeq > 0 THEN 1 END) AS messageCount
+        FROM messages
+        WHERE projectId = :projectId
+        """
+    )
+    suspend fun getProjectSyncBounds(projectId: String): ProjectSyncBounds?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMessage(message: MessageEntity)

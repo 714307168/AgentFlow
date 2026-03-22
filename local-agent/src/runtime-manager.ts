@@ -10,7 +10,11 @@ import {
   getUniqueAttachmentPath,
   isImageAttachment,
 } from "./attachment-utils";
-import SessionHistoryStore, { PersistedProjectState, PersistedQueuedRun } from "./session-history-store";
+import SessionHistoryStore, {
+  PersistedProjectState,
+  PersistedQueuedRun,
+  ProjectSyncRequest,
+} from "./session-history-store";
 import type {
   CliProvider,
   CliTraceEntry,
@@ -218,8 +222,8 @@ class RuntimeManager extends EventEmitter {
     return this.historyStore.getLatestSeq(projectId);
   }
 
-  buildSyncDelta(projectId: string, afterSeq = 0) {
-    return this.historyStore.buildSyncDelta(projectId, afterSeq);
+  buildSyncDelta(projectId: string, request: number | ProjectSyncRequest = 0) {
+    return this.historyStore.buildSyncDelta(projectId, request);
   }
 
   dispose(): void {

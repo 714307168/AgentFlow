@@ -61,7 +61,7 @@ class MessageRepository(
     private val context: Context
 ) {
     companion object {
-        private const val MAX_PROJECT_MESSAGES = 200
+        private const val MAX_PROJECT_MESSAGES = 5000
         private const val FILE_CHUNK_SIZE = 64 * 1024
         private const val FILE_UPLOAD_TIMEOUT_MS = 120_000L
         private const val MAX_PREVIEW_EDGE = 480
@@ -81,6 +81,11 @@ class MessageRepository(
         val mimeType: String
     )
 
+    private data class AppliedSyncWindow(
+        val earliestSeq: Long?,
+        val highestSeq: Long
+    )
+
     private val db = AppDatabase.getInstance(context)
     private val messageDao = db.messageDao()
     private val sessionDao = db.sessionDao()
@@ -88,9 +93,36 @@ class MessageRepository(
     private val pendingUploadAcks = ConcurrentHashMap<String, CompletableDeferred<UploadAck>>()
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
-    suspend fun requestProjectSync(projectId: String, agentId: String? = null) {
-        wakeupAgent(agentId)
-        val afterSeq = sessionDao.getSessionByProjectId(projectId)?.lastSyncSeq ?: 0L
+    suspend fun requestProjectSync(
+        projectId: String,
+        agentId: String? = null,
+        afterSeqOverride: Long? = null,
+        beforeSeq: Long? = null,
+        shouldWakeAgent: Boolean = true
+    ) {
+        if (shouldWakeAgent) {
+            wakeupAgent(agentId)
+        }
+        val storedAfterSeq = sessionDao.getSessionByProjectId(projectId)?.lastSyncSeq ?: 0L
+        var afterSeq = afterSeqOverride ?: storedAfterSeq
+
+        if (beforeSeq == null && afterSeqOverride == null && storedAfterSeq > 0L) {
+            val syncBounds = messageDao.getProjectSyncBounds(projectId)
+            val earliestLoadedSeq = syncBounds?.earliestSyncSeq ?: 0L
+            val latestLoadedSeq = syncBounds?.latestSyncSeq ?: 0L
+            val messageCount = syncBounds?.messageCount ?: 0
+            val expectedEarliestSeq = maxOf(1L, storedAfterSeq - messageCount + 1L)
+            val hasGap = messageCount == 0
+                || latestLoadedSeq < storedAfterSeq
+                || (earliestLoadedSeq > 0L && earliestLoadedSeq > expectedEarliestSeq)
+            if (hasGap) {
+                CrashLogger.logInfo(
+                    "MessageRepository",
+                    "Detected incomplete local sync for projectId=$projectId storedAfterSeq=$storedAfterSeq earliest=$earliestLoadedSeq latest=$latestLoadedSeq count=$messageCount; forcing full resync"
+                )
+                afterSeq = 0L
+            }
+        }
 
         webSocket.send(
             Envelope(
@@ -99,6 +131,9 @@ class MessageRepository(
                 projectId = projectId,
                 payload = buildJsonObject {
                     put("after_seq", JsonPrimitive(afterSeq))
+                    beforeSeq?.takeIf { it > 0L }?.let {
+                        put("before_seq", JsonPrimitive(it))
+                    }
                 },
                 ts = System.currentTimeMillis()
             )
@@ -331,12 +366,31 @@ class MessageRepository(
                 val syncObj = payloadObj["sync"]?.jsonObject
                 if (syncObj != null) {
                     val latestSeq = syncObj["latest_seq"]?.jsonPrimitive?.longOrNull ?: 0L
+                    val requestedAfterSeq = syncObj["after_seq"]?.jsonPrimitive?.longOrNull ?: 0L
+                    val requestedBeforeSeq = syncObj["before_seq"]?.jsonPrimitive?.longOrNull
+                        ?.takeIf { it > 0L }
+                    val truncated = syncObj["truncated"]?.jsonPrimitive?.booleanOrNull ?: false
                     val items = syncObj["items"]?.jsonArray ?: JsonArray(emptyList())
                     CrashLogger.logInfo(
                         "MessageRepository",
-                        "Received session.sync v2 for projectId=$projectId items=${items.size} latestSeq=$latestSeq running=$isRunning queued=$queuedCount"
+                        "Received session.sync v2 for projectId=$projectId items=${items.size} latestSeq=$latestSeq afterSeq=$requestedAfterSeq beforeSeq=${requestedBeforeSeq ?: 0L} truncated=$truncated running=$isRunning queued=$queuedCount"
                     )
-                    applyProjectSyncDelta(projectId, items, latestSeq, envelope.ts)
+                    val applied = applyProjectSyncDelta(
+                        projectId = projectId,
+                        rawItems = items,
+                        latestSeq = latestSeq,
+                        fallbackTimestamp = envelope.ts,
+                        requestAfterSeq = requestedAfterSeq,
+                        requestBeforeSeq = requestedBeforeSeq,
+                        truncated = truncated
+                    )
+                    maybeRequestProjectBackfill(
+                        projectId = projectId,
+                        requestAfterSeq = requestedAfterSeq,
+                        requestBeforeSeq = requestedBeforeSeq,
+                        truncated = truncated,
+                        earliestReceivedSeq = applied.earliestSeq
+                    )
                 } else {
                     val messages = payloadObj["messages"]?.jsonArray ?: JsonArray(emptyList())
                     val activities = payloadObj["activities"]?.jsonArray ?: JsonArray(emptyList())
@@ -368,9 +422,16 @@ class MessageRepository(
         projectId: String,
         rawItems: JsonArray,
         latestSeq: Long,
-        fallbackTimestamp: Long
-    ) {
+        fallbackTimestamp: Long,
+        requestAfterSeq: Long,
+        requestBeforeSeq: Long?,
+        truncated: Boolean
+    ): AppliedSyncWindow {
+        var earliestSeq: Long? = null
+        var highestSeq = 0L
+
         db.withTransaction {
+            val currentLastSeq = sessionDao.getSessionByProjectId(projectId)?.lastSyncSeq ?: 0L
             rawItems.forEachIndexed { index, item ->
                 val entity = runCatching {
                     parseSyncItem(projectId, item.jsonObject, fallbackTimestamp)
@@ -386,12 +447,63 @@ class MessageRepository(
                 if (existing != null && existing.syncSeq > entity.syncSeq) {
                     return@forEachIndexed
                 }
+
+                earliestSeq = earliestSeq?.let { minOf(it, entity.syncSeq) } ?: entity.syncSeq
+                highestSeq = maxOf(highestSeq, entity.syncSeq)
                 messageDao.insertMessage(mergeMessageEntity(existing, entity))
             }
 
             messageDao.pruneProjectMessages(projectId, MAX_PROJECT_MESSAGES)
-            sessionDao.updateLastSyncSeq(projectId, latestSeq)
+            val nextLastSyncSeq = when {
+                requestBeforeSeq != null -> maxOf(currentLastSeq, highestSeq)
+                rawItems.isEmpty() && !truncated -> maxOf(currentLastSeq, latestSeq)
+                truncated -> maxOf(currentLastSeq, highestSeq)
+                else -> maxOf(currentLastSeq, latestSeq, highestSeq)
+            }
+            sessionDao.updateLastSyncSeq(projectId, nextLastSyncSeq)
         }
+
+        return AppliedSyncWindow(
+            earliestSeq = earliestSeq,
+            highestSeq = highestSeq
+        )
+    }
+
+    private suspend fun maybeRequestProjectBackfill(
+        projectId: String,
+        requestAfterSeq: Long,
+        requestBeforeSeq: Long?,
+        truncated: Boolean,
+        earliestReceivedSeq: Long?
+    ) {
+        if (!truncated || earliestReceivedSeq == null || earliestReceivedSeq <= 0L) {
+            return
+        }
+
+        val lowerBound = requestAfterSeq + 1L
+        if (earliestReceivedSeq <= lowerBound) {
+            return
+        }
+        if (requestBeforeSeq != null && earliestReceivedSeq >= requestBeforeSeq) {
+            CrashLogger.logInfo(
+                "MessageRepository",
+                "Skipping backfill loop for projectId=$projectId because earliestReceivedSeq=$earliestReceivedSeq requestBeforeSeq=$requestBeforeSeq"
+            )
+            return
+        }
+
+        val agentId = sessionDao.getSessionByProjectId(projectId)?.agentId
+        CrashLogger.logInfo(
+            "MessageRepository",
+            "Requesting sync backfill for projectId=$projectId afterSeq=$requestAfterSeq beforeSeq=$earliestReceivedSeq lowerBound=$lowerBound"
+        )
+        requestProjectSync(
+            projectId = projectId,
+            agentId = agentId,
+            afterSeqOverride = requestAfterSeq,
+            beforeSeq = earliestReceivedSeq,
+            shouldWakeAgent = false
+        )
     }
 
     private suspend fun mergeProjectMessagesFromDesktop(

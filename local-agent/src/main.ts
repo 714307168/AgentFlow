@@ -386,8 +386,8 @@ function broadcastSessionSync(snapshot: ProjectSessionSnapshot): void {
   const afterSeq = lastBroadcastSyncSeqByProject.has(snapshot.projectId)
     ? (lastBroadcastSyncSeqByProject.get(snapshot.projectId) ?? 0)
     : 0;
-  const delta = runtimeManager.buildSyncDelta(snapshot.projectId, afterSeq);
-  const payload = buildSessionSyncPayload(snapshot, delta, afterSeq);
+  const delta = runtimeManager.buildSyncDelta(snapshot.projectId, { afterSeq });
+  const payload = buildSessionSyncPayload(snapshot, delta, { afterSeq });
   lastBroadcastSyncSeqByProject.set(snapshot.projectId, delta.latestSeq);
   relayClient.send({
     id: uuidv4(),

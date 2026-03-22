@@ -42,6 +42,7 @@ export interface SessionSyncPayload {
   queue: SessionSyncQueuePayload[];
   sync: {
     after_seq: number;
+    before_seq: number | null;
     latest_seq: number;
     truncated: boolean;
     items: SessionSyncItemPayload[];
@@ -106,8 +107,13 @@ function normalizeItems(delta: ProjectSyncDelta): SessionSyncItemPayload[] {
 export function buildSessionSyncPayload(
   snapshot: ProjectSessionSnapshot,
   delta: ProjectSyncDelta,
-  afterSeq: number,
+  request: {
+    afterSeq?: number;
+    beforeSeq?: number;
+  } = {},
 ): SessionSyncPayload {
+  const afterSeq = Number(request.afterSeq) > 0 ? Number(request.afterSeq) : 0;
+  const beforeSeq = Number(request.beforeSeq) > 0 ? Number(request.beforeSeq) : null;
   let payload: SessionSyncPayload = {
     sync_version: 2,
     project_id: snapshot.projectId,
@@ -121,6 +127,7 @@ export function buildSessionSyncPayload(
     queue: buildQueuePayload(snapshot),
     sync: {
       after_seq: afterSeq,
+      before_seq: beforeSeq,
       latest_seq: delta.latestSeq,
       truncated: delta.truncated,
       items: normalizeItems(delta),
@@ -132,6 +139,7 @@ export function buildSessionSyncPayload(
       ...payload,
       sync: {
         ...payload.sync,
+        truncated: true,
         items: payload.sync.items.slice(1).map((item) => ({
           ...item,
           content: trimText(item.content, 1_200),
