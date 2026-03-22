@@ -35,8 +35,16 @@ const MIME_BY_EXTENSION: Record<string, string> = {
   ".csv": "text/csv",
 };
 
-const MAX_PREVIEW_DIMENSION = 420;
-const MAX_PREVIEW_DATA_URL_CHARS = 64_000;
+const DEFAULT_MAX_PREVIEW_DIMENSION = 420;
+const DEFAULT_MAX_PREVIEW_DATA_URL_CHARS = 64_000;
+const DEFAULT_JPEG_QUALITY = 82;
+
+interface PreviewDataUrlOptions {
+  maxDimension?: number;
+  maxDataUrlChars?: number;
+  format?: "png" | "jpeg";
+  jpegQuality?: number;
+}
 
 export function isImageAttachment(filePath: string): boolean {
   return IMAGE_EXTENSIONS.has(path.extname(filePath).toLowerCase());
@@ -80,7 +88,10 @@ export function getUniqueAttachmentPath(projectId: string, fileName: string): st
   return candidate;
 }
 
-function buildPreviewDataUrl(image: NativeImage): string | undefined {
+function buildPreviewDataUrl(
+  image: NativeImage,
+  options: PreviewDataUrlOptions = {},
+): string | undefined {
   if (image.isEmpty()) {
     return undefined;
   }
@@ -90,29 +101,47 @@ function buildPreviewDataUrl(image: NativeImage): string | undefined {
     return undefined;
   }
 
+  const maxDimension = Number.isFinite(options.maxDimension)
+    ? Math.max(1, Math.round(Number(options.maxDimension)))
+    : DEFAULT_MAX_PREVIEW_DIMENSION;
+  const maxDataUrlChars = Number.isFinite(options.maxDataUrlChars)
+    ? Math.max(128, Math.round(Number(options.maxDataUrlChars)))
+    : DEFAULT_MAX_PREVIEW_DATA_URL_CHARS;
   const longestSide = Math.max(size.width, size.height);
-  const shouldResize = longestSide > MAX_PREVIEW_DIMENSION;
+  const shouldResize = longestSide > maxDimension;
   const preview = shouldResize
     ? image.resize({
-        width: Math.max(1, Math.round(size.width * (MAX_PREVIEW_DIMENSION / longestSide))),
-        height: Math.max(1, Math.round(size.height * (MAX_PREVIEW_DIMENSION / longestSide))),
+        width: Math.max(1, Math.round(size.width * (maxDimension / longestSide))),
+        height: Math.max(1, Math.round(size.height * (maxDimension / longestSide))),
       })
     : image;
 
-  const dataUrl = preview.toDataURL();
-  if (!dataUrl || dataUrl.length > MAX_PREVIEW_DATA_URL_CHARS) {
+  const requestedFormat = options.format === "jpeg" ? "jpeg" : "png";
+  const jpegQuality = Number.isFinite(options.jpegQuality)
+    ? Math.max(0, Math.min(100, Math.round(Number(options.jpegQuality))))
+    : DEFAULT_JPEG_QUALITY;
+  const dataUrl = requestedFormat === "jpeg"
+    ? `data:image/jpeg;base64,${preview.toJPEG(jpegQuality).toString("base64")}`
+    : preview.toDataURL();
+  if (!dataUrl || dataUrl.length > maxDataUrlChars) {
     return undefined;
   }
 
   return dataUrl;
 }
 
-export function buildImagePreviewDataUrlFromPath(filePath: string): string | undefined {
-  return buildPreviewDataUrl(nativeImage.createFromPath(filePath));
+export function buildImagePreviewDataUrlFromPath(
+  filePath: string,
+  options?: PreviewDataUrlOptions,
+): string | undefined {
+  return buildPreviewDataUrl(nativeImage.createFromPath(filePath), options);
 }
 
-export function buildImagePreviewDataUrlFromNativeImage(image: NativeImage): string | undefined {
-  return buildPreviewDataUrl(image);
+export function buildImagePreviewDataUrlFromNativeImage(
+  image: NativeImage,
+  options?: PreviewDataUrlOptions,
+): string | undefined {
+  return buildPreviewDataUrl(image, options);
 }
 
 export function createRunAttachmentFromPath(

@@ -1,7 +1,15 @@
 import { ChildProcessWithoutNullStreams, spawn } from "child_process";
 import { EventEmitter } from "events";
+import * as fs from "fs";
+import * as path from "path";
 import { v4 as uuidv4 } from "uuid";
 import appLogger from "./app-logger";
+import {
+  buildImagePreviewDataUrlFromPath,
+  createRunAttachmentFromPath,
+  getUniqueAttachmentPath,
+  isImageAttachment,
+} from "./attachment-utils";
 import SessionHistoryStore, { PersistedProjectState, PersistedQueuedRun } from "./session-history-store";
 import type {
   CliProvider,
@@ -19,6 +27,7 @@ export interface RuntimeConfig {
   getProjectModel: (projectId: string) => string | null;
   updateProject: (projectId: string, updates: { cliModel?: string | null }) => void;
   onProjectConfigChanged?: (projectId: string) => void;
+  captureProjectScreenshot?: (projectId: string) => Promise<RunAttachment>;
 }
 
 export interface EnqueueMessageOptions {
@@ -687,6 +696,24 @@ class RuntimeManager extends EventEmitter {
       };
     }
 
+    if (command.name === "screenshot") {
+      const completionDetail = await this.handleScreenshotSlashCommand(state, run, context);
+      return {
+        run,
+        handledLocally: true,
+        completionDetail,
+      };
+    }
+
+    if (command.name === "send-image") {
+      const completionDetail = this.handleShareImageSlashCommand(state, run, context, command.args);
+      return {
+        run,
+        handledLocally: true,
+        completionDetail,
+      };
+    }
+
     if (state.provider === "codex") {
       if (command.name === "init") {
         const detail = "Headless Codex mode does not expose native slash commands; /init is being emulated with an equivalent AGENTS.md bootstrap prompt.";
@@ -908,6 +935,42 @@ class RuntimeManager extends EventEmitter {
     this.emitSnapshot(state.projectId);
   }
 
+  private addAssistantMessage(
+    state: ProjectState,
+    context: RunContext,
+    run: PendingRun,
+    content: string,
+    attachments?: RunAttachment[],
+  ): void {
+    const messageId = context.assistantMessageId ?? run.responseMessageId ?? uuidv4();
+    const normalizedAttachments = this.cloneAttachments(attachments);
+    context.assistantMessageId = messageId;
+
+    const existing = state.messages.find((entry) => entry.id === messageId);
+    if (existing) {
+      existing.content = content;
+      existing.attachments = normalizedAttachments;
+      existing.updatedAt = Date.now();
+      existing.status = "done";
+      this.trimMessages(state);
+      this.historyStore.upsertMessage(state.projectId, existing);
+      this.emitSnapshot(state.projectId);
+      return;
+    }
+
+    this.addMessage(state, {
+      id: messageId,
+      role: "assistant",
+      content,
+      attachments: normalizedAttachments,
+      provider: state.provider,
+      source: run.source,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      status: "done",
+    });
+  }
+
   private addMessage(state: ProjectState, message: SessionMessage): void {
     state.messages.push(message);
     this.trimMessages(state);
@@ -1126,10 +1189,12 @@ class RuntimeManager extends EventEmitter {
       "- /model: show the current project model.",
       "- /model <name>: switch the current project to a specific model.",
       "- /model auto: return to the provider default model.",
+      "- /screenshot: capture the primary desktop display and send it back into this chat.",
+      "- /send-image <path>: copy a local image into this chat. Relative paths resolve from the project root.",
       "",
       "Provider behavior:",
       "- Claude Code: native slash commands are passed through when Claude's headless mode supports them.",
-      "- OpenAI Codex: headless codex exec does not expose native slash commands, so this app emulates /init, /help, and /model.",
+      "- OpenAI Codex: headless codex exec does not expose native slash commands, so this app emulates local commands such as /help, /model, /screenshot, and /send-image.",
     ];
 
     if (provider === "codex") {
@@ -1142,7 +1207,7 @@ class RuntimeManager extends EventEmitter {
   private buildCodexUnsupportedSlashMessage(commandName: string): string {
     return [
       `/${commandName} is not available in headless Codex mode.`,
-      "This workspace currently emulates /help, /init, and /model for Codex projects.",
+      "This workspace currently emulates /help, /model, /screenshot, and /send-image for Codex projects.",
       "Use a normal prompt for the same intent, or run the full interactive Codex CLI if you need native slash commands.",
     ].join("\n");
   }
@@ -1199,6 +1264,115 @@ class RuntimeManager extends EventEmitter {
     this.appendAssistantText(state, context, run, message);
     run.onTextDelta?.(message);
     return message;
+  }
+
+  private async handleScreenshotSlashCommand(
+    state: ProjectState,
+    run: PendingRun,
+    context: RunContext,
+  ): Promise<string> {
+    const captureProjectScreenshot = this.getConfig().captureProjectScreenshot;
+    if (!captureProjectScreenshot) {
+      const message = "Desktop screenshot capture is not available in this build.";
+      this.appendAssistantText(state, context, run, message);
+      run.onTextDelta?.(message);
+      return message;
+    }
+
+    try {
+      const attachment = await captureProjectScreenshot(state.projectId);
+      this.addAssistantMessage(
+        state,
+        context,
+        run,
+        `Captured a desktop screenshot: ${attachment.name}`,
+        [attachment],
+      );
+      return "Captured and shared a desktop screenshot.";
+    } catch (error) {
+      const message = `Unable to capture a desktop screenshot: ${error instanceof Error ? error.message : String(error)}`;
+      this.appendAssistantText(state, context, run, message);
+      run.onTextDelta?.(message);
+      return message;
+    }
+  }
+
+  private handleShareImageSlashCommand(
+    state: ProjectState,
+    run: PendingRun,
+    context: RunContext,
+    rawArgs: string,
+  ): string {
+    const rawPath = this.unwrapQuotedValue(rawArgs);
+    if (!rawPath) {
+      const message = "Usage: /send-image <absolute-or-relative-path>";
+      this.appendAssistantText(state, context, run, message);
+      run.onTextDelta?.(message);
+      return "Displayed /send-image usage.";
+    }
+
+    try {
+      const attachment = this.createProjectImageAttachment(state.projectId, run.cwd, rawPath);
+      this.addAssistantMessage(
+        state,
+        context,
+        run,
+        `Shared an image from the desktop workspace: ${attachment.name}`,
+        [attachment],
+      );
+      return `Shared image attachment ${attachment.name}.`;
+    } catch (error) {
+      const message = `Unable to share image: ${error instanceof Error ? error.message : String(error)}`;
+      this.appendAssistantText(state, context, run, message);
+      run.onTextDelta?.(message);
+      return message;
+    }
+  }
+
+  private unwrapQuotedValue(rawValue: string): string {
+    const trimmed = rawValue.trim();
+    if (trimmed.length >= 2) {
+      const quote = trimmed[0];
+      if ((quote === "\"" || quote === "'") && trimmed.endsWith(quote)) {
+        return trimmed.slice(1, -1).trim();
+      }
+    }
+    return trimmed;
+  }
+
+  private createProjectImageAttachment(
+    projectId: string,
+    cwd: string,
+    rawPath: string,
+  ): RunAttachment {
+    const resolvedPath = path.isAbsolute(rawPath)
+      ? path.resolve(rawPath)
+      : path.resolve(cwd, rawPath);
+
+    if (!resolvedPath || !fs.existsSync(resolvedPath)) {
+      throw new Error(`File not found: ${resolvedPath || rawPath}`);
+    }
+
+    const stats = fs.statSync(resolvedPath);
+    if (!stats.isFile()) {
+      throw new Error(`Path is not a file: ${resolvedPath}`);
+    }
+    if (!isImageAttachment(resolvedPath)) {
+      throw new Error("Only image files are supported by /send-image.");
+    }
+
+    const stagedPath = getUniqueAttachmentPath(projectId, path.basename(resolvedPath));
+    fs.copyFileSync(resolvedPath, stagedPath);
+    return createRunAttachmentFromPath(stagedPath, {
+      name: path.basename(resolvedPath),
+      kind: "image",
+      previewDataUrl: buildImagePreviewDataUrlFromPath(stagedPath, {
+        maxDimension: 960,
+        maxDataUrlChars: 180_000,
+        format: "jpeg",
+        jpegQuality: 78,
+      }),
+    });
   }
 
   private restorePersistedStates(): void {

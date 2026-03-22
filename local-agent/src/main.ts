@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, dialog, safeStorage, clipboard } from "electron";
+import { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, dialog, safeStorage, clipboard, desktopCapturer, screen } from "electron";
 import "./user-data-bootstrap";
 import * as fs from "fs";
 import * as path from "path";
@@ -16,6 +16,7 @@ import UpdateManager, { UpdateState } from "./update-manager";
 import { Events } from "./types";
 import { t, getLang, setLang, getAllMessages, Lang } from "./i18n";
 import {
+  buildImagePreviewDataUrlFromNativeImage,
   createRunAttachmentFromPath,
   getUniqueAttachmentPath,
   isImageAttachment,
@@ -251,7 +252,41 @@ const runtimeManager = new RuntimeManager(() => ({
     broadcastProjectSnapshot(projectId);
     updateWindowTitles();
   },
+  captureProjectScreenshot: async (projectId) => captureProjectScreenshot(projectId),
 }));
+
+async function captureProjectScreenshot(projectId: string): Promise<RunAttachment> {
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const sources = await desktopCapturer.getSources({
+    types: ["screen"],
+    thumbnailSize: {
+      width: Math.max(1, primaryDisplay.size.width),
+      height: Math.max(1, primaryDisplay.size.height),
+    },
+    fetchWindowIcons: false,
+  });
+
+  const preferredSource = sources.find((source) => String(source.display_id || "") === String(primaryDisplay.id))
+    ?? sources.find((source) => !source.thumbnail.isEmpty());
+  if (!preferredSource || preferredSource.thumbnail.isEmpty()) {
+    throw new Error("No display capture source is available.");
+  }
+
+  const screenshotFileName = `screenshot-${Date.now()}.png`;
+  const targetPath = getUniqueAttachmentPath(projectId, screenshotFileName);
+  fs.writeFileSync(targetPath, preferredSource.thumbnail.toPNG());
+
+  return createRunAttachmentFromPath(targetPath, {
+    name: screenshotFileName,
+    kind: "image",
+    previewDataUrl: buildImagePreviewDataUrlFromNativeImage(preferredSource.thumbnail, {
+      maxDimension: 960,
+      maxDataUrlChars: 180_000,
+      format: "jpeg",
+      jpegQuality: 78,
+    }),
+  });
+}
 
 function getSettingsWindowTitle(): string {
   return t("settings.title");
