@@ -29,6 +29,23 @@ type UserSummary struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
+type AgentScopeSummary struct {
+	ID        string    `json:"id"`
+	UserID    int       `json:"user_id"`
+	Username  string    `json:"username"`
+	Note      string    `json:"note"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type DeviceScopeSummary struct {
+	ID        string    `json:"id"`
+	UserID    int       `json:"user_id"`
+	Username  string    `json:"username"`
+	AgentID   string    `json:"agent_id,omitempty"`
+	Note      string    `json:"note"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 // GetUserByUsername retrieves a user by username
 func (db *DB) GetUserByUsername(username string) (*User, error) {
 	user := &User{}
@@ -324,6 +341,83 @@ func (db *DB) GetUserDevices(userID int) ([]map[string]string, error) {
 	return devices, nil
 }
 
+func (db *DB) ListAgentsForScope(userID int, isAdmin bool) ([]AgentScopeSummary, error) {
+	query := `
+		SELECT
+			a.id,
+			a.user_id,
+			u.username,
+			COALESCE(a.note, ''),
+			a.created_at
+		FROM agents a
+		INNER JOIN users u ON u.id = a.user_id
+	`
+	args := []interface{}{}
+	if !isAdmin {
+		query += " WHERE a.user_id = ?"
+		args = append(args, userID)
+	}
+	query += " ORDER BY a.created_at DESC, a.id ASC"
+
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query scoped agents: %w", err)
+	}
+	defer rows.Close()
+
+	var agents []AgentScopeSummary
+	for rows.Next() {
+		var item AgentScopeSummary
+		if err := rows.Scan(&item.ID, &item.UserID, &item.Username, &item.Note, &item.CreatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan scoped agent: %w", err)
+		}
+		agents = append(agents, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to read scoped agents: %w", err)
+	}
+	return agents, nil
+}
+
+func (db *DB) ListDevicesForScope(userID int, isAdmin bool) ([]DeviceScopeSummary, error) {
+	query := `
+		SELECT
+			d.id,
+			d.user_id,
+			u.username,
+			COALESCE(d.agent_id, ''),
+			COALESCE(d.note, ''),
+			d.created_at
+		FROM devices d
+		INNER JOIN users u ON u.id = d.user_id
+	`
+	args := []interface{}{}
+	if !isAdmin {
+		query += " WHERE d.user_id = ?"
+		args = append(args, userID)
+	}
+	query += " ORDER BY d.created_at DESC, d.id ASC"
+
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query scoped devices: %w", err)
+	}
+	defer rows.Close()
+
+	var devices []DeviceScopeSummary
+	for rows.Next() {
+		var item DeviceScopeSummary
+		if err := rows.Scan(&item.ID, &item.UserID, &item.Username, &item.AgentID, &item.Note, &item.CreatedAt); err != nil {
+			return nil, fmt.Errorf("failed to scan scoped device: %w", err)
+		}
+		devices = append(devices, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to read scoped devices: %w", err)
+	}
+	return devices, nil
+}
+
 func (db *DB) DeleteAgentForUser(agentID string, userID int) error {
 	res, err := db.Exec("DELETE FROM agents WHERE id = ? AND user_id = ?", agentID, userID)
 	if err != nil {
@@ -339,8 +433,38 @@ func (db *DB) DeleteAgentForUser(agentID string, userID int) error {
 	return nil
 }
 
+func (db *DB) DeleteAgent(agentID string) error {
+	res, err := db.Exec("DELETE FROM agents WHERE id = ?", agentID)
+	if err != nil {
+		return fmt.Errorf("failed to delete agent: %w", err)
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to read delete result: %w", err)
+	}
+	if rowsAffected == 0 {
+		return fmt.Errorf("agent not found")
+	}
+	return nil
+}
+
 func (db *DB) DeleteDeviceForUser(deviceID string, userID int) error {
 	res, err := db.Exec("DELETE FROM devices WHERE id = ? AND user_id = ?", deviceID, userID)
+	if err != nil {
+		return fmt.Errorf("failed to delete device: %w", err)
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to read delete result: %w", err)
+	}
+	if rowsAffected == 0 {
+		return fmt.Errorf("device not found")
+	}
+	return nil
+}
+
+func (db *DB) DeleteDevice(deviceID string) error {
+	res, err := db.Exec("DELETE FROM devices WHERE id = ?", deviceID)
 	if err != nil {
 		return fmt.Errorf("failed to delete device: %w", err)
 	}

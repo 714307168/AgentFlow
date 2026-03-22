@@ -13,6 +13,7 @@ import (
 
 	"github.com/claudecode/relay-server/config"
 	"github.com/claudecode/relay-server/db"
+	"github.com/claudecode/relay-server/hub"
 )
 
 type adminSession struct {
@@ -121,8 +122,144 @@ func clearAdminSessionCookie(w http.ResponseWriter, r *http.Request) {
 func AdminUIHandler(cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
 		w.Write([]byte(adminHTML))
 	}
+}
+
+type adminAgentItem struct {
+	ID        string    `json:"id"`
+	UserID    int       `json:"user_id"`
+	Username  string    `json:"username"`
+	Note      string    `json:"note"`
+	Online    bool      `json:"online"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type adminDeviceItem struct {
+	ID        string    `json:"id"`
+	UserID    int       `json:"user_id"`
+	Username  string    `json:"username"`
+	AgentID   string    `json:"agent_id,omitempty"`
+	Note      string    `json:"note"`
+	Online    bool      `json:"online"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type adminUserItem struct {
+	ID                int       `json:"id"`
+	Username          string    `json:"username"`
+	IsAdmin           bool      `json:"is_admin"`
+	AgentCount        int       `json:"agent_count"`
+	DeviceCount       int       `json:"device_count"`
+	OnlineAgentCount  int       `json:"online_agent_count"`
+	OnlineDeviceCount int       `json:"online_device_count"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
+}
+
+type adminOverviewSummary struct {
+	Users         int `json:"users"`
+	Agents        int `json:"agents"`
+	Devices       int `json:"devices"`
+	OnlineAgents  int `json:"online_agents"`
+	OnlineDevices int `json:"online_devices"`
+}
+
+type adminLiveConnection struct {
+	Kind      string    `json:"kind"`
+	ID        string    `json:"id"`
+	UserID    int       `json:"user_id"`
+	Username  string    `json:"username"`
+	AgentID   string    `json:"agent_id,omitempty"`
+	Note      string    `json:"note"`
+	Online    bool      `json:"online"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type adminOverviewResponse struct {
+	Summary     adminOverviewSummary  `json:"summary"`
+	Connections []adminLiveConnection `json:"connections"`
+}
+
+func resolveScopedUserID(session adminSession, requestedUserID int, database *db.DB) (int, error) {
+	if !session.IsAdmin || requestedUserID <= 0 {
+		return session.UserID, nil
+	}
+	if _, err := database.GetUserByID(requestedUserID); err != nil {
+		return 0, err
+	}
+	return requestedUserID, nil
+}
+
+func listScopedAgents(database *db.DB, presence hub.PresenceSnapshot, session adminSession) ([]adminAgentItem, error) {
+	items, err := database.ListAgentsForScope(session.UserID, session.IsAdmin)
+	if err != nil {
+		return nil, err
+	}
+	agents := make([]adminAgentItem, 0, len(items))
+	for _, item := range items {
+		agents = append(agents, adminAgentItem{
+			ID:        item.ID,
+			UserID:    item.UserID,
+			Username:  item.Username,
+			Note:      item.Note,
+			Online:    presence.Agents[item.ID],
+			CreatedAt: item.CreatedAt,
+		})
+	}
+	return agents, nil
+}
+
+func listScopedDevices(database *db.DB, presence hub.PresenceSnapshot, session adminSession) ([]adminDeviceItem, error) {
+	items, err := database.ListDevicesForScope(session.UserID, session.IsAdmin)
+	if err != nil {
+		return nil, err
+	}
+	devices := make([]adminDeviceItem, 0, len(items))
+	for _, item := range items {
+		devices = append(devices, adminDeviceItem{
+			ID:        item.ID,
+			UserID:    item.UserID,
+			Username:  item.Username,
+			AgentID:   item.AgentID,
+			Note:      item.Note,
+			Online:    presence.Devices[item.ID],
+			CreatedAt: item.CreatedAt,
+		})
+	}
+	return devices, nil
+}
+
+func buildAdminUsers(users []db.UserSummary, agents []adminAgentItem, devices []adminDeviceItem) []adminUserItem {
+	onlineAgentsByUser := map[int]int{}
+	onlineDevicesByUser := map[int]int{}
+	for _, agent := range agents {
+		if agent.Online {
+			onlineAgentsByUser[agent.UserID]++
+		}
+	}
+	for _, device := range devices {
+		if device.Online {
+			onlineDevicesByUser[device.UserID]++
+		}
+	}
+
+	items := make([]adminUserItem, 0, len(users))
+	for _, user := range users {
+		items = append(items, adminUserItem{
+			ID:                user.ID,
+			Username:          user.Username,
+			IsAdmin:           user.IsAdmin,
+			AgentCount:        user.AgentCount,
+			DeviceCount:       user.DeviceCount,
+			OnlineAgentCount:  onlineAgentsByUser[user.ID],
+			OnlineDeviceCount: onlineDevicesByUser[user.ID],
+			CreatedAt:         user.CreatedAt,
+			UpdatedAt:         user.UpdatedAt,
+		})
+	}
+	return items
 }
 
 // AdminLoginHandler handles POST /admin/api/login.
@@ -179,7 +316,7 @@ func AdminLogoutHandler() http.HandlerFunc {
 }
 
 // AdminAgentsHandler handles GET/POST /admin/api/agents and DELETE /admin/api/agents/{id}.
-func AdminAgentsHandler(cfg *config.Config, database *db.DB) http.HandlerFunc {
+func AdminAgentsHandler(cfg *config.Config, database *db.DB, h *hub.Hub) http.HandlerFunc {
 	return adminAuth(cfg, func(w http.ResponseWriter, r *http.Request) {
 		session, ok := currentAdminSession(r)
 		if !ok {
@@ -195,7 +332,13 @@ func AdminAgentsHandler(cfg *config.Config, database *db.DB) http.HandlerFunc {
 				http.Error(w, "id required", http.StatusBadRequest)
 				return
 			}
-			if err := database.DeleteAgentForUser(id, session.UserID); err != nil {
+			var err error
+			if session.IsAdmin {
+				err = database.DeleteAgent(id)
+			} else {
+				err = database.DeleteAgentForUser(id, session.UserID)
+			}
+			if err != nil {
 				http.Error(w, err.Error(), http.StatusNotFound)
 				return
 			}
@@ -205,14 +348,20 @@ func AdminAgentsHandler(cfg *config.Config, database *db.DB) http.HandlerFunc {
 		// POST /admin/api/agents
 		if r.Method == http.MethodPost {
 			var body struct {
-				ID   string `json:"id"`
-				Note string `json:"note"`
+				ID     string `json:"id"`
+				Note   string `json:"note"`
+				UserID int    `json:"user_id"`
 			}
 			if err := decodeJSONBody(w, r, &body); err != nil || body.ID == "" {
 				http.Error(w, "id is required", http.StatusBadRequest)
 				return
 			}
-			if err := database.RegisterAgent(body.ID, session.UserID, body.Note); err != nil {
+			targetUserID, err := resolveScopedUserID(session, body.UserID, database)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			if err := database.RegisterAgent(body.ID, targetUserID, body.Note); err != nil {
 				http.Error(w, err.Error(), http.StatusConflict)
 				return
 			}
@@ -222,7 +371,7 @@ func AdminAgentsHandler(cfg *config.Config, database *db.DB) http.HandlerFunc {
 		}
 
 		// GET /admin/api/agents
-		agents, err := database.GetUserAgents(session.UserID)
+		agents, err := listScopedAgents(database, h.PresenceSnapshot(), session)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -232,7 +381,7 @@ func AdminAgentsHandler(cfg *config.Config, database *db.DB) http.HandlerFunc {
 }
 
 // AdminDevicesHandler handles GET/POST /admin/api/devices and DELETE /admin/api/devices/{id}.
-func AdminDevicesHandler(cfg *config.Config, database *db.DB) http.HandlerFunc {
+func AdminDevicesHandler(cfg *config.Config, database *db.DB, h *hub.Hub) http.HandlerFunc {
 	return adminAuth(cfg, func(w http.ResponseWriter, r *http.Request) {
 		session, ok := currentAdminSession(r)
 		if !ok {
@@ -248,7 +397,13 @@ func AdminDevicesHandler(cfg *config.Config, database *db.DB) http.HandlerFunc {
 				http.Error(w, "id required", http.StatusBadRequest)
 				return
 			}
-			if err := database.DeleteDeviceForUser(id, session.UserID); err != nil {
+			var err error
+			if session.IsAdmin {
+				err = database.DeleteDevice(id)
+			} else {
+				err = database.DeleteDeviceForUser(id, session.UserID)
+			}
+			if err != nil {
 				http.Error(w, err.Error(), http.StatusNotFound)
 				return
 			}
@@ -261,23 +416,29 @@ func AdminDevicesHandler(cfg *config.Config, database *db.DB) http.HandlerFunc {
 				ID      string `json:"id"`
 				AgentID string `json:"agent_id"`
 				Note    string `json:"note"`
+				UserID  int    `json:"user_id"`
 			}
 			if err := decodeJSONBody(w, r, &body); err != nil || body.ID == "" {
 				http.Error(w, "id is required", http.StatusBadRequest)
 				return
 			}
+			targetUserID, err := resolveScopedUserID(session, body.UserID, database)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
 			if body.AgentID != "" {
-				belongs, err := database.AgentBelongsToUser(body.AgentID, session.UserID)
+				belongs, err := database.AgentBelongsToUser(body.AgentID, targetUserID)
 				if err != nil {
 					http.Error(w, err.Error(), http.StatusInternalServerError)
 					return
 				}
 				if !belongs {
-					http.Error(w, "agent_id does not belong to current user", http.StatusForbidden)
+					http.Error(w, "agent_id does not belong to target user", http.StatusForbidden)
 					return
 				}
 			}
-			if err := database.RegisterDevice(body.ID, session.UserID, body.AgentID, body.Note); err != nil {
+			if err := database.RegisterDevice(body.ID, targetUserID, body.AgentID, body.Note); err != nil {
 				http.Error(w, err.Error(), http.StatusConflict)
 				return
 			}
@@ -287,7 +448,7 @@ func AdminDevicesHandler(cfg *config.Config, database *db.DB) http.HandlerFunc {
 		}
 
 		// GET /admin/api/devices
-		devices, err := database.GetUserDevices(session.UserID)
+		devices, err := listScopedDevices(database, h.PresenceSnapshot(), session)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -316,9 +477,116 @@ func AdminCheckHandler(cfg *config.Config) http.HandlerFunc {
 	})
 }
 
+// AdminOverviewHandler returns summary cards and live connection rows for the current scope.
+func AdminOverviewHandler(cfg *config.Config, database *db.DB, h *hub.Hub) http.HandlerFunc {
+	return adminAuth(cfg, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		session, ok := currentAdminSession(r)
+		if !ok {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		presence := h.PresenceSnapshot()
+		agents, err := listScopedAgents(database, presence, session)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		devices, err := listScopedDevices(database, presence, session)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		summary := adminOverviewSummary{
+			Users:   1,
+			Agents:  len(agents),
+			Devices: len(devices),
+		}
+		if session.IsAdmin {
+			users, err := database.ListUsers()
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			summary.Users = len(users)
+		}
+
+		connections := make([]adminLiveConnection, 0, len(agents)+len(devices))
+		for _, agent := range agents {
+			if agent.Online {
+				summary.OnlineAgents++
+			}
+			connections = append(connections, adminLiveConnection{
+				Kind:      "agent",
+				ID:        agent.ID,
+				UserID:    agent.UserID,
+				Username:  agent.Username,
+				Note:      agent.Note,
+				Online:    agent.Online,
+				CreatedAt: agent.CreatedAt,
+			})
+		}
+		for _, device := range devices {
+			if device.Online {
+				summary.OnlineDevices++
+			}
+			connections = append(connections, adminLiveConnection{
+				Kind:      "device",
+				ID:        device.ID,
+				UserID:    device.UserID,
+				Username:  device.Username,
+				AgentID:   device.AgentID,
+				Note:      device.Note,
+				Online:    device.Online,
+				CreatedAt: device.CreatedAt,
+			})
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(adminOverviewResponse{
+			Summary:     summary,
+			Connections: connections,
+		})
+	})
+}
+
+// AdminAccountPasswordHandler changes the current signed-in user's password.
+func AdminAccountPasswordHandler(cfg *config.Config, database *db.DB) http.HandlerFunc {
+	return adminAuth(cfg, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		session, ok := currentAdminSession(r)
+		if !ok {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		var body struct {
+			OldPassword string `json:"old_password"`
+			NewPassword string `json:"new_password"`
+		}
+		if err := decodeJSONBody(w, r, &body); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+		if err := database.ChangePassword(session.Username, body.OldPassword, body.NewPassword); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "password_changed"})
+	})
+}
+
 // AdminUsersHandler handles GET/POST /admin/api/users, POST /admin/api/users/{id}/password,
 // and DELETE /admin/api/users/{id}.
-func AdminUsersHandler(cfg *config.Config, database *db.DB) http.HandlerFunc {
+func AdminUsersHandler(cfg *config.Config, database *db.DB, h *hub.Hub) http.HandlerFunc {
 	return adminAuth(cfg, func(w http.ResponseWriter, r *http.Request) {
 		session, ok := currentAdminSession(r)
 		if !ok {
@@ -342,7 +610,18 @@ func AdminUsersHandler(cfg *config.Config, database *db.DB) http.HandlerFunc {
 					http.Error(w, err.Error(), http.StatusInternalServerError)
 					return
 				}
-				json.NewEncoder(w).Encode(users)
+				presence := h.PresenceSnapshot()
+				agents, err := listScopedAgents(database, presence, session)
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+				devices, err := listScopedDevices(database, presence, session)
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+				json.NewEncoder(w).Encode(buildAdminUsers(users, agents, devices))
 				return
 			case http.MethodPost:
 				var body struct {

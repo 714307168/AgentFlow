@@ -1,0 +1,1391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Relay Admin</title>
+  <style>
+    :root {
+      --bg: #eef1f6;
+      --surface: rgba(255, 255, 255, 0.86);
+      --border: rgba(16, 24, 40, 0.08);
+      --text: #122033;
+      --muted: #5f6b7c;
+      --label: #728094;
+      --accent: #1768ff;
+      --accent-strong: #0d4fd1;
+      --success: #0f9f6e;
+      --success-soft: rgba(15, 159, 110, 0.12);
+      --danger: #cf3a4f;
+      --danger-soft: rgba(207, 58, 79, 0.10);
+      --warning: #d08b16;
+      --warning-soft: rgba(208, 139, 22, 0.12);
+      --shadow: 0 24px 64px rgba(22, 34, 60, 0.12);
+      --radius-xl: 28px;
+      --radius-lg: 20px;
+      --radius-md: 16px;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; }
+
+    body {
+      color: var(--text);
+      font: 14px/1.5 "Avenir Next", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(23, 104, 255, 0.12), transparent 32%),
+        radial-gradient(circle at top right, rgba(15, 159, 110, 0.10), transparent 26%),
+        linear-gradient(180deg, #f6f8fb 0%, #edf1f6 50%, #e8edf5 100%);
+    }
+
+    button, input, select { font: inherit; }
+    button { border: 0; cursor: pointer; }
+    .hidden { display: none !important; }
+
+    .page-shell { min-height: 100vh; padding: 24px; }
+    .login-shell { min-height: calc(100vh - 48px); display: grid; place-items: center; }
+
+    .login-card, .app-shell, .card, .table-shell {
+      backdrop-filter: blur(18px);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow);
+    }
+
+    .login-card {
+      width: min(420px, 100%);
+      border-radius: var(--radius-xl);
+      padding: 30px;
+      display: grid;
+      gap: 18px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .brand-mark {
+      width: 48px;
+      height: 48px;
+      border-radius: 16px;
+      background:
+        radial-gradient(circle at top left, rgba(116, 196, 255, 0.95), transparent 38%),
+        linear-gradient(135deg, #17396a, #1768ff);
+      position: relative;
+      flex: 0 0 auto;
+    }
+
+    .brand-mark::before, .brand-mark::after {
+      content: "";
+      position: absolute;
+      background: rgba(255, 255, 255, 0.92);
+      border-radius: 999px;
+    }
+
+    .brand-mark::before { width: 24px; height: 4px; left: 12px; top: 22px; }
+    .brand-mark::after { width: 4px; height: 24px; left: 22px; top: 12px; }
+
+    .brand-copy h1, .brand-copy p, .section-title h2, .section-title p, .login-copy h2, .login-copy p { margin: 0; }
+    .brand-copy h1 { font-size: 18px; letter-spacing: -0.03em; }
+    .brand-copy p, .login-copy p, .section-title p { color: var(--muted); }
+    .login-copy { display: grid; gap: 8px; }
+    .login-copy h2 { font-size: 28px; letter-spacing: -0.04em; }
+    .field-grid { display: grid; gap: 14px; }
+    .field, .form-row { display: grid; gap: 8px; }
+
+    .field label, .form-row label, .toolbar-check, .account-label {
+      color: var(--label);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    input, select {
+      width: 100%;
+      min-width: 0;
+      padding: 12px 14px;
+      border-radius: 14px;
+      border: 1px solid rgba(16, 24, 40, 0.10);
+      background: rgba(255, 255, 255, 0.92);
+      color: var(--text);
+      outline: 0;
+      transition: border-color 0.16s ease, box-shadow 0.16s ease;
+    }
+
+    input:focus, select:focus {
+      border-color: rgba(23, 104, 255, 0.36);
+      box-shadow: 0 0 0 4px rgba(23, 104, 255, 0.10);
+    }
+
+    .primary-btn, .ghost-btn, .danger-btn, .subtle-btn {
+      border-radius: 999px;
+      padding: 11px 18px;
+      transition: transform 0.16s ease, background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+    }
+
+    .primary-btn:hover, .ghost-btn:hover, .danger-btn:hover, .subtle-btn:hover { transform: translateY(-1px); }
+    .primary-btn {
+      background: linear-gradient(135deg, var(--accent), #2e85ff);
+      color: #fff;
+      font-weight: 700;
+      box-shadow: 0 14px 24px rgba(23, 104, 255, 0.22);
+    }
+
+    .ghost-btn, .subtle-btn {
+      background: rgba(255, 255, 255, 0.72);
+      color: var(--text);
+      border: 1px solid rgba(16, 24, 40, 0.10);
+    }
+
+    .danger-btn {
+      background: transparent;
+      color: var(--danger);
+      border: 1px solid rgba(207, 58, 79, 0.22);
+    }
+
+    .danger-btn:hover { background: var(--danger-soft); }
+
+    .login-error {
+      display: none;
+      color: var(--danger);
+      background: rgba(255, 255, 255, 0.82);
+      border: 1px solid rgba(207, 58, 79, 0.18);
+      border-radius: 14px;
+      padding: 12px 14px;
+    }
+
+    .app-shell {
+      width: min(1360px, 100%);
+      margin: 0 auto;
+      border-radius: 30px;
+      overflow: hidden;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 22px 26px;
+      background: rgba(255, 255, 255, 0.92);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .topbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .content { padding: 22px; display: grid; gap: 18px; }
+    .tabs { display: flex; flex-wrap: wrap; gap: 10px; }
+
+    .tab {
+      padding: 10px 16px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.64);
+      border: 1px solid rgba(16, 24, 40, 0.08);
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .tab.active {
+      background: rgba(23, 104, 255, 0.10);
+      border-color: rgba(23, 104, 255, 0.16);
+      color: var(--accent-strong);
+    }
+
+    .panel { display: none; }
+    .panel.active { display: block; }
+    .stats-grid, .account-grid { display: grid; gap: 14px; }
+    .stats-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+    .account-grid { grid-template-columns: minmax(260px, 0.8fr) minmax(0, 1.2fr); }
+
+    .card, .table-shell {
+      border-radius: 24px;
+      padding: 20px;
+    }
+
+    .stat-card { display: grid; gap: 8px; }
+    .stat-label {
+      color: var(--label);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .stat-value { font-size: 34px; letter-spacing: -0.06em; line-height: 1; }
+    .stat-meta { color: var(--muted); font-size: 13px; }
+    .section-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    .section-title { display: grid; gap: 6px; }
+    .section-title h2 { font-size: 22px; letter-spacing: -0.04em; }
+    .endpoint-row, .toolbar, .form-grid { display: grid; gap: 12px; }
+    .endpoint-row { grid-template-columns: minmax(0, 1fr) auto; align-items: center; margin-bottom: 18px; }
+    .toolbar { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 16px; }
+    .toolbar .actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .toolbar-check { display: inline-flex; align-items: center; gap: 8px; padding: 0 4px; }
+    .toolbar-check input { width: auto; min-width: auto; padding: 0; margin: 0; }
+
+    .endpoint-chip, .account-value {
+      padding: 14px 16px;
+      border-radius: 16px;
+      border: 1px solid rgba(16, 24, 40, 0.10);
+      background: rgba(255, 255, 255, 0.88);
+      font-family: "SF Mono", "Consolas", monospace;
+      word-break: break-all;
+    }
+
+    .account-side { display: grid; gap: 14px; }
+    .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .form-row.full { grid-column: 1 / -1; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td {
+      padding: 14px 12px;
+      border-bottom: 1px solid rgba(16, 24, 40, 0.08);
+      text-align: left;
+      vertical-align: middle;
+    }
+
+    th {
+      color: var(--label);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    tr:last-child td { border-bottom: 0; }
+    tr:hover td { background: rgba(255, 255, 255, 0.56); }
+    .mono { font-family: "SF Mono", "Consolas", monospace; font-size: 12px; }
+    .muted { color: var(--muted); }
+    .table-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .empty { padding: 36px 16px; text-align: center; color: var(--muted); }
+
+    .user-badge, .status-pill, .type-pill, .role-pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+    }
+
+    .user-badge { background: rgba(23, 104, 255, 0.08); color: var(--accent-strong); }
+    .role-pill { background: rgba(16, 24, 40, 0.08); color: var(--text); }
+    .role-pill.admin { background: rgba(23, 104, 255, 0.10); color: var(--accent-strong); }
+    .status-pill.online { background: var(--success-soft); color: var(--success); }
+    .status-pill.offline { background: rgba(16, 24, 40, 0.07); color: var(--muted); }
+    .type-pill.agent { background: rgba(23, 104, 255, 0.10); color: var(--accent-strong); }
+    .type-pill.device { background: var(--warning-soft); color: var(--warning); }
+    .lang-switch { min-width: 112px; }
+
+    .toast {
+      position: fixed;
+      right: 24px;
+      bottom: 24px;
+      max-width: min(420px, calc(100vw - 32px));
+      padding: 14px 16px;
+      border-radius: 18px;
+      display: none;
+      z-index: 1000;
+      box-shadow: var(--shadow);
+      background: rgba(255, 255, 255, 0.96);
+    }
+
+    .toast.ok { border: 1px solid rgba(15, 159, 110, 0.18); color: var(--success); }
+    .toast.err { border: 1px solid rgba(207, 58, 79, 0.18); color: var(--danger); }
+
+    @media (max-width: 1180px) {
+      .stats-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .account-grid { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 760px) {
+      .page-shell { padding: 12px; }
+      .login-card, .app-shell, .card, .table-shell { border-radius: 20px; }
+      .topbar { padding: 18px; flex-direction: column; align-items: flex-start; }
+      .content { padding: 16px; }
+      .tab { flex: 1 1 calc(50% - 8px); text-align: center; }
+      .stats-grid, .toolbar, .form-grid, .endpoint-row { grid-template-columns: 1fr; }
+      th, td { padding: 12px 10px; }
+      .table-shell { overflow-x: auto; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page-shell" id="loginPage">
+    <div class="login-shell">
+      <section class="login-card">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true"></div>
+          <div class="brand-copy">
+            <h1>Relay Admin</h1>
+            <p data-i18n="brand.subtitle">Operations Console</p>
+          </div>
+        </div>
+        <div class="login-copy">
+          <h2 data-i18n="login.title">Sign in</h2>
+          <p data-i18n="login.subtitle">Accounts, devices, and desktop inventory.</p>
+        </div>
+        <div class="field-grid">
+          <div class="field">
+            <label for="loginUser" data-i18n="login.username">Username</label>
+            <input id="loginUser" type="text" autocomplete="username" data-i18n-placeholder="login.username.placeholder" placeholder="Username">
+          </div>
+          <div class="field">
+            <label for="loginPass" data-i18n="login.password">Password</label>
+            <input id="loginPass" type="password" autocomplete="current-password" data-i18n-placeholder="login.password.placeholder" placeholder="Password">
+          </div>
+        </div>
+        <button class="primary-btn" id="loginBtn" type="button" data-i18n="login.submit">Sign In</button>
+        <div class="login-error" id="loginError"></div>
+      </section>
+    </div>
+  </div>
+
+  <div class="page-shell hidden" id="dashboard">
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true"></div>
+          <div class="brand-copy">
+            <h1 data-i18n="title">Relay Admin</h1>
+            <p data-i18n="shell.subtitle">Operations Console</p>
+          </div>
+        </div>
+        <div class="topbar-actions">
+          <span class="user-badge" id="currentUserLabel">-</span>
+          <select id="langSwitch" class="lang-switch" aria-label="Language">
+            <option value="en">English</option>
+            <option value="zh">简体中文</option>
+          </select>
+          <button class="ghost-btn" id="logoutBtn" type="button" data-i18n="logout">Sign Out</button>
+        </div>
+      </header>
+
+      <main class="content">
+        <div class="tabs">
+          <button class="tab active" type="button" data-tab="overview" data-i18n="tab.overview">Overview</button>
+          <button class="tab" type="button" data-tab="agents" data-i18n="tab.agents">Agents</button>
+          <button class="tab" type="button" data-tab="devices" data-i18n="tab.devices">Devices</button>
+          <button class="tab hidden" type="button" data-tab="users" id="usersTab" data-i18n="tab.users">Users</button>
+          <button class="tab" type="button" data-tab="account" data-i18n="tab.account">Account</button>
+        </div>
+
+        <section class="panel active" id="overviewPanel">
+          <div class="card">
+            <div class="section-head">
+              <div class="section-title">
+                <h2 data-i18n="overview.heading">Overview</h2>
+                <p data-i18n="overview.subheading">Live connections and current scope.</p>
+              </div>
+            </div>
+            <div class="endpoint-row">
+              <div class="endpoint-chip" id="wsUrl">ws://localhost:8080/ws</div>
+              <button class="subtle-btn" id="copyWsUrlBtn" type="button" data-i18n="btn.copy">Copy</button>
+            </div>
+            <div class="stats-grid">
+              <article class="card stat-card">
+                <div class="stat-label" data-i18n="stats.users">Users</div>
+                <div class="stat-value" id="summaryUsers">0</div>
+                <div class="stat-meta" data-i18n="stats.users.meta">Visible accounts</div>
+              </article>
+              <article class="card stat-card">
+                <div class="stat-label" data-i18n="stats.agents">Agents</div>
+                <div class="stat-value" id="summaryAgents">0</div>
+                <div class="stat-meta" data-i18n="stats.agents.meta">Desktop inventory</div>
+              </article>
+              <article class="card stat-card">
+                <div class="stat-label" data-i18n="stats.devices">Devices</div>
+                <div class="stat-value" id="summaryDevices">0</div>
+                <div class="stat-meta" data-i18n="stats.devices.meta">Mobile inventory</div>
+              </article>
+              <article class="card stat-card">
+                <div class="stat-label" data-i18n="stats.onlineAgents">Online Agents</div>
+                <div class="stat-value" id="summaryOnlineAgents">0</div>
+                <div class="stat-meta" data-i18n="stats.onlineAgents.meta">Live desktop sessions</div>
+              </article>
+              <article class="card stat-card">
+                <div class="stat-label" data-i18n="stats.onlineDevices">Online Devices</div>
+                <div class="stat-value" id="summaryOnlineDevices">0</div>
+                <div class="stat-meta" data-i18n="stats.onlineDevices.meta">Live mobile sessions</div>
+              </article>
+            </div>
+          </div>
+
+          <div class="table-shell">
+            <div class="section-head">
+              <div class="section-title">
+                <h2 data-i18n="connections.heading">Live Connections</h2>
+                <p data-i18n="connections.subheading">Desktop, device, owner, and binding status.</p>
+              </div>
+            </div>
+            <table>
+              <thead id="connectionsHead"></thead>
+              <tbody id="connectionsBody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel" id="agentsPanel">
+          <div class="table-shell">
+            <div class="section-head">
+              <div class="section-title">
+                <h2 data-i18n="agents.heading">Agents</h2>
+                <p data-i18n="agents.subheading">Desktop clients.</p>
+              </div>
+            </div>
+            <form class="toolbar" id="agentForm">
+              <div class="owner-field hidden" id="agentOwnerField">
+                <select id="agentOwner"></select>
+              </div>
+              <input id="agentId" type="text" data-i18n-placeholder="agents.id.placeholder" placeholder="Agent ID">
+              <input id="agentNote" type="text" data-i18n-placeholder="agents.note.placeholder" placeholder="Note">
+              <div class="actions">
+                <button class="primary-btn" type="submit" data-i18n="agents.add">Add Agent</button>
+              </div>
+            </form>
+            <table>
+              <thead id="agentsHead"></thead>
+              <tbody id="agentsBody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel" id="devicesPanel">
+          <div class="table-shell">
+            <div class="section-head">
+              <div class="section-title">
+                <h2 data-i18n="devices.heading">Devices</h2>
+                <p data-i18n="devices.subheading">Mobile clients.</p>
+              </div>
+            </div>
+            <form class="toolbar" id="deviceForm">
+              <div class="owner-field hidden" id="deviceOwnerField">
+                <select id="deviceOwner"></select>
+              </div>
+              <input id="deviceId" type="text" data-i18n-placeholder="devices.id.placeholder" placeholder="Device ID">
+              <select id="deviceAgent"></select>
+              <input id="deviceNote" type="text" data-i18n-placeholder="devices.note.placeholder" placeholder="Note">
+              <div class="actions">
+                <button class="primary-btn" type="submit" data-i18n="devices.add">Add Device</button>
+              </div>
+            </form>
+            <table>
+              <thead id="devicesHead"></thead>
+              <tbody id="devicesBody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel" id="usersPanel">
+          <div class="table-shell">
+            <div class="section-head">
+              <div class="section-title">
+                <h2 data-i18n="users.heading">Users</h2>
+                <p data-i18n="users.subheading">Accounts and online activity.</p>
+              </div>
+            </div>
+            <form class="toolbar" id="userForm">
+              <input id="newUsername" type="text" data-i18n-placeholder="users.username.placeholder" placeholder="Username">
+              <input id="newUserPassword" type="password" data-i18n-placeholder="users.password.placeholder" placeholder="Temporary password">
+              <label class="toolbar-check"><input id="newUserIsAdmin" type="checkbox"><span data-i18n="users.admin">Admin access</span></label>
+              <div class="actions">
+                <button class="primary-btn" type="submit" data-i18n="users.add">Create User</button>
+              </div>
+            </form>
+            <table>
+              <thead id="usersHead"></thead>
+              <tbody id="usersBody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel" id="accountPanel">
+          <div class="account-grid">
+            <div class="card account-side">
+              <div>
+                <div class="account-label" data-i18n="account.username">Username</div>
+                <div class="account-value" id="accountUsername">-</div>
+              </div>
+              <div>
+                <div class="account-label" data-i18n="account.role">Role</div>
+                <div id="accountRoleWrap"></div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="section-head">
+                <div class="section-title">
+                  <h2 data-i18n="account.password.heading">Change Password</h2>
+                  <p data-i18n="account.password.subheading">Update the current account password.</p>
+                </div>
+              </div>
+              <form class="form-grid" id="passwordForm">
+                <div class="form-row">
+                  <label for="oldPassword" data-i18n="account.password.old">Current password</label>
+                  <input id="oldPassword" type="password" autocomplete="current-password" data-i18n-placeholder="account.password.old.placeholder" placeholder="Current password">
+                </div>
+                <div class="form-row">
+                  <label for="newPassword" data-i18n="account.password.new">New password</label>
+                  <input id="newPassword" type="password" autocomplete="new-password" data-i18n-placeholder="account.password.new.placeholder" placeholder="New password">
+                </div>
+                <div class="form-row full">
+                  <label for="confirmPassword" data-i18n="account.password.confirm">Confirm password</label>
+                  <input id="confirmPassword" type="password" autocomplete="new-password" data-i18n-placeholder="account.password.confirm.placeholder" placeholder="Confirm password">
+                </div>
+                <div class="form-row full">
+                  <button class="primary-btn" type="submit" data-i18n="account.password.submit">Save Password</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const $$ = (selector) => Array.from(document.querySelectorAll(selector));
+
+    const emptyOverview = () => ({
+      summary: { users: 0, agents: 0, devices: 0, online_agents: 0, online_devices: 0 },
+      connections: []
+    });
+
+    const state = {
+      currentLang: localStorage.getItem("adminLang") === "zh" ? "zh" : "en",
+      currentUser: null,
+      overview: emptyOverview(),
+      agents: [],
+      devices: [],
+      users: []
+    };
+
+    const dict = {
+      en: {
+        title: "Relay Admin",
+        "brand.subtitle": "Operations Console",
+        "shell.subtitle": "Operations Console",
+        logout: "Sign Out",
+        "login.title": "Sign in",
+        "login.subtitle": "Accounts, devices, and desktop inventory.",
+        "login.username": "Username",
+        "login.password": "Password",
+        "login.username.placeholder": "Username",
+        "login.password.placeholder": "Password",
+        "login.submit": "Sign In",
+        "tab.overview": "Overview",
+        "tab.agents": "Agents",
+        "tab.devices": "Devices",
+        "tab.users": "Users",
+        "tab.account": "Account",
+        "overview.heading": "Overview",
+        "overview.subheading": "Live connections and current scope.",
+        "stats.users": "Users",
+        "stats.users.meta": "Visible accounts",
+        "stats.agents": "Agents",
+        "stats.agents.meta": "Desktop inventory",
+        "stats.devices": "Devices",
+        "stats.devices.meta": "Mobile inventory",
+        "stats.onlineAgents": "Online Agents",
+        "stats.onlineAgents.meta": "Live desktop sessions",
+        "stats.onlineDevices": "Online Devices",
+        "stats.onlineDevices.meta": "Live mobile sessions",
+        "connections.heading": "Live Connections",
+        "connections.subheading": "Desktop, device, owner, and binding status.",
+        "connections.empty": "No live or registered connections.",
+        "connections.table.type": "Type",
+        "connections.table.id": "ID",
+        "connections.table.user": "User",
+        "connections.table.agent": "Bound Agent",
+        "connections.table.note": "Note",
+        "connections.table.status": "Status",
+        "connections.table.created": "Created",
+        "agents.heading": "Agents",
+        "agents.subheading": "Desktop clients.",
+        "agents.id.placeholder": "Agent ID",
+        "agents.note.placeholder": "Note",
+        "agents.add": "Add Agent",
+        "agents.empty": "No agents.",
+        "agents.table.id": "Agent ID",
+        "agents.table.user": "Owner",
+        "agents.table.note": "Note",
+        "agents.table.status": "Status",
+        "agents.table.created": "Created",
+        "devices.heading": "Devices",
+        "devices.subheading": "Mobile clients.",
+        "devices.id.placeholder": "Device ID",
+        "devices.note.placeholder": "Note",
+        "devices.agent.none": "Unbound",
+        "devices.add": "Add Device",
+        "devices.empty": "No devices.",
+        "devices.table.id": "Device ID",
+        "devices.table.user": "Owner",
+        "devices.table.agent": "Bound Agent",
+        "devices.table.note": "Note",
+        "devices.table.status": "Status",
+        "devices.table.created": "Created",
+        "users.heading": "Users",
+        "users.subheading": "Accounts and online activity.",
+        "users.username.placeholder": "Username",
+        "users.password.placeholder": "Temporary password",
+        "users.admin": "Admin access",
+        "users.add": "Create User",
+        "users.empty": "No users.",
+        "users.table.username": "Username",
+        "users.table.role": "Role",
+        "users.table.agents": "Agents",
+        "users.table.devices": "Devices",
+        "users.table.online": "Online",
+        "users.table.created": "Created",
+        "users.resetPassword": "Reset Password",
+        "users.delete": "Delete User",
+        "users.role.admin": "Admin",
+        "users.role.user": "User",
+        "account.username": "Username",
+        "account.role": "Role",
+        "account.password.heading": "Change Password",
+        "account.password.subheading": "Update the current account password.",
+        "account.password.old": "Current password",
+        "account.password.old.placeholder": "Current password",
+        "account.password.new": "New password",
+        "account.password.new.placeholder": "New password",
+        "account.password.confirm": "Confirm password",
+        "account.password.confirm.placeholder": "Confirm password",
+        "account.password.submit": "Save Password",
+        "common.actions": "Actions",
+        "status.online": "Online",
+        "status.offline": "Offline",
+        "status.admin": "Admin",
+        "status.user": "User",
+        "type.agent": "Desktop",
+        "type.device": "Mobile",
+        "btn.copy": "Copy",
+        "btn.delete": "Delete",
+        "toast.copied": "Copied.",
+        "toast.copyFailed": "Copy failed.",
+        "toast.agentAdded": "Agent added.",
+        "toast.agentDeleted": "Agent deleted.",
+        "toast.deviceAdded": "Device added.",
+        "toast.deviceDeleted": "Device deleted.",
+        "toast.userAdded": "User created.",
+        "toast.userDeleted": "User deleted.",
+        "toast.passwordReset": "Password reset.",
+        "toast.passwordChanged": "Password updated.",
+        "toast.enterAgentId": "Enter an agent ID.",
+        "toast.enterDeviceId": "Enter a device ID.",
+        "toast.userFieldsRequired": "Username and password are required.",
+        "toast.passwordRequired": "Password cannot be empty.",
+        "toast.passwordMismatch": "Passwords do not match.",
+        "confirm.deleteAgent": "Delete agent {id}?",
+        "confirm.deleteDevice": "Delete device {id}?",
+        "confirm.deleteUser": "Delete user {username}?",
+        "prompt.resetPassword": "Enter a new password for {username}",
+        "error.invalidCredentials": "Invalid credentials.",
+        "error.unauthorized": "Session expired. Sign in again.",
+        "error.usernameExists": "Username already exists.",
+        "error.agentExists": "Agent ID already exists.",
+        "error.deviceExists": "Device ID already exists.",
+        "error.currentAdminDelete": "Cannot delete the current admin user.",
+        "error.lastAdminDelete": "Cannot delete the last admin user.",
+        "error.userNotFound": "User not found.",
+        "error.agentNotFound": "Agent not found.",
+        "error.deviceNotFound": "Device not found.",
+        "error.usernameRequired": "Username is required.",
+        "error.usernameTooShort": "Username must be at least 3 characters.",
+        "error.usernameTooLong": "Username must be 64 characters or fewer.",
+        "error.usernameWhitespace": "Username cannot contain spaces.",
+        "error.passwordTooShort": "Password must be at least 8 characters.",
+        "error.passwordEmpty": "Password cannot be empty.",
+        "error.passwordConfirmRequired": "Enter the confirmation password.",
+        "error.targetUserBinding": "The bound agent does not belong to the selected user.",
+        "error.adminRequired": "Admin access required.",
+        "error.requestFailed": "Request failed."
+      },
+      zh: {
+        title: "Relay 管理台",
+        "brand.subtitle": "运营控制台",
+        "shell.subtitle": "运营控制台",
+        logout: "退出登录",
+        "login.title": "登录",
+        "login.subtitle": "统一管理账号、设备和桌面端。",
+        "login.username": "用户名",
+        "login.password": "密码",
+        "login.username.placeholder": "用户名",
+        "login.password.placeholder": "密码",
+        "login.submit": "登录",
+        "tab.overview": "概览",
+        "tab.agents": "桌面端",
+        "tab.devices": "设备",
+        "tab.users": "用户",
+        "tab.account": "账户",
+        "overview.heading": "概览",
+        "overview.subheading": "在线连接与当前权限范围。",
+        "stats.users": "用户",
+        "stats.users.meta": "当前可见账号",
+        "stats.agents": "桌面端",
+        "stats.agents.meta": "桌面库存",
+        "stats.devices": "设备",
+        "stats.devices.meta": "移动端库存",
+        "stats.onlineAgents": "在线桌面端",
+        "stats.onlineAgents.meta": "当前在线桌面会话",
+        "stats.onlineDevices": "在线设备",
+        "stats.onlineDevices.meta": "当前在线移动会话",
+        "connections.heading": "实时连接",
+        "connections.subheading": "桌面、设备、归属人与绑定状态。",
+        "connections.empty": "暂无连接记录。",
+        "connections.table.type": "类型",
+        "connections.table.id": "ID",
+        "connections.table.user": "归属用户",
+        "connections.table.agent": "绑定桌面端",
+        "connections.table.note": "备注",
+        "connections.table.status": "状态",
+        "connections.table.created": "创建时间",
+        "agents.heading": "桌面端",
+        "agents.subheading": "桌面客户端。",
+        "agents.id.placeholder": "桌面端 ID",
+        "agents.note.placeholder": "备注",
+        "agents.add": "新增桌面端",
+        "agents.empty": "暂无桌面端。",
+        "agents.table.id": "桌面端 ID",
+        "agents.table.user": "归属用户",
+        "agents.table.note": "备注",
+        "agents.table.status": "状态",
+        "agents.table.created": "创建时间",
+        "devices.heading": "设备",
+        "devices.subheading": "移动客户端。",
+        "devices.id.placeholder": "设备 ID",
+        "devices.note.placeholder": "备注",
+        "devices.agent.none": "未绑定",
+        "devices.add": "新增设备",
+        "devices.empty": "暂无设备。",
+        "devices.table.id": "设备 ID",
+        "devices.table.user": "归属用户",
+        "devices.table.agent": "绑定桌面端",
+        "devices.table.note": "备注",
+        "devices.table.status": "状态",
+        "devices.table.created": "创建时间",
+        "users.heading": "用户",
+        "users.subheading": "账号与在线情况。",
+        "users.username.placeholder": "用户名",
+        "users.password.placeholder": "临时密码",
+        "users.admin": "管理员权限",
+        "users.add": "创建用户",
+        "users.empty": "暂无用户。",
+        "users.table.username": "用户名",
+        "users.table.role": "角色",
+        "users.table.agents": "桌面端",
+        "users.table.devices": "设备",
+        "users.table.online": "在线",
+        "users.table.created": "创建时间",
+        "users.resetPassword": "重置密码",
+        "users.delete": "删除用户",
+        "users.role.admin": "管理员",
+        "users.role.user": "普通用户",
+        "account.username": "用户名",
+        "account.role": "角色",
+        "account.password.heading": "修改密码",
+        "account.password.subheading": "更新当前账户密码。",
+        "account.password.old": "当前密码",
+        "account.password.old.placeholder": "当前密码",
+        "account.password.new": "新密码",
+        "account.password.new.placeholder": "新密码",
+        "account.password.confirm": "确认密码",
+        "account.password.confirm.placeholder": "再次输入新密码",
+        "account.password.submit": "保存密码",
+        "common.actions": "操作",
+        "status.online": "在线",
+        "status.offline": "离线",
+        "status.admin": "管理员",
+        "status.user": "普通用户",
+        "type.agent": "桌面端",
+        "type.device": "移动端",
+        "btn.copy": "复制",
+        "btn.delete": "删除",
+        "toast.copied": "已复制。",
+        "toast.copyFailed": "复制失败。",
+        "toast.agentAdded": "桌面端已新增。",
+        "toast.agentDeleted": "桌面端已删除。",
+        "toast.deviceAdded": "设备已新增。",
+        "toast.deviceDeleted": "设备已删除。",
+        "toast.userAdded": "用户已创建。",
+        "toast.userDeleted": "用户已删除。",
+        "toast.passwordReset": "密码已重置。",
+        "toast.passwordChanged": "密码已更新。",
+        "toast.enterAgentId": "请输入桌面端 ID。",
+        "toast.enterDeviceId": "请输入设备 ID。",
+        "toast.userFieldsRequired": "用户名和密码不能为空。",
+        "toast.passwordRequired": "密码不能为空。",
+        "toast.passwordMismatch": "两次输入的密码不一致。",
+        "confirm.deleteAgent": "确认删除桌面端 {id}？",
+        "confirm.deleteDevice": "确认删除设备 {id}？",
+        "confirm.deleteUser": "确认删除用户 {username}？",
+        "prompt.resetPassword": "为 {username} 输入新密码",
+        "error.invalidCredentials": "用户名或密码错误。",
+        "error.unauthorized": "会话已失效，请重新登录。",
+        "error.usernameExists": "用户名已存在。",
+        "error.agentExists": "桌面端 ID 已存在。",
+        "error.deviceExists": "设备 ID 已存在。",
+        "error.currentAdminDelete": "不能删除当前管理员账号。",
+        "error.lastAdminDelete": "不能删除最后一个管理员账号。",
+        "error.userNotFound": "用户不存在。",
+        "error.agentNotFound": "桌面端不存在。",
+        "error.deviceNotFound": "设备不存在。",
+        "error.usernameRequired": "用户名不能为空。",
+        "error.usernameTooShort": "用户名至少 3 位。",
+        "error.usernameTooLong": "用户名不能超过 64 位。",
+        "error.usernameWhitespace": "用户名不能包含空格。",
+        "error.passwordTooShort": "密码至少 8 位。",
+        "error.passwordEmpty": "密码不能为空。",
+        "error.passwordConfirmRequired": "请输入确认密码。",
+        "error.targetUserBinding": "绑定的桌面端不属于所选用户。",
+        "error.adminRequired": "需要管理员权限。",
+        "error.requestFailed": "请求失败。"
+      }
+    };
+
+    function t(key, params = {}) {
+      const langDict = dict[state.currentLang] || dict.en;
+      let text = langDict[key] || dict.en[key] || key;
+      Object.keys(params).forEach((name) => {
+        text = text.replace(new RegExp("\\{" + name + "\\}", "g"), String(params[name]));
+      });
+      return text;
+    }
+
+    function esc(value) {
+      return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    function fmtDate(value) {
+      if (!value) return "-";
+      return new Date(value).toLocaleString(state.currentLang === "zh" ? "zh-CN" : "en-US");
+    }
+
+    function wsUrl() {
+      return (window.location.protocol === "https:" ? "wss:" : "ws:") + "//" + window.location.host + "/ws";
+    }
+
+    function showToast(message, ok) {
+      const toast = $("toast");
+      toast.textContent = message;
+      toast.className = "toast " + (ok ? "ok" : "err");
+      toast.style.display = "block";
+      clearTimeout(toast._timer);
+      toast._timer = setTimeout(() => { toast.style.display = "none"; }, 2400);
+    }
+
+    function normalizeErrorMessage(message) {
+      const text = String(message || "").trim();
+      if (!text) return t("error.requestFailed");
+      const exact = {
+        "invalid credentials": t("error.invalidCredentials"),
+        "unauthorized": t("error.unauthorized"),
+        "admin access required": t("error.adminRequired"),
+        "username is required": t("error.usernameRequired"),
+        "username must be at least 3 characters long": t("error.usernameTooShort"),
+        "username must be 64 characters or fewer": t("error.usernameTooLong"),
+        "username cannot contain whitespace": t("error.usernameWhitespace"),
+        "password must be at least 8 characters long": t("error.passwordTooShort"),
+        "password cannot be empty": t("error.passwordEmpty"),
+        "cannot delete the current admin user": t("error.currentAdminDelete"),
+        "cannot delete the last admin user": t("error.lastAdminDelete"),
+        "user not found": t("error.userNotFound"),
+        "agent not found": t("error.agentNotFound"),
+        "device not found": t("error.deviceNotFound"),
+        "agent_id does not belong to target user": t("error.targetUserBinding")
+      };
+      if (exact[text]) return exact[text];
+      if (text.includes("users.username") || text.includes("username already exists")) return t("error.usernameExists");
+      if (text.includes("agents.id") || text.includes("agent id already exists")) return t("error.agentExists");
+      if (text.includes("devices.id") || text.includes("device id already exists")) return t("error.deviceExists");
+      return text;
+    }
+
+    async function api(method, path, body) {
+      const response = await fetch(path, {
+        method,
+        credentials: "same-origin",
+        headers: body ? { "Content-Type": "application/json" } : {},
+        body: body ? JSON.stringify(body) : undefined
+      });
+      const raw = await response.text();
+      let data = {};
+      if (raw) {
+        try { data = JSON.parse(raw); } catch (_) { data = {}; }
+      }
+      if (!response.ok) {
+        const error = new Error(normalizeErrorMessage(raw || response.statusText));
+        error.status = response.status;
+        throw error;
+      }
+      return data;
+    }
+
+    function showLogin(clearError = true) {
+      $("dashboard").classList.add("hidden");
+      $("loginPage").classList.remove("hidden");
+      if (clearError) {
+        $("loginError").style.display = "none";
+        $("loginError").textContent = "";
+      }
+    }
+
+    function showDashboardShell() {
+      $("loginPage").classList.add("hidden");
+      $("dashboard").classList.remove("hidden");
+    }
+
+    function handleSessionError(error) {
+      if (!error || error.status !== 401) return false;
+      state.currentUser = null;
+      state.overview = emptyOverview();
+      state.agents = [];
+      state.devices = [];
+      state.users = [];
+      applyI18n();
+      showLogin();
+      showToast(t("error.unauthorized"), false);
+      return true;
+    }
+
+    function roleLabel(isAdmin) {
+      return isAdmin ? t("status.admin") : t("status.user");
+    }
+
+    function renderStatus(isOnline) {
+      return '<span class="status-pill ' + (isOnline ? "online" : "offline") + '">' + esc(isOnline ? t("status.online") : t("status.offline")) + "</span>";
+    }
+
+    function renderType(kind) {
+      return '<span class="type-pill ' + esc(kind) + '">' + esc(kind === "agent" ? t("type.agent") : t("type.device")) + "</span>";
+    }
+
+    function currentOwnerOptions() {
+      if (!state.currentUser) return [];
+      if (!state.currentUser.is_admin) return [{ id: state.currentUser.id, username: state.currentUser.username }];
+      return state.users.map((user) => ({ id: user.id, username: user.username }));
+    }
+
+    function selectedOwnerId(selectId) {
+      if (!state.currentUser) return 0;
+      if (!state.currentUser.is_admin) return state.currentUser.id;
+      return Number($(selectId).value || state.currentUser.id);
+    }
+
+    function refreshOwnerSelects() {
+      const options = currentOwnerOptions();
+      [
+        { field: "agentOwnerField", select: "agentOwner" },
+        { field: "deviceOwnerField", select: "deviceOwner" }
+      ].forEach((item) => {
+        const field = $(item.field);
+        const select = $(item.select);
+        const hidden = !state.currentUser || !state.currentUser.is_admin;
+        field.classList.toggle("hidden", hidden);
+        if (hidden) {
+          select.innerHTML = "";
+          return;
+        }
+        const currentValue = select.value || String(state.currentUser.id);
+        select.innerHTML = options.map((option) => '<option value="' + esc(option.id) + '">' + esc(option.username) + "</option>").join("");
+        select.value = options.some((option) => String(option.id) === currentValue) ? currentValue : String(state.currentUser.id);
+      });
+    }
+
+    function refreshDeviceAgentOptions() {
+      const select = $("deviceAgent");
+      const ownerId = selectedOwnerId("deviceOwner");
+      const currentValue = select.value;
+      const filtered = state.agents.filter((agent) => agent.user_id === ownerId);
+      select.innerHTML = '<option value="">' + esc(t("devices.agent.none")) + "</option>" +
+        filtered.map((agent) => '<option value="' + esc(agent.id) + '">' + esc(agent.id) + "</option>").join("");
+      if (filtered.some((agent) => agent.id === currentValue)) {
+        select.value = currentValue;
+      }
+    }
+
+    function applySessionUI() {
+      $("usersTab").classList.toggle("hidden", !(state.currentUser && state.currentUser.is_admin));
+      $("currentUserLabel").textContent = state.currentUser ? state.currentUser.username + " · " + roleLabel(state.currentUser.is_admin) : "-";
+      if ((!state.currentUser || !state.currentUser.is_admin) && document.querySelector('[data-tab="users"].active')) {
+        activateTab("overview");
+      }
+      refreshOwnerSelects();
+      refreshDeviceAgentOptions();
+    }
+
+    function applyI18n() {
+      document.documentElement.lang = state.currentLang === "zh" ? "zh-CN" : "en";
+      $$("[data-i18n]").forEach((element) => { element.textContent = t(element.dataset.i18n); });
+      $$("[data-i18n-placeholder]").forEach((element) => { element.placeholder = t(element.dataset.i18nPlaceholder); });
+      $("langSwitch").value = state.currentLang;
+      $("wsUrl").textContent = wsUrl();
+      applySessionUI();
+      renderOverview();
+      renderAgents();
+      renderDevices();
+      renderUsers();
+      renderAccount();
+    }
+
+    function activateTab(name) {
+      $$(".tab").forEach((tab) => { tab.classList.toggle("active", tab.dataset.tab === name); });
+      $$(".panel").forEach((panel) => { panel.classList.toggle("active", panel.id === name + "Panel"); });
+    }
+
+    function renderOverview() {
+      const summary = state.overview.summary || {};
+      $("summaryUsers").textContent = String(summary.users ?? 0);
+      $("summaryAgents").textContent = String(summary.agents ?? 0);
+      $("summaryDevices").textContent = String(summary.devices ?? 0);
+      $("summaryOnlineAgents").textContent = String(summary.online_agents ?? 0);
+      $("summaryOnlineDevices").textContent = String(summary.online_devices ?? 0);
+      $("connectionsHead").innerHTML = "<tr><th>" + esc(t("connections.table.type")) + "</th><th>" + esc(t("connections.table.id")) + "</th><th>" + esc(t("connections.table.user")) + "</th><th>" + esc(t("connections.table.agent")) + "</th><th>" + esc(t("connections.table.note")) + "</th><th>" + esc(t("connections.table.status")) + "</th><th>" + esc(t("connections.table.created")) + "</th></tr>";
+      const rows = [...(state.overview.connections || [])].sort((left, right) => {
+        if (left.online !== right.online) return left.online ? -1 : 1;
+        if (left.kind !== right.kind) return left.kind.localeCompare(right.kind);
+        return String(left.id).localeCompare(String(right.id));
+      });
+      if (!rows.length) {
+        $("connectionsBody").innerHTML = '<tr><td colspan="7" class="empty">' + esc(t("connections.empty")) + "</td></tr>";
+        return;
+      }
+      $("connectionsBody").innerHTML = rows.map((row) => "<tr><td>" + renderType(row.kind) + '</td><td class="mono">' + esc(row.id) + '</td><td class="mono">' + esc(row.username) + '</td><td class="mono">' + esc(row.kind === "device" ? (row.agent_id || "-") : "-") + '</td><td class="muted">' + esc(row.note || "") + "</td><td>" + renderStatus(Boolean(row.online)) + '</td><td class="mono">' + esc(fmtDate(row.created_at)) + "</td></tr>").join("");
+    }
+
+    function renderAgents() {
+      const showOwner = Boolean(state.currentUser && state.currentUser.is_admin);
+      $("agentsHead").innerHTML = "<tr><th>" + esc(t("agents.table.id")) + "</th>" + (showOwner ? "<th>" + esc(t("agents.table.user")) + "</th>" : "") + "<th>" + esc(t("agents.table.note")) + "</th><th>" + esc(t("agents.table.status")) + "</th><th>" + esc(t("agents.table.created")) + "</th><th>" + esc(t("common.actions")) + "</th></tr>";
+      if (!state.agents.length) {
+        $("agentsBody").innerHTML = '<tr><td colspan="' + (showOwner ? 6 : 5) + '" class="empty">' + esc(t("agents.empty")) + "</td></tr>";
+        return;
+      }
+      $("agentsBody").innerHTML = state.agents.map((agent) => "<tr><td class=\"mono\">" + esc(agent.id) + "</td>" + (showOwner ? '<td class="mono">' + esc(agent.username) + "</td>" : "") + '<td class="muted">' + esc(agent.note || "") + "</td><td>" + renderStatus(Boolean(agent.online)) + '</td><td class="mono">' + esc(fmtDate(agent.created_at)) + '</td><td><div class="table-actions"><button type="button" class="danger-btn" data-action="delete-agent" data-id="' + esc(agent.id) + '">' + esc(t("btn.delete")) + "</button></div></td></tr>").join("");
+    }
+
+    function renderDevices() {
+      const showOwner = Boolean(state.currentUser && state.currentUser.is_admin);
+      $("devicesHead").innerHTML = "<tr><th>" + esc(t("devices.table.id")) + "</th>" + (showOwner ? "<th>" + esc(t("devices.table.user")) + "</th>" : "") + "<th>" + esc(t("devices.table.agent")) + "</th><th>" + esc(t("devices.table.note")) + "</th><th>" + esc(t("devices.table.status")) + "</th><th>" + esc(t("devices.table.created")) + "</th><th>" + esc(t("common.actions")) + "</th></tr>";
+      if (!state.devices.length) {
+        $("devicesBody").innerHTML = '<tr><td colspan="' + (showOwner ? 7 : 6) + '" class="empty">' + esc(t("devices.empty")) + "</td></tr>";
+        return;
+      }
+      $("devicesBody").innerHTML = state.devices.map((device) => "<tr><td class=\"mono\">" + esc(device.id) + "</td>" + (showOwner ? '<td class="mono">' + esc(device.username) + "</td>" : "") + '<td class="mono">' + esc(device.agent_id || "-") + '</td><td class="muted">' + esc(device.note || "") + "</td><td>" + renderStatus(Boolean(device.online)) + '</td><td class="mono">' + esc(fmtDate(device.created_at)) + '</td><td><div class="table-actions"><button type="button" class="danger-btn" data-action="delete-device" data-id="' + esc(device.id) + '">' + esc(t("btn.delete")) + "</button></div></td></tr>").join("");
+    }
+
+    function renderUsers() {
+      if (!state.currentUser || !state.currentUser.is_admin) {
+        $("usersHead").innerHTML = "";
+        $("usersBody").innerHTML = "";
+        return;
+      }
+      $("usersHead").innerHTML = "<tr><th>" + esc(t("users.table.username")) + "</th><th>" + esc(t("users.table.role")) + "</th><th>" + esc(t("users.table.agents")) + "</th><th>" + esc(t("users.table.devices")) + "</th><th>" + esc(t("users.table.online")) + "</th><th>" + esc(t("users.table.created")) + "</th><th>" + esc(t("common.actions")) + "</th></tr>";
+      if (!state.users.length) {
+        $("usersBody").innerHTML = '<tr><td colspan="7" class="empty">' + esc(t("users.empty")) + "</td></tr>";
+        return;
+      }
+      $("usersBody").innerHTML = state.users.map((user) => {
+        const actions = ['<button type="button" class="ghost-btn" data-action="reset-user-password" data-user-id="' + esc(user.id) + '" data-username="' + esc(user.username) + '">' + esc(t("users.resetPassword")) + "</button>"];
+        if (!state.currentUser || user.id !== state.currentUser.id) actions.push('<button type="button" class="danger-btn" data-action="delete-user" data-user-id="' + esc(user.id) + '" data-username="' + esc(user.username) + '">' + esc(t("users.delete")) + "</button>");
+        return "<tr><td class=\"mono\">" + esc(user.username) + '</td><td><span class="role-pill ' + (user.is_admin ? "admin" : "") + '">' + esc(user.is_admin ? t("users.role.admin") : t("users.role.user")) + '</span></td><td class="mono">' + esc(user.agent_count) + '</td><td class="mono">' + esc(user.device_count) + '</td><td class="mono">' + esc((user.online_agent_count || 0) + " / " + (user.online_device_count || 0)) + '</td><td class="mono">' + esc(fmtDate(user.created_at)) + '</td><td><div class="table-actions">' + actions.join("") + "</div></td></tr>";
+      }).join("");
+    }
+
+    function renderAccount() {
+      $("accountUsername").textContent = state.currentUser ? state.currentUser.username : "-";
+      $("accountRoleWrap").innerHTML = state.currentUser ? '<span class="role-pill ' + (state.currentUser.is_admin ? "admin" : "") + '">' + esc(roleLabel(state.currentUser.is_admin)) + "</span>" : "";
+    }
+
+    async function loadOverview() { state.overview = await api("GET", "/admin/api/overview"); }
+    async function loadAgents() {
+      state.agents = await api("GET", "/admin/api/agents");
+      if (!Array.isArray(state.agents)) state.agents = [];
+    }
+
+    async function loadDevices() {
+      state.devices = await api("GET", "/admin/api/devices");
+      if (!Array.isArray(state.devices)) state.devices = [];
+    }
+
+    async function loadUsers() {
+      if (!state.currentUser || !state.currentUser.is_admin) {
+        state.users = [];
+        return;
+      }
+      state.users = await api("GET", "/admin/api/users");
+      if (!Array.isArray(state.users)) state.users = [];
+    }
+
+    async function refreshAll() {
+      await Promise.all([loadOverview(), loadAgents(), loadDevices(), loadUsers()]);
+      applyI18n();
+    }
+
+    async function openDashboard() {
+      const response = await api("GET", "/admin/api/check");
+      state.currentUser = response.user || null;
+      showDashboardShell();
+      await refreshAll();
+    }
+
+    async function safeRefresh() {
+      try {
+        await refreshAll();
+      } catch (error) {
+        if (!handleSessionError(error)) showToast(error.message, false);
+      }
+    }
+
+    $("langSwitch").addEventListener("change", (event) => {
+      state.currentLang = event.target.value === "zh" ? "zh" : "en";
+      localStorage.setItem("adminLang", state.currentLang);
+      applyI18n();
+    });
+
+    $("copyWsUrlBtn").addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(wsUrl());
+        showToast(t("toast.copied"), true);
+      } catch (_) {
+        showToast(t("toast.copyFailed"), false);
+      }
+    });
+
+    $$("[data-tab]").forEach((tab) => {
+      tab.addEventListener("click", () => activateTab(tab.dataset.tab));
+    });
+
+    $("loginBtn").addEventListener("click", async () => {
+      try {
+        const response = await api("POST", "/admin/api/login", {
+          username: $("loginUser").value.trim(),
+          password: $("loginPass").value
+        });
+        state.currentUser = response.user || null;
+        $("loginError").style.display = "none";
+        await openDashboard();
+      } catch (error) {
+        $("loginError").textContent = error.message;
+        $("loginError").style.display = "block";
+      }
+    });
+
+    $("loginPass").addEventListener("keydown", (event) => {
+      if (event.key === "Enter") $("loginBtn").click();
+    });
+
+    $("logoutBtn").addEventListener("click", async () => {
+      await api("POST", "/admin/api/logout", {}).catch(() => {});
+      state.currentUser = null;
+      state.overview = emptyOverview();
+      state.agents = [];
+      state.devices = [];
+      state.users = [];
+      applyI18n();
+      showLogin();
+    });
+
+    $("agentOwner").addEventListener("change", refreshDeviceAgentOptions);
+    $("deviceOwner").addEventListener("change", refreshDeviceAgentOptions);
+
+    $("agentForm").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const id = $("agentId").value.trim();
+      if (!id) {
+        showToast(t("toast.enterAgentId"), false);
+        return;
+      }
+      try {
+        await api("POST", "/admin/api/agents", {
+          id,
+          note: $("agentNote").value.trim(),
+          user_id: selectedOwnerId("agentOwner")
+        });
+        $("agentId").value = "";
+        $("agentNote").value = "";
+        showToast(t("toast.agentAdded"), true);
+        await safeRefresh();
+      } catch (error) {
+        if (!handleSessionError(error)) showToast(error.message, false);
+      }
+    });
+
+    $("deviceForm").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const id = $("deviceId").value.trim();
+      if (!id) {
+        showToast(t("toast.enterDeviceId"), false);
+        return;
+      }
+      try {
+        await api("POST", "/admin/api/devices", {
+          id,
+          agent_id: $("deviceAgent").value,
+          note: $("deviceNote").value.trim(),
+          user_id: selectedOwnerId("deviceOwner")
+        });
+        $("deviceId").value = "";
+        $("deviceNote").value = "";
+        $("deviceAgent").value = "";
+        showToast(t("toast.deviceAdded"), true);
+        await safeRefresh();
+      } catch (error) {
+        if (!handleSessionError(error)) showToast(error.message, false);
+      }
+    });
+
+    $("userForm").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const username = $("newUsername").value.trim();
+      const password = $("newUserPassword").value;
+      if (!username || !password) {
+        showToast(t("toast.userFieldsRequired"), false);
+        return;
+      }
+      try {
+        await api("POST", "/admin/api/users", {
+          username,
+          password,
+          is_admin: $("newUserIsAdmin").checked
+        });
+        $("newUsername").value = "";
+        $("newUserPassword").value = "";
+        $("newUserIsAdmin").checked = false;
+        showToast(t("toast.userAdded"), true);
+        await safeRefresh();
+      } catch (error) {
+        if (!handleSessionError(error)) showToast(error.message, false);
+      }
+    });
+
+    $("passwordForm").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const oldPassword = $("oldPassword").value;
+      const newPassword = $("newPassword").value;
+      const confirmPassword = $("confirmPassword").value;
+      if (!oldPassword || !newPassword) {
+        showToast(t("toast.passwordRequired"), false);
+        return;
+      }
+      if (!confirmPassword) {
+        showToast(t("error.passwordConfirmRequired"), false);
+        return;
+      }
+      if (newPassword !== confirmPassword) {
+        showToast(t("toast.passwordMismatch"), false);
+        return;
+      }
+      try {
+        await api("POST", "/admin/api/account/password", {
+          old_password: oldPassword,
+          new_password: newPassword
+        });
+        $("oldPassword").value = "";
+        $("newPassword").value = "";
+        $("confirmPassword").value = "";
+        showToast(t("toast.passwordChanged"), true);
+      } catch (error) {
+        if (!handleSessionError(error)) showToast(error.message, false);
+      }
+    });
+
+    $("agentsBody").addEventListener("click", async (event) => {
+      const button = event.target.closest("[data-action='delete-agent']");
+      if (!button) return;
+      const id = button.dataset.id || "";
+      if (!window.confirm(t("confirm.deleteAgent", { id }))) return;
+      try {
+        await api("DELETE", "/admin/api/agents/" + encodeURIComponent(id));
+        showToast(t("toast.agentDeleted"), true);
+        await safeRefresh();
+      } catch (error) {
+        if (!handleSessionError(error)) showToast(error.message, false);
+      }
+    });
+
+    $("devicesBody").addEventListener("click", async (event) => {
+      const button = event.target.closest("[data-action='delete-device']");
+      if (!button) return;
+      const id = button.dataset.id || "";
+      if (!window.confirm(t("confirm.deleteDevice", { id }))) return;
+      try {
+        await api("DELETE", "/admin/api/devices/" + encodeURIComponent(id));
+        showToast(t("toast.deviceDeleted"), true);
+        await safeRefresh();
+      } catch (error) {
+        if (!handleSessionError(error)) showToast(error.message, false);
+      }
+    });
+
+    $("usersBody").addEventListener("click", async (event) => {
+      const resetButton = event.target.closest("[data-action='reset-user-password']");
+      if (resetButton) {
+        const userId = resetButton.dataset.userId || "";
+        const username = resetButton.dataset.username || "";
+        const password = window.prompt(t("prompt.resetPassword", { username }));
+        if (password === null) return;
+        if (!String(password).trim()) {
+          showToast(t("toast.passwordRequired"), false);
+          return;
+        }
+        try {
+          await api("POST", "/admin/api/users/" + encodeURIComponent(userId) + "/password", { password });
+          showToast(t("toast.passwordReset"), true);
+          return;
+        } catch (error) {
+          if (!handleSessionError(error)) showToast(error.message, false);
+          return;
+        }
+      }
+
+      const deleteButton = event.target.closest("[data-action='delete-user']");
+      if (!deleteButton) return;
+      const userId = deleteButton.dataset.userId || "";
+      const username = deleteButton.dataset.username || "";
+      if (!window.confirm(t("confirm.deleteUser", { username }))) return;
+      try {
+        await api("DELETE", "/admin/api/users/" + encodeURIComponent(userId));
+        showToast(t("toast.userDeleted"), true);
+        await safeRefresh();
+      } catch (error) {
+        if (!handleSessionError(error)) showToast(error.message, false);
+      }
+    });
+
+    async function init() {
+      applyI18n();
+      try {
+        await openDashboard();
+      } catch (_) {
+        showLogin();
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>

@@ -37,9 +37,37 @@ type Hub struct {
 	seq                 int64 // atomic sequence counter
 }
 
+type PresenceSnapshot struct {
+	Agents  map[string]bool
+	Devices map[string]bool
+}
+
 // NewHub creates a Hub with the given configuration.
 func NewHub(cfg *config.Config, st *store.Store) *Hub {
 	return &Hub{cfg: cfg, store: st}
+}
+
+func (h *Hub) PresenceSnapshot() PresenceSnapshot {
+	snapshot := PresenceSnapshot{
+		Agents:  map[string]bool{},
+		Devices: map[string]bool{},
+	}
+
+	h.agents.Range(func(key, _ interface{}) bool {
+		if id, ok := key.(string); ok && id != "" {
+			snapshot.Agents[id] = true
+		}
+		return true
+	})
+
+	h.devices.Range(func(key, _ interface{}) bool {
+		if id, ok := key.(string); ok && id != "" {
+			snapshot.Devices[id] = true
+		}
+		return true
+	})
+
+	return snapshot
 }
 
 // NextSeq atomically increments and returns the next sequence number.
