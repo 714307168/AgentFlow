@@ -220,7 +220,7 @@ class SessionHistoryStore {
     const state = this.getProjectState(projectId);
     const conversation = this.ensureConversation(state, conversationId);
     const existing = conversation.messages.find((entry) => entry.id === message.id);
-    const nextSeq = existing?.syncSeq ?? this.nextSeq(state);
+    const nextSeq = this.nextSeq(state);
     const normalized: PersistedSessionMessage = {
       ...message,
       attachments: this.cloneAttachments(message.attachments),
@@ -240,7 +240,7 @@ class SessionHistoryStore {
     const state = this.getProjectState(projectId);
     const conversation = this.ensureConversation(state, conversationId);
     const existing = conversation.activities.find((entry) => entry.id === activity.id);
-    const nextSeq = existing?.syncSeq ?? this.nextSeq(state);
+    const nextSeq = this.nextSeq(state);
     const normalized: PersistedSessionActivity = {
       ...activity,
       meta: activity.meta ? { ...activity.meta } : undefined,
