@@ -4,8 +4,10 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.os.Environment
 import android.provider.OpenableColumns
 import android.util.Base64
+import androidx.core.content.FileProvider
 import androidx.room.withTransaction
 import com.claudecode.remote.data.local.AppDatabase
 import com.claudecode.remote.data.local.MessageEntity
@@ -64,6 +66,9 @@ class MessageRepository(
         private const val MAX_PROJECT_MESSAGES = 5000
         private const val FILE_CHUNK_SIZE = 64 * 1024
         private const val FILE_UPLOAD_TIMEOUT_MS = 120_000L
+        private const val FILE_DOWNLOAD_TIMEOUT_MS = 10 * 60_000L
+        private const val FILE_TRANSFER_KIND_DOWNLOAD = "download"
+        private const val FILE_SYNC_KIND_DOWNLOAD_REQUEST = "download_request"
         private const val MAX_PREVIEW_EDGE = 480
         private const val MAX_PREVIEW_BYTES = 220 * 1024
     }
@@ -86,11 +91,28 @@ class MessageRepository(
         val highestSeq: Long
     )
 
+    private data class PendingDownloadRequest(
+        val projectId: String,
+        val messageId: String,
+        val attachment: MessageAttachment,
+        val deferred: CompletableDeferred<MessageAttachment>
+    )
+
+    private data class PendingDownloadTransfer(
+        val request: PendingDownloadRequest,
+        val targetFile: File,
+        val output: FileOutputStream,
+        val mimeType: String,
+        var nextSeq: Long = 0L
+    )
+
     private val db = AppDatabase.getInstance(context)
     private val messageDao = db.messageDao()
     private val sessionDao = db.sessionDao()
     private val streamBuffers = mutableMapOf<String, StreamBuffer>()
     private val pendingUploadAcks = ConcurrentHashMap<String, CompletableDeferred<UploadAck>>()
+    private val pendingDownloadRequests = ConcurrentHashMap<String, PendingDownloadRequest>()
+    private val pendingDownloadTransfers = ConcurrentHashMap<String, PendingDownloadTransfer>()
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
     suspend fun requestProjectSync(
@@ -230,6 +252,66 @@ class MessageRepository(
         webSocket.send(envelope)
     }
 
+    suspend fun downloadAttachment(
+        projectId: String,
+        messageId: String,
+        attachment: MessageAttachment,
+        agentId: String? = null
+    ): MessageAttachment = withContext(Dispatchers.IO) {
+        if (!attachment.localUri.isNullOrBlank()) {
+            return@withContext attachment
+        }
+        val desktopFilePath = attachment.filePath?.trim().orEmpty()
+        if (desktopFilePath.isBlank()) {
+            throw IllegalStateException("Attachment does not expose a downloadable file path.")
+        }
+
+        wakeupAgent(agentId)
+
+        val transferId = UUID.randomUUID().toString()
+        val deferred = CompletableDeferred<MessageAttachment>()
+        val request = PendingDownloadRequest(
+            projectId = projectId,
+            messageId = messageId,
+            attachment = attachment,
+            deferred = deferred
+        )
+        pendingDownloadRequests[transferId] = request
+
+        try {
+            webSocket.send(
+                Envelope(
+                    id = transferId,
+                    event = Events.FILE_SYNC,
+                    projectId = projectId,
+                    streamId = transferId,
+                    payload = buildJsonObject {
+                        put("kind", JsonPrimitive(FILE_SYNC_KIND_DOWNLOAD_REQUEST))
+                        put("transfer_id", JsonPrimitive(transferId))
+                        put("message_id", JsonPrimitive(messageId))
+                        put("attachment_id", JsonPrimitive(attachment.id))
+                        put("file_name", JsonPrimitive(attachment.name))
+                        put("file_path", JsonPrimitive(desktopFilePath))
+                        put("mime_type", JsonPrimitive(attachment.mimeType))
+                    },
+                    ts = System.currentTimeMillis()
+                )
+            )
+
+            withTimeout(FILE_DOWNLOAD_TIMEOUT_MS) { deferred.await() }
+        } finally {
+            pendingDownloadRequests.remove(transferId)
+            pendingDownloadTransfers.remove(transferId)?.let { transfer ->
+                runCatching { transfer.output.close() }
+                runCatching {
+                    if (transfer.targetFile.exists()) {
+                        transfer.targetFile.delete()
+                    }
+                }
+            }
+        }
+    }
+
     suspend fun processEnvelope(envelope: Envelope) {
         val projectId = envelope.projectId ?: return
         when (envelope.event) {
@@ -300,10 +382,80 @@ class MessageRepository(
                 sessionDao.resetRunningState(projectId)
             }
 
+            Events.FILE_UPLOAD -> {
+                val payloadObj = envelope.payload?.jsonObject ?: return
+                val transferKind = payloadObj["transfer_kind"]?.jsonPrimitive?.contentOrNull?.trim()
+                if (!transferKind.equals(FILE_TRANSFER_KIND_DOWNLOAD, ignoreCase = true)) {
+                    return
+                }
+
+                val fileId = payloadObj["file_id"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+                if (fileId.isBlank()) {
+                    return
+                }
+
+                val request = pendingDownloadRequests[fileId] ?: return
+                val fileName = payloadObj["file_name"]?.jsonPrimitive?.contentOrNull?.trim()
+                    .takeUnless { it.isNullOrBlank() }
+                    ?: request.attachment.name
+                val mimeType = payloadObj["mime_type"]?.jsonPrimitive?.contentOrNull?.trim()
+                    .takeUnless { it.isNullOrBlank() }
+                    ?: request.attachment.mimeType
+                val targetFile = createDownloadTargetFile(projectId, fileName)
+                pendingDownloadTransfers.remove(fileId)?.let { staleTransfer ->
+                    runCatching { staleTransfer.output.close() }
+                    runCatching { staleTransfer.targetFile.delete() }
+                }
+                pendingDownloadTransfers[fileId] = PendingDownloadTransfer(
+                    request = request,
+                    targetFile = targetFile,
+                    output = FileOutputStream(targetFile),
+                    mimeType = mimeType
+                )
+            }
+
+            Events.FILE_CHUNK -> {
+                val payloadObj = envelope.payload?.jsonObject ?: return
+                val fileId = payloadObj["file_id"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+                if (fileId.isBlank()) {
+                    return
+                }
+                val transfer = pendingDownloadTransfers[fileId] ?: return
+                val chunk = payloadObj["chunk"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+                val seq = payloadObj["seq"]?.jsonPrimitive?.longOrNull ?: envelope.seq ?: 0L
+                if (chunk.isBlank()) {
+                    return
+                }
+                if (seq < transfer.nextSeq) {
+                    return
+                }
+                if (seq > transfer.nextSeq) {
+                    throw IllegalStateException("Attachment download chunk out of order: expected=${transfer.nextSeq} actual=$seq")
+                }
+
+                val bytes = Base64.decode(chunk, Base64.DEFAULT)
+                transfer.output.write(bytes)
+                transfer.nextSeq = seq + 1L
+            }
+
             Events.FILE_DONE -> {
                 val payloadObj = envelope.payload?.jsonObject ?: return
                 val fileId = payloadObj["file_id"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
                 if (fileId.isBlank()) {
+                    return
+                }
+
+                val transfer = pendingDownloadTransfers.remove(fileId)
+                if (transfer != null) {
+                    runCatching { transfer.output.flush() }
+                    runCatching { transfer.output.close() }
+                    val updatedAttachment = finalizeDownloadedAttachment(transfer)
+                    persistDownloadedAttachment(
+                        messageId = transfer.request.messageId,
+                        attachmentId = transfer.request.attachment.id,
+                        updatedAttachment = updatedAttachment
+                    )
+                    transfer.request.deferred.complete(updatedAttachment)
                     return
                 }
 
@@ -330,6 +482,16 @@ class MessageRepository(
                     ?.trim()
                     .takeUnless { it.isNullOrBlank() }
                     ?: "Desktop failed to receive attachment."
+                pendingDownloadTransfers.remove(fileId)?.let { transfer ->
+                    runCatching { transfer.output.close() }
+                    runCatching { transfer.targetFile.delete() }
+                    transfer.request.deferred.completeExceptionally(IllegalStateException(error))
+                    return
+                }
+                pendingDownloadRequests.remove(fileId)?.let { request ->
+                    request.deferred.completeExceptionally(IllegalStateException(error))
+                    return
+                }
                 pendingUploadAcks.remove(fileId)?.completeExceptionally(IllegalStateException(error))
             }
 
@@ -726,6 +888,80 @@ class MessageRepository(
         } finally {
             pendingUploadAcks.remove(attachment.id)
         }
+    }
+
+    private fun createDownloadTargetFile(projectId: String, fileName: String): File {
+        val downloadRoot = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: context.cacheDir
+        val downloadDirectory = File(
+            downloadRoot,
+            "chat-downloads/${Uri.encode(projectId.ifBlank { "shared" })}"
+        ).apply { mkdirs() }
+        return uniqueFile(downloadDirectory, sanitizeFileName(fileName))
+    }
+
+    private fun finalizeDownloadedAttachment(transfer: PendingDownloadTransfer): MessageAttachment {
+        val requestAttachment = transfer.request.attachment
+        val targetFile = transfer.targetFile
+        val contentUri = FileProvider.getUriForFile(
+            context,
+            "${context.packageName}.fileprovider",
+            targetFile
+        )
+        val resolvedMimeType = transfer.mimeType.ifBlank {
+            guessMimeType(targetFile.name, requestAttachment.mimeType.ifBlank { "application/octet-stream" })
+        }
+        val resolvedKind = if (
+            requestAttachment.kind.isNotBlank()
+            && requestAttachment.kind.equals("image", ignoreCase = true)
+        ) {
+            "image"
+        } else if (isImageMimeType(resolvedMimeType) || isImageFileName(targetFile.name)) {
+            "image"
+        } else {
+            "file"
+        }
+
+        return requestAttachment.copy(
+            size = if (targetFile.length() > 0L) targetFile.length() else requestAttachment.size,
+            kind = resolvedKind,
+            mimeType = resolvedMimeType,
+            localUri = contentUri.toString(),
+            previewDataUrl = requestAttachment.previewDataUrl
+                ?: if (resolvedKind == "image") buildImagePreviewDataUrl(targetFile) else null
+        )
+    }
+
+    private suspend fun persistDownloadedAttachment(
+        messageId: String,
+        attachmentId: String,
+        updatedAttachment: MessageAttachment
+    ) {
+        val existing = messageDao.getMessageById(messageId) ?: return
+        val existingAttachments = deserializeAttachments(existing.attachmentsJson).ifEmpty {
+            legacyAttachment(existing.fileName, existing.fileSize, existing.mimeType, existing.filePath)?.let(::listOf)
+                ?: emptyList()
+        }
+        if (existingAttachments.isEmpty()) {
+            return
+        }
+
+        val mergedAttachments = existingAttachments.map { candidate ->
+            if (candidate.id == attachmentId || attachmentsMatch(candidate, updatedAttachment)) {
+                mergeAttachment(candidate, updatedAttachment)
+            } else {
+                candidate
+            }
+        }
+        val primary = mergedAttachments.firstOrNull()
+        messageDao.insertMessage(
+            existing.copy(
+                fileName = primary?.name ?: existing.fileName,
+                fileSize = primary?.size ?: existing.fileSize,
+                mimeType = primary?.mimeType ?: existing.mimeType,
+                filePath = primary?.filePath ?: existing.filePath,
+                attachmentsJson = serializeAttachments(mergedAttachments)
+            )
+        )
     }
 
     private fun openAttachmentInputStream(attachment: MessageAttachment) =

@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from "uuid";
 import * as fs from "fs";
+import * as path from "path";
 import RelayClient from "./relay-client";
 import projectStore from "./project-store";
 import RuntimeManager, { CliProvider, RunAttachment } from "./runtime-manager";
@@ -17,6 +18,9 @@ interface MessageRouterOptions {
 }
 
 class MessageRouter {
+  private static readonly DOWNLOAD_REQUEST_KIND = "download_request";
+  private static readonly DOWNLOAD_TRANSFER_KIND = "download";
+  private static readonly DOWNLOAD_CHUNK_SIZE = 64 * 1024;
   private relayClient: RelayClient;
   private streamSeq: Map<string, number> = new Map();
   private fileBuffers: Map<string, {
@@ -74,6 +78,9 @@ class MessageRouter {
         break;
       case Events.FILE_DONE:
         this.handleFileDone(env);
+        break;
+      case Events.FILE_SYNC:
+        this.handleFileSync(env);
         break;
       case Events.AUTH_OK:
         console.log("[MessageRouter] Auth OK");
@@ -261,6 +268,20 @@ class MessageRouter {
     this.options.revealWakeupWindow?.();
   }
 
+  private handleFileSync(env: Envelope): void {
+    const payload = env.payload as Record<string, unknown> | undefined;
+    if (!payload) {
+      return;
+    }
+    const kind = typeof payload?.kind === "string" ? payload.kind : "";
+    if (kind !== MessageRouter.DOWNLOAD_REQUEST_KIND) {
+      console.log("[MessageRouter] Ignoring file.sync payload:", JSON.stringify(payload ?? {}));
+      return;
+    }
+
+    void this.handleDownloadRequest(env, payload);
+  }
+
   private handleFileUpload(env: Envelope): void {
     const payload = env.payload as any;
     const fileId = env.id;
@@ -367,6 +388,142 @@ class MessageRouter {
       });
       this.fileBuffers.delete(fileId);
     }
+  }
+
+  private async handleDownloadRequest(
+    env: Envelope,
+    payload: Record<string, unknown>,
+  ): Promise<void> {
+    const projectId = env.project_id;
+    const transferId = typeof payload.transfer_id === "string" ? payload.transfer_id.trim() : "";
+    const attachmentId = typeof payload.attachment_id === "string" ? payload.attachment_id.trim() : "";
+    const messageId = typeof payload.message_id === "string" ? payload.message_id.trim() : "";
+    const requestedPath = typeof payload.file_path === "string" ? payload.file_path.trim() : "";
+    const requestedName = typeof payload.file_name === "string" ? payload.file_name.trim() : "";
+    const requestedMimeType = typeof payload.mime_type === "string" ? payload.mime_type.trim() : "";
+
+    if (!projectId || !transferId || !requestedPath) {
+      console.error("[MessageRouter] download_request missing required fields");
+      this.sendDownloadError(projectId ?? "", transferId, "Attachment download request is incomplete.");
+      return;
+    }
+
+    try {
+      const resolvedPath = path.resolve(requestedPath);
+      if (!fs.existsSync(resolvedPath)) {
+        throw new Error(`Attachment not found: ${resolvedPath}`);
+      }
+
+      const stats = fs.statSync(resolvedPath);
+      if (!stats.isFile()) {
+        throw new Error(`Attachment is not a file: ${resolvedPath}`);
+      }
+
+      const fileName = requestedName || path.basename(resolvedPath);
+      const mimeType = requestedMimeType || createRunAttachmentFromPath(resolvedPath).mimeType || "application/octet-stream";
+      const totalChunks = Math.max(1, Math.ceil(stats.size / MessageRouter.DOWNLOAD_CHUNK_SIZE));
+
+      this.relayClient.send({
+        id: uuidv4(),
+        event: Events.FILE_UPLOAD,
+        project_id: projectId,
+        stream_id: transferId,
+        ts: Date.now(),
+        payload: {
+          transfer_kind: MessageRouter.DOWNLOAD_TRANSFER_KIND,
+          file_id: transferId,
+          file_name: fileName,
+          file_size: stats.size,
+          mime_type: mimeType,
+          total_chunks: totalChunks,
+          attachment_id: attachmentId,
+          message_id: messageId,
+        },
+      });
+
+      await new Promise<void>((resolve, reject) => {
+        const stream = fs.createReadStream(resolvedPath, {
+          highWaterMark: MessageRouter.DOWNLOAD_CHUNK_SIZE,
+        });
+        let seq = 0;
+
+        stream.on("data", (chunk) => {
+          const chunkBuffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+          this.relayClient.send({
+            id: uuidv4(),
+            event: Events.FILE_CHUNK,
+            project_id: projectId,
+            stream_id: transferId,
+            seq,
+            ts: Date.now(),
+            payload: {
+              transfer_kind: MessageRouter.DOWNLOAD_TRANSFER_KIND,
+              file_id: transferId,
+              chunk: chunkBuffer.toString("base64"),
+              seq,
+              total: totalChunks,
+              attachment_id: attachmentId,
+              message_id: messageId,
+            },
+          });
+          seq += 1;
+        });
+
+        stream.on("end", () => resolve());
+        stream.on("error", (error) => reject(error));
+      });
+
+      this.relayClient.send({
+        id: uuidv4(),
+        event: Events.FILE_DONE,
+        project_id: projectId,
+        stream_id: transferId,
+        ts: Date.now(),
+        payload: {
+          transfer_kind: MessageRouter.DOWNLOAD_TRANSFER_KIND,
+          file_id: transferId,
+          file_name: fileName,
+          mime_type: mimeType,
+          attachment_id: attachmentId,
+          message_id: messageId,
+        },
+      });
+    } catch (error) {
+      console.error("[MessageRouter] Error handling download request:", error);
+      this.sendDownloadError(
+        projectId,
+        transferId,
+        error instanceof Error ? error.message : String(error),
+        attachmentId,
+        messageId,
+      );
+    }
+  }
+
+  private sendDownloadError(
+    projectId: string,
+    transferId: string,
+    message: string,
+    attachmentId = "",
+    messageId = "",
+  ): void {
+    if (!projectId || !transferId) {
+      return;
+    }
+
+    this.relayClient.send({
+      id: uuidv4(),
+      event: Events.FILE_ERROR,
+      project_id: projectId,
+      stream_id: transferId,
+      ts: Date.now(),
+      payload: {
+        transfer_kind: MessageRouter.DOWNLOAD_TRANSFER_KIND,
+        error: message,
+        attachment_id: attachmentId,
+        message_id: messageId,
+      },
+    });
   }
 
   private normalizeIncomingAttachments(rawAttachments: unknown): RunAttachment[] {

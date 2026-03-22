@@ -1,6 +1,7 @@
 package com.claudecode.remote.ui.chat
 
 import android.content.Context
+import android.content.Intent
 import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.compose.animation.animateContentSize
@@ -86,6 +87,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.core.content.FileProvider
 import com.claudecode.remote.R
 import com.claudecode.remote.UiPresenceTracker
 import com.claudecode.remote.data.model.Message
@@ -95,6 +97,12 @@ import com.claudecode.remote.data.model.MessageType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
+
+private data class AttachmentPreviewTarget(
+    val messageId: String,
+    val attachment: MessageAttachment
+)
 
 @Composable
 fun ChatScreen(
@@ -105,6 +113,7 @@ fun ChatScreen(
     uiPresenceTracker: UiPresenceTracker,
     onNavigateBack: () -> Unit
 ) {
+    val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
@@ -113,7 +122,7 @@ fun ChatScreen(
     var hasInitialScrollPosition by remember(projectId) { mutableStateOf(false) }
     var previousLastMessageId by remember(projectId) { mutableStateOf<String?>(null) }
     var previousMessageCount by remember(projectId) { mutableStateOf(0) }
-    var previewAttachment by remember(projectId) { mutableStateOf<MessageAttachment?>(null) }
+    var previewAttachment by remember(projectId) { mutableStateOf<AttachmentPreviewTarget?>(null) }
 
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenMultipleDocuments()
@@ -214,9 +223,36 @@ fun ChatScreen(
         )
     }
 
-    previewAttachment?.let { attachment ->
+    val activePreviewAttachment = previewAttachment?.let { target ->
+        uiState.messages
+            .firstOrNull { it.id == target.messageId }
+            ?.attachments
+            ?.firstOrNull { it.id == target.attachment.id }
+            ?.let { latestAttachment ->
+                AttachmentPreviewTarget(
+                    messageId = target.messageId,
+                    attachment = latestAttachment
+                )
+            }
+            ?: target
+    }
+
+    activePreviewAttachment?.let { target ->
         AttachmentPreviewDialog(
-            attachment = attachment,
+            attachment = target.attachment,
+            actionLabel = attachmentActionLabel(
+                attachment = target.attachment,
+                isDownloading = target.attachment.id in uiState.downloadingAttachmentIds,
+                context = context
+            ),
+            onPrimaryAction = {
+                handleAttachmentAction(
+                    context = context,
+                    viewModel = viewModel,
+                    messageId = target.messageId,
+                    attachment = target.attachment
+                )
+            },
             onDismiss = { previewAttachment = null }
         )
     }
@@ -310,8 +346,20 @@ fun ChatScreen(
                                 items(uiState.messages, key = { it.id }) { message ->
                                     MessageBubble(
                                         message = message,
+                                        downloadingAttachmentIds = uiState.downloadingAttachmentIds,
+                                        onAttachmentAction = { attachment ->
+                                            handleAttachmentAction(
+                                                context = context,
+                                                viewModel = viewModel,
+                                                messageId = message.id,
+                                                attachment = attachment
+                                            )
+                                        },
                                         onImageClick = { attachment ->
-                                            previewAttachment = attachment
+                                            previewAttachment = AttachmentPreviewTarget(
+                                                messageId = message.id,
+                                                attachment = attachment
+                                            )
                                         }
                                     )
                                 }
@@ -579,6 +627,8 @@ private fun RuntimeNoticeBanner(uiState: ChatUiState) {
 @Composable
 private fun MessageBubble(
     message: Message,
+    downloadingAttachmentIds: Set<String>,
+    onAttachmentAction: (MessageAttachment) -> Unit,
     onImageClick: (MessageAttachment) -> Unit
 ) {
     val isUser = message.role == MessageRole.USER
@@ -624,8 +674,10 @@ private fun MessageBubble(
                 if (message.attachments.isNotEmpty()) {
                     AttachmentGallery(
                         attachments = message.attachments,
+                        downloadingAttachmentIds = downloadingAttachmentIds,
                         textColor = textColor,
                         borderColor = borderColor,
+                        onAttachmentAction = onAttachmentAction,
                         onImageClick = onImageClick
                     )
                 }
@@ -847,8 +899,10 @@ private fun PendingAttachmentTray(
 @Composable
 private fun AttachmentGallery(
     attachments: List<MessageAttachment>,
+    downloadingAttachmentIds: Set<String>,
     textColor: Color,
     borderColor: Color,
+    onAttachmentAction: (MessageAttachment) -> Unit,
     onImageClick: (MessageAttachment) -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -857,13 +911,17 @@ private fun AttachmentGallery(
                 AttachmentImageCard(
                     attachment = attachment,
                     borderColor = borderColor,
+                    isDownloading = attachment.id in downloadingAttachmentIds,
+                    onPrimaryAction = { onAttachmentAction(attachment) },
                     onClick = { onImageClick(attachment) }
                 )
             } else {
                 AttachmentFileCard(
                     attachment = attachment,
                     textColor = textColor,
-                    borderColor = borderColor
+                    borderColor = borderColor,
+                    isDownloading = attachment.id in downloadingAttachmentIds,
+                    onPrimaryAction = { onAttachmentAction(attachment) }
                 )
             }
         }
@@ -874,6 +932,8 @@ private fun AttachmentGallery(
 private fun AttachmentImageCard(
     attachment: MessageAttachment,
     borderColor: Color,
+    isDownloading: Boolean,
+    onPrimaryAction: () -> Unit,
     onClick: () -> Unit
 ) {
     Surface(
@@ -907,6 +967,19 @@ private fun AttachmentImageCard(
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
+                TextButton(onClick = onPrimaryAction) {
+                    Text(
+                        attachmentActionLabel(
+                            attachment = attachment,
+                            isDownloading = isDownloading
+                        )
+                    )
+                }
+            }
         }
     }
 }
@@ -915,12 +988,15 @@ private fun AttachmentImageCard(
 private fun AttachmentFileCard(
     attachment: MessageAttachment,
     textColor: Color,
-    borderColor: Color
+    borderColor: Color,
+    isDownloading: Boolean,
+    onPrimaryAction: () -> Unit
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.2f),
         shape = RoundedCornerShape(14.dp),
-        border = BorderStroke(1.dp, borderColor.copy(alpha = 0.6f))
+        border = BorderStroke(1.dp, borderColor.copy(alpha = 0.6f)),
+        modifier = Modifier.clickable(onClick = onPrimaryAction)
     ) {
         Row(
             modifier = Modifier
@@ -948,6 +1024,9 @@ private fun AttachmentFileCard(
                     color = textColor.copy(alpha = 0.72f),
                     style = MaterialTheme.typography.labelSmall
                 )
+            }
+            TextButton(onClick = onPrimaryAction) {
+                Text(attachmentActionLabel(attachment = attachment, isDownloading = isDownloading))
             }
         }
     }
@@ -995,6 +1074,8 @@ private fun AttachmentThumbnail(
 @Composable
 private fun AttachmentPreviewDialog(
     attachment: MessageAttachment,
+    actionLabel: String,
+    onPrimaryAction: () -> Unit,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
@@ -1044,11 +1125,16 @@ private fun AttachmentPreviewDialog(
                         }
                     }
                 }
-                TextButton(
-                    onClick = onDismiss,
-                    modifier = Modifier.align(Alignment.End)
+                Row(
+                    modifier = Modifier.align(Alignment.End),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text(stringResource(R.string.dismiss))
+                    TextButton(onClick = onPrimaryAction) {
+                        Text(actionLabel)
+                    }
+                    TextButton(onClick = onDismiss) {
+                        Text(stringResource(R.string.dismiss))
+                    }
                 }
             }
         }
@@ -1113,3 +1199,110 @@ private fun formatFileSize(bytes: Long): String {
     val digits = if (value >= 10 || index == 0) 0 else 1
     return "%.${digits}f %s".format(value, units[index])
 }
+
+private fun handleAttachmentAction(
+    context: Context,
+    viewModel: ChatViewModel,
+    messageId: String,
+    attachment: MessageAttachment
+) {
+    if (isAttachmentDownloaded(context, attachment)) {
+        openDownloadedAttachment(context, attachment)
+    } else {
+        viewModel.downloadAttachment(messageId, attachment)
+    }
+}
+
+private fun openDownloadedAttachment(context: Context, attachment: MessageAttachment) {
+    val uri = resolveAttachmentOpenUri(context, attachment) ?: return
+    val mimeType = attachment.mimeType.ifBlank {
+        if (attachment.isImage) "image/*" else "*/*"
+    }
+    val intent = Intent(Intent.ACTION_VIEW).apply {
+        setDataAndType(uri, mimeType)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    runCatching {
+        context.startActivity(intent)
+    }
+}
+
+private fun resolveAttachmentOpenUri(context: Context, attachment: MessageAttachment): Uri? {
+    val localUri = attachment.localUri?.trim().orEmpty()
+    if (localUri.isNotEmpty()) {
+        val parsed = runCatching { Uri.parse(localUri) }.getOrNull()
+        if (parsed != null) {
+            when (parsed.scheme?.lowercase()) {
+                "content" -> return parsed
+                "file" -> {
+                    val filePath = parsed.path
+                    if (!filePath.isNullOrBlank()) {
+                        val file = File(filePath)
+                        if (file.exists() && file.isFile) {
+                            return FileProvider.getUriForFile(
+                                context,
+                                "${context.packageName}.fileprovider",
+                                file
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    val localFile = attachment.filePath
+        ?.takeIf { it.isNotBlank() }
+        ?.let(::File)
+        ?.takeIf { it.exists() && it.isFile }
+        ?: return null
+    return FileProvider.getUriForFile(
+        context,
+        "${context.packageName}.fileprovider",
+        localFile
+    )
+}
+
+private fun isAttachmentDownloaded(context: Context, attachment: MessageAttachment): Boolean {
+    val localUri = attachment.localUri?.trim().orEmpty()
+    if (localUri.isNotEmpty()) {
+        val parsed = runCatching { Uri.parse(localUri) }.getOrNull()
+        when (parsed?.scheme?.lowercase()) {
+            "content" -> {
+                val canRead = runCatching {
+                    context.contentResolver.openInputStream(parsed)?.use { true } ?: false
+                }.getOrDefault(false)
+                if (canRead) {
+                    return true
+                }
+            }
+            "file" -> {
+                val filePath = parsed.path
+                if (!filePath.isNullOrBlank()) {
+                    val file = File(filePath)
+                    if (file.exists() && file.isFile) {
+                        return true
+                    }
+                }
+            }
+        }
+    }
+
+    return attachment.filePath
+        ?.takeIf { it.isNotBlank() }
+        ?.let(::File)
+        ?.let { it.exists() && it.isFile }
+        ?: false
+}
+
+@Composable
+private fun attachmentActionLabel(
+    attachment: MessageAttachment,
+    isDownloading: Boolean,
+    context: Context = LocalContext.current
+): String =
+    when {
+        isDownloading -> stringResource(R.string.chat_downloading_attachment)
+        isAttachmentDownloaded(context, attachment) -> stringResource(R.string.chat_open_attachment)
+        else -> stringResource(R.string.chat_download_attachment)
+    }

@@ -20,6 +20,7 @@ data class ChatUiState(
     val messages: List<Message> = emptyList(),
     val inputText: String = "",
     val pendingAttachments: List<MessageAttachment> = emptyList(),
+    val downloadingAttachmentIds: Set<String> = emptySet(),
     val isConnected: Boolean = false,
     val isSending: Boolean = false,
     val projectId: String = "",
@@ -75,7 +76,8 @@ class ChatViewModel(
                 projectName = projectName,
                 agentId = agentId,
                 inputText = tokenStore.getDraft(projectId),
-                pendingAttachments = emptyList()
+                pendingAttachments = emptyList(),
+                downloadingAttachmentIds = emptySet()
             )
         }
         lastSyncedProjectId = null
@@ -261,6 +263,40 @@ class ChatViewModel(
                 CrashLogger.logError("ChatViewModel", "Error changing model", e)
             } finally {
                 _uiState.update { it.copy(isSending = false) }
+            }
+        }
+    }
+
+    fun downloadAttachment(messageId: String, attachment: MessageAttachment) {
+        val state = _uiState.value
+        if (state.projectId.isBlank() || attachment.id.isBlank()) {
+            return
+        }
+        if (attachment.localUri?.isNotBlank() == true) {
+            return
+        }
+        if (attachment.id in state.downloadingAttachmentIds) {
+            return
+        }
+
+        _uiState.update {
+            it.copy(downloadingAttachmentIds = it.downloadingAttachmentIds + attachment.id)
+        }
+
+        viewModelScope.launch {
+            try {
+                messageRepository.downloadAttachment(
+                    projectId = state.projectId,
+                    messageId = messageId,
+                    attachment = attachment,
+                    agentId = state.agentId
+                )
+            } catch (e: Exception) {
+                CrashLogger.logError("ChatViewModel", "Error downloading attachment", e)
+            } finally {
+                _uiState.update {
+                    it.copy(downloadingAttachmentIds = it.downloadingAttachmentIds - attachment.id)
+                }
             }
         }
     }

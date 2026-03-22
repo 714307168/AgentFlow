@@ -86,6 +86,9 @@
     <string name="chat_thinking">思考中</string>
     <string name="chat_file">文件</string>
     <string name="chat_attach_file">附加文件</string>
+    <string name="chat_download_attachment">下载</string>
+    <string name="chat_open_attachment">打开</string>
+    <string name="chat_downloading_attachment">下载中...</string>
     <string name="chat_stop_task">停止任务</string>
     <string name="session_projects_count">%1$d 个项目</string>
     <string name="session_running_count">%1$d 个运行中</string>

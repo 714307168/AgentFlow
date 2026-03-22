@@ -92,6 +92,9 @@
     <string name="chat_thinking">Thinking</string>
     <string name="chat_file">File</string>
     <string name="chat_attach_file">Attach file</string>
+    <string name="chat_download_attachment">Download</string>
+    <string name="chat_open_attachment">Open</string>
+    <string name="chat_downloading_attachment">Downloading...</string>
     <string name="chat_stop_task">Stop task</string>
     <string name="session_projects_count">%1$d projects</string>
     <string name="session_running_count">%1$d running</string>
