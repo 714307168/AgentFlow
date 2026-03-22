@@ -19,8 +19,7 @@ import java.util.UUID
 data class SessionUiState(
     val sessions: List<Session> = emptyList(),
     val isLoading: Boolean = false,
-    val error: String? = null,
-    val serverUrl: String = ""
+    val error: String? = null
 )
 
 class SessionViewModel(
@@ -42,10 +41,9 @@ class SessionViewModel(
         }
     }
 
-    fun initialize(serverUrl: String) {
+    fun initialize() {
         _uiState.update { current ->
             current.copy(
-                serverUrl = serverUrl,
                 isLoading = current.sessions.isEmpty()
             )
         }
@@ -79,12 +77,6 @@ class SessionViewModel(
                 },
                 onFailure = { e -> _uiState.update { it.copy(isLoading = false, error = e.message) } }
             )
-        }
-    }
-
-    fun processEnvelope(envelope: Envelope) {
-        viewModelScope.launch {
-            repository.processEnvelope(envelope)
         }
     }
 

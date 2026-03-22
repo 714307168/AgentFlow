@@ -90,6 +90,10 @@ interface RunProcessOptions {
 const MAX_CLI_TRACE_ENTRIES = 60;
 const MAX_CLI_TRACE_TOTAL_CHARS = 24_000;
 const MAX_CLI_TRACE_ENTRY_CHARS = 1_200;
+const SNAPSHOT_EMIT_INTERVAL_MS = 120;
+const CLI_TRACE_NOISE_PATTERNS = [
+  /^reading prompt from stdin\.\.\.$/i,
+] as const;
 
 class StopRunError extends Error {
   constructor(
@@ -104,6 +108,8 @@ class StopRunError extends Error {
 class RuntimeManager extends EventEmitter {
   private readonly states = new Map<string, ProjectState>();
   private readonly historyStore = new SessionHistoryStore();
+  private readonly snapshotEmitTimers = new Map<string, NodeJS.Timeout>();
+  private readonly lastSnapshotEmitAt = new Map<string, number>();
 
   constructor(private readonly getConfig: () => RuntimeConfig) {
     super();
@@ -208,6 +214,11 @@ class RuntimeManager extends EventEmitter {
   }
 
   dispose(): void {
+    for (const timer of this.snapshotEmitTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.snapshotEmitTimers.clear();
+    this.lastSnapshotEmitAt.clear();
     for (const state of this.states.values()) {
       if (state.process && !state.process.killed) {
         state.process.kill();
@@ -222,6 +233,7 @@ class RuntimeManager extends EventEmitter {
     if (state?.process && !state.process.killed) {
       state.process.kill();
     }
+    this.clearScheduledSnapshot(projectId);
     this.states.delete(projectId);
     this.historyStore.clearProject(projectId);
   }
@@ -820,7 +832,13 @@ class RuntimeManager extends EventEmitter {
     stream: CliTraceEntry["stream"],
     text: string,
   ): void {
-    const normalized = text.replace(/\r\n/g, "\n").trim();
+    const normalized = text
+      .replace(/\r\n/g, "\n")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line && !this.isCliNoiseLine(line))
+      .join("\n")
+      .trim();
     if (!normalized) {
       return;
     }
@@ -839,6 +857,10 @@ class RuntimeManager extends EventEmitter {
       stream,
     });
     this.emitSnapshot(state.projectId);
+  }
+
+  private isCliNoiseLine(line: string): boolean {
+    return CLI_TRACE_NOISE_PATTERNS.some((pattern) => pattern.test(line));
   }
 
   private formatCliCommand(command: string, args: string[]): string {
@@ -1039,6 +1061,12 @@ class RuntimeManager extends EventEmitter {
         path: attachment.path.trim(),
         size: Number.isFinite(attachment.size) ? Math.max(0, attachment.size) : 0,
         kind: attachment.kind === "image" ? "image" as const : "file" as const,
+        mimeType: typeof attachment.mimeType === "string" && attachment.mimeType.trim()
+          ? attachment.mimeType.trim()
+          : undefined,
+        previewDataUrl: typeof attachment.previewDataUrl === "string" && attachment.previewDataUrl.trim()
+          ? attachment.previewDataUrl.trim()
+          : undefined,
       }));
 
     return normalized.length > 0 ? normalized : undefined;
@@ -1267,7 +1295,54 @@ class RuntimeManager extends EventEmitter {
         codexThreadId: state.codexThreadId,
       });
     }
+    this.scheduleSnapshotEmit(projectId);
+  }
+
+  private scheduleSnapshotEmit(projectId: string): void {
+    if (!this.states.has(projectId)) {
+      return;
+    }
+    if (this.snapshotEmitTimers.has(projectId)) {
+      return;
+    }
+
+    const elapsedMs = Date.now() - (this.lastSnapshotEmitAt.get(projectId) ?? 0);
+    const delayMs = Math.max(0, SNAPSHOT_EMIT_INTERVAL_MS - elapsedMs);
+    if (delayMs === 0) {
+      this.flushSnapshot(projectId);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      this.snapshotEmitTimers.delete(projectId);
+      this.flushSnapshot(projectId);
+    }, delayMs);
+    this.snapshotEmitTimers.set(projectId, timer);
+  }
+
+  private flushSnapshot(projectId: string): void {
+    if (!this.states.has(projectId)) {
+      this.clearScheduledSnapshot(projectId);
+      return;
+    }
+
+    const timer = this.snapshotEmitTimers.get(projectId);
+    if (timer) {
+      clearTimeout(timer);
+      this.snapshotEmitTimers.delete(projectId);
+    }
+
+    this.lastSnapshotEmitAt.set(projectId, Date.now());
     this.emit("snapshot", projectId, this.getSnapshot(projectId));
+  }
+
+  private clearScheduledSnapshot(projectId: string): void {
+    const timer = this.snapshotEmitTimers.get(projectId);
+    if (timer) {
+      clearTimeout(timer);
+      this.snapshotEmitTimers.delete(projectId);
+    }
+    this.lastSnapshotEmitAt.delete(projectId);
   }
 
   private trimMessages(state: ProjectState): void {

@@ -213,6 +213,12 @@ The script does all of the following:
 6. verifies the deployed binary SHA-256
 7. rolls back automatically on failure
 
+For the full release flow including package build, relay deployment, and update-center upload, use:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\publish-release.local.ps1
+```
+
 ## Production Endpoints
 
 - Relay and Admin: `https://relay.example.com`
@@ -222,5 +228,6 @@ The script does all of the following:
 ## Related Docs
 
 - [docs/release-and-update-center.md](./docs/release-and-update-center.md)
+- [docs/release-upload-runbook.md](./docs/release-upload-runbook.md)
 - [local-agent/README.md](./local-agent/README.md)
 - [CLAUDE.md](./CLAUDE.md)

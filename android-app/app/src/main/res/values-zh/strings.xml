@@ -95,4 +95,10 @@
     <string name="session_update_ready_title">版本 %1$s 已可安装</string>
     <string name="session_download_update">下载更新</string>
     <string name="session_install_update">安装更新</string>
+    <string name="settings_crash_logs_enabled">Save crash logs locally</string>
+    <string name="settings_crash_logs_enabled_hint">When disabled, logs stay in logcat only and are not written to device storage.</string>
+    <string name="settings_log_directory">Log directory</string>
+    <string name="settings_open_crash_logs">Open Crash Logs</string>
+    <string name="settings_no_crash_logs">No crash logs found.</string>
+    <string name="settings_clear_all">Clear All</string>
 </resources>

@@ -2,6 +2,10 @@
 
 This document describes the current release workflow and self-hosted update center.
 
+For the step-by-step production upload flow, see:
+
+- `docs/release-upload-runbook.md`
+
 ## Goal
 
 `relay-server` is responsible for both:

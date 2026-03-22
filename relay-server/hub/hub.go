@@ -22,16 +22,19 @@ type ProjectInfo struct {
 	CLIModel    string
 }
 
+var agentOfflineGracePeriod = 6 * time.Second
+
 // Hub is the central message router connecting agents and devices.
 type Hub struct {
-	agents       sync.Map // agentID  -> *Client
-	devices      sync.Map // deviceID -> *Client
-	projects     sync.Map // projectID -> agentID
-	projectInfos sync.Map // projectID -> *ProjectInfo
-	queues       sync.Map // projectID -> *Queue
-	cfg          *config.Config
-	store        *store.Store
-	seq          int64 // atomic sequence counter
+	agents              sync.Map // agentID  -> *Client
+	devices             sync.Map // deviceID -> *Client
+	projects            sync.Map // projectID -> agentID
+	projectInfos        sync.Map // projectID -> *ProjectInfo
+	queues              sync.Map // projectID -> *Queue
+	pendingAgentOffline sync.Map // agentID -> *time.Timer
+	cfg                 *config.Config
+	store               *store.Store
+	seq                 int64 // atomic sequence counter
 }
 
 // NewHub creates a Hub with the given configuration.
@@ -52,6 +55,7 @@ func (h *Hub) GetOrCreateQueue(projectID string) *Queue {
 
 // RegisterAgent stores the agent client.
 func (h *Hub) RegisterAgent(client *Client) {
+	h.cancelPendingAgentOffline(client.AgentID)
 	h.agents.Store(client.AgentID, client)
 	log.Info().Str("agent_id", client.AgentID).Msg("agent registered")
 	h.broadcastAgentStatus(client.AgentID, true)
@@ -71,7 +75,7 @@ func (h *Hub) Unregister(client *Client) {
 	case model.ClientTypeAgent:
 		h.agents.Delete(client.AgentID)
 		log.Info().Str("agent_id", client.AgentID).Msg("agent unregistered")
-		h.broadcastAgentStatus(client.AgentID, false)
+		h.scheduleAgentOffline(client.AgentID)
 
 	case model.ClientTypeDevice:
 		h.devices.Delete(client.DeviceID)
@@ -162,11 +166,21 @@ func (h *Hub) HandleMessage(from *Client, env *model.Envelope) {
 			if _, ok := h.authorizeProjectAccess(from, env.ID, p.ProjectID); !ok {
 				return
 			}
-			h.broadcastAgentStatus(from.AgentID, p.Online, p.ProjectID)
+			if p.Online {
+				h.cancelPendingAgentOffline(from.AgentID)
+				h.broadcastAgentStatus(from.AgentID, true, p.ProjectID)
+			} else {
+				h.scheduleAgentOffline(from.AgentID, p.ProjectID)
+			}
 			return
 		}
 
-		h.broadcastAgentStatus(from.AgentID, p.Online)
+		if p.Online {
+			h.cancelPendingAgentOffline(from.AgentID)
+			h.broadcastAgentStatus(from.AgentID, true)
+		} else {
+			h.scheduleAgentOffline(from.AgentID)
+		}
 
 	case model.EventProjectListRequest:
 		if from.Type != model.ClientTypeDevice {
@@ -628,6 +642,38 @@ func (h *Hub) isAgentOnline(agentID string) bool {
 	}
 	_, ok := h.agents.Load(agentID)
 	return ok
+}
+
+func (h *Hub) cancelPendingAgentOffline(agentID string) {
+	if agentID == "" {
+		return
+	}
+	if value, ok := h.pendingAgentOffline.LoadAndDelete(agentID); ok {
+		if timer, ok := value.(*time.Timer); ok {
+			timer.Stop()
+		}
+	}
+}
+
+func (h *Hub) scheduleAgentOffline(agentID string, projectIDs ...string) {
+	if agentID == "" {
+		return
+	}
+
+	h.cancelPendingAgentOffline(agentID)
+	if len(projectIDs) == 0 {
+		projectIDs = h.GetProjectIDsByAgent(agentID)
+	}
+	targetProjectIDs := append([]string(nil), projectIDs...)
+
+	timer := time.AfterFunc(agentOfflineGracePeriod, func() {
+		h.pendingAgentOffline.Delete(agentID)
+		if h.isAgentOnline(agentID) {
+			return
+		}
+		h.broadcastAgentStatus(agentID, false, targetProjectIDs...)
+	})
+	h.pendingAgentOffline.Store(agentID, timer)
 }
 
 // GetProjectIDsByAgent returns all project IDs currently bound to agentID.

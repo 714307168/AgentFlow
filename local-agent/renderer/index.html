@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'" />
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: file:" />
   <title>Project Session</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
@@ -125,6 +125,19 @@
         </form>
       </section>
     </main>
+  </div>
+
+  <div class="attachment-lightbox hidden" id="attachmentLightbox" aria-hidden="true">
+    <div class="attachment-lightbox-backdrop"></div>
+    <div class="attachment-lightbox-dialog" role="dialog" aria-modal="true" aria-labelledby="attachmentLightboxTitle">
+      <div class="attachment-lightbox-header">
+        <div class="attachment-lightbox-title" id="attachmentLightboxTitle"></div>
+        <button class="attachment-lightbox-close" id="attachmentLightboxClose" type="button">Close</button>
+      </div>
+      <div class="attachment-lightbox-body">
+        <img class="attachment-lightbox-image" id="attachmentLightboxImage" alt="" />
+      </div>
+    </div>
   </div>
 
   <script src="terminal.js"></script>

@@ -38,7 +38,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -55,7 +54,6 @@ import com.claudecode.remote.data.model.Session
 import com.claudecode.remote.data.remote.RelayWebSocket
 import com.claudecode.remote.update.AppUpdateState
 import com.claudecode.remote.update.AppUpdateStatus
-import kotlinx.coroutines.launch
 
 @Composable
 fun SessionListScreen(
@@ -66,24 +64,16 @@ fun SessionListScreen(
     onDownloadUpdate: () -> Unit,
     onInstallUpdate: () -> Unit,
     onNavigateToChat: (session: Session) -> Unit,
+    onRefreshSessions: () -> Unit,
+    onToggleConnection: () -> Unit,
     onNavigateToSettings: () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val connectionState by webSocket.connectionState.collectAsState()
     val connectionError by webSocket.errorMessage.collectAsState()
-    val coroutineScope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
-        if (uiState.serverUrl.isEmpty()) {
-            viewModel.initialize("http://192.168.31.207:8080")
-        }
-        webSocket.connect()
-    }
-
-    LaunchedEffect(connectionState) {
-        if (connectionState == RelayWebSocket.ConnectionState.CONNECTED) {
-            viewModel.syncFromDesktop()
-        }
+        viewModel.initialize()
     }
 
     Box(
@@ -117,19 +107,8 @@ fun SessionListScreen(
                     SessionHeader(
                         connectionState = connectionState,
                         isRefreshing = uiState.isLoading,
-                        onRefresh = { viewModel.syncFromDesktop() },
-                        onToggleConnection = {
-                            when (connectionState) {
-                                RelayWebSocket.ConnectionState.CONNECTED,
-                                RelayWebSocket.ConnectionState.CONNECTING,
-                                RelayWebSocket.ConnectionState.RECONNECTING -> webSocket.disconnect()
-                                RelayWebSocket.ConnectionState.DISCONNECTED -> {
-                                    coroutineScope.launch {
-                                        webSocket.connect()
-                                    }
-                                }
-                            }
-                        },
+                        onRefresh = onRefreshSessions,
+                        onToggleConnection = onToggleConnection,
                         onOpenSettings = onNavigateToSettings
                     )
 

@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import com.claudecode.remote.data.crypto.E2ECrypto
 import com.claudecode.remote.data.local.TokenStore
+import com.claudecode.remote.data.remote.AuthSessionManager
 import com.claudecode.remote.data.remote.RelayApi
 import com.claudecode.remote.data.remote.RelayWebSocket
 import com.claudecode.remote.domain.MessageRepository
@@ -18,7 +19,7 @@ import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
 import retrofit2.Retrofit
 
-private const val DEFAULT_SERVER_URL = "http://192.168.31.207:8080"
+private const val DEFAULT_SERVER_URL = "http://localhost:8080"
 
 class RemoteApplication : Application() {
     val appContainer: AppContainer by lazy { AppContainer(this) }
@@ -38,6 +39,12 @@ class AppContainer(private val appContext: Context) {
         json = json
     )
 
+    val authSessionManager = AuthSessionManager(
+        tokenStore = tokenStore,
+        relayApiProvider = { relayApi },
+        clientType = "device"
+    )
+
     val relayWebSocket = RelayWebSocket(
         serverUrl = normalizeHttpBaseUrl(tokenStore.getServerUrl() ?: DEFAULT_SERVER_URL),
         tokenStore = tokenStore
@@ -45,6 +52,7 @@ class AppContainer(private val appContext: Context) {
 
     val sessionRepository = SessionRepository(
         relayApiProvider = { relayApi },
+        authSessionManager = authSessionManager,
         tokenStore = tokenStore,
         context = appContext
     )
@@ -52,6 +60,7 @@ class AppContainer(private val appContext: Context) {
     val messageRepository = MessageRepository(
         webSocket = relayWebSocket,
         relayApiProvider = { relayApi },
+        authSessionManager = authSessionManager,
         tokenStore = tokenStore,
         context = appContext
     )

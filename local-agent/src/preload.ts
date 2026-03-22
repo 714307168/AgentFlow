@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld('claudeAgent', {
   getProjectSession: (projectId: string) => ipcRenderer.invoke('get-project-session', projectId),
   sendProjectPrompt: (data: { projectId: string; prompt: string; attachments?: unknown[] }) => ipcRenderer.invoke('send-project-prompt', data),
   pickProjectAttachments: (data: { projectId: string; kind: 'image' | 'file' }) => ipcRenderer.invoke('pick-project-attachments', data),
+  saveClipboardProjectImage: (data: { projectId: string }) => ipcRenderer.invoke('save-clipboard-project-image', data),
+  getAttachmentImageData: (data: { path?: string | null }) => ipcRenderer.invoke('get-attachment-image-data', data),
   stopProjectRun: (projectId: string) => ipcRenderer.invoke('stop-project-run', projectId),
   removeQueuedProjectPrompt: (data: { projectId: string; runId: string }) => ipcRenderer.invoke('remove-queued-project-prompt', data),
   addProject: (data: { name: string; path: string; cliProvider?: string; cliModel?: string | null }) => ipcRenderer.invoke('add-project', data),

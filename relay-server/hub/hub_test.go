@@ -3,6 +3,7 @@ package hub
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/claudecode/relay-server/config"
 	"github.com/claudecode/relay-server/model"
@@ -92,6 +93,107 @@ func TestReplaceAgentProjectsBroadcastsOnlineProjectListAndStatus(t *testing.T) 
 	}
 	if statusPayload.ProjectID != "project-1" {
 		t.Fatalf("expected project-1, got %q", statusPayload.ProjectID)
+	}
+}
+
+func TestUnregisterAgentDelaysOfflineStatus(t *testing.T) {
+	previousGracePeriod := agentOfflineGracePeriod
+	agentOfflineGracePeriod = 15 * time.Millisecond
+	defer func() {
+		agentOfflineGracePeriod = previousGracePeriod
+	}()
+
+	h := NewHub(&config.Config{}, nil)
+	device := newTestClient(h, model.ClientTypeDevice, "agent-1", "device-1")
+	agent := newTestClient(h, model.ClientTypeAgent, "agent-1", "")
+
+	h.RegisterDevice(device)
+	h.projects.Store("project-1", "agent-1")
+	h.projectInfos.Store("project-1", &ProjectInfo{
+		ID:      "project-1",
+		Name:    "Project 1",
+		Path:    "/tmp/project-1",
+		AgentID: "agent-1",
+	})
+	h.RegisterAgent(agent)
+	_ = readEnvelope(t, device)
+
+	h.Unregister(agent)
+
+	select {
+	case raw := <-device.send:
+		var env model.Envelope
+		if err := json.Unmarshal(raw, &env); err != nil {
+			t.Fatalf("unmarshal envelope: %v", err)
+		}
+		t.Fatalf("expected no immediate offline event, got %q", env.Event)
+	default:
+	}
+
+	time.Sleep(agentOfflineGracePeriod * 3)
+
+	env := readEnvelope(t, device)
+	if env.Event != model.EventAgentStatus {
+		t.Fatalf("expected %q, got %q", model.EventAgentStatus, env.Event)
+	}
+
+	var payload model.AgentStatusPayload
+	if err := json.Unmarshal(env.Payload, &payload); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if payload.Online {
+		t.Fatal("expected delayed offline status")
+	}
+}
+
+func TestRegisterAgentCancelsPendingOfflineStatus(t *testing.T) {
+	previousGracePeriod := agentOfflineGracePeriod
+	agentOfflineGracePeriod = 15 * time.Millisecond
+	defer func() {
+		agentOfflineGracePeriod = previousGracePeriod
+	}()
+
+	h := NewHub(&config.Config{}, nil)
+	device := newTestClient(h, model.ClientTypeDevice, "agent-1", "device-1")
+	agent := newTestClient(h, model.ClientTypeAgent, "agent-1", "")
+
+	h.RegisterDevice(device)
+	h.projects.Store("project-1", "agent-1")
+	h.projectInfos.Store("project-1", &ProjectInfo{
+		ID:      "project-1",
+		Name:    "Project 1",
+		Path:    "/tmp/project-1",
+		AgentID: "agent-1",
+	})
+	h.RegisterAgent(agent)
+	_ = readEnvelope(t, device)
+
+	h.Unregister(agent)
+	h.RegisterAgent(newTestClient(h, model.ClientTypeAgent, "agent-1", ""))
+
+	env := readEnvelope(t, device)
+	if env.Event != model.EventAgentStatus {
+		t.Fatalf("expected %q, got %q", model.EventAgentStatus, env.Event)
+	}
+
+	var payload model.AgentStatusPayload
+	if err := json.Unmarshal(env.Payload, &payload); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if !payload.Online {
+		t.Fatal("expected reconnect to broadcast online status")
+	}
+
+	time.Sleep(agentOfflineGracePeriod * 3)
+
+	select {
+	case raw := <-device.send:
+		var delayed model.Envelope
+		if err := json.Unmarshal(raw, &delayed); err != nil {
+			t.Fatalf("unmarshal delayed envelope: %v", err)
+		}
+		t.Fatalf("expected pending offline timer to be cancelled, got %q", delayed.Event)
+	default:
 	}
 }
 

@@ -16,6 +16,7 @@ data class MessageEntity(
     val fileSize: Long? = null,
     val mimeType: String? = null,
     val filePath: String? = null,
+    val attachmentsJson: String? = null,
     val streamId: String? = null,
     val timestamp: Long,
     val syncSeq: Long = 0,

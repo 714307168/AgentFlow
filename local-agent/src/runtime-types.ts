@@ -7,6 +7,8 @@ export interface RunAttachment {
   path: string;
   size: number;
   kind: "image" | "file";
+  mimeType?: string;
+  previewDataUrl?: string;
 }
 
 export interface SessionMessage {

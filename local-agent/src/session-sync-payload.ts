@@ -67,6 +67,8 @@ function cloneAttachments(attachments?: RunAttachment[]): RunAttachment[] | unde
     path: attachment.path,
     size: attachment.size,
     kind: attachment.kind,
+    mimeType: attachment.mimeType,
+    previewDataUrl: attachment.previewDataUrl,
   }));
 }
 

@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -44,6 +46,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -64,18 +67,24 @@ import androidx.compose.ui.window.Dialog
 import com.claudecode.remote.R
 import com.claudecode.remote.update.AppUpdateState
 import com.claudecode.remote.update.AppUpdateStatus
+import com.claudecode.remote.util.CrashLogFileInfo
 import com.claudecode.remote.util.CrashLogger
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 data class SettingsState(
     val serverUrl: String = "",
     val deviceId: String = "",
     val token: String = "",
     val username: String = "",
+    val password: String = "",
     val e2eEnabled: Boolean = false,
     val e2ePublicKey: String = "",
     val language: String = "en",
     val autoUpdateCheckEnabled: Boolean = true,
     val autoUpdateDownloadEnabled: Boolean = false,
+    val crashLogsEnabled: Boolean = true,
     val updateState: AppUpdateState = AppUpdateState(),
     val isSaving: Boolean = false,
     val message: String? = null,
@@ -85,8 +94,12 @@ data class SettingsState(
 @Composable
 fun SettingsScreen(
     initialState: SettingsState,
-    onSave: (serverUrl: String, deviceId: String, e2eEnabled: Boolean, autoUpdateCheckEnabled: Boolean, autoUpdateDownloadEnabled: Boolean) -> Unit,
+    onSaveConnection: (serverUrl: String, deviceId: String) -> Unit,
     onLogin: (serverUrl: String, username: String, password: String, deviceId: String) -> Unit,
+    onE2EEnabledChange: (Boolean) -> Unit,
+    onAutoUpdateCheckChange: (Boolean) -> Unit,
+    onAutoUpdateDownloadChange: (Boolean) -> Unit,
+    onCrashLogsEnabledChange: (Boolean) -> Unit,
     onCheckForUpdates: () -> Unit,
     onDownloadUpdate: () -> Unit,
     onInstallUpdate: () -> Unit,
@@ -96,11 +109,12 @@ fun SettingsScreen(
     var serverUrl by remember(initialState.serverUrl) { mutableStateOf(initialState.serverUrl) }
     var deviceId by remember(initialState.deviceId) { mutableStateOf(initialState.deviceId) }
     var username by remember(initialState.username) { mutableStateOf(initialState.username) }
-    var password by remember { mutableStateOf("") }
+    var password by remember(initialState.password) { mutableStateOf(initialState.password) }
     var e2eEnabled by remember(initialState.e2eEnabled) { mutableStateOf(initialState.e2eEnabled) }
     var selectedLang by remember(initialState.language) { mutableStateOf(initialState.language) }
     var autoUpdateCheckEnabled by remember(initialState.autoUpdateCheckEnabled) { mutableStateOf(initialState.autoUpdateCheckEnabled) }
     var autoUpdateDownloadEnabled by remember(initialState.autoUpdateDownloadEnabled) { mutableStateOf(initialState.autoUpdateDownloadEnabled) }
+    var crashLogsEnabled by remember(initialState.crashLogsEnabled) { mutableStateOf(initialState.crashLogsEnabled) }
     var showLogDialog by remember { mutableStateOf(false) }
     var bannerMessage by remember(initialState.message) { mutableStateOf(initialState.message) }
     val loginRequestSentMessage = stringResource(R.string.settings_login_request_sent)
@@ -212,12 +226,9 @@ fun SettingsScreen(
 
                         FilledTonalButton(
                             onClick = {
-                                onSave(
+                                onSaveConnection(
                                     serverUrl.trim(),
-                                    deviceId.trim(),
-                                    e2eEnabled,
-                                    autoUpdateCheckEnabled,
-                                    autoUpdateDownloadEnabled
+                                    deviceId.trim()
                                 )
                                 bannerMessage = saveReconnectMessage
                             },
@@ -251,7 +262,13 @@ fun SettingsScreen(
                             )
                         }
                         Spacer(modifier = Modifier.width(12.dp))
-                        Switch(checked = autoUpdateCheckEnabled, onCheckedChange = { autoUpdateCheckEnabled = it })
+                        Switch(
+                            checked = autoUpdateCheckEnabled,
+                            onCheckedChange = {
+                                autoUpdateCheckEnabled = it
+                                onAutoUpdateCheckChange(it)
+                            }
+                        )
                     }
 
                     Row(
@@ -271,7 +288,13 @@ fun SettingsScreen(
                             )
                         }
                         Spacer(modifier = Modifier.width(12.dp))
-                        Switch(checked = autoUpdateDownloadEnabled, onCheckedChange = { autoUpdateDownloadEnabled = it })
+                        Switch(
+                            checked = autoUpdateDownloadEnabled,
+                            onCheckedChange = {
+                                autoUpdateDownloadEnabled = it
+                                onAutoUpdateDownloadChange(it)
+                            }
+                        )
                     }
 
                     Surface(
@@ -349,7 +372,13 @@ fun SettingsScreen(
                             )
                         }
                         Spacer(modifier = Modifier.width(12.dp))
-                        Switch(checked = e2eEnabled, onCheckedChange = { e2eEnabled = it })
+                        Switch(
+                            checked = e2eEnabled,
+                            onCheckedChange = {
+                                e2eEnabled = it
+                                onE2EEnabledChange(it)
+                            }
+                        )
                     }
 
                     if (initialState.e2ePublicKey.isNotEmpty()) {
@@ -411,11 +440,55 @@ fun SettingsScreen(
                     title = stringResource(R.string.settings_diagnostics_title),
                     subtitle = stringResource(R.string.settings_diagnostics_subtitle)
                 ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = stringResource(R.string.settings_crash_logs_enabled),
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                            Text(
+                                text = stringResource(R.string.settings_crash_logs_enabled_hint),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Switch(
+                            checked = crashLogsEnabled,
+                            onCheckedChange = {
+                                crashLogsEnabled = it
+                                onCrashLogsEnabledChange(it)
+                            }
+                        )
+                    }
+
+                    Text(
+                        text = stringResource(R.string.settings_log_directory),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
+                        shape = RoundedCornerShape(18.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = CrashLogger.getLogDirectoryPath(),
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier.padding(14.dp)
+                        )
+                    }
+
                     OutlinedButton(
                         onClick = { showLogDialog = true },
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text(stringResource(R.string.settings_open_crash_log))
+                        Text(stringResource(R.string.settings_open_crash_logs))
                     }
                 }
             }
@@ -676,8 +749,20 @@ private fun SettingsSection(
 
 @Composable
 private fun CrashLogDialog(onDismiss: () -> Unit) {
-    val logContent = remember { CrashLogger.getLogContent() }
-    val logPath = remember { CrashLogger.getLogFilePath() }
+    var refreshToken by remember { mutableStateOf(0) }
+    val logFiles = remember(refreshToken) { CrashLogger.listLogFiles() }
+    var selectedFileName by remember(refreshToken) { mutableStateOf(logFiles.firstOrNull()?.name) }
+
+    LaunchedEffect(logFiles) {
+        if (selectedFileName == null || logFiles.none { it.name == selectedFileName }) {
+            selectedFileName = logFiles.firstOrNull()?.name
+        }
+    }
+
+    val logDirectory = remember { CrashLogger.getLogDirectoryPath() }
+    val logContent = remember(selectedFileName, refreshToken) {
+        selectedFileName?.let(CrashLogger::readLogFile).orEmpty()
+    }
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
@@ -700,36 +785,89 @@ private fun CrashLogDialog(onDismiss: () -> Unit) {
                     style = MaterialTheme.typography.titleLarge
                 )
                 Text(
-                    text = logPath,
+                    text = logDirectory,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Surface(
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
-                    shape = MaterialTheme.shapes.medium,
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                ) {
-                    val scrollState = rememberScrollState()
-                    Text(
-                        text = logContent,
-                        style = MaterialTheme.typography.bodySmall,
-                        fontFamily = FontFamily.Monospace,
+                if (logFiles.isEmpty()) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
+                        shape = MaterialTheme.shapes.medium,
                         modifier = Modifier
-                            .padding(14.dp)
-                            .verticalScroll(scrollState)
-                    )
+                            .weight(1f)
+                            .fillMaxWidth()
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(18.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = stringResource(R.string.settings_no_crash_logs),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                } else {
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                        shape = MaterialTheme.shapes.medium,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            LazyColumn(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .weight(0.38f, fill = true),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                items(logFiles, key = { it.name }) { fileInfo ->
+                                    CrashLogFileRow(
+                                        fileInfo = fileInfo,
+                                        isSelected = fileInfo.name == selectedFileName,
+                                        onClick = { selectedFileName = fileInfo.name }
+                                    )
+                                }
+                            }
+
+                            Surface(
+                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f),
+                                shape = MaterialTheme.shapes.medium,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .weight(0.62f, fill = true)
+                            ) {
+                                val scrollState = rememberScrollState()
+                                Text(
+                                    text = logContent.ifEmpty { stringResource(R.string.settings_no_crash_logs) },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontFamily = FontFamily.Monospace,
+                                    modifier = Modifier
+                                        .padding(14.dp)
+                                        .verticalScroll(scrollState)
+                                )
+                            }
+                        }
+                    }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedButton(
                         onClick = {
-                            CrashLogger.clearLog()
-                            onDismiss()
+                            CrashLogger.clearAllLogs()
+                            refreshToken += 1
                         },
                         modifier = Modifier.weight(1f)
                     ) {
-                        Text(stringResource(R.string.settings_clear))
+                        Text(stringResource(R.string.settings_clear_all))
                     }
                     Button(
                         onClick = onDismiss,
@@ -742,3 +880,66 @@ private fun CrashLogDialog(onDismiss: () -> Unit) {
         }
     }
 }
+
+@Composable
+private fun CrashLogFileRow(
+    fileInfo: CrashLogFileInfo,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        color = if (isSelected) {
+            MaterialTheme.colorScheme.primaryContainer
+        } else {
+            MaterialTheme.colorScheme.surface.copy(alpha = 0.82f)
+        },
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(
+            1.dp,
+            if (isSelected) {
+                MaterialTheme.colorScheme.primary.copy(alpha = 0.28f)
+            } else {
+                MaterialTheme.colorScheme.outline.copy(alpha = 0.12f)
+            }
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(
+                text = fileInfo.name,
+                style = MaterialTheme.typography.labelLarge,
+                color = if (isSelected) {
+                    MaterialTheme.colorScheme.onPrimaryContainer
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                },
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = "${formatTimestamp(fileInfo.modifiedAt)} • ${formatFileSize(fileInfo.sizeBytes)}",
+                style = MaterialTheme.typography.bodySmall,
+                color = if (isSelected) {
+                    MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                }
+            )
+        }
+    }
+}
+
+private fun formatFileSize(sizeBytes: Long): String =
+    when {
+        sizeBytes >= 1024 * 1024 -> String.format(Locale.US, "%.1f MB", sizeBytes / (1024f * 1024f))
+        sizeBytes >= 1024 -> String.format(Locale.US, "%.1f KB", sizeBytes / 1024f)
+        else -> "$sizeBytes B"
+    }
+
+private fun formatTimestamp(timestamp: Long): String =
+    SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date(timestamp))

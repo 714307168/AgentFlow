@@ -1097,11 +1097,23 @@ body[data-provider="claude"] .message-card.assistant .message-shell {
 }
 
 .attachment-card {
+  align-items: flex-start;
   display: flex;
   flex: 0 1 min(100%, 320px);
-  flex-direction: column;
-  gap: 6px;
+  gap: 10px;
   padding: 10px 12px;
+}
+
+.attachment-card.previewable {
+  color: inherit;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+}
+
+.attachment-card.previewable:hover,
+.attachment-chip-preview:hover {
+  border-color: var(--border-strong);
 }
 
 .attachment-chip {
@@ -1109,6 +1121,51 @@ body[data-provider="claude"] .message-card.assistant .message-shell {
   display: flex;
   gap: 10px;
   padding: 10px 12px;
+}
+
+.attachment-preview-shell,
+.attachment-chip-preview {
+  border: 0;
+  border-radius: 12px;
+  flex: 0 0 auto;
+  overflow: hidden;
+}
+
+.attachment-preview-shell {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.attachment-chip-preview {
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+}
+
+.attachment-thumb,
+.attachment-chip-thumb {
+  background: rgba(255, 255, 255, 0.04);
+  display: block;
+  object-fit: cover;
+}
+
+.attachment-thumb {
+  height: 88px;
+  width: 88px;
+}
+
+.attachment-chip-thumb {
+  height: 52px;
+  width: 52px;
+}
+
+.attachment-thumb-fallback {
+  align-items: center;
+  color: var(--text-soft);
+  display: inline-flex;
+  font-size: 11px;
+  font-weight: 700;
+  justify-content: center;
+  letter-spacing: 0.06em;
 }
 
 .attachment-copy {
@@ -1174,6 +1231,87 @@ body[data-provider="claude"] .message-card.assistant .message-shell {
 .attachment-remove:hover {
   background: rgba(255, 122, 122, 0.14);
   border-color: rgba(255, 122, 122, 0.3);
+}
+
+.attachment-lightbox {
+  align-items: center;
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  position: fixed;
+  z-index: 40;
+}
+
+.attachment-lightbox.hidden {
+  display: none;
+}
+
+.attachment-lightbox-backdrop {
+  backdrop-filter: blur(8px);
+  background: rgba(3, 10, 17, 0.82);
+  inset: 0;
+  position: absolute;
+}
+
+.attachment-lightbox-dialog {
+  backdrop-filter: blur(14px);
+  background: rgba(11, 22, 34, 0.96);
+  border: 1px solid var(--border-strong);
+  border-radius: 18px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: min(88vh, 960px);
+  max-width: min(92vw, 1200px);
+  min-width: min(92vw, 520px);
+  padding: 14px;
+  position: relative;
+}
+
+.attachment-lightbox-header {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.attachment-lightbox-title {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.attachment-lightbox-close {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 8px 14px;
+}
+
+.attachment-lightbox-body {
+  align-items: center;
+  display: flex;
+  justify-content: center;
+  min-height: 0;
+  overflow: auto;
+}
+
+.attachment-lightbox-image {
+  border-radius: 14px;
+  max-height: calc(88vh - 110px);
+  max-width: 100%;
+  object-fit: contain;
+}
+
+body.lightbox-open {
+  overflow: hidden;
 }
 
 .message-content,

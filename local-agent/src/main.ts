@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, dialog } from "electron";
+import { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, dialog, safeStorage, clipboard } from "electron";
 import "./user-data-bootstrap";
 import * as fs from "fs";
 import * as path from "path";
@@ -15,12 +15,21 @@ import { buildSessionSyncPayload } from "./session-sync-payload";
 import UpdateManager, { UpdateState } from "./update-manager";
 import { Events } from "./types";
 import { t, getLang, setLang, getAllMessages, Lang } from "./i18n";
+import {
+  createRunAttachmentFromPath,
+  getUniqueAttachmentPath,
+  isImageAttachment,
+} from "./attachment-utils";
 
 interface AgentConfig {
   serverUrl: string;
   agentId: string;
   token: string;
   username?: string;
+  password?: string;
+  tokenExpiresAt?: string;
+  encryptedToken?: string;
+  encryptedPassword?: string;
   cliProvider: CliProvider;
 }
 
@@ -39,6 +48,9 @@ const configStore = new Store<AgentConfig>({
     agentId: "",
     token: "",
     username: "",
+    tokenExpiresAt: "",
+    encryptedToken: "",
+    encryptedPassword: "",
     cliProvider: "claude",
   },
 });
@@ -70,22 +82,10 @@ const updateManager = new UpdateManager({
   getAutoDownloadEnabled: () => appSettingsStore.get("autoUpdateDownload") as boolean,
   getParentWindow: () => workspaceWindow ?? mainWindow ?? null,
 });
-
-function isImageAttachment(filePath: string): boolean {
-  const extension = path.extname(filePath).toLowerCase();
-  return [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".ico", ".avif", ".heic"].includes(extension);
-}
-
-function toRunAttachment(filePath: string): RunAttachment {
-  const stats = fs.statSync(filePath);
-  return {
-    id: uuidv4(),
-    name: path.basename(filePath),
-    path: filePath,
-    size: stats.isFile() ? stats.size : 0,
-    kind: isImageAttachment(filePath) ? "image" : "file",
-  };
-}
+const TOKEN_REFRESH_WINDOW_MS = 5 * 60 * 1000;
+const MIN_TOKEN_REFRESH_DELAY_MS = 30 * 1000;
+let tokenRefreshTimer: NodeJS.Timeout | null = null;
+let tokenRefreshPromise: Promise<boolean> | null = null;
 
 function normalizeIncomingAttachments(payload: unknown): RunAttachment[] {
   if (!Array.isArray(payload)) {
@@ -104,15 +104,88 @@ function normalizeIncomingAttachments(payload: unknown): RunAttachment[] {
         return null;
       }
 
-      return {
-        id: typeof entry.id === "string" && entry.id.trim() ? entry.id : uuidv4(),
+      return createRunAttachmentFromPath(filePath, {
+        id: typeof entry.id === "string" && entry.id.trim() ? entry.id.trim() : uuidv4(),
         name: typeof entry.name === "string" && entry.name.trim() ? entry.name.trim() : path.basename(filePath),
-        path: filePath,
         size: Number.isFinite(entry.size) ? Math.max(0, Number(entry.size)) : stats.size,
         kind: entry.kind === "image" || isImageAttachment(filePath) ? "image" : "file",
-      } satisfies RunAttachment;
+        mimeType: typeof entry.mimeType === "string" ? entry.mimeType : undefined,
+        previewDataUrl: typeof entry.previewDataUrl === "string" ? entry.previewDataUrl : undefined,
+      });
     })
     .filter((entry): entry is RunAttachment => entry !== null);
+}
+
+function encodeSecretForStore(secret: string): string {
+  if (!secret) {
+    return "";
+  }
+
+  if (safeStorage.isEncryptionAvailable()) {
+    return `enc:${safeStorage.encryptString(secret).toString("base64")}`;
+  }
+
+  return `plain:${Buffer.from(secret, "utf8").toString("base64")}`;
+}
+
+function decodeSecretFromStore(storedValue?: string): string {
+  if (!storedValue) {
+    return "";
+  }
+
+  if (storedValue.startsWith("enc:")) {
+    if (!safeStorage.isEncryptionAvailable()) {
+      return "";
+    }
+
+    try {
+      return safeStorage.decryptString(Buffer.from(storedValue.slice(4), "base64"));
+    } catch (_error) {
+      return "";
+    }
+  }
+
+  if (storedValue.startsWith("plain:")) {
+    try {
+      return Buffer.from(storedValue.slice(6), "base64").toString("utf8");
+    } catch (_error) {
+      return "";
+    }
+  }
+
+  return storedValue;
+}
+
+function toHttpBaseUrl(rawUrl: string): string {
+  const trimmed = rawUrl.trim().replace(/\/+$/, "");
+  if (!trimmed) {
+    return "http://localhost:8080";
+  }
+
+  if (trimmed.startsWith("ws://")) {
+    return `http://${trimmed.slice(5).replace(/\/ws$/, "")}`;
+  }
+  if (trimmed.startsWith("wss://")) {
+    return `https://${trimmed.slice(6).replace(/\/ws$/, "")}`;
+  }
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+    return trimmed.replace(/\/ws$/, "");
+  }
+
+  return `http://${trimmed.replace(/\/ws$/, "")}`;
+}
+
+function isTokenExpiringSoon(expiresAt?: string, nowMs: number = Date.now()): boolean {
+  if (!expiresAt) {
+    return true;
+  }
+
+  const expiresAtMs = Date.parse(expiresAt);
+  if (Number.isNaN(expiresAtMs)) {
+    return true;
+  }
+
+  return expiresAtMs - nowMs <= TOKEN_REFRESH_WINDOW_MS;
 }
 
 function getDefaultCliProvider(): CliProvider {
@@ -312,13 +385,153 @@ function revealWindow(win: BrowserWindow): void {
 }
 
 function loadConfig(): AgentConfig {
+  const legacyToken = configStore.get("token") as string;
+  const encryptedToken = (configStore.get("encryptedToken") as string) || "";
+  const resolvedToken =
+    process.env.AGENT_TOKEN?.trim()
+    || decodeSecretFromStore(encryptedToken)
+    || legacyToken
+    || "";
+
+  if (!process.env.AGENT_TOKEN && legacyToken && !encryptedToken) {
+    configStore.set("encryptedToken", encodeSecretForStore(legacyToken));
+    configStore.set("token", "");
+  }
+
   return {
     serverUrl: (process.env.RELAY_SERVER_URL ?? configStore.get("serverUrl")) as string,
     agentId: (process.env.AGENT_ID ?? configStore.get("agentId")) as string,
-    token: (process.env.AGENT_TOKEN ?? configStore.get("token")) as string,
+    token: resolvedToken,
     username: configStore.get("username") as string,
+    password: decodeSecretFromStore(configStore.get("encryptedPassword") as string),
+    tokenExpiresAt: (configStore.get("tokenExpiresAt") as string) || "",
     cliProvider: ((process.env.CLI_PROVIDER ?? configStore.get("cliProvider")) as CliProvider) || "claude",
   };
+}
+
+function getPublicConfig(): Omit<AgentConfig, "password" | "encryptedToken" | "encryptedPassword"> {
+  const config = loadConfig();
+  return {
+    serverUrl: config.serverUrl,
+    agentId: config.agentId,
+    token: config.token ? "__cached__" : "",
+    username: config.username,
+    tokenExpiresAt: config.tokenExpiresAt,
+    cliProvider: config.cliProvider,
+  };
+}
+
+function saveAuthState(data: {
+  token: string;
+  password: string;
+  expiresAt: string;
+  username: string;
+}): void {
+  configStore.set("username", data.username);
+  configStore.set("encryptedPassword", encodeSecretForStore(data.password));
+  configStore.set("encryptedToken", encodeSecretForStore(data.token));
+  configStore.set("token", "");
+  configStore.set("tokenExpiresAt", data.expiresAt);
+}
+
+function updateRelayClientAuthFromConfig(): void {
+  if (!relayClient) {
+    return;
+  }
+
+  const config = loadConfig();
+  relayClient.updateAuth(config.serverUrl, config.agentId, config.token);
+}
+
+function scheduleTokenRefresh(delayOverrideMs?: number): void {
+  if (tokenRefreshTimer) {
+    clearTimeout(tokenRefreshTimer);
+    tokenRefreshTimer = null;
+  }
+
+  const config = loadConfig();
+  if (!config.agentId || !config.username?.trim() || !config.password?.trim()) {
+    return;
+  }
+
+  const delayMs = delayOverrideMs ?? (() => {
+    if (!config.tokenExpiresAt) {
+      return MIN_TOKEN_REFRESH_DELAY_MS;
+    }
+
+    const expiresAtMs = Date.parse(config.tokenExpiresAt);
+    if (Number.isNaN(expiresAtMs)) {
+      return MIN_TOKEN_REFRESH_DELAY_MS;
+    }
+
+    return Math.max(MIN_TOKEN_REFRESH_DELAY_MS, expiresAtMs - Date.now() - TOKEN_REFRESH_WINDOW_MS);
+  })();
+
+  tokenRefreshTimer = setTimeout(() => {
+    void refreshAgentToken(true);
+  }, delayMs);
+}
+
+async function refreshAgentToken(force: boolean = false): Promise<boolean> {
+  if (tokenRefreshPromise) {
+    return tokenRefreshPromise;
+  }
+
+  tokenRefreshPromise = (async () => {
+    const config = loadConfig();
+    if (!config.agentId) {
+      return false;
+    }
+
+    if (!force && config.token && !isTokenExpiringSoon(config.tokenExpiresAt)) {
+      scheduleTokenRefresh();
+      updateRelayClientAuthFromConfig();
+      return true;
+    }
+
+    if (!config.username?.trim() || !config.password?.trim()) {
+      scheduleTokenRefresh();
+      return Boolean(config.token) && !isTokenExpiringSoon(config.tokenExpiresAt);
+    }
+
+    try {
+      const response = await fetch(`${toHttpBaseUrl(config.serverUrl)}/api/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username: config.username,
+          password: config.password,
+          client_type: "agent",
+          client_id: config.agentId,
+        }),
+      });
+
+      if (!response.ok) {
+        scheduleTokenRefresh(MIN_TOKEN_REFRESH_DELAY_MS);
+        return Boolean(config.token) && !isTokenExpiringSoon(config.tokenExpiresAt);
+      }
+
+      const result = await response.json() as { token: string; expires_at: string; user?: { username?: string } };
+      saveAuthState({
+        token: result.token,
+        password: config.password,
+        expiresAt: result.expires_at,
+        username: result.user?.username?.trim() || config.username,
+      });
+      updateRelayClientAuthFromConfig();
+      scheduleTokenRefresh();
+      return true;
+    } catch (_error) {
+      scheduleTokenRefresh(MIN_TOKEN_REFRESH_DELAY_MS);
+      return Boolean(config.token) && !isTokenExpiringSoon(config.tokenExpiresAt);
+    }
+  })();
+
+  try {
+    return await tokenRefreshPromise;
+  } finally {
+    tokenRefreshPromise = null;
+  }
 }
 
 function createTray(): Tray {
@@ -519,12 +732,17 @@ function initRelay(config: AgentConfig): void {
       lastBroadcastSyncSeqByProject.set(project.id, runtimeManager.getLatestSyncSeq(project.id));
     }
     updateTrayTooltip();
-    syncProjectCatalog(config.agentId);
+    scheduleTokenRefresh();
+    syncProjectCatalog(loadConfig().agentId);
   });
 
   relayClient.on("disconnected", () => {
     console.log("[Main] Relay disconnected");
     updateTrayTooltip();
+  });
+
+  relayClient.on("auth-failed", () => {
+    void refreshAgentToken(true);
   });
 
   relayClient.on("error", (err: Error) => {
@@ -626,12 +844,15 @@ ipcMain.on("open-project-window", (_event, projectId: string) => {
   if (project) showWorkspaceWindow(project.id);
 });
 
-ipcMain.handle("get-config", () => loadConfig());
+ipcMain.handle("get-config", () => getPublicConfig());
 
 ipcMain.handle("save-config", (_event, config: Partial<AgentConfig>) => {
   if (config.serverUrl !== undefined) configStore.set("serverUrl", config.serverUrl);
   if (config.agentId !== undefined) configStore.set("agentId", config.agentId);
-  if (config.token !== undefined) configStore.set("token", config.token);
+  if (config.token !== undefined) {
+    configStore.set("encryptedToken", encodeSecretForStore(config.token));
+    configStore.set("token", "");
+  }
   if (config.username !== undefined) configStore.set("username", config.username);
   if (config.cliProvider !== undefined) configStore.set("cliProvider", config.cliProvider);
   return true;
@@ -640,7 +861,7 @@ ipcMain.handle("save-config", (_event, config: Partial<AgentConfig>) => {
 ipcMain.handle("login", async (_event, data: { username: string; password: string; agentId: string }) => {
   try {
     const config = loadConfig();
-    const serverUrl = config.serverUrl.replace(/^ws/, "http").replace(/\/ws$/, "");
+    const serverUrl = toHttpBaseUrl(config.serverUrl);
 
     const response = await fetch(`${serverUrl}/api/auth/login`, {
       method: "POST",
@@ -658,11 +879,15 @@ ipcMain.handle("login", async (_event, data: { username: string; password: strin
       return { success: false, error: errorText || response.statusText };
     }
 
-    const result = await response.json();
-
-    // Save token and username
-    configStore.set("token", result.token);
-    configStore.set("username", data.username);
+    const result = await response.json() as { token: string; expires_at: string; user?: { username?: string } };
+    saveAuthState({
+      token: result.token,
+      password: data.password,
+      expiresAt: result.expires_at,
+      username: result.user?.username?.trim() || data.username,
+    });
+    scheduleTokenRefresh();
+    updateRelayClientAuthFromConfig();
 
     return { success: true, token: result.token, user: result.user };
   } catch (err: any) {
@@ -683,7 +908,8 @@ ipcMain.handle("set-e2e-enabled", (_event, enabled: boolean) => {
   return true;
 });
 
-ipcMain.handle("reconnect-relay", () => {
+ipcMain.handle("reconnect-relay", async () => {
+  await refreshAgentToken(false);
   if (relayClient) {
     relayClient.disconnect();
   }
@@ -829,7 +1055,50 @@ ipcMain.handle("pick-project-attachments", async (event, data: { projectId: stri
 
   return {
     success: true,
-    attachments: result.filePaths.map((filePath) => toRunAttachment(filePath)),
+    attachments: result.filePaths.map((filePath) => createRunAttachmentFromPath(filePath)),
+  };
+});
+
+ipcMain.handle("save-clipboard-project-image", (_event, data: { projectId: string }) => {
+  const project = projectStore.getById(data.projectId);
+  if (!project) {
+    return { success: false, error: "Project not found" };
+  }
+
+  const image = clipboard.readImage();
+  if (image.isEmpty()) {
+    return { success: false, error: "Clipboard does not contain an image" };
+  }
+
+  const targetPath = getUniqueAttachmentPath(project.id, `clipboard-${Date.now()}.png`);
+  fs.writeFileSync(targetPath, image.toPNG());
+
+  return {
+    success: true,
+    attachment: createRunAttachmentFromPath(targetPath, {
+      name: path.basename(targetPath),
+      kind: "image",
+    }),
+  };
+});
+
+ipcMain.handle("get-attachment-image-data", (_event, data: { path?: string | null }) => {
+  const filePath = typeof data?.path === "string" ? path.resolve(data.path) : "";
+  if (!filePath || !fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+    return { success: false, error: "Attachment not found" };
+  }
+  if (!isImageAttachment(filePath)) {
+    return { success: false, error: "Attachment is not an image" };
+  }
+
+  const image = nativeImage.createFromPath(filePath);
+  if (image.isEmpty()) {
+    return { success: false, error: "Unable to read image" };
+  }
+
+  return {
+    success: true,
+    dataUrl: image.toDataURL(),
   };
 });
 
@@ -909,10 +1178,12 @@ ipcMain.on("close-window", (event) => {
   if (win) win.close();
 });
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   tray = createTray();
+  await refreshAgentToken(false);
   const config = loadConfig();
   initRelay(config);
+  scheduleTokenRefresh();
   updateManager.start();
 
   // Open workspace window unless silent launch is configured
@@ -928,6 +1199,10 @@ app.on("window-all-closed", (_event: Electron.Event) => {
 });
 
 app.on("before-quit", () => {
+  if (tokenRefreshTimer) {
+    clearTimeout(tokenRefreshTimer);
+    tokenRefreshTimer = null;
+  }
   if (relayClient) relayClient.disconnect();
   updateManager.stop();
   runtimeManager.dispose();

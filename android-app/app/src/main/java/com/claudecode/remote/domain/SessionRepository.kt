@@ -8,6 +8,7 @@ import com.claudecode.remote.data.local.TokenStore
 import com.claudecode.remote.data.model.Envelope
 import com.claudecode.remote.data.model.Events
 import com.claudecode.remote.data.model.Session
+import com.claudecode.remote.data.remote.AuthSessionManager
 import com.claudecode.remote.data.remote.ProjectInfo
 import com.claudecode.remote.data.remote.RelayApi
 import com.claudecode.remote.util.CrashLogger
@@ -30,6 +31,7 @@ import java.util.UUID
 
 class SessionRepository(
     private val relayApiProvider: () -> RelayApi,
+    private val authSessionManager: AuthSessionManager,
     private val tokenStore: TokenStore,
     private val context: Context
 ) {
@@ -60,9 +62,16 @@ class SessionRepository(
                 CrashLogger.logInfo("SessionRepository", "Using existing deviceId: $deviceId")
             }
 
-            if (tokenStore.getToken() == null) {
-                CrashLogger.logError("SessionRepository", "No token found, login required before initialization")
-                return Result.failure(Exception("Please sign in from Settings before connecting."))
+            val deviceIdForInit = tokenStore.getDeviceId().orEmpty()
+            val tokenResult = if (deviceIdForInit.isNotBlank()) {
+                authSessionManager.ensureValidToken(deviceIdForInit)
+            } else {
+                Result.failure(IllegalStateException("Device ID is missing"))
+            }
+
+            if (tokenResult.isFailure) {
+                CrashLogger.logInfo("SessionRepository", "No token found, skipping initialization until login")
+                return Result.success(Unit)
             }
             CrashLogger.logInfo("SessionRepository", "Token already exists")
 
@@ -82,10 +91,10 @@ class SessionRepository(
         return try {
             CrashLogger.logInfo("SessionRepository", "Starting syncFromServer")
 
-            val token = tokenStore.getToken()
-            if (token == null) {
-                CrashLogger.logError("SessionRepository", "syncFromServer: No token available")
-                return Result.failure(Exception("Not authenticated"))
+            val deviceId = tokenStore.getDeviceId().orEmpty()
+            val token = authSessionManager.ensureValidToken(deviceId).getOrElse { error ->
+                CrashLogger.logError("SessionRepository", "syncFromServer: No token available", error)
+                return Result.failure(error)
             }
 
             CrashLogger.logInfo("SessionRepository", "Calling API syncDevice")

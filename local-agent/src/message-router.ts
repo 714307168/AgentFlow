@@ -1,12 +1,11 @@
 import { v4 as uuidv4 } from "uuid";
 import * as fs from "fs";
-import * as path from "path";
-import { app } from "electron";
 import RelayClient from "./relay-client";
 import projectStore from "./project-store";
-import RuntimeManager, { CliProvider } from "./runtime-manager";
+import RuntimeManager, { CliProvider, RunAttachment } from "./runtime-manager";
 import { buildSessionSyncPayload } from "./session-sync-payload";
 import { Envelope, Events } from "./types";
+import { createRunAttachmentFromPath, getUniqueAttachmentPath } from "./attachment-utils";
 
 interface MessageRouterOptions {
   revealProjectWindow?: (projectId: string, projectName: string) => void;
@@ -20,7 +19,12 @@ interface MessageRouterOptions {
 class MessageRouter {
   private relayClient: RelayClient;
   private streamSeq: Map<string, number> = new Map();
-  private fileBuffers: Map<string, { fileName: string; chunks: Map<number, Buffer>; totalChunks: number }> = new Map();
+  private fileBuffers: Map<string, {
+    fileName: string;
+    projectId: string;
+    mimeType?: string;
+    chunks: Map<number, Buffer>;
+  }> = new Map();
   private options: MessageRouterOptions;
 
   constructor(relayClient: RelayClient, options: MessageRouterOptions = {}) {
@@ -108,8 +112,9 @@ class MessageRouter {
     }
 
     this.options.revealProjectWindow?.(projectId, project.name);
-    const payload = env.payload as { content?: string } | undefined;
+    const payload = env.payload as { content?: string; attachments?: unknown[] } | undefined;
     const content = payload?.content ?? "";
+    const attachments = this.normalizeIncomingAttachments(payload?.attachments);
     this.streamSeq.set(streamId, 0);
     if (!this.options.runtimeManager) {
       this.relayClient.send({
@@ -127,6 +132,7 @@ class MessageRouter {
       projectId,
       cwd: project.path,
       prompt: content,
+      attachments,
       source: "remote",
       runId: env.id,
       responseMessageId: streamId,
@@ -252,18 +258,19 @@ class MessageRouter {
     const payload = env.payload as any;
     const fileId = env.id;
     const fileName = payload?.file_name;
+    const projectId = env.project_id;
 
-    if (!fileId || !fileName) {
+    if (!fileId || !fileName || !projectId) {
       console.error("[MessageRouter] file.upload missing required fields");
       return;
     }
 
-    const safeFileName = this.sanitizeUploadFileName(String(fileName));
     console.log(`[MessageRouter] File upload started: ${fileName} (${fileId})`);
     this.fileBuffers.set(fileId, {
-      fileName: safeFileName,
+      fileName: String(fileName),
+      projectId,
+      mimeType: typeof payload?.mime_type === "string" ? payload.mime_type : undefined,
       chunks: new Map(),
-      totalChunks: 0
     });
   }
 
@@ -312,13 +319,14 @@ class MessageRouter {
         .map(([_, chunk]) => chunk);
 
       const completeFile = Buffer.concat(sortedChunks);
-
-      // Save to downloads folder
-      const downloadsPath = app.getPath('downloads');
-      const filePath = path.join(downloadsPath, buffer.fileName);
+      const filePath = getUniqueAttachmentPath(buffer.projectId, buffer.fileName);
       fs.writeFileSync(filePath, completeFile);
+      const attachment = createRunAttachmentFromPath(filePath, {
+        name: buffer.fileName,
+        mimeType: buffer.mimeType,
+      });
 
-      console.log(`[MessageRouter] File saved: ${filePath}`);
+      console.log(`[MessageRouter] File saved: ${attachment.path}`);
 
       // Send confirmation back
       this.relayClient.send({
@@ -329,8 +337,12 @@ class MessageRouter {
         ts: Date.now(),
         payload: {
           file_id: fileId,
-          file_name: buffer.fileName,
-          file_path: filePath
+          file_name: attachment.name,
+          file_path: attachment.path,
+          file_size: attachment.size,
+          mime_type: attachment.mimeType,
+          kind: attachment.kind,
+          preview_data_url: attachment.previewDataUrl,
         }
       });
 
@@ -350,10 +362,30 @@ class MessageRouter {
     }
   }
 
-  private sanitizeUploadFileName(fileName: string): string {
-    const baseName = path.basename(fileName).trim();
-    const sanitized = baseName.replace(/[<>:"/\\|?*\u0000-\u001F]/g, "_");
-    return sanitized || "download.bin";
+  private normalizeIncomingAttachments(rawAttachments: unknown): RunAttachment[] {
+    if (!Array.isArray(rawAttachments)) {
+      return [];
+    }
+
+    return rawAttachments
+      .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
+      .map((item) => {
+        const rawPath = typeof item.path === "string" ? item.path.trim() : "";
+        if (!rawPath || !fs.existsSync(rawPath) || !fs.statSync(rawPath).isFile()) {
+          return null;
+        }
+
+        return createRunAttachmentFromPath(rawPath, {
+          id: typeof item.id === "string" ? item.id : undefined,
+          name: typeof item.name === "string" ? item.name : undefined,
+          size: typeof item.size === "number" ? item.size : undefined,
+          kind: item.kind === "image" ? "image" : undefined,
+          mimeType: typeof item.mimeType === "string"
+            ? item.mimeType
+            : (typeof item.mime_type === "string" ? item.mime_type : undefined),
+        });
+      })
+      .filter((item): item is RunAttachment => item !== null);
   }
 
   private sendChunk(

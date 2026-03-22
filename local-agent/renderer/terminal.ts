@@ -13,6 +13,8 @@ interface AttachmentRef {
   path: string;
   size: number;
   kind: AttachmentKind;
+  mimeType?: string;
+  previewDataUrl?: string;
 }
 
 interface ClaudeAgentApi {
@@ -25,6 +27,16 @@ interface ClaudeAgentApi {
     success: boolean;
     error?: string;
     attachments?: AttachmentRef[];
+  }>;
+  saveClipboardProjectImage?: (data: { projectId: string }) => Promise<{
+    success: boolean;
+    error?: string;
+    attachment?: AttachmentRef;
+  }>;
+  getAttachmentImageData?: (data: { path?: string | null }) => Promise<{
+    success: boolean;
+    error?: string;
+    dataUrl?: string;
   }>;
   stopProjectRun: (projectId: string) => Promise<{ success: boolean; error?: string }>;
   removeQueuedProjectPrompt: (data: { projectId: string; runId: string }) => Promise<{ success: boolean; error?: string }>;
@@ -123,6 +135,11 @@ interface OverviewState {
   signal: string;
 }
 
+interface AttachmentPreviewState {
+  name: string;
+  dataUrl: string;
+}
+
 interface Window {
   claudeAgent: ClaudeAgentApi;
 }
@@ -189,6 +206,10 @@ const elements = {
   minimizeBtn: document.getElementById("minimizeBtn"),
   maximizeBtn: document.getElementById("maximizeBtn"),
   closeBtn: document.getElementById("closeBtn"),
+  attachmentLightbox: document.getElementById("attachmentLightbox"),
+  attachmentLightboxImage: document.getElementById("attachmentLightboxImage") as HTMLImageElement | null,
+  attachmentLightboxTitle: document.getElementById("attachmentLightboxTitle"),
+  attachmentLightboxClose: document.getElementById("attachmentLightboxClose") as HTMLButtonElement | null,
 };
 
 const state: {
@@ -201,6 +222,7 @@ const state: {
   pendingAttachments: AttachmentRef[];
   preferredViews: Record<"claude" | "codex", WorkspaceView>;
   hint: HintState;
+  attachmentPreview: AttachmentPreviewState | null;
 } = {
   projectId: null,
   projects: [],
@@ -218,6 +240,7 @@ const state: {
     fallback: "Press Enter to send, Shift+Enter for a new line. Conversation stays in front, with Activity, CLI, and Queue one tab away.",
     isError: false,
   },
+  attachmentPreview: null,
 };
 
 function escapeHtml(value: string): string {
@@ -409,6 +432,69 @@ function renderAttachmentChip(attachment: AttachmentRef): string {
   ].join("");
 }
 
+function attachmentKindLabel(kind: AttachmentKind): string {
+  return kind === "image" ? inlineText("Image", "图片") : inlineText("File", "文件");
+}
+
+function attachmentPreviewMarkup(attachment: AttachmentRef, className = "attachment-thumb"): string {
+  if (attachment.kind !== "image" || !attachment.previewDataUrl) {
+    return `<div class="${escapeHtml(className)} attachment-thumb-fallback">${escapeHtml(attachment.kind === "image" ? "IMG" : "FILE")}</div>`;
+  }
+
+  return `<img class="${escapeHtml(className)}" src="${escapeHtml(attachment.previewDataUrl)}" alt="${escapeHtml(attachment.name)}" loading="lazy" />`;
+}
+
+function renderAttachmentCardView(attachment: AttachmentRef): string {
+  const label = attachmentKindLabel(attachment.kind);
+  const metaParts = [formatFileSize(attachment.size)];
+  if (attachment.mimeType) {
+    metaParts.push(attachment.mimeType);
+  }
+
+  const content = [
+    attachment.kind === "image"
+      ? `<div class="attachment-preview-shell">${attachmentPreviewMarkup(attachment)}</div>`
+      : "",
+    '<div class="attachment-copy">',
+    `<span class="attachment-kind ${escapeHtml(attachment.kind)}">${escapeHtml(label)}</span>`,
+    `<div class="attachment-name">${escapeHtml(attachment.name)}</div>`,
+    `<div class="attachment-meta">${escapeHtml(metaParts.join(" · "))}</div>`,
+    `<div class="attachment-meta">${escapeHtml(attachment.path)}</div>`,
+    "</div>",
+  ].join("");
+
+  if (attachment.kind === "image") {
+    return [
+      `<button class="attachment-card previewable" type="button" data-preview-attachment="${escapeHtml(attachment.id)}">`,
+      content,
+      "</button>",
+    ].join("");
+  }
+
+  return [
+    '<div class="attachment-card">',
+    content,
+    "</div>",
+  ].join("");
+}
+
+function renderAttachmentChipView(attachment: AttachmentRef): string {
+  const label = attachmentKindLabel(attachment.kind);
+  return [
+    `<div class="attachment-chip" data-attachment-id="${escapeHtml(attachment.id)}">`,
+    attachment.kind === "image"
+      ? `<button class="attachment-chip-preview" type="button" data-preview-attachment="${escapeHtml(attachment.id)}">${attachmentPreviewMarkup(attachment, "attachment-chip-thumb")}</button>`
+      : "",
+    '<div class="attachment-copy">',
+    `<span class="attachment-kind ${escapeHtml(attachment.kind)}">${escapeHtml(label)}</span>`,
+    `<div class="attachment-name">${escapeHtml(attachment.name)}</div>`,
+    `<div class="attachment-meta">${escapeHtml(formatFileSize(attachment.size))} · ${escapeHtml(attachment.path)}</div>`,
+    "</div>",
+    `<button class="attachment-remove" type="button" data-remove-attachment="${escapeHtml(attachment.id)}">×</button>`,
+    "</div>",
+  ].join("");
+}
+
 function isWorkspaceView(value: string | undefined): value is WorkspaceView {
   return value === "messages" || value === "activity" || value === "cli" || value === "queue";
 }
@@ -552,6 +638,7 @@ function getProjectStatusMeta(projectId: string): { label: string; tone: string;
 function setActiveProject(projectId: string | null): void {
   if (state.projectId !== projectId) {
     state.pendingAttachments = [];
+    state.attachmentPreview = null;
   }
   state.projectId = projectId;
   api.setActiveProject?.(projectId);
@@ -626,8 +713,102 @@ function renderPendingAttachments(): void {
   const hasItems = state.pendingAttachments.length > 0;
   elements.attachmentTray.classList.toggle("has-items", hasItems);
   elements.attachmentTray.innerHTML = hasItems
-    ? state.pendingAttachments.map((attachment) => renderAttachmentChip(attachment)).join("")
+    ? state.pendingAttachments.map((attachment) => renderAttachmentChipView(attachment)).join("")
     : "";
+}
+
+function findAttachmentById(attachmentId: string): AttachmentRef | null {
+  const pendingAttachment = state.pendingAttachments.find((attachment) => attachment.id === attachmentId);
+  if (pendingAttachment) {
+    return pendingAttachment;
+  }
+
+  const session = getCurrentSession();
+  if (!session) {
+    return null;
+  }
+
+  for (const message of session.messages) {
+    const match = message.attachments?.find((attachment) => attachment.id === attachmentId);
+    if (match) {
+      return match;
+    }
+  }
+
+  return null;
+}
+
+function renderAttachmentLightbox(): void {
+  if (!elements.attachmentLightbox || !elements.attachmentLightboxImage || !elements.attachmentLightboxTitle) {
+    return;
+  }
+
+  const preview = state.attachmentPreview;
+  const isOpen = Boolean(preview);
+  elements.attachmentLightbox.classList.toggle("hidden", !isOpen);
+  document.body.classList.toggle("lightbox-open", isOpen);
+  elements.attachmentLightboxImage.src = preview?.dataUrl ?? "";
+  elements.attachmentLightboxImage.alt = preview?.name ?? "";
+  elements.attachmentLightboxTitle.textContent = preview?.name ?? "";
+}
+
+async function openAttachmentPreview(attachmentId: string): Promise<void> {
+  const attachment = findAttachmentById(attachmentId);
+  if (!attachment || attachment.kind !== "image") {
+    return;
+  }
+
+  let dataUrl = attachment.previewDataUrl?.trim() ?? "";
+  if (!dataUrl && api.getAttachmentImageData) {
+    const result = await api.getAttachmentImageData({ path: attachment.path });
+    if (!result.success || !result.dataUrl) {
+      setHintText(result.error ?? inlineText("Failed to load image preview.", "图片预览加载失败。"), true);
+      return;
+    }
+    dataUrl = result.dataUrl;
+  }
+
+  if (!dataUrl) {
+    setHintText(inlineText("Image preview is unavailable.", "当前图片无法预览。"), true);
+    return;
+  }
+
+  state.attachmentPreview = {
+    name: attachment.name,
+    dataUrl,
+  };
+  renderAttachmentLightbox();
+}
+
+function closeAttachmentPreview(): void {
+  if (!state.attachmentPreview) {
+    return;
+  }
+
+  state.attachmentPreview = null;
+  renderAttachmentLightbox();
+}
+
+async function saveClipboardImageAttachment(): Promise<void> {
+  if (!state.projectId || !api.saveClipboardProjectImage) {
+    return;
+  }
+
+  const result = await api.saveClipboardProjectImage({ projectId: state.projectId });
+  if (!result.success || !result.attachment) {
+    setHintText(result.error ?? inlineText("Failed to paste image from clipboard.", "粘贴剪贴板图片失败。"), true);
+    return;
+  }
+
+  state.pendingAttachments = mergeAttachments(state.pendingAttachments, [result.attachment]);
+  renderPendingAttachments();
+  setHintText(
+    inlineText(
+      `${state.pendingAttachments.length} attachment(s) ready to send.`,
+      `已添加 ${state.pendingAttachments.length} 个附件，发送时会一并带上。`,
+    ),
+    false,
+  );
 }
 
 function applyStaticI18n(): void {
@@ -1076,7 +1257,7 @@ function renderMessages(): void {
         `<span class="message-time">${escapeHtml(formatTime(message.updatedAt || message.createdAt))}</span>`,
         "</div>",
         message.attachments && message.attachments.length > 0
-          ? `<div class="message-attachments">${message.attachments.map((attachment) => renderAttachmentCard(attachment)).join("")}</div>`
+          ? `<div class="message-attachments">${message.attachments.map((attachment) => renderAttachmentCardView(attachment)).join("")}</div>`
           : "",
         message.content
           ? `<div class="message-content${message.status === "streaming" ? " streaming" : ""}">${escapeHtml(message.content)}</div>`
@@ -1210,6 +1391,7 @@ function render(): void {
   renderMessages();
   renderActivities();
   renderPendingAttachments();
+  renderAttachmentLightbox();
   renderHint();
 }
 
@@ -1454,6 +1636,16 @@ elements.composerInput?.addEventListener("keydown", (event) => {
   }
 });
 
+elements.composerInput?.addEventListener("paste", (event) => {
+  const items = Array.from(event.clipboardData?.items ?? []);
+  if (!items.some((item) => item.type.startsWith("image/"))) {
+    return;
+  }
+
+  event.preventDefault();
+  void saveClipboardImageAttachment();
+});
+
 elements.projectList?.addEventListener("click", (event) => {
   const target = event.target instanceof Element ? event.target : null;
   const item = target?.closest("[data-project-id]") as HTMLElement | null;
@@ -1480,11 +1672,44 @@ elements.attachmentTray?.addEventListener("click", (event) => {
   const target = event.target instanceof Element ? event.target : null;
   const button = target?.closest("[data-remove-attachment]") as HTMLElement | null;
   const attachmentId = button?.dataset.removeAttachment;
+  if (attachmentId) {
+    removePendingAttachment(attachmentId);
+    return;
+  }
+
+  const previewTrigger = target?.closest("[data-preview-attachment]") as HTMLElement | null;
+  const previewAttachmentId = previewTrigger?.dataset.previewAttachment;
+  if (!previewAttachmentId) {
+    return;
+  }
+
+  void openAttachmentPreview(previewAttachmentId);
+});
+
+elements.messages?.addEventListener("click", (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  const previewTrigger = target?.closest("[data-preview-attachment]") as HTMLElement | null;
+  const attachmentId = previewTrigger?.dataset.previewAttachment;
   if (!attachmentId) {
     return;
   }
 
-  removePendingAttachment(attachmentId);
+  void openAttachmentPreview(attachmentId);
+});
+
+elements.attachmentLightbox?.addEventListener("click", (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  if (!target) {
+    return;
+  }
+  if (target.closest(".attachment-lightbox-dialog") && !target.closest("#attachmentLightboxClose")) {
+    return;
+  }
+  closeAttachmentPreview();
+});
+
+elements.attachmentLightboxClose?.addEventListener("click", () => {
+  closeAttachmentPreview();
 });
 
 elements.workbenchTabs?.addEventListener("click", (event) => {
@@ -1539,6 +1764,12 @@ bindClick("closeBtn", () => {
     return;
   }
   window.close();
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && state.attachmentPreview) {
+    closeAttachmentPreview();
+  }
 });
 
 void loadI18n();

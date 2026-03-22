@@ -13,6 +13,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class RelayConnectionService : Service() {
@@ -49,18 +51,51 @@ class RelayConnectionService : Service() {
                 }
             }
         }
+
+        serviceScope.launch {
+            while (isActive) {
+                val nextRefreshDelay = container.authSessionManager.nextRefreshDelayMillis()
+                if (nextRefreshDelay == null) {
+                    delay(60_000)
+                    continue
+                }
+
+                delay(nextRefreshDelay)
+                val deviceId = container.tokenStore.getDeviceId().orEmpty()
+                if (deviceId.isBlank()) {
+                    continue
+                }
+
+                container.authSessionManager.ensureValidToken(deviceId, forceRefresh = true)
+                    .onFailure { error ->
+                        CrashLogger.logError(
+                            "RelayConnectionService",
+                            "Failed to refresh mobile token in background",
+                            error as? Exception
+                        )
+                    }
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val token = applicationContext.appContainer().tokenStore.getToken()
-        if (token.isNullOrBlank()) {
-            stopSelf()
-            return START_NOT_STICKY
-        }
+        val container = applicationContext.appContainer()
 
         serviceScope.launch {
             try {
-                applicationContext.appContainer().relayWebSocket.connect()
+                val deviceId = container.tokenStore.getDeviceId().orEmpty()
+                val tokenResult = container.authSessionManager.ensureValidToken(deviceId)
+                if (tokenResult.isFailure) {
+                    CrashLogger.logError(
+                        "RelayConnectionService",
+                        "No valid token available for relay connection",
+                        tokenResult.exceptionOrNull()
+                    )
+                    stopSelf()
+                    return@launch
+                }
+
+                container.relayWebSocket.connect()
             } catch (e: Exception) {
                 CrashLogger.logError("RelayConnectionService", "Failed to connect WebSocket", e)
             }
@@ -69,6 +104,7 @@ class RelayConnectionService : Service() {
     }
 
     override fun onDestroy() {
+        applicationContext.appContainer().relayWebSocket.disconnect()
         serviceScope.cancel()
         super.onDestroy()
     }
@@ -100,6 +136,11 @@ class RelayConnectionService : Service() {
         fun start(context: Context) {
             val intent = Intent(context, RelayConnectionService::class.java)
             ContextCompat.startForegroundService(context, intent)
+        }
+
+        fun stop(context: Context) {
+            val intent = Intent(context, RelayConnectionService::class.java)
+            context.stopService(intent)
         }
     }
 }

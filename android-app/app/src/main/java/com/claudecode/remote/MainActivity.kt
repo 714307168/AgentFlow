@@ -18,7 +18,6 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.core.content.ContextCompat
-import com.claudecode.remote.data.remote.LoginRequest
 import com.claudecode.remote.service.RelayConnectionService
 import com.claudecode.remote.ui.chat.ChatScreen
 import com.claudecode.remote.ui.chat.ChatViewModel
@@ -29,7 +28,6 @@ import com.claudecode.remote.ui.settings.SettingsState
 import com.claudecode.remote.ui.theme.RemoteTheme
 import com.claudecode.remote.util.CrashLogger
 import kotlinx.coroutines.launch
-import kotlinx.serialization.json.Json
 import java.util.Locale
 
 class MainActivity : ComponentActivity() {
@@ -43,14 +41,14 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         appContainer = applicationContext.appContainer()
 
-        CrashLogger.init(applicationContext)
+        CrashLogger.init(applicationContext, appContainer.tokenStore)
         CrashLogger.logInfo("MainActivity", "App started")
 
         applySavedLanguage()
         requestNotificationPermissionIfNeeded()
         appContainer.chatNavigationBus.publishFromIntent(intent)
 
-        if (!appContainer.tokenStore.getToken().isNullOrBlank()) {
+        if (appContainer.tokenStore.shouldAutoStartRelay()) {
             RelayConnectionService.start(applicationContext)
         }
 
@@ -65,9 +63,6 @@ class MainActivity : ComponentActivity() {
                 val messageRepository = appContainer.messageRepository
                 val appUpdateManager = appContainer.appUpdateManager
                 val e2eCrypto = appContainer.e2eCrypto
-                val json = remember {
-                    Json { ignoreUnknownKeys = true; encodeDefaults = true }
-                }
                 val navigationTarget by appContainer.chatNavigationBus.target.collectAsState()
                 val updateState by appUpdateManager.state.collectAsState()
 
@@ -107,6 +102,19 @@ class MainActivity : ComponentActivity() {
                                 val encodedAgentId = android.net.Uri.encode(session.agentId)
                                 navController.navigate("chat/${session.projectId}/$encodedName/$encodedAgentId")
                             },
+                            onRefreshSessions = {
+                                viewModel.syncFromDesktop()
+                            },
+                            onToggleConnection = {
+                                when (relayWebSocket.connectionState.value) {
+                                    com.claudecode.remote.data.remote.RelayWebSocket.ConnectionState.CONNECTED,
+                                    com.claudecode.remote.data.remote.RelayWebSocket.ConnectionState.CONNECTING,
+                                    com.claudecode.remote.data.remote.RelayWebSocket.ConnectionState.RECONNECTING ->
+                                        RelayConnectionService.stop(applicationContext)
+                                    com.claudecode.remote.data.remote.RelayWebSocket.ConnectionState.DISCONNECTED ->
+                                        RelayConnectionService.start(applicationContext)
+                                }
+                            },
                             onNavigateToSettings = {
                                 navController.navigate("settings")
                             }
@@ -135,7 +143,7 @@ class MainActivity : ComponentActivity() {
                         }
 
                         val viewModel = remember(projectId) {
-                            ChatViewModel(messageRepository, relayWebSocket)
+                            ChatViewModel(messageRepository, relayWebSocket, tokenStore)
                         }
                         ChatScreen(
                             projectId = projectId,
@@ -153,52 +161,53 @@ class MainActivity : ComponentActivity() {
                                 deviceId = tokenStore.getDeviceId() ?: "",
                                 token = tokenStore.getToken() ?: "",
                                 username = tokenStore.getUsername() ?: "",
+                                password = tokenStore.getPassword() ?: "",
                                 e2eEnabled = tokenStore.isE2EEnabled(),
                                 e2ePublicKey = e2eCrypto.getPublicKeyBase64(),
                                 language = tokenStore.getLanguage(),
                                 autoUpdateCheckEnabled = tokenStore.isAutoUpdateCheckEnabled(),
                                 autoUpdateDownloadEnabled = tokenStore.isAutoUpdateDownloadEnabled(),
+                                crashLogsEnabled = tokenStore.isCrashLogsEnabled(),
                                 updateState = updateState,
-                                isLoggedIn = tokenStore.getToken()?.isNotEmpty() == true
+                                isLoggedIn = tokenStore.hasSavedSession()
                             ),
-                            onSave = { url, devId, e2e, autoCheckUpdates, autoDownloadUpdates ->
+                            onSaveConnection = { url, devId ->
                                 val normalizedUrl = normalizeHttpBaseUrl(url)
                                 appContainer.updateServerUrl(normalizedUrl)
                                 tokenStore.saveDeviceId(devId)
-                                tokenStore.saveE2EEnabled(e2e)
-                                tokenStore.saveAutoUpdateCheckEnabled(autoCheckUpdates)
-                                tokenStore.saveAutoUpdateDownloadEnabled(autoDownloadUpdates)
-                                if (!tokenStore.getToken().isNullOrBlank()) {
+                                if (tokenStore.hasSavedSession() && devId.isNotBlank()) {
                                     relayWebSocket.disconnect()
-                                    coroutineScope.launch {
-                                        relayWebSocket.connect()
-                                    }
                                     RelayConnectionService.start(applicationContext)
                                 }
+                            },
+                            onE2EEnabledChange = { enabled ->
+                                tokenStore.saveE2EEnabled(enabled)
+                            },
+                            onAutoUpdateCheckChange = { enabled ->
+                                tokenStore.saveAutoUpdateCheckEnabled(enabled)
+                            },
+                            onAutoUpdateDownloadChange = { enabled ->
+                                tokenStore.saveAutoUpdateDownloadEnabled(enabled)
+                            },
+                            onCrashLogsEnabledChange = { enabled ->
+                                tokenStore.saveCrashLogsEnabled(enabled)
                             },
                             onLogin = { url, username, password, deviceId ->
                                 val normalizedUrl = normalizeHttpBaseUrl(url)
                                 appContainer.updateServerUrl(normalizedUrl)
                                 tokenStore.saveDeviceId(deviceId)
-                                tokenStore.saveUsername(username)
 
                                 coroutineScope.launch {
                                     try {
-                                        val response = createRelayApi(normalizedUrl, json).login(
-                                            LoginRequest(
-                                                username = username,
-                                                password = password,
-                                                clientType = "device",
-                                                clientId = deviceId
-                                            )
-                                        )
-                                        tokenStore.saveToken(response.token)
+                                        val response = appContainer.authSessionManager.login(
+                                            username = username,
+                                            password = password,
+                                            clientId = deviceId
+                                        ).getOrThrow()
                                         CrashLogger.logInfo("MainActivity", "Login successful: ${response.user.username}")
 
                                         relayWebSocket.disconnect()
-                                        relayWebSocket.connect()
                                         RelayConnectionService.start(applicationContext)
-                                        sessionRepository.syncFromServer()
                                     } catch (e: Exception) {
                                         CrashLogger.logError("MainActivity", "Login failed", e)
                                     }

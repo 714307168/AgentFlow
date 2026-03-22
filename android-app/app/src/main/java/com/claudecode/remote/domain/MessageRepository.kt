@@ -1,7 +1,10 @@
 package com.claudecode.remote.domain
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
+import android.provider.OpenableColumns
 import android.util.Base64
 import androidx.room.withTransaction
 import com.claudecode.remote.data.local.AppDatabase
@@ -11,23 +14,31 @@ import com.claudecode.remote.data.model.Envelope
 import com.claudecode.remote.data.model.Events
 import com.claudecode.remote.data.model.FileInfo
 import com.claudecode.remote.data.model.Message
+import com.claudecode.remote.data.model.MessageAttachment
 import com.claudecode.remote.data.model.MessageRole
 import com.claudecode.remote.data.model.MessageType
 import com.claudecode.remote.data.model.Session
 import com.claudecode.remote.data.model.StreamBuffer
-import com.claudecode.remote.data.remote.RelayWebSocket
+import com.claudecode.remote.data.model.toFileInfo
+import com.claudecode.remote.data.remote.AuthSessionManager
 import com.claudecode.remote.data.remote.RelayApi
+import com.claudecode.remote.data.remote.RelayWebSocket
 import com.claudecode.remote.data.remote.WakeupRequest
 import com.claudecode.remote.util.CrashLogger
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
@@ -35,22 +46,47 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
+import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 class MessageRepository(
     private val webSocket: RelayWebSocket,
     private val relayApiProvider: () -> RelayApi,
+    private val authSessionManager: AuthSessionManager,
     private val tokenStore: TokenStore,
     private val context: Context
 ) {
     companion object {
         private const val MAX_PROJECT_MESSAGES = 200
+        private const val FILE_CHUNK_SIZE = 64 * 1024
+        private const val FILE_UPLOAD_TIMEOUT_MS = 120_000L
+        private const val MAX_PREVIEW_EDGE = 480
+        private const val MAX_PREVIEW_BYTES = 220 * 1024
     }
+
+    private data class UploadAck(
+        val filePath: String,
+        val kind: String?,
+        val mimeType: String?,
+        val previewDataUrl: String?
+    )
+
+    private data class CachedAttachmentMeta(
+        val name: String,
+        val size: Long,
+        val mimeType: String
+    )
 
     private val db = AppDatabase.getInstance(context)
     private val messageDao = db.messageDao()
     private val sessionDao = db.sessionDao()
     private val streamBuffers = mutableMapOf<String, StreamBuffer>()
+    private val pendingUploadAcks = ConcurrentHashMap<String, CompletableDeferred<UploadAck>>()
+    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
     suspend fun requestProjectSync(projectId: String, agentId: String? = null) {
         wakeupAgent(agentId)
@@ -88,9 +124,39 @@ class MessageRepository(
         )
     }
 
-    suspend fun sendMessage(projectId: String, content: String, agentId: String? = null) {
+    suspend fun preparePendingAttachments(projectId: String, uris: List<Uri>): List<MessageAttachment> =
+        withContext(Dispatchers.IO) {
+            uris.mapNotNull { uri ->
+                runCatching { cacheAttachment(projectId, uri) }
+                    .onFailure { error ->
+                        CrashLogger.logError(
+                            "MessageRepository",
+                            "Failed to cache local attachment for projectId=$projectId uri=$uri",
+                            error as? Exception ?: Exception(error)
+                        )
+                    }
+                    .getOrNull()
+            }
+        }
+
+    suspend fun sendMessage(
+        projectId: String,
+        content: String,
+        attachments: List<MessageAttachment> = emptyList(),
+        agentId: String? = null
+    ) = withContext(Dispatchers.IO) {
         wakeupAgent(agentId)
 
+        val normalizedAttachments = attachments.map(::normalizeAttachment)
+        val trimmedContent = content.trim()
+        if (trimmedContent.isEmpty() && normalizedAttachments.isEmpty()) {
+            return@withContext
+        }
+
+        val uploadedAttachments = normalizedAttachments.map { attachment ->
+            uploadAttachment(projectId, attachment)
+        }
+        val messageContent = if (trimmedContent.isNotEmpty()) content else buildAttachmentOnlyPrompt(uploadedAttachments)
         val runId = UUID.randomUUID().toString()
         val streamId = "$runId:assistant"
         val envelope = Envelope(
@@ -98,109 +164,35 @@ class MessageRepository(
             event = Events.MESSAGE_SEND,
             projectId = projectId,
             streamId = streamId,
-            payload = buildJsonObject { put("content", JsonPrimitive(content)) },
-            ts = System.currentTimeMillis()
-        )
-        // Optimistically add user message to local state
-        val userMessage = Message(
-            id = envelope.id,
-            projectId = projectId,
-            role = MessageRole.USER,
-            content = content,
-            type = MessageType.TEXT,
-            timestamp = envelope.ts
-        )
-        addMessage(userMessage)
-        webSocket.send(envelope)
-    }
-
-    suspend fun sendFile(projectId: String, fileUri: Uri, agentId: String? = null) = withContext(Dispatchers.IO) {
-        wakeupAgent(agentId)
-
-        val fileId = UUID.randomUUID().toString()
-        val contentResolver = context.contentResolver
-
-        // Get file info
-        val fileName = contentResolver.query(fileUri, null, null, null, null)?.use { cursor ->
-            val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
-            cursor.moveToFirst()
-            cursor.getString(nameIndex)
-        } ?: "unknown"
-
-        val fileSize = contentResolver.query(fileUri, null, null, null, null)?.use { cursor ->
-            val sizeIndex = cursor.getColumnIndex(android.provider.OpenableColumns.SIZE)
-            cursor.moveToFirst()
-            cursor.getLong(sizeIndex)
-        } ?: 0L
-
-        val mimeType = contentResolver.getType(fileUri) ?: "application/octet-stream"
-
-        // Send file.upload envelope
-        val uploadEnvelope = Envelope(
-            id = fileId,
-            event = Events.FILE_UPLOAD,
-            projectId = projectId,
             payload = buildJsonObject {
-                put("file_name", JsonPrimitive(fileName))
-                put("file_size", JsonPrimitive(fileSize))
-                put("mime_type", JsonPrimitive(mimeType))
+                put("content", JsonPrimitive(messageContent))
+                if (uploadedAttachments.isNotEmpty()) {
+                    put("attachments", JsonArray(uploadedAttachments.map(::attachmentToJson)))
+                }
             },
             ts = System.currentTimeMillis()
         )
 
-        // Add file message to UI
-        val fileMessage = Message(
-            id = fileId,
-            projectId = projectId,
-            role = MessageRole.USER,
-            content = fileName,
-            type = MessageType.FILE,
-            fileInfo = FileInfo(fileName, fileSize, mimeType),
-            timestamp = uploadEnvelope.ts
-        )
-        addMessage(fileMessage)
-        webSocket.send(uploadEnvelope)
-
-        // Send file chunks
-        val chunkSize = 64 * 1024 // 64KB chunks
-        contentResolver.openInputStream(fileUri)?.use { inputStream ->
-            val buffer = ByteArray(chunkSize)
-            var seq = 0L
-            var bytesRead: Int
-
-            while (inputStream.read(buffer).also { bytesRead = it } != -1) {
-                val currentSeq = seq++
-                val chunk = Base64.encodeToString(buffer, 0, bytesRead, Base64.NO_WRAP)
-                val chunkEnvelope = Envelope(
-                    id = UUID.randomUUID().toString(),
-                    event = Events.FILE_CHUNK,
-                    projectId = projectId,
-                    streamId = fileId,
-                    seq = currentSeq,
-                    payload = buildJsonObject {
-                        put("file_id", JsonPrimitive(fileId))
-                        put("chunk", JsonPrimitive(chunk))
-                        put("seq", JsonPrimitive(currentSeq))
-                    },
-                    ts = System.currentTimeMillis()
-                )
-                webSocket.send(chunkEnvelope)
-            }
+        val optimisticAttachments = uploadedAttachments.map { uploaded ->
+            mergeAttachment(
+                existing = normalizedAttachments.firstOrNull { it.id == uploaded.id },
+                incoming = uploaded
+            )
         }
 
-        // Send file.done
-        val doneEnvelope = Envelope(
-            id = UUID.randomUUID().toString(),
-            event = Events.FILE_DONE,
-            projectId = projectId,
-            streamId = fileId,
-            payload = buildJsonObject {
-                put("file_id", JsonPrimitive(fileId))
-                put("file_name", JsonPrimitive(fileName))
-            },
-            ts = System.currentTimeMillis()
+        addMessage(
+            Message(
+                id = envelope.id,
+                projectId = projectId,
+                role = MessageRole.USER,
+                content = messageContent,
+                type = if (optimisticAttachments.isNotEmpty()) MessageType.FILE else MessageType.TEXT,
+                attachments = optimisticAttachments,
+                timestamp = envelope.ts
+            )
         )
-        webSocket.send(doneEnvelope)
+
+        webSocket.send(envelope)
     }
 
     suspend fun processEnvelope(envelope: Envelope) {
@@ -229,10 +221,10 @@ class MessageRepository(
                 }
                 buffer.chunks[seq] = chunk
 
-                // Upsert streaming message
                 val assembled = buffer.assembledContent()
                 upsertStreamingMessage(projectId, streamId, assembled, isStreaming = true, timestamp = buffer.startedAt)
             }
+
             Events.MESSAGE_DONE -> {
                 val streamId = envelope.streamId ?: return
                 val buffer = streamBuffers[streamId]
@@ -253,9 +245,9 @@ class MessageRepository(
                         )
                     }
                 }
-                // Reset running state — SESSION_SYNC may not arrive if connection drops
                 sessionDao.resetRunningState(projectId)
             }
+
             Events.MESSAGE_ERROR -> {
                 val streamId = envelope.streamId
                 if (streamId != null) {
@@ -264,21 +256,58 @@ class MessageRepository(
                     upsertStreamingMessage(
                         projectId = projectId,
                         streamId = streamId,
-                        content = existingMessage?.content?.ifBlank { "[Error receiving response]" } ?: "[Error receiving response]",
+                        content = existingMessage?.content?.ifBlank { "[Error receiving response]" }
+                            ?: "[Error receiving response]",
                         isStreaming = false,
                         timestamp = existingMessage?.timestamp ?: envelope.ts
                     )
                 }
-                // Reset running state on error too
                 sessionDao.resetRunningState(projectId)
             }
+
+            Events.FILE_DONE -> {
+                val payloadObj = envelope.payload?.jsonObject ?: return
+                val fileId = payloadObj["file_id"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+                if (fileId.isBlank()) {
+                    return
+                }
+
+                pendingUploadAcks.remove(fileId)?.complete(
+                    UploadAck(
+                        filePath = payloadObj["file_path"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty(),
+                        kind = payloadObj["kind"]?.jsonPrimitive?.contentOrNull?.trim(),
+                        mimeType = payloadObj["mime_type"]?.jsonPrimitive?.contentOrNull?.trim(),
+                        previewDataUrl = payloadObj["preview_data_url"]?.jsonPrimitive?.contentOrNull?.trim()
+                    )
+                )
+            }
+
+            Events.FILE_ERROR -> {
+                val fileId = envelope.streamId?.trim().orEmpty()
+                if (fileId.isBlank()) {
+                    return
+                }
+
+                val error = envelope.payload?.jsonObject
+                    ?.get("error")
+                    ?.jsonPrimitive
+                    ?.contentOrNull
+                    ?.trim()
+                    .takeUnless { it.isNullOrBlank() }
+                    ?: "Desktop failed to receive attachment."
+                pendingUploadAcks.remove(fileId)?.completeExceptionally(IllegalStateException(error))
+            }
+
             Events.SESSION_SYNC -> {
                 val payloadObj = envelope.payload?.jsonObject ?: return
-                val provider = payloadObj["provider"]?.jsonPrimitive?.contentOrNull?.trim().takeUnless { it.isNullOrBlank() } ?: "claude"
-                val model = payloadObj["model"]?.jsonPrimitive?.contentOrNull?.trim().takeUnless { it.isNullOrBlank() }
+                val provider = payloadObj["provider"]?.jsonPrimitive?.contentOrNull?.trim()
+                    .takeUnless { it.isNullOrBlank() } ?: "claude"
+                val model = payloadObj["model"]?.jsonPrimitive?.contentOrNull?.trim()
+                    .takeUnless { it.isNullOrBlank() }
                 val isRunning = payloadObj["isRunning"]?.jsonPrimitive?.booleanOrNull ?: false
                 val queuedCount = payloadObj["queuedCount"]?.jsonPrimitive?.intOrNull ?: 0
-                val currentPrompt = payloadObj["currentPrompt"]?.jsonPrimitive?.contentOrNull?.trim().takeUnless { it.isNullOrBlank() }
+                val currentPrompt = payloadObj["currentPrompt"]?.jsonPrimitive?.contentOrNull?.trim()
+                    .takeUnless { it.isNullOrBlank() }
                 val currentStartedAt = payloadObj["currentStartedAt"]?.jsonPrimitive?.longOrNull
                 val queuePreview = payloadObj["queue"]?.jsonArray
                     ?.firstOrNull()
@@ -357,7 +386,7 @@ class MessageRepository(
                 if (existing != null && existing.syncSeq > entity.syncSeq) {
                     return@forEachIndexed
                 }
-                messageDao.insertMessage(entity)
+                messageDao.insertMessage(mergeMessageEntity(existing, entity))
             }
 
             messageDao.pruneProjectMessages(projectId, MAX_PROJECT_MESSAGES)
@@ -421,7 +450,10 @@ class MessageRepository(
         }
 
         db.withTransaction {
-            messageDao.insertMessages(messages)
+            messages.forEach { entity ->
+                val existing = messageDao.getMessageById(entity.id)
+                messageDao.insertMessage(mergeMessageEntity(existing, entity))
+            }
             messageDao.pruneProjectMessages(projectId, MAX_PROJECT_MESSAGES)
             sessionDao.updateLastSyncSeq(projectId, currentLastSeq + messages.size)
         }
@@ -434,11 +466,15 @@ class MessageRepository(
         isStreaming: Boolean,
         timestamp: Long
     ) {
+        val existing = messageDao.getMessageById(streamId)
+        val attachments = existing?.toMessage()?.attachments ?: emptyList()
         val message = Message(
             id = streamId,
             projectId = projectId,
             role = MessageRole.ASSISTANT,
             content = content,
+            type = if (attachments.isNotEmpty()) MessageType.FILE else MessageType.TEXT,
+            attachments = attachments,
             streamId = streamId,
             timestamp = timestamp,
             syncSeq = 0L,
@@ -452,8 +488,8 @@ class MessageRepository(
             return
         }
 
-        val token = tokenStore.getToken()
-        if (token.isNullOrBlank()) {
+        val deviceId = tokenStore.getDeviceId().orEmpty()
+        val token = authSessionManager.ensureValidToken(deviceId).getOrElse {
             return
         }
 
@@ -468,21 +504,367 @@ class MessageRepository(
         }
     }
 
-    private fun Message.toEntity() = MessageEntity(
-        id = id,
-        projectId = projectId,
-        role = role.name,
-        content = content,
-        type = type.name,
-        fileName = fileInfo?.fileName,
-        fileSize = fileInfo?.fileSize,
-        mimeType = fileInfo?.mimeType,
-        filePath = fileInfo?.filePath,
-        streamId = streamId,
-        timestamp = timestamp,
-        syncSeq = syncSeq,
-        isStreaming = isStreaming
-    )
+    private fun normalizeAttachment(attachment: MessageAttachment): MessageAttachment {
+        val inferredKind = when {
+            attachment.kind.isNotBlank() -> attachment.kind.lowercase()
+            attachment.mimeType.startsWith("image/", ignoreCase = true) -> "image"
+            else -> "file"
+        }
+
+        return attachment.copy(
+            id = attachment.id.ifBlank { UUID.randomUUID().toString() },
+            name = attachment.name.ifBlank { "attachment" },
+            kind = inferredKind,
+            mimeType = attachment.mimeType.ifBlank {
+                if (inferredKind == "image") "image/*" else "application/octet-stream"
+            }
+        )
+    }
+
+    private fun attachmentToJson(attachment: MessageAttachment): JsonObject =
+        buildJsonObject {
+            put("id", JsonPrimitive(attachment.id))
+            put("name", JsonPrimitive(attachment.name))
+            put("path", JsonPrimitive(attachment.filePath.orEmpty()))
+            put("size", JsonPrimitive(attachment.size))
+            put("kind", JsonPrimitive(attachment.kind))
+            put("mimeType", JsonPrimitive(attachment.mimeType))
+            attachment.previewDataUrl?.takeIf { it.isNotBlank() }?.let {
+                put("previewDataUrl", JsonPrimitive(it))
+            }
+        }
+
+    private suspend fun uploadAttachment(projectId: String, attachment: MessageAttachment): MessageAttachment {
+        val deferred = CompletableDeferred<UploadAck>()
+        pendingUploadAcks[attachment.id] = deferred
+
+        try {
+            webSocket.send(
+                Envelope(
+                    id = attachment.id,
+                    event = Events.FILE_UPLOAD,
+                    projectId = projectId,
+                    payload = buildJsonObject {
+                        put("file_name", JsonPrimitive(attachment.name))
+                        put("file_size", JsonPrimitive(attachment.size))
+                        put("mime_type", JsonPrimitive(attachment.mimeType))
+                    },
+                    ts = System.currentTimeMillis()
+                )
+            )
+
+            openAttachmentInputStream(attachment).use { inputStream ->
+                if (inputStream == null) {
+                    throw IllegalStateException("Attachment input stream is unavailable.")
+                }
+
+                val buffer = ByteArray(FILE_CHUNK_SIZE)
+                var seq = 0L
+                var bytesRead: Int
+
+                while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                    val currentSeq = seq++
+                    val chunk = Base64.encodeToString(buffer, 0, bytesRead, Base64.NO_WRAP)
+                    webSocket.send(
+                        Envelope(
+                            id = UUID.randomUUID().toString(),
+                            event = Events.FILE_CHUNK,
+                            projectId = projectId,
+                            streamId = attachment.id,
+                            seq = currentSeq,
+                            payload = buildJsonObject {
+                                put("file_id", JsonPrimitive(attachment.id))
+                                put("chunk", JsonPrimitive(chunk))
+                                put("seq", JsonPrimitive(currentSeq))
+                            },
+                            ts = System.currentTimeMillis()
+                        )
+                    )
+                }
+            }
+
+            webSocket.send(
+                Envelope(
+                    id = UUID.randomUUID().toString(),
+                    event = Events.FILE_DONE,
+                    projectId = projectId,
+                    streamId = attachment.id,
+                    payload = buildJsonObject {
+                        put("file_id", JsonPrimitive(attachment.id))
+                        put("file_name", JsonPrimitive(attachment.name))
+                    },
+                    ts = System.currentTimeMillis()
+                )
+            )
+
+            val ack = withTimeout(FILE_UPLOAD_TIMEOUT_MS) { deferred.await() }
+            if (ack.filePath.isBlank()) {
+                throw IllegalStateException("Desktop did not return a usable attachment path.")
+            }
+
+            return mergeAttachment(
+                existing = attachment,
+                incoming = attachment.copy(
+                    filePath = ack.filePath,
+                    kind = ack.kind ?: attachment.kind,
+                    mimeType = ack.mimeType ?: attachment.mimeType,
+                    previewDataUrl = ack.previewDataUrl ?: attachment.previewDataUrl
+                )
+            )
+        } finally {
+            pendingUploadAcks.remove(attachment.id)
+        }
+    }
+
+    private fun openAttachmentInputStream(attachment: MessageAttachment) =
+        when {
+            !attachment.localUri.isNullOrBlank() -> context.contentResolver.openInputStream(Uri.parse(attachment.localUri))
+            !attachment.filePath.isNullOrBlank() -> FileInputStream(File(attachment.filePath))
+            else -> null
+        }
+
+    private fun cacheAttachment(projectId: String, uri: Uri): MessageAttachment {
+        val meta = readAttachmentMeta(uri)
+        val cacheDirectory = File(
+            context.cacheDir,
+            "chat-attachments/${Uri.encode(projectId.ifBlank { "shared" })}"
+        ).apply { mkdirs() }
+        val targetFile = uniqueFile(cacheDirectory, sanitizeFileName(meta.name))
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            FileOutputStream(targetFile).use { output ->
+                input.copyTo(output)
+            }
+        } ?: throw IllegalStateException("Cannot open attachment: $uri")
+
+        val kind = if (isImageMimeType(meta.mimeType) || isImageFileName(meta.name)) "image" else "file"
+        val resolvedSize = if (meta.size > 0L) meta.size else targetFile.length()
+
+        return MessageAttachment(
+            id = UUID.randomUUID().toString(),
+            name = meta.name,
+            size = resolvedSize,
+            kind = kind,
+            mimeType = meta.mimeType.ifBlank {
+                if (kind == "image") "image/*" else "application/octet-stream"
+            },
+            filePath = targetFile.absolutePath,
+            localUri = Uri.fromFile(targetFile).toString(),
+            previewDataUrl = if (kind == "image") buildImagePreviewDataUrl(targetFile) else null
+        )
+    }
+
+    private fun readAttachmentMeta(uri: Uri): CachedAttachmentMeta {
+        var fileName = "attachment.bin"
+        var fileSize = 0L
+        context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (nameIndex >= 0) {
+                    fileName = cursor.getString(nameIndex).orEmpty().ifBlank { fileName }
+                }
+                val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
+                if (sizeIndex >= 0) {
+                    fileSize = cursor.getLong(sizeIndex)
+                }
+            }
+        }
+        val mimeType = context.contentResolver.getType(uri)
+            ?: guessMimeType(fileName, if (isImageFileName(fileName)) "image/*" else "application/octet-stream")
+        return CachedAttachmentMeta(fileName, fileSize, mimeType)
+    }
+
+    private fun buildImagePreviewDataUrl(file: File): String? {
+        val options = BitmapFactory.Options().apply {
+            inJustDecodeBounds = true
+            BitmapFactory.decodeFile(file.absolutePath, this)
+        }
+        if (options.outWidth <= 0 || options.outHeight <= 0) {
+            return null
+        }
+
+        val sampleSize = calculateSampleSize(options.outWidth, options.outHeight, MAX_PREVIEW_EDGE)
+        val bitmap = BitmapFactory.decodeFile(
+            file.absolutePath,
+            BitmapFactory.Options().apply { inSampleSize = sampleSize }
+        ) ?: return null
+
+        val scaledBitmap = scaleBitmapIfNeeded(bitmap)
+        val output = ByteArrayOutputStream()
+        val format = if (guessMimeType(file.name).equals("image/png", ignoreCase = true)) {
+            Bitmap.CompressFormat.PNG
+        } else {
+            Bitmap.CompressFormat.JPEG
+        }
+        var quality = 88
+        do {
+            output.reset()
+            scaledBitmap.compress(format, quality, output)
+            quality -= 6
+        } while (output.size() > MAX_PREVIEW_BYTES && quality >= 56 && format == Bitmap.CompressFormat.JPEG)
+
+        if (scaledBitmap !== bitmap) {
+            scaledBitmap.recycle()
+        }
+        bitmap.recycle()
+
+        val base64 = Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP)
+        val mimeType = if (format == Bitmap.CompressFormat.PNG) "image/png" else "image/jpeg"
+        return "data:$mimeType;base64,$base64"
+    }
+
+    private fun calculateSampleSize(width: Int, height: Int, targetEdge: Int): Int {
+        var sampleSize = 1
+        while (width / sampleSize > targetEdge * 2 || height / sampleSize > targetEdge * 2) {
+            sampleSize *= 2
+        }
+        return sampleSize.coerceAtLeast(1)
+    }
+
+    private fun scaleBitmapIfNeeded(bitmap: Bitmap): Bitmap {
+        val longestEdge = maxOf(bitmap.width, bitmap.height)
+        if (longestEdge <= MAX_PREVIEW_EDGE) {
+            return bitmap
+        }
+        val ratio = MAX_PREVIEW_EDGE.toFloat() / longestEdge.toFloat()
+        val width = (bitmap.width * ratio).toInt().coerceAtLeast(1)
+        val height = (bitmap.height * ratio).toInt().coerceAtLeast(1)
+        return Bitmap.createScaledBitmap(bitmap, width, height, true)
+    }
+
+    private fun buildAttachmentOnlyPrompt(attachments: List<MessageAttachment>): String {
+        if (attachments.size == 1) {
+            val attachment = attachments.first()
+            return if (attachment.isImage) {
+                "Please inspect the attached image: ${attachment.name}"
+            } else {
+                "Please inspect the attached file: ${attachment.name}"
+            }
+        }
+        return "Please inspect the attached files."
+    }
+
+    private fun mergeMessageEntity(existing: MessageEntity?, incoming: MessageEntity): MessageEntity {
+        if (existing == null) {
+            return incoming
+        }
+
+        val mergedAttachments = mergeAttachmentLists(
+            deserializeAttachments(existing.attachmentsJson).ifEmpty {
+                legacyAttachment(existing.fileName, existing.fileSize, existing.mimeType, existing.filePath)?.let(::listOf)
+                    ?: emptyList()
+            },
+            deserializeAttachments(incoming.attachmentsJson).ifEmpty {
+                legacyAttachment(incoming.fileName, incoming.fileSize, incoming.mimeType, incoming.filePath)?.let(::listOf)
+                    ?: emptyList()
+            }
+        )
+        val primary = mergedAttachments.firstOrNull()
+
+        return incoming.copy(
+            fileName = primary?.name ?: incoming.fileName ?: existing.fileName,
+            fileSize = primary?.size ?: incoming.fileSize ?: existing.fileSize,
+            mimeType = primary?.mimeType ?: incoming.mimeType ?: existing.mimeType,
+            filePath = primary?.filePath ?: incoming.filePath ?: existing.filePath,
+            attachmentsJson = serializeAttachments(mergedAttachments),
+            streamId = incoming.streamId ?: existing.streamId,
+            content = incoming.content.ifBlank { existing.content },
+            isStreaming = incoming.isStreaming
+        )
+    }
+
+    private fun mergeAttachmentLists(
+        existing: List<MessageAttachment>,
+        incoming: List<MessageAttachment>
+    ): List<MessageAttachment> {
+        if (existing.isEmpty()) {
+            return incoming
+        }
+        if (incoming.isEmpty()) {
+            return existing
+        }
+
+        val merged = mutableListOf<MessageAttachment>()
+        val consumed = mutableSetOf<Int>()
+
+        incoming.forEach { incomingAttachment ->
+            val existingIndex = existing.indexOfFirstIndexed { index, candidate ->
+                index !in consumed && attachmentsMatch(candidate, incomingAttachment)
+            }
+            val existingAttachment = if (existingIndex >= 0) {
+                consumed.add(existingIndex)
+                existing[existingIndex]
+            } else {
+                null
+            }
+            merged += mergeAttachment(existingAttachment, incomingAttachment)
+        }
+
+        existing.forEachIndexed { index, attachment ->
+            if (index !in consumed) {
+                merged += attachment
+            }
+        }
+        return merged
+    }
+
+    private fun attachmentsMatch(left: MessageAttachment, right: MessageAttachment): Boolean {
+        if (left.id.isNotBlank() && right.id.isNotBlank()) {
+            return left.id == right.id
+        }
+        return left.name.equals(right.name, ignoreCase = true)
+            && left.size == right.size
+            && left.kind.equals(right.kind, ignoreCase = true)
+    }
+
+    private fun mergeAttachment(existing: MessageAttachment?, incoming: MessageAttachment): MessageAttachment {
+        if (existing == null) {
+            return incoming
+        }
+
+        return incoming.copy(
+            id = incoming.id.ifBlank { existing.id },
+            name = incoming.name.ifBlank { existing.name },
+            size = if (incoming.size > 0L) incoming.size else existing.size,
+            kind = incoming.kind.ifBlank { existing.kind },
+            mimeType = incoming.mimeType.ifBlank { existing.mimeType },
+            filePath = incoming.filePath ?: existing.filePath,
+            localUri = existing.localUri ?: incoming.localUri,
+            previewDataUrl = incoming.previewDataUrl ?: existing.previewDataUrl
+        )
+    }
+
+    private fun Message.toEntity(): MessageEntity {
+        val normalizedAttachments = attachments.ifEmpty {
+            fileInfo?.let {
+                listOf(
+                    MessageAttachment(
+                        id = UUID.randomUUID().toString(),
+                        name = it.fileName,
+                        size = it.fileSize,
+                        mimeType = it.mimeType,
+                        filePath = it.filePath
+                    )
+                )
+            } ?: emptyList()
+        }
+        val primary = normalizedAttachments.firstOrNull()
+        return MessageEntity(
+            id = id,
+            projectId = projectId,
+            role = role.name,
+            content = content,
+            type = type.name,
+            fileName = primary?.name ?: fileInfo?.fileName,
+            fileSize = primary?.size ?: fileInfo?.fileSize,
+            mimeType = primary?.mimeType ?: fileInfo?.mimeType,
+            filePath = primary?.filePath ?: fileInfo?.filePath,
+            attachmentsJson = serializeAttachments(normalizedAttachments),
+            streamId = streamId,
+            timestamp = timestamp,
+            syncSeq = syncSeq,
+            isStreaming = isStreaming
+        )
+    }
 
     private fun parseDesktopMessage(
         projectId: String,
@@ -493,19 +875,18 @@ class MessageRepository(
         val id = messageObj["id"]?.jsonPrimitive?.content ?: return null
         val roleValue = messageObj["role"]?.jsonPrimitive?.content?.lowercase() ?: "assistant"
         val attachments = parseDesktopAttachments(messageObj["attachments"]).ifEmpty {
-            parseDesktopFileInfo(messageObj)?.let(::listOf) ?: emptyList()
+            parseDesktopLegacyAttachment(messageObj)?.let(::listOf) ?: emptyList()
         }
         val content = messageObj["content"]?.jsonPrimitive?.contentOrNull
-            ?: attachments.firstOrNull()?.fileName
+            ?: attachments.firstOrNull()?.name
             ?: ""
         val createdAt = messageObj["createdAt"]?.jsonPrimitive?.longOrNull
             ?: messageObj["updatedAt"]?.jsonPrimitive?.longOrNull
             ?: fallbackTimestamp
         val status = messageObj["status"]?.jsonPrimitive?.content ?: "done"
-        val desktopFile = attachments.firstOrNull()
         val messageType = when {
             parseMessageType(messageObj["type"]?.jsonPrimitive?.contentOrNull) == MessageType.FILE -> MessageType.FILE
-            desktopFile != null -> MessageType.FILE
+            attachments.isNotEmpty() -> MessageType.FILE
             else -> parseMessageType(messageObj["type"]?.jsonPrimitive?.contentOrNull)
         }
 
@@ -515,54 +896,64 @@ class MessageRepository(
             role = if (roleValue == "user") MessageRole.USER else MessageRole.ASSISTANT,
             content = if (roleValue == "error") "[Error] $content" else content,
             type = messageType,
-            fileInfo = desktopFile,
+            attachments = attachments,
             timestamp = createdAt,
             syncSeq = syncSeq,
             isStreaming = status == "streaming"
         ).toEntity()
     }
 
-    private fun parseDesktopFileInfo(messageObj: JsonObject): FileInfo? {
+    private fun parseDesktopLegacyAttachment(messageObj: JsonObject): MessageAttachment? {
         val fileName = messageObj["fileName"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
         val filePath = messageObj["filePath"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
         if (fileName.isBlank() && filePath.isBlank()) {
             return null
         }
 
-        return FileInfo(
-            fileName = fileName.ifBlank {
+        val mimeType = messageObj["mimeType"]?.jsonPrimitive?.contentOrNull ?: "application/octet-stream"
+        return MessageAttachment(
+            id = messageObj["id"]?.jsonPrimitive?.contentOrNull ?: UUID.randomUUID().toString(),
+            name = fileName.ifBlank {
                 filePath.substringAfterLast('/').substringAfterLast('\\').ifBlank { "attachment" }
             },
-            fileSize = messageObj["fileSize"]?.jsonPrimitive?.longOrNull ?: 0L,
-            mimeType = messageObj["mimeType"]?.jsonPrimitive?.contentOrNull ?: "application/octet-stream",
+            size = messageObj["fileSize"]?.jsonPrimitive?.longOrNull ?: 0L,
+            kind = if (mimeType.startsWith("image/", ignoreCase = true) || isImageFileName(fileName)) "image" else "file",
+            mimeType = mimeType,
             filePath = filePath.ifBlank { null }
         )
     }
 
-    private fun parseDesktopAttachments(rawAttachments: kotlinx.serialization.json.JsonElement?): List<FileInfo> {
+    private fun parseDesktopAttachments(rawAttachments: JsonElement?): List<MessageAttachment> {
         val attachmentArray = runCatching { rawAttachments?.jsonArray }.getOrNull() ?: return emptyList()
         return attachmentArray.mapNotNull { item ->
             val attachmentObj = runCatching { item.jsonObject }.getOrNull() ?: return@mapNotNull null
             val filePath = attachmentObj["path"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
             val fileName = attachmentObj["name"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
-            if (filePath.isBlank() && fileName.isBlank()) {
+            val previewDataUrl = attachmentObj["previewDataUrl"]?.jsonPrimitive?.contentOrNull?.trim()
+                ?: attachmentObj["preview_data_url"]?.jsonPrimitive?.contentOrNull?.trim()
+            if (filePath.isBlank() && fileName.isBlank() && previewDataUrl.isNullOrBlank()) {
                 return@mapNotNull null
             }
 
             val kind = attachmentObj["kind"]?.jsonPrimitive?.contentOrNull?.lowercase().orEmpty()
-            val mimeType = when {
-                kind == "image" -> "image/*"
-                else -> attachmentObj["mimeType"]?.jsonPrimitive?.contentOrNull ?: "application/octet-stream"
-            }
+                .ifBlank {
+                    if (previewDataUrl != null || isImageFileName(fileName) || isImageFileName(filePath)) "image" else "file"
+                }
+            val mimeType = attachmentObj["mimeType"]?.jsonPrimitive?.contentOrNull
+                ?: attachmentObj["mime_type"]?.jsonPrimitive?.contentOrNull
+                ?: if (kind == "image") "image/*" else "application/octet-stream"
             val fileSize = attachmentObj["size"]?.jsonPrimitive?.longOrNull ?: 0L
 
-            FileInfo(
-                fileName = fileName.ifBlank {
+            MessageAttachment(
+                id = attachmentObj["id"]?.jsonPrimitive?.contentOrNull ?: UUID.randomUUID().toString(),
+                name = fileName.ifBlank {
                     filePath.substringAfterLast('/').substringAfterLast('\\').ifBlank { "attachment" }
                 },
-                fileSize = fileSize,
+                size = fileSize,
+                kind = kind,
                 mimeType = mimeType,
-                filePath = filePath.ifBlank { null }
+                filePath = filePath.ifBlank { null },
+                previewDataUrl = previewDataUrl
             )
         }
     }
@@ -627,23 +1018,20 @@ class MessageRepository(
                 role = MessageRole.ASSISTANT.name,
                 content = itemObj["content"]?.jsonPrimitive?.contentOrNull.orEmpty(),
                 type = MessageType.THINKING.name,
+                attachmentsJson = null,
                 timestamp = timestamp,
                 syncSeq = syncSeq,
                 isStreaming = isStreaming
             )
+
             else -> {
                 val attachments = parseDesktopAttachments(itemObj["attachments"]).ifEmpty {
-                    parseDesktopFileInfo(itemObj)?.let(::listOf) ?: emptyList()
+                    parseDesktopLegacyAttachment(itemObj)?.let(::listOf) ?: emptyList()
                 }
-                val fileInfo = attachments.firstOrNull()
-                val roleValue = itemObj["role"]?.jsonPrimitive?.contentOrNull?.lowercase() ?: "assistant"
                 val content = itemObj["content"]?.jsonPrimitive?.contentOrNull
-                    ?: fileInfo?.fileName
+                    ?: attachments.firstOrNull()?.name
                     ?: ""
-                val messageType = when {
-                    fileInfo != null -> MessageType.FILE
-                    else -> MessageType.TEXT
-                }
+                val roleValue = itemObj["role"]?.jsonPrimitive?.contentOrNull?.lowercase() ?: "assistant"
                 Message(
                     id = id,
                     projectId = projectId,
@@ -652,8 +1040,8 @@ class MessageRepository(
                         else -> MessageRole.ASSISTANT
                     },
                     content = if (roleValue == "error") "[Error] $content" else content,
-                    type = messageType,
-                    fileInfo = fileInfo,
+                    type = if (attachments.isNotEmpty()) MessageType.FILE else MessageType.TEXT,
+                    attachments = attachments,
                     timestamp = timestamp,
                     syncSeq = syncSeq,
                     isStreaming = isStreaming
@@ -662,18 +1050,75 @@ class MessageRepository(
         }
     }
 
-    private fun MessageEntity.toMessage() = Message(
-        id = id,
-        projectId = projectId,
-        role = parseMessageRole(role),
-        content = content,
-        type = parseMessageType(type),
-        fileInfo = if (fileName != null) FileInfo(fileName, fileSize ?: 0, mimeType ?: "", filePath) else null,
-        streamId = streamId,
-        timestamp = timestamp,
-        syncSeq = syncSeq,
-        isStreaming = isStreaming
-    )
+    private fun MessageEntity.toMessage(): Message {
+        val attachments = deserializeAttachments(attachmentsJson).ifEmpty {
+            legacyAttachment(fileName, fileSize, mimeType, filePath)?.let(::listOf) ?: emptyList()
+        }
+        val resolvedType = when {
+            parseMessageType(type) == MessageType.THINKING -> MessageType.THINKING
+            attachments.isNotEmpty() -> MessageType.FILE
+            else -> parseMessageType(type)
+        }
+
+        return Message(
+            id = id,
+            projectId = projectId,
+            role = parseMessageRole(role),
+            content = content,
+            type = resolvedType,
+            attachments = attachments,
+            fileInfo = attachments.firstOrNull()?.toFileInfo()
+                ?: if (fileName != null) FileInfo(fileName, fileSize ?: 0, mimeType ?: "", filePath) else null,
+            streamId = streamId,
+            timestamp = timestamp,
+            syncSeq = syncSeq,
+            isStreaming = isStreaming
+        )
+    }
+
+    private fun serializeAttachments(attachments: List<MessageAttachment>): String? =
+        if (attachments.isEmpty()) {
+            null
+        } else {
+            json.encodeToString(ListSerializer(MessageAttachment.serializer()), attachments)
+        }
+
+    private fun deserializeAttachments(raw: String?): List<MessageAttachment> {
+        if (raw.isNullOrBlank()) {
+            return emptyList()
+        }
+        return runCatching {
+            json.decodeFromString(ListSerializer(MessageAttachment.serializer()), raw)
+        }.getOrElse { emptyList() }
+    }
+
+    private fun legacyAttachment(
+        fileName: String?,
+        fileSize: Long?,
+        mimeType: String?,
+        filePath: String?
+    ): MessageAttachment? {
+        val resolvedName = fileName?.trim().orEmpty()
+        val resolvedPath = filePath?.trim().orEmpty()
+        if (resolvedName.isBlank() && resolvedPath.isBlank()) {
+            return null
+        }
+        val resolvedMimeType = mimeType ?: guessMimeType(resolvedName.ifBlank { resolvedPath })
+        return MessageAttachment(
+            id = UUID.randomUUID().toString(),
+            name = resolvedName.ifBlank {
+                resolvedPath.substringAfterLast('/').substringAfterLast('\\').ifBlank { "attachment" }
+            },
+            size = fileSize ?: 0L,
+            kind = if (resolvedMimeType.startsWith("image/", ignoreCase = true) || isImageFileName(resolvedName)) {
+                "image"
+            } else {
+                "file"
+            },
+            mimeType = resolvedMimeType,
+            filePath = resolvedPath.ifBlank { null }
+        )
+    }
 
     private fun com.claudecode.remote.data.local.SessionEntity.toSession() = Session(
         id = id,
@@ -698,4 +1143,69 @@ class MessageRepository(
 
     private fun parseMessageType(raw: String?): MessageType =
         enumValues<MessageType>().firstOrNull { it.name == raw?.uppercase() } ?: MessageType.TEXT
+
+    private fun sanitizeFileName(fileName: String): String =
+        fileName.substringAfterLast('/').substringAfterLast('\\').trim()
+            .replace(Regex("[<>:\"/\\\\|?*\\u0000-\\u001F]"), "_")
+            .ifBlank { "attachment.bin" }
+
+    private fun uniqueFile(directory: File, fileName: String): File {
+        val extension = fileName.substringAfterLast('.', "")
+        val baseName = if (extension.isNotBlank()) fileName.dropLast(extension.length + 1) else fileName
+        var candidate = File(directory, fileName)
+        var suffix = 1
+        while (candidate.exists()) {
+            val nextName = if (extension.isNotBlank()) {
+                "$baseName-$suffix.$extension"
+            } else {
+                "$baseName-$suffix"
+            }
+            candidate = File(directory, nextName)
+            suffix += 1
+        }
+        return candidate
+    }
+
+    private fun isImageMimeType(mimeType: String): Boolean =
+        mimeType.startsWith("image/", ignoreCase = true)
+
+    private fun isImageFileName(fileName: String): Boolean {
+        val lowerName = fileName.lowercase()
+        return lowerName.endsWith(".png")
+            || lowerName.endsWith(".jpg")
+            || lowerName.endsWith(".jpeg")
+            || lowerName.endsWith(".gif")
+            || lowerName.endsWith(".webp")
+            || lowerName.endsWith(".bmp")
+            || lowerName.endsWith(".svg")
+            || lowerName.endsWith(".ico")
+            || lowerName.endsWith(".avif")
+            || lowerName.endsWith(".heic")
+    }
+
+    private fun guessMimeType(fileName: String, fallback: String = "application/octet-stream"): String {
+        val lowerName = fileName.lowercase()
+        return when {
+            lowerName.endsWith(".png") -> "image/png"
+            lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg") -> "image/jpeg"
+            lowerName.endsWith(".gif") -> "image/gif"
+            lowerName.endsWith(".webp") -> "image/webp"
+            lowerName.endsWith(".bmp") -> "image/bmp"
+            lowerName.endsWith(".svg") -> "image/svg+xml"
+            lowerName.endsWith(".pdf") -> "application/pdf"
+            lowerName.endsWith(".txt") -> "text/plain"
+            lowerName.endsWith(".md") -> "text/markdown"
+            lowerName.endsWith(".json") -> "application/json"
+            else -> fallback
+        }
+    }
+
+    private inline fun <T> List<T>.indexOfFirstIndexed(predicate: (Int, T) -> Boolean): Int {
+        forEachIndexed { index, item ->
+            if (predicate(index, item)) {
+                return index
+            }
+        }
+        return -1
+    }
 }

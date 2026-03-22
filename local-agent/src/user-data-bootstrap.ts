@@ -14,6 +14,7 @@ const STORE_FILES = [
 type ConfigShape = {
   agentId?: string;
   token?: string;
+  encryptedToken?: string;
   username?: string;
   projects?: unknown[];
 };
@@ -34,6 +35,7 @@ function hasUsefulConfig(config: ConfigShape | null): boolean {
   return Boolean(
     (typeof config.agentId === "string" && config.agentId.trim()) ||
       (typeof config.token === "string" && config.token.trim()) ||
+      (typeof config.encryptedToken === "string" && config.encryptedToken.trim()) ||
       (typeof config.username === "string" && config.username.trim()) ||
       (Array.isArray(config.projects) && config.projects.length > 0),
   );

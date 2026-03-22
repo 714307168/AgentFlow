@@ -1,5 +1,7 @@
 package com.claudecode.remote.ui.chat
 
+import android.content.Context
+import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.compose.animation.animateContentSize
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -9,6 +11,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
@@ -21,6 +24,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -29,6 +33,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -59,6 +64,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -68,19 +74,27 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import com.claudecode.remote.R
 import com.claudecode.remote.UiPresenceTracker
 import com.claudecode.remote.data.model.Message
+import com.claudecode.remote.data.model.MessageAttachment
 import com.claudecode.remote.data.model.MessageRole
 import com.claudecode.remote.data.model.MessageType
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun ChatScreen(
@@ -96,11 +110,17 @@ fun ChatScreen(
     val coroutineScope = rememberCoroutineScope()
     var showModelDialog by remember { mutableStateOf(false) }
     var modelInput by remember { mutableStateOf("") }
+    var hasInitialScrollPosition by remember(projectId) { mutableStateOf(false) }
+    var previousLastMessageId by remember(projectId) { mutableStateOf<String?>(null) }
+    var previousMessageCount by remember(projectId) { mutableStateOf(0) }
+    var previewAttachment by remember(projectId) { mutableStateOf<MessageAttachment?>(null) }
 
     val filePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        uri?.let { viewModel.sendFile(it) }
+        contract = ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris: List<Uri> ->
+        if (uris.isNotEmpty()) {
+            viewModel.addAttachments(uris)
+        }
     }
 
     LaunchedEffect(projectId) {
@@ -118,11 +138,37 @@ fun ChatScreen(
 
     val lastMessage = uiState.messages.lastOrNull()
     LaunchedEffect(lastMessage?.id, lastMessage?.content, lastMessage?.isStreaming, uiState.messages.size) {
-        if (uiState.messages.isNotEmpty()) {
-            coroutineScope.launch {
-                listState.animateScrollToItem(uiState.messages.size - 1)
+        if (uiState.messages.isEmpty()) {
+            hasInitialScrollPosition = false
+            previousLastMessageId = null
+            previousMessageCount = 0
+            return@LaunchedEffect
+        }
+
+        val lastIndex = uiState.messages.lastIndex
+        val lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: lastIndex
+        val isNearBottom = lastVisibleIndex >= lastIndex - 1
+        val hasAppendedMessage =
+            uiState.messages.size > previousMessageCount || lastMessage?.id != previousLastMessageId
+
+        when {
+            !hasInitialScrollPosition -> {
+                listState.scrollToItem(lastIndex)
+                hasInitialScrollPosition = true
+            }
+            !isNearBottom -> Unit
+            hasAppendedMessage -> {
+                coroutineScope.launch {
+                    listState.animateScrollToItem(lastIndex)
+                }
+            }
+            lastMessage?.isStreaming == true -> {
+                listState.scrollToItem(lastIndex)
             }
         }
+
+        previousLastMessageId = lastMessage?.id
+        previousMessageCount = uiState.messages.size
     }
 
     if (showModelDialog) {
@@ -168,6 +214,13 @@ fun ChatScreen(
         )
     }
 
+    previewAttachment?.let { attachment ->
+        AttachmentPreviewDialog(
+            attachment = attachment,
+            onDismiss = { previewAttachment = null }
+        )
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -186,10 +239,14 @@ fun ChatScreen(
             bottomBar = {
                 InputBar(
                     text = uiState.inputText,
+                    pendingAttachments = uiState.pendingAttachments,
                     onTextChange = { viewModel.updateInput(it) },
                     onSend = { viewModel.sendMessage() },
                     onStop = { viewModel.stopTask() },
-                    onAttachFile = { filePickerLauncher.launch("*/*") },
+                    onAttachFile = { filePickerLauncher.launch(arrayOf("*/*")) },
+                    onRemovePendingAttachment = { attachmentId ->
+                        viewModel.removePendingAttachment(attachmentId)
+                    },
                     enabled = uiState.isConnected && !uiState.isSending,
                     isRunning = uiState.isRunning
                 )
@@ -251,7 +308,12 @@ fun ChatScreen(
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 items(uiState.messages, key = { it.id }) { message ->
-                                    MessageBubble(message = message)
+                                    MessageBubble(
+                                        message = message,
+                                        onImageClick = { attachment ->
+                                            previewAttachment = attachment
+                                        }
+                                    )
                                 }
                             }
                         }
@@ -515,7 +577,10 @@ private fun RuntimeNoticeBanner(uiState: ChatUiState) {
 }
 
 @Composable
-private fun MessageBubble(message: Message) {
+private fun MessageBubble(
+    message: Message,
+    onImageClick: (MessageAttachment) -> Unit
+) {
     val isUser = message.role == MessageRole.USER
     val isThinking = message.type == MessageType.THINKING
     val bubbleColor = when {
@@ -552,46 +617,28 @@ private fun MessageBubble(message: Message) {
             border = BorderStroke(1.dp, borderColor),
             modifier = Modifier.widthIn(max = 332.dp)
         ) {
-            if (message.type == MessageType.FILE) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.InsertDriveFile,
-                        contentDescription = stringResource(R.string.chat_file),
-                        tint = textColor,
-                        modifier = Modifier.size(22.dp)
+            Column(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                if (message.attachments.isNotEmpty()) {
+                    AttachmentGallery(
+                        attachments = message.attachments,
+                        textColor = textColor,
+                        borderColor = borderColor,
+                        onImageClick = onImageClick
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Column(modifier = Modifier.weight(1f, fill = false)) {
-                        Text(
-                            text = message.content,
-                            color = textColor,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Medium
-                        )
-                        message.fileInfo?.let { fileInfo ->
-                            Text(
-                                text = "${fileInfo.fileSize / 1024} KB",
-                                color = textColor.copy(alpha = 0.7f),
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                        }
-                    }
                 }
-            } else {
-                Column(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    if (isThinking) {
-                        Text(
-                            text = stringResource(R.string.chat_thinking),
-                            color = textColor.copy(alpha = 0.8f),
-                            style = MaterialTheme.typography.labelSmall
-                        )
-                    }
+
+                if (isThinking) {
+                    Text(
+                        text = stringResource(R.string.chat_thinking),
+                        color = textColor.copy(alpha = 0.8f),
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                }
+
+                if (message.content.isNotBlank()) {
                     Row(verticalAlignment = Alignment.Bottom) {
                         Text(
                             text = message.content,
@@ -637,10 +684,12 @@ private fun BlinkingCursor(color: Color) {
 @Composable
 private fun InputBar(
     text: String,
+    pendingAttachments: List<MessageAttachment>,
     onTextChange: (String) -> Unit,
     onSend: () -> Unit,
     onStop: () -> Unit,
     onAttachFile: () -> Unit,
+    onRemovePendingAttachment: (String) -> Unit,
     enabled: Boolean,
     isRunning: Boolean
 ) {
@@ -652,76 +701,87 @@ private fun InputBar(
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.12f)),
         modifier = Modifier.fillMaxWidth()
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .padding(horizontal = 12.dp, vertical = 8.dp)
                 .navigationBarsPadding()
                 .imePadding(),
-            verticalAlignment = Alignment.CenterVertically
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-            ) {
-                IconButton(
-                    onClick = onAttachFile,
-                    enabled = enabled && !isRunning,
-                    modifier = Modifier.size(40.dp)
-                ) {
-                    Icon(
-                        Icons.Default.AttachFile,
-                        contentDescription = stringResource(R.string.chat_attach_file),
-                        tint = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.width(8.dp))
-            OutlinedTextField(
-                value = text,
-                onValueChange = onTextChange,
-                placeholder = {
-                    Text(
-                        text = stringResource(R.string.message_hint),
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                },
-                modifier = Modifier.weight(1f),
-                enabled = enabled && !isRunning,
-                maxLines = 4,
-                shape = RoundedCornerShape(22.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedContainerColor = MaterialTheme.colorScheme.surface,
-                    unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-                    disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f),
-                    focusedBorderColor = MaterialTheme.colorScheme.primary,
-                    unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.32f),
-                    disabledBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.16f),
-                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
-                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-                    disabledTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    focusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant
+            if (pendingAttachments.isNotEmpty()) {
+                PendingAttachmentTray(
+                    attachments = pendingAttachments,
+                    onRemove = onRemovePendingAttachment
                 )
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            if (isRunning) {
-                FilledIconButton(
-                    onClick = onStop,
-                    enabled = enabled,
-                    modifier = Modifier.size(44.dp),
-                    colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(
-                        containerColor = MaterialTheme.colorScheme.error
-                    )
+            }
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
                 ) {
-                    Icon(
-                        Icons.Default.Stop,
-                        contentDescription = stringResource(R.string.chat_stop_task)
-                    )
+                    IconButton(
+                        onClick = onAttachFile,
+                        enabled = enabled,
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.AttachFile,
+                            contentDescription = stringResource(R.string.chat_attach_file),
+                            tint = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
                 }
-            } else {
+                Spacer(modifier = Modifier.width(8.dp))
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = onTextChange,
+                    placeholder = {
+                        Text(
+                            text = stringResource(R.string.message_hint),
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    },
+                    modifier = Modifier.weight(1f),
+                    enabled = enabled,
+                    maxLines = 4,
+                    shape = RoundedCornerShape(22.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = MaterialTheme.colorScheme.surface,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                        disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f),
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.32f),
+                        disabledBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.16f),
+                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        disabledTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        focusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                if (isRunning) {
+                    FilledIconButton(
+                        onClick = onStop,
+                        enabled = enabled,
+                        modifier = Modifier.size(44.dp),
+                        colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(
+                            containerColor = MaterialTheme.colorScheme.error
+                        )
+                    ) {
+                        Icon(
+                            Icons.Default.Stop,
+                            contentDescription = stringResource(R.string.chat_stop_task)
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.width(if (isRunning) 8.dp else 0.dp))
                 FilledIconButton(
                     onClick = onSend,
-                    enabled = enabled && text.isNotBlank(),
+                    enabled = enabled && (text.isNotBlank() || pendingAttachments.isNotEmpty()),
                     modifier = Modifier.size(44.dp)
                 ) {
                     Icon(
@@ -732,4 +792,324 @@ private fun InputBar(
             }
         }
     }
+}
+
+@Composable
+private fun PendingAttachmentTray(
+    attachments: List<MessageAttachment>,
+    onRemove: (String) -> Unit
+) {
+    LazyRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        items(attachments, key = { it.id }) { attachment ->
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.54f),
+                shape = RoundedCornerShape(18.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    AttachmentThumbnail(
+                        attachment = attachment,
+                        size = 42.dp,
+                        onClick = null
+                    )
+                    Column(
+                        modifier = Modifier.widthIn(max = 168.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        Text(
+                            text = attachment.name,
+                            style = MaterialTheme.typography.labelMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = formatFileSize(attachment.size),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    TextButton(onClick = { onRemove(attachment.id) }) {
+                        Text("×")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AttachmentGallery(
+    attachments: List<MessageAttachment>,
+    textColor: Color,
+    borderColor: Color,
+    onImageClick: (MessageAttachment) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        attachments.forEach { attachment ->
+            if (attachment.isImage) {
+                AttachmentImageCard(
+                    attachment = attachment,
+                    borderColor = borderColor,
+                    onClick = { onImageClick(attachment) }
+                )
+            } else {
+                AttachmentFileCard(
+                    attachment = attachment,
+                    textColor = textColor,
+                    borderColor = borderColor
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AttachmentImageCard(
+    attachment: MessageAttachment,
+    borderColor: Color,
+    onClick: () -> Unit
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.28f),
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(1.dp, borderColor.copy(alpha = 0.6f)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+    ) {
+        Column(
+            modifier = Modifier.padding(8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            AttachmentThumbnail(
+                attachment = attachment,
+                size = null,
+                onClick = onClick,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 88.dp, max = 220.dp)
+            )
+            Text(
+                text = attachment.name,
+                style = MaterialTheme.typography.labelMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = formatFileSize(attachment.size),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun AttachmentFileCard(
+    attachment: MessageAttachment,
+    textColor: Color,
+    borderColor: Color
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.2f),
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(1.dp, borderColor.copy(alpha = 0.6f))
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.InsertDriveFile,
+                contentDescription = stringResource(R.string.chat_file),
+                tint = textColor,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = attachment.name,
+                    color = textColor,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = formatFileSize(attachment.size),
+                    color = textColor.copy(alpha = 0.72f),
+                    style = MaterialTheme.typography.labelSmall
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AttachmentThumbnail(
+    attachment: MessageAttachment,
+    size: androidx.compose.ui.unit.Dp?,
+    onClick: (() -> Unit)?,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val bitmap by rememberAttachmentBitmap(context, attachment)
+    val clickableModifier = if (onClick != null) modifier.clickable(onClick = onClick) else modifier
+    val finalModifier = if (size != null) clickableModifier.size(size) else clickableModifier
+
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f),
+        shape = RoundedCornerShape(12.dp),
+        modifier = finalModifier
+    ) {
+        if (attachment.isImage && bitmap != null) {
+            Image(
+                bitmap = bitmap!!,
+                contentDescription = attachment.name,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = if (attachment.isImage) Icons.Default.AutoAwesome else Icons.AutoMirrored.Filled.InsertDriveFile,
+                    contentDescription = attachment.name,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AttachmentPreviewDialog(
+    attachment: MessageAttachment,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val bitmap by rememberAttachmentBitmap(context, attachment)
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            color = MaterialTheme.colorScheme.surface,
+            shape = RoundedCornerShape(22.dp),
+            tonalElevation = 6.dp,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = attachment.name,
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f),
+                    shape = RoundedCornerShape(18.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 240.dp, max = 520.dp)
+                ) {
+                    if (bitmap != null) {
+                        Image(
+                            bitmap = bitmap!!,
+                            contentDescription = attachment.name,
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = attachment.name,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+                TextButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.align(Alignment.End)
+                ) {
+                    Text(stringResource(R.string.dismiss))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun rememberAttachmentBitmap(
+    context: Context,
+    attachment: MessageAttachment
+) = produceState<ImageBitmap?>(initialValue = null, attachment.id, attachment.localUri, attachment.filePath, attachment.previewDataUrl) {
+    value = withContext(Dispatchers.IO) {
+        loadAttachmentBitmap(context, attachment)
+    }
+}
+
+private fun loadAttachmentBitmap(context: Context, attachment: MessageAttachment): ImageBitmap? {
+    if (!attachment.previewDataUrl.isNullOrBlank()) {
+        val dataUrl = attachment.previewDataUrl
+        val base64 = dataUrl.substringAfter("base64,", missingDelimiterValue = "")
+        if (base64.isNotBlank()) {
+            val bytes = runCatching { android.util.Base64.decode(base64, android.util.Base64.DEFAULT) }.getOrNull()
+            val bitmap = bytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
+            if (bitmap != null) {
+                return bitmap.asImageBitmap()
+            }
+        }
+    }
+
+    if (!attachment.localUri.isNullOrBlank()) {
+        val uri = Uri.parse(attachment.localUri)
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            val bitmap = BitmapFactory.decodeStream(input)
+            if (bitmap != null) {
+                return bitmap.asImageBitmap()
+            }
+        }
+    }
+
+    if (!attachment.filePath.isNullOrBlank()) {
+        val bitmap = BitmapFactory.decodeFile(attachment.filePath)
+        if (bitmap != null) {
+            return bitmap.asImageBitmap()
+        }
+    }
+
+    return null
+}
+
+private fun formatFileSize(bytes: Long): String {
+    if (bytes <= 0L) {
+        return "0 B"
+    }
+
+    val units = listOf("B", "KB", "MB", "GB")
+    var value = bytes.toDouble()
+    var index = 0
+    while (value >= 1024 && index < units.lastIndex) {
+        value /= 1024
+        index += 1
+    }
+    val digits = if (value >= 10 || index == 0) 0 else 1
+    return "%.${digits}f %s".format(value, units[index])
 }

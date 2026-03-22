@@ -44,7 +44,11 @@
     <string name="settings_language_subtitle">Switch the mobile UI language instantly.</string>
     <string name="settings_diagnostics_title">Diagnostics</string>
     <string name="settings_diagnostics_subtitle">Open crash logs when you need to inspect connection issues.</string>
+    <string name="settings_crash_logs_enabled">Save crash logs locally</string>
+    <string name="settings_crash_logs_enabled_hint">When disabled, logs stay in logcat only and are not written to device storage.</string>
+    <string name="settings_log_directory">Log directory</string>
     <string name="settings_open_crash_log">Open Crash Log</string>
+    <string name="settings_open_crash_logs">Open Crash Logs</string>
     <string name="settings_hero_title">Mobile Control Center</string>
     <string name="settings_hero_subtitle">Tune the relay endpoint, security, and diagnostics without leaving the app.</string>
     <string name="settings_signed_in">Signed in</string>
@@ -67,7 +71,9 @@
     <string name="settings_update_uptodate">You already have the latest version.</string>
     <string name="settings_update_error">Update failed. Try again later.</string>
     <string name="settings_crash_log_title">Crash Log</string>
+    <string name="settings_no_crash_logs">No crash logs found.</string>
     <string name="settings_clear">Clear</string>
+    <string name="settings_clear_all">Clear All</string>
     <string name="settings_close">Close</string>
     <string name="action_refresh">Refresh</string>
     <string name="action_toggle_connection">Toggle connection</string>

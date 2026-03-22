@@ -3,7 +3,9 @@ package com.claudecode.remote.ui.chat
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.claudecode.remote.data.local.TokenStore
 import com.claudecode.remote.data.model.Message
+import com.claudecode.remote.data.model.MessageAttachment
 import com.claudecode.remote.data.remote.RelayWebSocket
 import com.claudecode.remote.domain.MessageRepository
 import com.claudecode.remote.util.CrashLogger
@@ -17,6 +19,7 @@ import kotlinx.coroutines.launch
 data class ChatUiState(
     val messages: List<Message> = emptyList(),
     val inputText: String = "",
+    val pendingAttachments: List<MessageAttachment> = emptyList(),
     val isConnected: Boolean = false,
     val isSending: Boolean = false,
     val projectId: String = "",
@@ -34,7 +37,8 @@ data class ChatUiState(
 
 class ChatViewModel(
     private val messageRepository: MessageRepository,
-    private val webSocket: RelayWebSocket
+    private val webSocket: RelayWebSocket,
+    private val tokenStore: TokenStore
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ChatUiState())
@@ -44,7 +48,6 @@ class ChatViewModel(
     private var lastSyncedProjectId: String? = null
 
     init {
-        // Observe connection state
         viewModelScope.launch {
             webSocket.connectionState.collect { state ->
                 val isConnected = state == RelayWebSocket.ConnectionState.CONNECTED
@@ -61,14 +64,20 @@ class ChatViewModel(
     }
 
     fun loadProject(projectId: String, projectName: String, agentId: String) {
-        CrashLogger.logInfo("ChatViewModel", "loadProject called: projectId=$projectId, projectName=$projectName, agentId=$agentId")
-
         if (projectId.isEmpty()) {
             CrashLogger.logError("ChatViewModel", "loadProject called with empty projectId")
             return
         }
 
-        _uiState.update { it.copy(projectId = projectId, projectName = projectName, agentId = agentId) }
+        _uiState.update {
+            it.copy(
+                projectId = projectId,
+                projectName = projectName,
+                agentId = agentId,
+                inputText = tokenStore.getDraft(projectId),
+                pendingAttachments = emptyList()
+            )
+        }
         lastSyncedProjectId = null
 
         sessionJob?.cancel()
@@ -98,36 +107,15 @@ class ChatViewModel(
         messagesJob?.cancel()
         messagesJob = viewModelScope.launch {
             try {
-                CrashLogger.logInfo("ChatViewModel", "Starting to collect messages for project: $projectId")
                 messageRepository.getMessagesForProject(projectId).collect { messages ->
-                    CrashLogger.logInfo("ChatViewModel", "Received ${messages.size} messages")
                     _uiState.update { it.copy(messages = messages) }
                 }
             } catch (e: Exception) {
                 CrashLogger.logError("ChatViewModel", "Error collecting messages", e)
-                e.printStackTrace()
             }
         }
 
         requestProjectSyncIfConnected(force = true)
-
-        // Don't reconnect if already connected
-        viewModelScope.launch {
-            try {
-                val currentState = webSocket.connectionState.value
-                CrashLogger.logInfo("ChatViewModel", "Current connection state: $currentState")
-
-                if (currentState != RelayWebSocket.ConnectionState.CONNECTED) {
-                    CrashLogger.logInfo("ChatViewModel", "Attempting to connect WebSocket")
-                    webSocket.connect()
-                } else {
-                    CrashLogger.logInfo("ChatViewModel", "WebSocket already connected, skipping reconnect")
-                }
-            } catch (e: Exception) {
-                CrashLogger.logError("ChatViewModel", "Error connecting WebSocket", e)
-                e.printStackTrace()
-            }
-        }
     }
 
     private fun requestProjectSyncIfConnected(force: Boolean = false) {
@@ -145,7 +133,6 @@ class ChatViewModel(
         viewModelScope.launch {
             try {
                 lastSyncedProjectId = state.projectId
-                CrashLogger.logInfo("ChatViewModel", "Requesting desktop sync for projectId=${state.projectId}")
                 messageRepository.requestProjectSync(state.projectId, state.agentId)
             } catch (e: Exception) {
                 lastSyncedProjectId = null
@@ -155,38 +142,82 @@ class ChatViewModel(
     }
 
     fun updateInput(text: String) {
+        val projectId = _uiState.value.projectId
+        if (projectId.isNotBlank()) {
+            tokenStore.saveDraft(projectId, text)
+        }
         _uiState.update { it.copy(inputText = text) }
     }
 
-    fun sendMessage() {
+    fun addAttachments(uris: List<Uri>) {
         val state = _uiState.value
-        val content = state.inputText.trim()
-        if (content.isEmpty() || state.isSending) return
+        if (state.projectId.isBlank() || uris.isEmpty() || state.isSending) {
+            return
+        }
 
-        _uiState.update { it.copy(inputText = "", isSending = true) }
+        _uiState.update { it.copy(isSending = true) }
         viewModelScope.launch {
             try {
-                CrashLogger.logInfo("ChatViewModel", "Sending message: projectId=${state.projectId}, content length=${content.length}")
-                messageRepository.sendMessage(state.projectId, content, state.agentId)
+                val prepared = messageRepository.preparePendingAttachments(state.projectId, uris)
+                _uiState.update { current ->
+                    current.copy(
+                        pendingAttachments = mergeAttachments(current.pendingAttachments, prepared),
+                        isSending = false
+                    )
+                }
             } catch (e: Exception) {
-                CrashLogger.logError("ChatViewModel", "Error sending message", e)
-            } finally {
+                CrashLogger.logError("ChatViewModel", "Error preparing attachments", e)
                 _uiState.update { it.copy(isSending = false) }
             }
         }
     }
 
-    fun sendFile(fileUri: Uri) {
-        val state = _uiState.value
-        if (state.isSending) return
+    fun removePendingAttachment(attachmentId: String) {
+        _uiState.update { state ->
+            state.copy(
+                pendingAttachments = state.pendingAttachments.filterNot { it.id == attachmentId }
+            )
+        }
+    }
 
-        _uiState.update { it.copy(isSending = true) }
+    fun sendMessage() {
+        val state = _uiState.value
+        if (state.projectId.isBlank() || state.isSending) {
+            return
+        }
+
+        val textSnapshot = state.inputText
+        val attachmentSnapshot = state.pendingAttachments
+        if (textSnapshot.trim().isEmpty() && attachmentSnapshot.isEmpty()) {
+            return
+        }
+
+        tokenStore.clearDraft(state.projectId)
+        _uiState.update {
+            it.copy(
+                inputText = "",
+                pendingAttachments = emptyList(),
+                isSending = true
+            )
+        }
+
         viewModelScope.launch {
             try {
-                CrashLogger.logInfo("ChatViewModel", "Sending file: projectId=${state.projectId}, uri=$fileUri")
-                messageRepository.sendFile(state.projectId, fileUri, state.agentId)
+                messageRepository.sendMessage(
+                    projectId = state.projectId,
+                    content = textSnapshot,
+                    attachments = attachmentSnapshot,
+                    agentId = state.agentId
+                )
             } catch (e: Exception) {
-                CrashLogger.logError("ChatViewModel", "Error sending file", e)
+                CrashLogger.logError("ChatViewModel", "Error sending message", e)
+                tokenStore.saveDraft(state.projectId, textSnapshot)
+                _uiState.update {
+                    it.copy(
+                        inputText = textSnapshot,
+                        pendingAttachments = attachmentSnapshot
+                    )
+                }
             } finally {
                 _uiState.update { it.copy(isSending = false) }
             }
@@ -206,6 +237,10 @@ class ChatViewModel(
     }
 
     fun clearInput() {
+        val projectId = _uiState.value.projectId
+        if (projectId.isNotBlank()) {
+            tokenStore.clearDraft(projectId)
+        }
         _uiState.update { it.copy(inputText = "") }
     }
 
@@ -221,8 +256,7 @@ class ChatViewModel(
         _uiState.update { it.copy(isSending = true) }
         viewModelScope.launch {
             try {
-                CrashLogger.logInfo("ChatViewModel", "Changing model: projectId=${state.projectId}, model=${normalized.ifBlank { "auto" }}")
-                messageRepository.sendMessage(state.projectId, command, state.agentId)
+                messageRepository.sendMessage(state.projectId, command, emptyList(), state.agentId)
             } catch (e: Exception) {
                 CrashLogger.logError("ChatViewModel", "Error changing model", e)
             } finally {
@@ -231,9 +265,32 @@ class ChatViewModel(
         }
     }
 
-    override fun onCleared() {
-        super.onCleared()
-        // Don't disconnect WebSocket when leaving chat screen
-        // It should stay connected for the session list
+    private fun mergeAttachments(
+        current: List<MessageAttachment>,
+        incoming: List<MessageAttachment>
+    ): List<MessageAttachment> {
+        if (incoming.isEmpty()) {
+            return current
+        }
+
+        val merged = current.toMutableList()
+        val existingKeys = current.map { attachmentKey(it) }.toMutableSet()
+        incoming.forEach { attachment ->
+            val key = attachmentKey(attachment)
+            if (key !in existingKeys) {
+                merged += attachment
+                existingKeys += key
+            }
+        }
+        return merged
     }
+
+    private fun attachmentKey(attachment: MessageAttachment): String =
+        buildString {
+            append(attachment.id.ifBlank { attachment.name })
+            append('|')
+            append(attachment.size)
+            append('|')
+            append(attachment.localUri ?: attachment.filePath.orEmpty())
+        }
 }

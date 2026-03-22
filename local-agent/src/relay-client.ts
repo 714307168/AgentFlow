@@ -42,6 +42,12 @@ class RelayClient extends EventEmitter {
     return this.ws !== null && this.ws.readyState === WebSocket.OPEN;
   }
 
+  updateAuth(serverUrl: string, agentId: string, token: string): void {
+    this.serverUrl = serverUrl;
+    this.agentId = agentId;
+    this.token = token;
+  }
+
   connect(): void {
     this.intentionalDisconnect = false;
     this.ws = new WebSocket(this.serverUrl);
@@ -98,6 +104,10 @@ class RelayClient extends EventEmitter {
       const env: Envelope = JSON.parse(data);
       if (env.seq !== undefined && env.seq > this.lastSeq) {
         this.lastSeq = env.seq;
+      }
+      if (env.event === Events.AUTH_ERROR) {
+        this.emit("auth-failed", env);
+        return;
       }
       if (env.event === Events.PING) {
         this.send({ id: uuidv4(), event: Events.PONG, ts: Date.now() });
