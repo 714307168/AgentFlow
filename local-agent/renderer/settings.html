@@ -516,6 +516,10 @@
                 <input type="text" id="projectPath" placeholder="Enter project path">
               </div>
               <div class="field">
+                <label id="projectGroupLabel">Project Group</label>
+                <input type="text" id="projectGroup" placeholder="Leave blank for Default">
+              </div>
+              <div class="field">
                 <label id="projectProviderLabel">CLI Provider</label>
                 <select id="projectProvider">
                   <option value="claude">Claude Code</option>
@@ -580,6 +584,18 @@
             <div class="field" style="margin-top: 12px;">
               <label id="logPathLabel">Log Directory</label>
               <div class="pubkey" id="logPath">—</div>
+            </div>
+          </div>
+
+          <div class="section">
+            <div class="section-title" id="cacheSection">Cache</div>
+            <div class="field">
+              <label id="cacheRetentionLabel">Auto-clean history older than (days)</label>
+              <input type="text" id="historyRetentionDays" inputmode="numeric" placeholder="30">
+            </div>
+            <div class="btn-row">
+              <button class="btn-secondary" id="saveCacheSettingsBtn">Save Cache Policy</button>
+              <button class="btn-danger" id="clearHistoryCacheBtn">Clear Local History Cache</button>
             </div>
           </div>
 
@@ -728,6 +744,8 @@
       document.getElementById("projectName").placeholder = msg("settings.projectNamePlaceholder", "Enter project name");
       document.getElementById("projectPathLabel").textContent = msg("settings.projectPath", "Project Path");
       document.getElementById("projectPath").placeholder = msg("settings.projectPathPlaceholder", "Enter project path");
+      document.getElementById("projectGroupLabel").textContent = inlineText("Project Group", "项目分组");
+      document.getElementById("projectGroup").placeholder = inlineText("Leave blank for Default", "留空则为默认分组");
       document.getElementById("projectProviderLabel").textContent = msg("settings.cliProvider", "CLI Provider");
       document.getElementById("projectModelLabel").textContent = inlineText("Project Model", "项目模型");
       document.getElementById("projectModel").placeholder = projectModelPlaceholder();
@@ -744,6 +762,11 @@
         "开启后，桌面端会把运行日志保存在本地，便于后续回溯审查。"
       );
       document.getElementById("logPathLabel").textContent = inlineText("Log Directory", "日志目录");
+      document.getElementById("cacheSection").textContent = inlineText("Cache", "缓存");
+      document.getElementById("cacheRetentionLabel").textContent = inlineText("Auto-clean history older than (days)", "自动清理多少天前的历史");
+      document.getElementById("historyRetentionDays").placeholder = inlineText("30", "30");
+      document.getElementById("saveCacheSettingsBtn").textContent = inlineText("Save Cache Policy", "保存缓存策略");
+      document.getElementById("clearHistoryCacheBtn").textContent = inlineText("Clear Local History Cache", "清理本地历史缓存");
       document.getElementById("updatesSection").textContent = inlineText("Updates", "更新");
       document.getElementById("autoUpdateCheckLabel").textContent = inlineText("Automatically check for updates", "自动检查更新");
       document.getElementById("autoUpdateCheckHint").textContent = inlineText(
@@ -896,9 +919,18 @@
                 <span class="project-provider-badge ${escapeHtml(project.cliProvider || "claude")}">${escapeHtml(providerLabel(project.cliProvider || "claude"))}</span>
                 <span class="project-model-badge">${escapeHtml(modelLabel(project.cliModel))}</span>
               </div>
+              <div class="project-path">${escapeHtml((project.groupName || "").trim() || inlineText("Default", "默认分组"))}</div>
               <div class="project-path">${escapeHtml(project.path)}</div>
             </div>
             <div class="project-actions">
+              <input
+                class="project-model-input"
+                type="text"
+                value="${escapeHtml(project.groupName || "")}"
+                placeholder="${escapeHtml(inlineText("Default group", "默认分组"))}"
+                onblur="updateProjectGroup('${project.id}', this.value)"
+                onkeydown="handleProjectTextKey(event, '${project.id}', this, 'group')"
+              >
               <select class="project-provider-select" onchange="updateProjectProvider('${project.id}', this.value)">
                 <option value="claude" ${(project.cliProvider || "claude") === "claude" ? "selected" : ""}>Claude Code</option>
                 <option value="codex" ${(project.cliProvider || "claude") === "codex" ? "selected" : ""}>OpenAI Codex</option>
@@ -909,7 +941,7 @@
                 value="${escapeHtml(project.cliModel || "")}"
                 placeholder="${escapeHtml(projectModelPlaceholder())}"
                 onblur="updateProjectModel('${project.id}', this.value)"
-                onkeydown="handleProjectModelKey(event, '${project.id}', this)"
+                onkeydown="handleProjectTextKey(event, '${project.id}', this, 'model')"
               >
               <button class="btn-secondary btn-small" onclick="openProject('${project.id}')">${escapeHtml(msg("settings.projectOpen", "Open"))}</button>
               <button class="btn-danger btn-small" onclick="deleteProject('${project.id}')">${escapeHtml(msg("settings.projectDelete", "Delete"))}</button>
@@ -968,12 +1000,22 @@
       });
     }
 
-    function handleProjectModelKey(event, projectId, input) {
+    async function updateProjectGroup(projectId, groupName) {
+      await updateProjectConfig(projectId, {
+        groupName: String(groupName || "").trim() || null,
+      });
+    }
+
+    function handleProjectTextKey(event, projectId, input, kind) {
       if (event.key !== "Enter") {
         return;
       }
       event.preventDefault();
       input.blur();
+      if (kind === "group") {
+        void updateProjectGroup(projectId, input.value);
+        return;
+      }
       void updateProjectModel(projectId, input.value);
     }
 
@@ -1000,6 +1042,7 @@
       document.getElementById("cliProvider").value = config.cliProvider || "claude";
       document.getElementById("projectProvider").value = config.cliProvider || "claude";
       document.getElementById("projectModel").value = "";
+      document.getElementById("projectGroup").value = "";
       document.getElementById("e2eToggle").checked = e2e.enabled;
       document.getElementById("pubkey").textContent = e2e.publicKey || "—";
       document.getElementById("autoStartToggle").checked = appSettings.autoStart || false;
@@ -1007,6 +1050,7 @@
       document.getElementById("saveLogsToggle").checked = appSettings.saveLogs || false;
       document.getElementById("autoUpdateCheckToggle").checked = appSettings.autoUpdateCheck !== false;
       document.getElementById("autoUpdateDownloadToggle").checked = appSettings.autoUpdateDownload || false;
+      document.getElementById("historyRetentionDays").value = String(appSettings.historyRetentionDays || 30);
       document.getElementById("logPath").textContent = appSettings.logDirectory || "—";
       renderUpdateState(updateState);
       await syncLanguage(lang || "en", i18nMessages || {});
@@ -1070,6 +1114,30 @@
     document.getElementById("saveLogsToggle").addEventListener("change", async (event) => {
       await api.setAppSettings({ saveLogs: event.target.checked });
       flashSaved();
+    });
+
+    document.getElementById("saveCacheSettingsBtn").addEventListener("click", async () => {
+      const rawValue = document.getElementById("historyRetentionDays").value.trim();
+      const historyRetentionDays = Math.max(1, parseInt(rawValue || "30", 10) || 30);
+      document.getElementById("historyRetentionDays").value = String(historyRetentionDays);
+      await api.setAppSettings({ historyRetentionDays });
+      flashSaved();
+    });
+
+    document.getElementById("clearHistoryCacheBtn").addEventListener("click", async () => {
+      try {
+        const result = await api.clearHistoryCache();
+        flashSaved();
+        showStatus(
+          inlineText(
+            `Cleared ${result.cleared || 0} project cache record(s).`,
+            `已清理 ${result.cleared || 0} 个项目的缓存记录。`
+          ),
+          false
+        );
+      } catch (error) {
+        showStatus(getErrorMessage(error), true);
+      }
     });
 
     document.getElementById("autoUpdateCheckToggle").addEventListener("change", async (event) => {
@@ -1144,6 +1212,7 @@
       document.getElementById("addProjectForm").classList.remove("visible");
       document.getElementById("projectName").value = "";
       document.getElementById("projectPath").value = "";
+      document.getElementById("projectGroup").value = "";
       document.getElementById("projectProvider").value = document.getElementById("cliProvider").value || "claude";
       document.getElementById("projectModel").value = "";
     });
@@ -1151,6 +1220,7 @@
     document.getElementById("saveProjectBtn").addEventListener("click", async () => {
       const name = document.getElementById("projectName").value.trim();
       const path = document.getElementById("projectPath").value.trim();
+      const groupName = document.getElementById("projectGroup").value.trim();
       const cliProvider = document.getElementById("projectProvider").value;
       const cliModel = document.getElementById("projectModel").value.trim();
       if (!name || !path) {
@@ -1158,10 +1228,11 @@
         return;
       }
       try {
-        await api.addProject({ name, path, cliProvider, cliModel: cliModel || null });
+        await api.addProject({ name, path, groupName: groupName || null, cliProvider, cliModel: cliModel || null });
         document.getElementById("addProjectForm").classList.remove("visible");
         document.getElementById("projectName").value = "";
         document.getElementById("projectPath").value = "";
+        document.getElementById("projectGroup").value = "";
         document.getElementById("projectProvider").value = document.getElementById("cliProvider").value || "claude";
         document.getElementById("projectModel").value = "";
         await loadProjects();

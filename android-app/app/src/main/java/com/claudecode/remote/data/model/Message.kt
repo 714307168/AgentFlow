@@ -4,7 +4,7 @@ import kotlinx.serialization.Serializable
 
 enum class MessageRole { USER, ASSISTANT }
 
-enum class MessageType { TEXT, FILE, THINKING }
+enum class MessageType { TEXT, FILE, THINKING, ACTIVITY, CLI }
 
 @Serializable
 data class MessageAttachment(

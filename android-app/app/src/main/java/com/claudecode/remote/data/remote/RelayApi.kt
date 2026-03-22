@@ -71,6 +71,7 @@ data class BindProjectRequest(
     @SerialName("agent_id") val agentId: String,
     val path: String,
     val name: String,
+    @SerialName("group_name") val groupName: String? = null,
     @SerialName("cli_provider") val cliProvider: String = "claude",
     @SerialName("cli_model") val cliModel: String? = null
 )
@@ -95,6 +96,7 @@ data class ProjectInfo(
     val id: String,
     val name: String,
     val path: String,
+    @SerialName("group_name") val groupName: String? = null,
     @SerialName("cli_provider") val cliProvider: String = "claude",
     @SerialName("cli_model") val cliModel: String? = null,
     val online: Boolean? = null

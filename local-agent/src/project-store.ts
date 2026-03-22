@@ -2,6 +2,11 @@ import Store from "electron-store";
 
 export type ProjectCliProvider = "claude" | "codex";
 
+export function normalizeProjectGroupName(rawValue: string | null | undefined): string | null {
+  const normalized = String(rawValue ?? "").trim();
+  return normalized || null;
+}
+
 interface Project {
   id: string;
   name: string;
@@ -9,6 +14,7 @@ interface Project {
   agentId: string;
   cliProvider: ProjectCliProvider;
   cliModel?: string | null;
+  groupName?: string | null;
   createdAt: number;
 }
 
@@ -27,7 +33,10 @@ class ProjectStore {
 
   add(project: Project): void {
     const projects = this.getAll();
-    projects.push(project);
+    projects.push({
+      ...project,
+      groupName: normalizeProjectGroupName(project.groupName),
+    });
     this.store.set("projects", projects);
   }
 
@@ -37,7 +46,10 @@ class ProjectStore {
   }
 
   getAll(): Project[] {
-    return this.store.get("projects", []);
+    return this.store.get("projects", []).map((project) => ({
+      ...project,
+      groupName: normalizeProjectGroupName(project.groupName),
+    }));
   }
 
   getById(id: string): Project | undefined {
@@ -46,7 +58,15 @@ class ProjectStore {
 
   update(id: string, updates: Partial<Project>): void {
     const projects = this.getAll().map((p) =>
-      p.id === id ? { ...p, ...updates } : p
+      p.id === id
+        ? {
+            ...p,
+            ...updates,
+            groupName: updates.groupName !== undefined
+              ? normalizeProjectGroupName(updates.groupName)
+              : normalizeProjectGroupName(p.groupName),
+          }
+        : p
     );
     this.store.set("projects", projects);
   }

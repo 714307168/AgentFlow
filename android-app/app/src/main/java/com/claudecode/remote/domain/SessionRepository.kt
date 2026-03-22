@@ -141,6 +141,7 @@ class SessionRepository(
                         id = id,
                         name = projectObj["name"]?.jsonPrimitive?.contentOrNull.orEmpty(),
                         path = projectObj["path"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                        groupName = projectObj["group_name"]?.jsonPrimitive?.contentOrNull?.trim(),
                         cliProvider = projectObj["cli_provider"]?.jsonPrimitive?.contentOrNull?.ifBlank { "claude" } ?: "claude",
                         cliModel = projectObj["cli_model"]?.jsonPrimitive?.contentOrNull?.trim().takeUnless { it.isNullOrEmpty() },
                         online = projectObj["online"]?.jsonPrimitive?.booleanOrNull
@@ -189,6 +190,7 @@ class SessionRepository(
                         agentId = agentId.ifBlank { existing?.agentId.orEmpty() },
                         projectId = project.id,
                         projectPath = project.path,
+                        groupName = project.groupName?.trim().takeUnless { it.isNullOrEmpty() } ?: existing?.groupName,
                         cliProvider = project.cliProvider,
                         cliModel = project.cliModel,
                         isAgentOnline = project.online ?: existing?.isAgentOnline ?: true,
@@ -198,6 +200,9 @@ class SessionRepository(
                         queuePreview = existing?.queuePreview,
                         currentStartedAt = existing?.currentStartedAt,
                         lastSyncSeq = existing?.lastSyncSeq ?: 0,
+                        activeConversationId = existing?.activeConversationId,
+                        activeConversationTitle = existing?.activeConversationTitle,
+                        conversationsJson = existing?.conversationsJson,
                         createdAt = existing?.createdAt ?: now,
                         lastActiveAt = if (project.online != null) now else (existing?.lastActiveAt ?: now)
                     )
@@ -234,6 +239,7 @@ class SessionRepository(
         agentId = agentId,
         projectId = projectId,
         projectPath = projectPath,
+        groupName = groupName,
         cliProvider = cliProvider,
         cliModel = cliModel,
         isAgentOnline = isAgentOnline,
@@ -242,6 +248,9 @@ class SessionRepository(
         currentPrompt = currentPrompt,
         queuePreview = queuePreview,
         currentStartedAt = currentStartedAt,
+        activeConversationId = activeConversationId,
+        activeConversationTitle = activeConversationTitle,
+        conversationsJson = conversationsJson,
         createdAt = createdAt,
         lastActiveAt = lastActiveAt
     )

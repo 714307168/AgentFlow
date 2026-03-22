@@ -10,6 +10,7 @@ data class Session(
     val agentId: String,
     val projectId: String,
     val projectPath: String,
+    val groupName: String? = null,
     val cliProvider: String = "claude",
     val cliModel: String? = null,
     val isAgentOnline: Boolean = true,
@@ -18,6 +19,9 @@ data class Session(
     val currentPrompt: String? = null,
     val queuePreview: String? = null,
     val currentStartedAt: Long? = null,
+    val activeConversationId: String? = null,
+    val activeConversationTitle: String? = null,
+    val conversationsJson: String? = null,
     val createdAt: Long,
     val lastActiveAt: Long
 )

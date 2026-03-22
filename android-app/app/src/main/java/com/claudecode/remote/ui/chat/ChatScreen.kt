@@ -44,6 +44,7 @@ import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Stop
@@ -69,6 +70,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -95,6 +97,7 @@ import com.claudecode.remote.data.model.MessageAttachment
 import com.claudecode.remote.data.model.MessageRole
 import com.claudecode.remote.data.model.MessageType
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -118,6 +121,7 @@ fun ChatScreen(
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
     var showModelDialog by remember { mutableStateOf(false) }
+    var showConversationDialog by remember { mutableStateOf(false) }
     var modelInput by remember { mutableStateOf("") }
     var hasInitialScrollPosition by remember(projectId) { mutableStateOf(false) }
     var previousLastMessageId by remember(projectId) { mutableStateOf<String?>(null) }
@@ -136,6 +140,18 @@ fun ChatScreen(
         if (projectId.isNotEmpty()) {
             viewModel.loadProject(projectId, projectName, agentId)
         }
+    }
+
+    LaunchedEffect(projectId, uiState.hasMoreHistory, uiState.isLoadingOlder) {
+        snapshotFlow {
+            listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
+        }
+            .distinctUntilChanged()
+            .collect { (index, offset) ->
+                if (index == 0 && offset <= 24 && uiState.hasMoreHistory && !uiState.isLoadingOlder) {
+                    viewModel.loadOlderMessages()
+                }
+            }
     }
 
     DisposableEffect(projectId) {
@@ -223,6 +239,71 @@ fun ChatScreen(
         )
     }
 
+    if (showConversationDialog) {
+        AlertDialog(
+            onDismissRequest = { showConversationDialog = false },
+            title = { Text(stringResource(R.string.chat_conversations_title)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    TextButton(
+                        onClick = {
+                            showConversationDialog = false
+                            viewModel.createConversation()
+                        },
+                        enabled = !uiState.isRunning && uiState.queuedCount == 0 && !uiState.isSwitchingConversation
+                    ) {
+                        Text(stringResource(R.string.chat_new_conversation))
+                    }
+                    uiState.conversations.forEach { conversation ->
+                        Surface(
+                            color = if (conversation.isActive) {
+                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f)
+                            } else {
+                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.32f)
+                            },
+                            shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(
+                                    enabled = !conversation.isActive && !uiState.isRunning && uiState.queuedCount == 0 && !uiState.isSwitchingConversation
+                                ) {
+                                    showConversationDialog = false
+                                    viewModel.switchConversation(conversation.id)
+                                }
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(
+                                    text = conversation.title,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = if (conversation.isActive) FontWeight.SemiBold else FontWeight.Normal,
+                                    color = if (conversation.isActive) {
+                                        MaterialTheme.colorScheme.onPrimaryContainer
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurface
+                                    }
+                                )
+                                Text(
+                                    text = formatTimestamp(conversation.updatedAt),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showConversationDialog = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            }
+        )
+    }
+
     val activePreviewAttachment = previewAttachment?.let { target ->
         uiState.messages
             .firstOrNull { it.id == target.messageId }
@@ -298,16 +379,19 @@ fun ChatScreen(
             ) {
                 ChatHeader(
                     title = uiState.projectName.ifEmpty { projectName },
+                    conversationTitle = uiState.activeConversationTitle ?: stringResource(R.string.chat_switch_conversation),
                     provider = providerLabel(uiState.cliProvider),
                     model = modelLabel(uiState.cliModel),
                     isConnected = uiState.isConnected,
                     runtimeText = runtimeLabel(uiState),
                     runtimeTone = runtimeColor(uiState),
                     onNavigateBack = onNavigateBack,
+                    onOpenConversations = { showConversationDialog = true },
                     onChangeModel = {
                         modelInput = uiState.cliModel
                         showModelDialog = true
                     },
+                    conversationEnabled = uiState.isConnected,
                     modelEnabled = uiState.isConnected && !uiState.isSending
                 )
 
@@ -343,6 +427,18 @@ fun ChatScreen(
                                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp),
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
+                                if (uiState.isLoadingOlder) {
+                                    item(key = "loading-older") {
+                                        Text(
+                                            text = stringResource(R.string.chat_loading_older),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(vertical = 4.dp)
+                                        )
+                                    }
+                                }
                                 items(uiState.messages, key = { it.id }) { message ->
                                     MessageBubble(
                                         message = message,
@@ -419,13 +515,16 @@ private fun runtimeBannerSummary(uiState: ChatUiState): String =
 @Composable
 private fun ChatHeader(
     title: String,
+    conversationTitle: String,
     provider: String,
     model: String,
     isConnected: Boolean,
     runtimeText: String,
     runtimeTone: Color,
     onNavigateBack: () -> Unit,
+    onOpenConversations: () -> Unit,
     onChangeModel: () -> Unit,
+    conversationEnabled: Boolean,
     modelEnabled: Boolean
 ) {
     Row(
@@ -476,8 +575,22 @@ private fun ChatHeader(
                     modifier = Modifier.weight(1f, fill = false)
                 )
             }
+            Text(
+                text = conversationTitle,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
 
+        ChatHeaderButton(
+            icon = Icons.Default.History,
+            contentDescription = stringResource(R.string.chat_conversations_title),
+            enabled = conversationEnabled,
+            tint = MaterialTheme.colorScheme.onSurface,
+            onClick = onOpenConversations
+        )
         ChatHeaderButton(
             icon = Icons.Default.AutoAwesome,
             contentDescription = stringResource(R.string.action_model),
@@ -633,19 +746,26 @@ private fun MessageBubble(
 ) {
     val isUser = message.role == MessageRole.USER
     val isThinking = message.type == MessageType.THINKING
+    val isActivity = message.type == MessageType.ACTIVITY
+    val isCli = message.type == MessageType.CLI
     val bubbleColor = when {
         isUser -> MaterialTheme.colorScheme.primary.copy(alpha = 0.92f)
         isThinking -> MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.94f)
+        isActivity -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.72f)
+        isCli -> MaterialTheme.colorScheme.surface.copy(alpha = 0.96f)
         else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.44f)
     }
     val textColor = when {
         isUser -> MaterialTheme.colorScheme.onPrimary
         isThinking -> MaterialTheme.colorScheme.onSecondaryContainer
+        isActivity -> MaterialTheme.colorScheme.onTertiaryContainer
         else -> MaterialTheme.colorScheme.onSurface
     }
     val borderColor = when {
         isUser -> MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
         isThinking -> MaterialTheme.colorScheme.secondary.copy(alpha = 0.16f)
+        isActivity -> MaterialTheme.colorScheme.tertiary.copy(alpha = 0.16f)
+        isCli -> MaterialTheme.colorScheme.outline.copy(alpha = 0.22f)
         else -> MaterialTheme.colorScheme.outline.copy(alpha = 0.14f)
     }
     val alignment = if (isUser) Alignment.End else Alignment.Start
@@ -688,6 +808,18 @@ private fun MessageBubble(
                         color = textColor.copy(alpha = 0.8f),
                         style = MaterialTheme.typography.labelSmall
                     )
+                } else if (isActivity) {
+                    Text(
+                        text = stringResource(R.string.chat_activity),
+                        color = textColor.copy(alpha = 0.82f),
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                } else if (isCli) {
+                    Text(
+                        text = stringResource(R.string.chat_cli),
+                        color = textColor.copy(alpha = 0.82f),
+                        style = MaterialTheme.typography.labelSmall
+                    )
                 }
 
                 if (message.content.isNotBlank()) {
@@ -698,7 +830,7 @@ private fun MessageBubble(
                             style = MaterialTheme.typography.bodyMedium.copy(
                                 fontStyle = if (isThinking) FontStyle.Italic else FontStyle.Normal
                             ),
-                            fontFamily = FontFamily.Default,
+                            fontFamily = if (isCli) FontFamily.Monospace else FontFamily.Default,
                             fontWeight = if (isUser) FontWeight.Medium else FontWeight.Normal,
                             modifier = Modifier.weight(1f, fill = false)
                         )
@@ -1183,6 +1315,9 @@ private fun loadAttachmentBitmap(context: Context, attachment: MessageAttachment
 
     return null
 }
+
+private fun formatTimestamp(timestamp: Long): String =
+    java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date(timestamp))
 
 private fun formatFileSize(bytes: Long): String {
     if (bytes <= 0L) {

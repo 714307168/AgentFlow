@@ -22,6 +22,15 @@ interface ClaudeAgentApi {
   onProjectsChanged?: (callback: (projects: ProjectState[]) => void) => void;
   onProjectSessionSnapshot: (callback: (snapshot: SessionSnapshot) => void) => void;
   getProjectSession: (projectId: string) => Promise<ProjectSessionResponse>;
+  getProjectHistoryPage?: (data: {
+    projectId: string;
+    kind: "messages" | "activities" | "cli";
+    conversationId?: string | null;
+    beforeId?: string | null;
+    limit?: number;
+  }) => Promise<ProjectHistoryPageResponse>;
+  createProjectConversation?: (projectId: string) => Promise<{ success: boolean; error?: string; conversationId?: string }>;
+  activateProjectConversation?: (data: { projectId: string; conversationId: string }) => Promise<{ success: boolean; error?: string }>;
   sendProjectPrompt: (data: { projectId: string; prompt: string; attachments?: AttachmentRef[] }) => Promise<{ success: boolean; error?: string }>;
   pickProjectAttachments?: (data: { projectId: string; kind: AttachmentKind }) => Promise<{
     success: boolean;
@@ -97,6 +106,11 @@ interface SessionSnapshot {
   currentSource: "remote" | "desktop" | null;
   currentPrompt?: string | null;
   currentStartedAt?: number | null;
+  activeConversationId: string | null;
+  conversations: ConversationSummary[];
+  messageTotal: number;
+  activityTotal: number;
+  cliTraceTotal: number;
   queue: QueuedRunItem[];
   cliTrace: CliTraceEntry[];
   messages: SessionMessage[];
@@ -107,8 +121,20 @@ interface ProjectState {
   id: string;
   name: string;
   path: string;
+  groupName?: string | null;
   cliProvider: "claude" | "codex";
   cliModel?: string | null;
+}
+
+interface ConversationSummary {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  isActive: boolean;
+  messageCount: number;
+  activityCount: number;
+  cliCount: number;
 }
 
 interface ProjectSessionResponse {
@@ -116,6 +142,32 @@ interface ProjectSessionResponse {
   error?: string;
   project?: ProjectState;
   session?: SessionSnapshot;
+}
+
+interface HistoryPage<T> {
+  conversationId: string | null;
+  items: T[];
+  hasMore: boolean;
+  total: number;
+}
+
+interface ProjectHistoryPageResponse {
+  success: boolean;
+  error?: string;
+  page?: HistoryPage<SessionMessage | SessionActivity | CliTraceEntry>;
+}
+
+interface ProjectHistoryState {
+  conversationId: string | null;
+  messages: SessionMessage[];
+  activities: SessionActivity[];
+  cliTrace: CliTraceEntry[];
+  hasMoreMessages: boolean;
+  hasMoreActivities: boolean;
+  hasMoreCli: boolean;
+  loadingMessages: boolean;
+  loadingActivities: boolean;
+  loadingCli: boolean;
 }
 
 interface HintState {
@@ -154,6 +206,8 @@ const elements = {
   modeBadge: document.getElementById("modeBadge"),
   runState: document.getElementById("runState"),
   headerSummary: document.getElementById("headerSummary"),
+  conversationSelect: document.getElementById("conversationSelect") as HTMLSelectElement | null,
+  newConversationBtn: document.getElementById("newConversationBtn") as HTMLButtonElement | null,
   sessionOverview: document.getElementById("sessionOverview"),
   overviewLabel: document.getElementById("overviewLabel"),
   overviewTitle: document.getElementById("overviewTitle"),
@@ -216,6 +270,7 @@ const state: {
   projectId: string | null;
   projects: ProjectState[];
   sessionsByProjectId: Map<string, SessionSnapshot>;
+  historyByProjectId: Map<string, ProjectHistoryState>;
   lang: Lang;
   messages: Record<string, string>;
   activeView: WorkspaceView;
@@ -227,6 +282,7 @@ const state: {
   projectId: null,
   projects: [],
   sessionsByProjectId: new Map<string, SessionSnapshot>(),
+  historyByProjectId: new Map<string, ProjectHistoryState>(),
   lang: "en",
   messages: {},
   activeView: "messages",
@@ -513,6 +569,69 @@ function getCurrentSession(): SessionSnapshot | null {
   }
 
   return state.sessionsByProjectId.get(state.projectId) ?? null;
+}
+
+function createHistoryStateFromSnapshot(snapshot: SessionSnapshot): ProjectHistoryState {
+  return {
+    conversationId: snapshot.activeConversationId,
+    messages: snapshot.messages.slice(),
+    activities: snapshot.activities.slice(),
+    cliTrace: snapshot.cliTrace.slice(),
+    hasMoreMessages: snapshot.messageTotal > snapshot.messages.length,
+    hasMoreActivities: snapshot.activityTotal > snapshot.activities.length,
+    hasMoreCli: snapshot.cliTraceTotal > snapshot.cliTrace.length,
+    loadingMessages: false,
+    loadingActivities: false,
+    loadingCli: false,
+  };
+}
+
+function getProjectHistoryState(projectId: string): ProjectHistoryState | null {
+  return state.historyByProjectId.get(projectId) ?? null;
+}
+
+function syncHistoryStateFromSnapshot(snapshot: SessionSnapshot): void {
+  const existing = state.historyByProjectId.get(snapshot.projectId);
+  if (!existing || existing.conversationId !== snapshot.activeConversationId) {
+    state.historyByProjectId.set(snapshot.projectId, createHistoryStateFromSnapshot(snapshot));
+    return;
+  }
+
+  const mergeItems = <T extends { id: string }>(currentItems: T[], latestItems: T[]): T[] => {
+    const olderItems = currentItems.filter((item) => !latestItems.some((latest) => latest.id === item.id));
+    return [...olderItems, ...latestItems];
+  };
+
+  existing.messages = mergeItems(existing.messages, snapshot.messages);
+  existing.activities = mergeItems(existing.activities, snapshot.activities);
+  existing.cliTrace = mergeItems(existing.cliTrace, snapshot.cliTrace);
+  existing.hasMoreMessages = snapshot.messageTotal > existing.messages.length;
+  existing.hasMoreActivities = snapshot.activityTotal > existing.activities.length;
+  existing.hasMoreCli = snapshot.cliTraceTotal > existing.cliTrace.length;
+}
+
+function getDisplayedMessages(): SessionMessage[] {
+  const projectId = state.projectId;
+  if (!projectId) {
+    return [];
+  }
+  return getProjectHistoryState(projectId)?.messages ?? getCurrentSession()?.messages ?? [];
+}
+
+function getDisplayedActivities(): SessionActivity[] {
+  const projectId = state.projectId;
+  if (!projectId) {
+    return [];
+  }
+  return getProjectHistoryState(projectId)?.activities ?? getCurrentSession()?.activities ?? [];
+}
+
+function getDisplayedCliTrace(): CliTraceEntry[] {
+  const projectId = state.projectId;
+  if (!projectId) {
+    return [];
+  }
+  return getProjectHistoryState(projectId)?.cliTrace ?? getCurrentSession()?.cliTrace ?? [];
 }
 
 function getLatestActivity(session: SessionSnapshot | null): SessionActivity | null {
@@ -1147,21 +1266,35 @@ function renderProjectList(): void {
     return;
   }
 
-  elements.projectList.innerHTML = state.projects
-    .map((project) => {
-      const status = getProjectStatusMeta(project.id);
-      const isSelected = project.id === state.projectId;
-      return [
-        `<button class="project-list-item${isSelected ? " selected" : ""}" type="button" data-project-id="${escapeHtml(project.id)}">`,
-        '<div class="project-list-top">',
-        `<span class="project-list-name">${escapeHtml(project.name)}</span>`,
-        `<span class="project-status-pill ${escapeHtml(status.tone)}">${escapeHtml(status.label)}</span>`,
-        "</div>",
-        `<div class="project-list-detail">${escapeHtml(status.detail)}</div>`,
-        `<div class="project-list-path">${escapeHtml(project.path)}</div>`,
-        "</button>",
-      ].join("");
-    })
+  const groups = new Map<string, ProjectState[]>();
+  for (const project of state.projects) {
+    const groupName = project.groupName?.trim() || inlineText("Default", "默认分组");
+    const items = groups.get(groupName) ?? [];
+    items.push(project);
+    groups.set(groupName, items);
+  }
+
+  elements.projectList.innerHTML = Array.from(groups.entries())
+    .sort((left, right) => left[0].localeCompare(right[0], undefined, { sensitivity: "base" }))
+    .map(([groupName, projects]) => [
+      '<section class="project-group">',
+      `<div class="project-group-header"><span>${escapeHtml(groupName)}</span><span class="project-group-count">${projects.length}</span></div>`,
+      ...projects.map((project) => {
+        const status = getProjectStatusMeta(project.id);
+        const isSelected = project.id === state.projectId;
+        return [
+          `<button class="project-list-item${isSelected ? " selected" : ""}" type="button" data-project-id="${escapeHtml(project.id)}">`,
+          '<div class="project-list-top">',
+          `<span class="project-list-name">${escapeHtml(project.name)}</span>`,
+          `<span class="project-status-pill ${escapeHtml(status.tone)}">${escapeHtml(status.label)}</span>`,
+          "</div>",
+          `<div class="project-list-detail">${escapeHtml(status.detail)}</div>`,
+          `<div class="project-list-path">${escapeHtml(project.path)}</div>`,
+          "</button>",
+        ].join("");
+      }),
+      "</section>",
+    ].join(""))
     .join("");
 }
 
@@ -1186,7 +1319,8 @@ function renderCliTrace(): void {
     return;
   }
 
-  const entries = session?.cliTrace ?? [];
+  const historyState = state.projectId ? getProjectHistoryState(state.projectId) : null;
+  const entries = getDisplayedCliTrace();
   if (entries.length === 0) {
     elements.cliTrace.innerHTML = renderDockBlank();
     return;
@@ -1195,8 +1329,9 @@ function renderCliTrace(): void {
   const stickToBottom =
     elements.cliTrace.scrollHeight - elements.cliTrace.scrollTop - elements.cliTrace.clientHeight < 80;
 
-  elements.cliTrace.innerHTML = entries
-    .map((entry) => [
+  elements.cliTrace.innerHTML = [
+    historyState?.hasMoreCli ? `<div class="history-loader">${escapeHtml(inlineText("Scroll up to load earlier CLI output", "向上滚动加载更早 CLI 输出"))}</div>` : "",
+    ...entries.map((entry) => [
       `<article class="cli-line ${escapeHtml(entry.stream)}">`,
       '<div class="cli-line-meta">',
       `<span class="cli-stream-badge ${escapeHtml(entry.stream)}">${escapeHtml(translateCliStream(entry.stream))}</span>`,
@@ -1204,8 +1339,8 @@ function renderCliTrace(): void {
       "</div>",
       `<div class="cli-line-text">${escapeHtml(entry.text)}</div>`,
       "</article>",
-    ].join(""))
-    .join("");
+    ].join("")),
+  ].join("");
 
   if (stickToBottom) {
     elements.cliTrace.scrollTop = elements.cliTrace.scrollHeight;
@@ -1228,7 +1363,9 @@ function renderMessages(): void {
     return;
   }
 
-  if (!session || session.messages.length === 0) {
+  const historyState = state.projectId ? getProjectHistoryState(state.projectId) : null;
+  const messages = getDisplayedMessages();
+  if (!session || messages.length === 0) {
     elements.messages.innerHTML = formatEmptyState(
       msg("terminal.empty.messagesTitle", "No conversation yet"),
       msg(
@@ -1242,8 +1379,9 @@ function renderMessages(): void {
   const stickToBottom =
     elements.messages.scrollHeight - elements.messages.scrollTop - elements.messages.clientHeight < 80;
 
-  elements.messages.innerHTML = session.messages
-    .map((message) => {
+  elements.messages.innerHTML = [
+    historyState?.hasMoreMessages ? `<div class="history-loader">${escapeHtml(inlineText("Scroll up to load earlier messages", "向上滚动加载更早消息"))}</div>` : "",
+    ...messages.map((message) => {
       const sourceBadge = message.role === "user"
         ? translateSource(message.source)
         : providerLabel(message.provider ?? session.provider);
@@ -1265,8 +1403,8 @@ function renderMessages(): void {
         "</div>",
         "</article>",
       ].join("");
-    })
-    .join("");
+    }),
+  ].join("");
 
   if (stickToBottom) {
     elements.messages.scrollTop = elements.messages.scrollHeight;
@@ -1288,12 +1426,16 @@ function renderActivities(): void {
     return;
   }
 
-  if (!session || session.activities.length === 0) {
+  const historyState = state.projectId ? getProjectHistoryState(state.projectId) : null;
+  const activities = getDisplayedActivities();
+  if (!session || activities.length === 0) {
     elements.activityList.innerHTML = renderDockBlank();
     return;
   }
 
-  elements.activityList.innerHTML = session.activities
+  elements.activityList.innerHTML = [
+    historyState?.hasMoreActivities ? `<div class="history-loader">${escapeHtml(inlineText("Scroll up to load earlier activity", "向上滚动加载更早活动"))}</div>` : "",
+    ...activities
     .slice()
     .reverse()
     .map((activity) => [
@@ -1308,8 +1450,8 @@ function renderActivities(): void {
       `<div class="activity-detail">${escapeHtml(activity.detail)}</div>`,
       "</div>",
       "</article>",
-    ].join(""))
-    .join("");
+    ].join("")),
+  ].join("");
 }
 
 function renderHeader(): void {
@@ -1340,6 +1482,17 @@ function renderHeader(): void {
   }
   if (elements.sessionViewTitle) {
     elements.sessionViewTitle.textContent = project?.name ?? msg("terminal.projectFallback", "Project");
+  }
+  if (elements.conversationSelect) {
+    const conversations = session?.conversations ?? [];
+    elements.conversationSelect.innerHTML = conversations
+      .map((conversation) => `<option value="${escapeHtml(conversation.id)}"${conversation.isActive ? " selected" : ""}>${escapeHtml(conversation.title)}</option>`)
+      .join("");
+    elements.conversationSelect.disabled = !project || conversations.length === 0 || Boolean(session?.isRunning) || (session?.queuedCount ?? 0) > 0;
+  }
+  if (elements.newConversationBtn) {
+    elements.newConversationBtn.disabled = !project || Boolean(session?.isRunning) || (session?.queuedCount ?? 0) > 0 || !api.createProjectConversation;
+    elements.newConversationBtn.textContent = inlineText("New", "新建");
   }
   if (elements.headerSummary) {
     elements.headerSummary.textContent = statusMeta?.detail ?? msg("terminal.waitingProjectContext", "Waiting for project context...");
@@ -1402,6 +1555,7 @@ async function loadProjectSession(projectId: string): Promise<void> {
   }
 
   state.sessionsByProjectId.set(projectId, result.session);
+  syncHistoryStateFromSnapshot(result.session);
 }
 
 async function syncProjects(projects?: ProjectState[]): Promise<void> {
@@ -1413,6 +1567,7 @@ async function syncProjects(projects?: ProjectState[]): Promise<void> {
   for (const projectId of Array.from(state.sessionsByProjectId.keys())) {
     if (!projectIds.has(projectId)) {
       state.sessionsByProjectId.delete(projectId);
+      state.historyByProjectId.delete(projectId);
     }
   }
 
@@ -1445,6 +1600,107 @@ async function selectProject(projectId: string): Promise<void> {
   }
   syncActiveViewForCurrentProject();
   render();
+}
+
+async function loadOlderHistory(kind: "messages" | "activities" | "cli"): Promise<void> {
+  if (!state.projectId || !api.getProjectHistoryPage) {
+    return;
+  }
+
+  const session = getCurrentSession();
+  const historyState = getProjectHistoryState(state.projectId);
+  if (!session || !historyState) {
+    return;
+  }
+
+  const hasMore = kind === "messages"
+    ? historyState.hasMoreMessages
+    : (kind === "activities" ? historyState.hasMoreActivities : historyState.hasMoreCli);
+  const isLoading = kind === "messages"
+    ? historyState.loadingMessages
+    : (kind === "activities" ? historyState.loadingActivities : historyState.loadingCli);
+  if (!hasMore) {
+    return;
+  }
+  if (isLoading) {
+    return;
+  }
+
+  const items = kind === "messages"
+    ? historyState.messages
+    : (kind === "activities" ? historyState.activities : historyState.cliTrace);
+  const beforeId = items[0]?.id;
+  if (!beforeId) {
+    return;
+  }
+
+  const container = kind === "messages"
+    ? elements.messages
+    : (kind === "activities" ? elements.activityList : elements.cliTrace);
+  const previousScrollHeight = container?.scrollHeight ?? 0;
+  const previousScrollTop = container?.scrollTop ?? 0;
+
+  if (kind === "messages") {
+    historyState.loadingMessages = true;
+  } else if (kind === "activities") {
+    historyState.loadingActivities = true;
+  } else {
+    historyState.loadingCli = true;
+  }
+
+  try {
+    const result = await api.getProjectHistoryPage({
+      projectId: state.projectId,
+      kind,
+      conversationId: session.activeConversationId,
+      beforeId,
+      limit: 30,
+    });
+
+    if (!result.success || !result.page) {
+      setHintText(result.error ?? inlineText("Failed to load earlier history.", "加载更早记录失败。"), true);
+      return;
+    }
+    const page = result.page;
+
+    const currentHistory = getProjectHistoryState(state.projectId);
+    if (!currentHistory || currentHistory.conversationId !== page.conversationId) {
+      return;
+    }
+
+    if (kind === "messages") {
+      currentHistory.messages = [
+        ...(page.items as SessionMessage[]),
+        ...currentHistory.messages.filter((item) => !page.items.some((entry) => entry.id === item.id)),
+      ];
+      currentHistory.hasMoreMessages = page.hasMore;
+    } else if (kind === "activities") {
+      currentHistory.activities = [
+        ...(page.items as SessionActivity[]),
+        ...currentHistory.activities.filter((item) => !page.items.some((entry) => entry.id === item.id)),
+      ];
+      currentHistory.hasMoreActivities = page.hasMore;
+    } else {
+      currentHistory.cliTrace = [
+        ...(page.items as CliTraceEntry[]),
+        ...currentHistory.cliTrace.filter((item) => !page.items.some((entry) => entry.id === item.id)),
+      ];
+      currentHistory.hasMoreCli = page.hasMore;
+    }
+
+    render();
+    if (container) {
+      container.scrollTop = container.scrollHeight - previousScrollHeight + previousScrollTop;
+    }
+  } finally {
+    if (kind === "messages") {
+      historyState.loadingMessages = false;
+    } else if (kind === "activities") {
+      historyState.loadingActivities = false;
+    } else {
+      historyState.loadingCli = false;
+    }
+  }
 }
 
 async function pickAttachments(kind: AttachmentKind): Promise<void> {
@@ -1728,12 +1984,60 @@ elements.modelBadge?.addEventListener("click", () => {
   void promptForModel();
 });
 
+elements.conversationSelect?.addEventListener("change", async (event) => {
+  const target = event.target as HTMLSelectElement | null;
+  const conversationId = target?.value?.trim();
+  if (!state.projectId || !conversationId || !api.activateProjectConversation) {
+    return;
+  }
+
+  const result = await api.activateProjectConversation({
+    projectId: state.projectId,
+    conversationId,
+  });
+  if (!result.success) {
+    setHintText(result.error ?? inlineText("Failed to switch conversation.", "切换会话失败。"), true);
+  }
+});
+
+elements.newConversationBtn?.addEventListener("click", async () => {
+  if (!state.projectId || !api.createProjectConversation) {
+    return;
+  }
+
+  const result = await api.createProjectConversation(state.projectId);
+  if (!result.success) {
+    setHintText(result.error ?? inlineText("Failed to create a new conversation.", "新建会话失败。"), true);
+    return;
+  }
+  setHintText(inlineText("Started a new conversation.", "已创建新会话。"), false);
+});
+
+elements.messages?.addEventListener("scroll", () => {
+  if (elements.messages && elements.messages.scrollTop <= 24) {
+    void loadOlderHistory("messages");
+  }
+});
+
+elements.activityList?.addEventListener("scroll", () => {
+  if (elements.activityList && elements.activityList.scrollTop <= 24) {
+    void loadOlderHistory("activities");
+  }
+});
+
+elements.cliTrace?.addEventListener("scroll", () => {
+  if (elements.cliTrace && elements.cliTrace.scrollTop <= 24) {
+    void loadOlderHistory("cli");
+  }
+});
+
 api.onProjectId((projectId) => {
   void selectProject(projectId);
 });
 
 api.onProjectSessionSnapshot((snapshot) => {
   state.sessionsByProjectId.set(snapshot.projectId, snapshot);
+  syncHistoryStateFromSnapshot(snapshot);
   if (snapshot.projectId === state.projectId) {
     syncActiveViewForCurrentProject();
   }

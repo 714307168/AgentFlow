@@ -15,6 +15,20 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+
+private const val MESSAGE_PAGE_SIZE = 30
+
+data class ConversationItem(
+    val id: String,
+    val title: String,
+    val updatedAt: Long,
+    val isActive: Boolean
+)
 
 data class ChatUiState(
     val messages: List<Message> = emptyList(),
@@ -23,6 +37,9 @@ data class ChatUiState(
     val downloadingAttachmentIds: Set<String> = emptySet(),
     val isConnected: Boolean = false,
     val isSending: Boolean = false,
+    val isLoadingOlder: Boolean = false,
+    val hasMoreHistory: Boolean = false,
+    val isSwitchingConversation: Boolean = false,
     val projectId: String = "",
     val projectName: String = "",
     val agentId: String = "",
@@ -33,7 +50,10 @@ data class ChatUiState(
     val queuedCount: Int = 0,
     val currentPrompt: String? = null,
     val queuePreview: String? = null,
-    val currentStartedAt: Long? = null
+    val currentStartedAt: Long? = null,
+    val activeConversationId: String? = null,
+    val activeConversationTitle: String? = null,
+    val conversations: List<ConversationItem> = emptyList()
 )
 
 class ChatViewModel(
@@ -44,9 +64,13 @@ class ChatViewModel(
 
     private val _uiState = MutableStateFlow(ChatUiState())
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
+
+    private val json = Json { ignoreUnknownKeys = true }
     private var messagesJob: Job? = null
     private var sessionJob: Job? = null
     private var lastSyncedProjectId: String? = null
+    private var allMessages: List<Message> = emptyList()
+    private var visibleMessageCount: Int = MESSAGE_PAGE_SIZE
 
     init {
         viewModelScope.launch {
@@ -70,6 +94,8 @@ class ChatViewModel(
             return
         }
 
+        visibleMessageCount = MESSAGE_PAGE_SIZE
+        allMessages = emptyList()
         _uiState.update {
             it.copy(
                 projectId = projectId,
@@ -77,7 +103,11 @@ class ChatViewModel(
                 agentId = agentId,
                 inputText = tokenStore.getDraft(projectId),
                 pendingAttachments = emptyList(),
-                downloadingAttachmentIds = emptySet()
+                downloadingAttachmentIds = emptySet(),
+                isLoadingOlder = false,
+                hasMoreHistory = false,
+                isSwitchingConversation = false,
+                messages = emptyList()
             )
         }
         lastSyncedProjectId = null
@@ -97,7 +127,14 @@ class ChatViewModel(
                             queuedCount = session?.queuedCount ?: 0,
                             currentPrompt = session?.currentPrompt,
                             queuePreview = session?.queuePreview,
-                            currentStartedAt = session?.currentStartedAt
+                            currentStartedAt = session?.currentStartedAt,
+                            activeConversationId = session?.activeConversationId,
+                            activeConversationTitle = session?.activeConversationTitle,
+                            conversations = parseConversationItems(
+                                session?.conversationsJson,
+                                session?.activeConversationId
+                            ),
+                            isSwitchingConversation = false
                         )
                     }
                 }
@@ -110,7 +147,8 @@ class ChatViewModel(
         messagesJob = viewModelScope.launch {
             try {
                 messageRepository.getMessagesForProject(projectId).collect { messages ->
-                    _uiState.update { it.copy(messages = messages) }
+                    allMessages = messages
+                    publishVisibleMessages()
                 }
             } catch (e: Exception) {
                 CrashLogger.logError("ChatViewModel", "Error collecting messages", e)
@@ -135,10 +173,98 @@ class ChatViewModel(
         viewModelScope.launch {
             try {
                 lastSyncedProjectId = state.projectId
-                messageRepository.requestProjectSync(state.projectId, state.agentId)
+                messageRepository.requestProjectSync(
+                    projectId = state.projectId,
+                    agentId = state.agentId,
+                    limit = MESSAGE_PAGE_SIZE
+                )
             } catch (e: Exception) {
                 lastSyncedProjectId = null
                 CrashLogger.logError("ChatViewModel", "Error requesting desktop sync", e)
+            }
+        }
+    }
+
+    fun loadOlderMessages() {
+        val state = _uiState.value
+        if (state.projectId.isBlank() || state.isLoadingOlder) {
+            return
+        }
+
+        if (visibleMessageCount < allMessages.size) {
+            visibleMessageCount += MESSAGE_PAGE_SIZE
+            publishVisibleMessages()
+            return
+        }
+
+        val earliestSyncSeq = allMessages
+            .mapNotNull { message -> message.syncSeq.takeIf { it > 0L } }
+            .minOrNull()
+            ?: 0L
+        if (earliestSyncSeq <= 1L || webSocket.connectionState.value != RelayWebSocket.ConnectionState.CONNECTED) {
+            _uiState.update { it.copy(hasMoreHistory = false) }
+            return
+        }
+
+        _uiState.update { it.copy(isLoadingOlder = true) }
+        viewModelScope.launch {
+            try {
+                messageRepository.loadOlderProjectMessages(
+                    projectId = state.projectId,
+                    agentId = state.agentId,
+                    beforeSeq = earliestSyncSeq,
+                    limit = MESSAGE_PAGE_SIZE
+                )
+            } catch (e: Exception) {
+                CrashLogger.logError("ChatViewModel", "Error loading older messages", e)
+            } finally {
+                _uiState.update { it.copy(isLoadingOlder = false) }
+            }
+        }
+    }
+
+    fun createConversation() {
+        val state = _uiState.value
+        if (state.projectId.isBlank() || state.isRunning || state.queuedCount > 0 || state.isSwitchingConversation) {
+            return
+        }
+
+        _uiState.update { it.copy(isSwitchingConversation = true) }
+        viewModelScope.launch {
+            try {
+                visibleMessageCount = MESSAGE_PAGE_SIZE
+                allMessages = emptyList()
+                messageRepository.clearProjectLocalMessages(state.projectId)
+                messageRepository.createNewConversation(state.projectId, state.agentId)
+            } catch (e: Exception) {
+                CrashLogger.logError("ChatViewModel", "Error creating conversation", e)
+                _uiState.update { it.copy(isSwitchingConversation = false) }
+            }
+        }
+    }
+
+    fun switchConversation(conversationId: String) {
+        val state = _uiState.value
+        if (state.projectId.isBlank() || conversationId.isBlank()) {
+            return
+        }
+        if (state.isRunning || state.queuedCount > 0 || state.isSwitchingConversation) {
+            return
+        }
+        if (conversationId == state.activeConversationId) {
+            return
+        }
+
+        _uiState.update { it.copy(isSwitchingConversation = true) }
+        viewModelScope.launch {
+            try {
+                visibleMessageCount = MESSAGE_PAGE_SIZE
+                allMessages = emptyList()
+                messageRepository.clearProjectLocalMessages(state.projectId)
+                messageRepository.switchConversation(state.projectId, state.agentId, conversationId)
+            } catch (e: Exception) {
+                CrashLogger.logError("ChatViewModel", "Error switching conversation", e)
+                _uiState.update { it.copy(isSwitchingConversation = false) }
             }
         }
     }
@@ -298,6 +424,55 @@ class ChatViewModel(
                     it.copy(downloadingAttachmentIds = it.downloadingAttachmentIds - attachment.id)
                 }
             }
+        }
+    }
+
+    private fun publishVisibleMessages() {
+        val startIndex = (allMessages.size - visibleMessageCount).coerceAtLeast(0)
+        val visibleMessages = allMessages.drop(startIndex)
+        val earliestSyncSeq = allMessages
+            .mapNotNull { message -> message.syncSeq.takeIf { it > 0L } }
+            .minOrNull()
+            ?: 0L
+
+        _uiState.update {
+            it.copy(
+                messages = visibleMessages,
+                hasMoreHistory = startIndex > 0 || earliestSyncSeq > 1L
+            )
+        }
+    }
+
+    private fun parseConversationItems(
+        rawJson: String?,
+        activeConversationId: String?
+    ): List<ConversationItem> {
+        if (rawJson.isNullOrBlank()) {
+            return emptyList()
+        }
+
+        return runCatching {
+            json.parseToJsonElement(rawJson)
+                .jsonArray
+                .mapNotNull { item ->
+                    val itemObj = item.jsonObject
+                    val id = itemObj["id"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+                    if (id.isBlank()) {
+                        return@mapNotNull null
+                    }
+                    ConversationItem(
+                        id = id,
+                        title = itemObj["title"]?.jsonPrimitive?.contentOrNull?.trim()
+                            .takeUnless { it.isNullOrBlank() }
+                            ?: "New conversation",
+                        updatedAt = itemObj["updated_at"]?.jsonPrimitive?.contentOrNull?.toLongOrNull() ?: 0L,
+                        isActive = id == activeConversationId
+                    )
+                }
+                .sortedByDescending { it.updatedAt }
+        }.getOrElse { error ->
+            CrashLogger.logError("ChatViewModel", "Failed to parse conversation list", error as? Exception ?: Exception(error))
+            emptyList()
         }
     }
 

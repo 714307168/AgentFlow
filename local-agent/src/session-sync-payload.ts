@@ -19,7 +19,7 @@ export interface SessionSyncQueuePayload {
 
 export interface SessionSyncItemPayload {
   id: string;
-  kind: "message" | "thinking";
+  kind: "message" | "thinking" | "activity" | "cli";
   seq: number;
   createdAt: number;
   updatedAt: number;
@@ -27,6 +27,20 @@ export interface SessionSyncItemPayload {
   content: string;
   attachments?: RunAttachment[];
   status: string;
+  title?: string;
+  activity_kind?: string;
+  cli_stream?: "system" | "stdout" | "stderr";
+}
+
+export interface SessionConversationPayload {
+  id: string;
+  title: string;
+  created_at: number;
+  updated_at: number;
+  is_active: boolean;
+  message_count: number;
+  activity_count: number;
+  cli_count: number;
 }
 
 export interface SessionSyncPayload {
@@ -39,10 +53,13 @@ export interface SessionSyncPayload {
   currentSource: ProjectSessionSnapshot["currentSource"];
   currentPrompt: string | null;
   currentStartedAt: number | null;
+  active_conversation_id: string | null;
+  conversations: SessionConversationPayload[];
   queue: SessionSyncQueuePayload[];
   sync: {
     after_seq: number;
     before_seq: number | null;
+    limit: number | null;
     latest_seq: number;
     truncated: boolean;
     items: SessionSyncItemPayload[];
@@ -101,7 +118,23 @@ function normalizeItems(delta: ProjectSyncDelta): SessionSyncItemPayload[] {
       content: trimText(item.content, MAX_SYNC_TEXT_CHARS),
       attachments: cloneAttachments(item.attachments),
       status: item.status,
+      title: item.title ? trimText(item.title, 240) : undefined,
+      activity_kind: item.activityKind,
+      cli_stream: item.cliStream,
     }));
+}
+
+function buildConversationPayload(snapshot: ProjectSessionSnapshot): SessionConversationPayload[] {
+  return snapshot.conversations.map((conversation) => ({
+    id: conversation.id,
+    title: trimText(conversation.title, 72),
+    created_at: conversation.createdAt,
+    updated_at: conversation.updatedAt,
+    is_active: conversation.isActive,
+    message_count: conversation.messageCount,
+    activity_count: conversation.activityCount,
+    cli_count: conversation.cliCount,
+  }));
 }
 
 export function buildSessionSyncPayload(
@@ -110,10 +143,12 @@ export function buildSessionSyncPayload(
   request: {
     afterSeq?: number;
     beforeSeq?: number;
+    limit?: number;
   } = {},
 ): SessionSyncPayload {
   const afterSeq = Number(request.afterSeq) > 0 ? Number(request.afterSeq) : 0;
   const beforeSeq = Number(request.beforeSeq) > 0 ? Number(request.beforeSeq) : null;
+  const limit = Number(request.limit) > 0 ? Number(request.limit) : null;
   let payload: SessionSyncPayload = {
     sync_version: 2,
     project_id: snapshot.projectId,
@@ -124,10 +159,13 @@ export function buildSessionSyncPayload(
     currentSource: snapshot.currentSource,
     currentPrompt: snapshot.currentPrompt ? trimText(snapshot.currentPrompt, MAX_SYNC_PROMPT_CHARS) : null,
     currentStartedAt: snapshot.currentStartedAt,
+    active_conversation_id: snapshot.activeConversationId,
+    conversations: buildConversationPayload(snapshot),
     queue: buildQueuePayload(snapshot),
     sync: {
       after_seq: afterSeq,
       before_seq: beforeSeq,
+      limit,
       latest_seq: delta.latestSeq,
       truncated: delta.truncated,
       items: normalizeItems(delta),

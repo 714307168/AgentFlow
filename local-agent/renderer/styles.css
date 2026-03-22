@@ -258,6 +258,29 @@ body {
   gap: 8px;
 }
 
+.conversation-toolbar {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+
+.conversation-select {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--text);
+  flex: 1;
+  font: inherit;
+  min-height: 36px;
+  min-width: 0;
+  padding: 0 12px;
+}
+
+.conversation-select:disabled {
+  opacity: 0.6;
+}
+
 .panel-inline-summary {
   color: var(--text-muted);
   font-size: 12px;
@@ -528,6 +551,10 @@ body {
   color: var(--text);
 }
 
+.ghost-button.compact {
+  padding: 0 12px;
+}
+
 .ghost-button:hover {
   background: rgba(255, 255, 255, 0.06);
   border-color: var(--border-strong);
@@ -592,8 +619,46 @@ body {
   overflow-y: auto;
 }
 
+.project-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.project-group-header {
+  align-items: center;
+  color: var(--text-soft);
+  display: flex;
+  font-size: 11px;
+  font-weight: 700;
+  gap: 8px;
+  letter-spacing: 0.08em;
+  padding: 4px 2px 0;
+  text-transform: uppercase;
+}
+
+.project-group-count {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-muted);
+  display: inline-flex;
+  font-size: 10px;
+  justify-content: center;
+  min-width: 24px;
+  padding: 2px 8px;
+}
+
 .messages-stage .messages {
   padding: 2px 0 4px;
+}
+
+.history-loader {
+  color: var(--text-soft);
+  font-size: 12px;
+  padding: 0 0 12px;
+  text-align: center;
 }
 
 .detail-dock .activity-list {

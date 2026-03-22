@@ -63,7 +63,8 @@ class MessageRepository(
     private val context: Context
 ) {
     companion object {
-        private const val MAX_PROJECT_MESSAGES = 5000
+        private const val MAX_PROJECT_MESSAGES = 180
+        private const val DEFAULT_SYNC_LIMIT = 30
         private const val FILE_CHUNK_SIZE = 64 * 1024
         private const val FILE_UPLOAD_TIMEOUT_MS = 120_000L
         private const val FILE_DOWNLOAD_TIMEOUT_MS = 10 * 60_000L
@@ -120,6 +121,9 @@ class MessageRepository(
         agentId: String? = null,
         afterSeqOverride: Long? = null,
         beforeSeq: Long? = null,
+        limit: Int? = null,
+        action: String? = null,
+        conversationId: String? = null,
         shouldWakeAgent: Boolean = true
     ) {
         if (shouldWakeAgent) {
@@ -156,6 +160,15 @@ class MessageRepository(
                     beforeSeq?.takeIf { it > 0L }?.let {
                         put("before_seq", JsonPrimitive(it))
                     }
+                    limit?.takeIf { it > 0 }?.let {
+                        put("limit", JsonPrimitive(it))
+                    }
+                    action?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                        put("action", JsonPrimitive(it))
+                    }
+                    conversationId?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                        put("conversation_id", JsonPrimitive(it))
+                    }
                 },
                 ts = System.currentTimeMillis()
             )
@@ -165,9 +178,53 @@ class MessageRepository(
     suspend fun requestProjectSyncs(sessions: List<Session>) {
         sessions.forEach { session ->
             if (session.projectId.isNotBlank()) {
-                requestProjectSync(session.projectId, session.agentId)
+                requestProjectSync(session.projectId, session.agentId, limit = DEFAULT_SYNC_LIMIT)
             }
         }
+    }
+
+    suspend fun clearProjectLocalMessages(projectId: String) {
+        db.withTransaction {
+            messageDao.deleteMessagesByProject(projectId)
+            sessionDao.updateLastSyncSeq(projectId, 0L)
+        }
+    }
+
+    suspend fun loadOlderProjectMessages(
+        projectId: String,
+        agentId: String? = null,
+        beforeSeq: Long,
+        limit: Int = DEFAULT_SYNC_LIMIT
+    ) {
+        requestProjectSync(
+            projectId = projectId,
+            agentId = agentId,
+            beforeSeq = beforeSeq,
+            limit = limit
+        )
+    }
+
+    suspend fun createNewConversation(projectId: String, agentId: String? = null) {
+        requestProjectSync(
+            projectId = projectId,
+            agentId = agentId,
+            action = "new_conversation",
+            limit = DEFAULT_SYNC_LIMIT
+        )
+    }
+
+    suspend fun switchConversation(
+        projectId: String,
+        agentId: String? = null,
+        conversationId: String
+    ) {
+        requestProjectSync(
+            projectId = projectId,
+            agentId = agentId,
+            action = "switch_conversation",
+            conversationId = conversationId,
+            limit = DEFAULT_SYNC_LIMIT
+        )
     }
 
     suspend fun sendStopTask(projectId: String) {
@@ -497,6 +554,7 @@ class MessageRepository(
 
             Events.SESSION_SYNC -> {
                 val payloadObj = envelope.payload?.jsonObject ?: return
+                val previousSession = sessionDao.getSessionByProjectId(projectId)
                 val provider = payloadObj["provider"]?.jsonPrimitive?.contentOrNull?.trim()
                     .takeUnless { it.isNullOrBlank() } ?: "claude"
                 val model = payloadObj["model"]?.jsonPrimitive?.contentOrNull?.trim()
@@ -514,6 +572,24 @@ class MessageRepository(
                     ?.contentOrNull
                     ?.trim()
                     .takeUnless { it.isNullOrBlank() }
+                val activeConversationId = payloadObj["active_conversation_id"]?.jsonPrimitive?.contentOrNull?.trim()
+                    .takeUnless { it.isNullOrBlank() }
+                val conversationsArray = payloadObj["conversations"]?.jsonArray
+                val conversationChanged = previousSession?.activeConversationId != activeConversationId
+                    && !activeConversationId.isNullOrBlank()
+                if (conversationChanged) {
+                    clearProjectLocalMessages(projectId)
+                }
+                val activeConversationTitle = conversationsArray
+                    ?.firstOrNull { conversation ->
+                        conversation.jsonObject["id"]?.jsonPrimitive?.contentOrNull?.trim() == activeConversationId
+                    }
+                    ?.jsonObject
+                    ?.get("title")
+                    ?.jsonPrimitive
+                    ?.contentOrNull
+                    ?.trim()
+                    .takeUnless { it.isNullOrBlank() }
                 sessionDao.updateSessionRuntime(
                     projectId = projectId,
                     cliProvider = provider,
@@ -523,6 +599,9 @@ class MessageRepository(
                     currentPrompt = currentPrompt,
                     queuePreview = queuePreview,
                     currentStartedAt = currentStartedAt,
+                    activeConversationId = activeConversationId,
+                    activeConversationTitle = activeConversationTitle,
+                    conversationsJson = conversationsArray?.toString(),
                     lastActiveAt = envelope.ts
                 )
                 val syncObj = payloadObj["sync"]?.jsonObject
@@ -531,11 +610,12 @@ class MessageRepository(
                     val requestedAfterSeq = syncObj["after_seq"]?.jsonPrimitive?.longOrNull ?: 0L
                     val requestedBeforeSeq = syncObj["before_seq"]?.jsonPrimitive?.longOrNull
                         ?.takeIf { it > 0L }
+                    val requestedLimit = syncObj["limit"]?.jsonPrimitive?.intOrNull ?: DEFAULT_SYNC_LIMIT
                     val truncated = syncObj["truncated"]?.jsonPrimitive?.booleanOrNull ?: false
                     val items = syncObj["items"]?.jsonArray ?: JsonArray(emptyList())
                     CrashLogger.logInfo(
                         "MessageRepository",
-                        "Received session.sync v2 for projectId=$projectId items=${items.size} latestSeq=$latestSeq afterSeq=$requestedAfterSeq beforeSeq=${requestedBeforeSeq ?: 0L} truncated=$truncated running=$isRunning queued=$queuedCount"
+                        "Received session.sync v2 for projectId=$projectId items=${items.size} latestSeq=$latestSeq afterSeq=$requestedAfterSeq beforeSeq=${requestedBeforeSeq ?: 0L} limit=$requestedLimit truncated=$truncated running=$isRunning queued=$queuedCount conversation=${activeConversationId ?: "none"}"
                     )
                     val applied = applyProjectSyncDelta(
                         projectId = projectId,
@@ -550,6 +630,7 @@ class MessageRepository(
                         projectId = projectId,
                         requestAfterSeq = requestedAfterSeq,
                         requestBeforeSeq = requestedBeforeSeq,
+                        requestLimit = requestedLimit,
                         truncated = truncated,
                         earliestReceivedSeq = applied.earliestSeq
                     )
@@ -635,6 +716,7 @@ class MessageRepository(
         projectId: String,
         requestAfterSeq: Long,
         requestBeforeSeq: Long?,
+        requestLimit: Int,
         truncated: Boolean,
         earliestReceivedSeq: Long?
     ) {
@@ -664,6 +746,7 @@ class MessageRepository(
             agentId = agentId,
             afterSeqOverride = requestAfterSeq,
             beforeSeq = earliestReceivedSeq,
+            limit = requestLimit,
             shouldWakeAgent = false
         )
     }
@@ -1372,6 +1455,38 @@ class MessageRepository(
                 isStreaming = isStreaming
             )
 
+            "activity" -> MessageEntity(
+                id = id,
+                projectId = projectId,
+                role = MessageRole.ASSISTANT.name,
+                content = buildActivityContent(
+                    title = itemObj["title"]?.jsonPrimitive?.contentOrNull,
+                    detail = itemObj["content"]?.jsonPrimitive?.contentOrNull,
+                    kind = itemObj["activity_kind"]?.jsonPrimitive?.contentOrNull,
+                    status = itemObj["status"]?.jsonPrimitive?.contentOrNull
+                ),
+                type = MessageType.ACTIVITY.name,
+                attachmentsJson = null,
+                timestamp = timestamp,
+                syncSeq = syncSeq,
+                isStreaming = isStreaming
+            )
+
+            "cli" -> MessageEntity(
+                id = id,
+                projectId = projectId,
+                role = MessageRole.ASSISTANT.name,
+                content = buildCliContent(
+                    stream = itemObj["cli_stream"]?.jsonPrimitive?.contentOrNull,
+                    text = itemObj["content"]?.jsonPrimitive?.contentOrNull
+                ),
+                type = MessageType.CLI.name,
+                attachmentsJson = null,
+                timestamp = timestamp,
+                syncSeq = syncSeq,
+                isStreaming = false
+            )
+
             else -> {
                 val attachments = parseDesktopAttachments(itemObj["attachments"]).ifEmpty {
                     parseDesktopLegacyAttachment(itemObj)?.let(::listOf) ?: emptyList()
@@ -1404,6 +1519,8 @@ class MessageRepository(
         }
         val resolvedType = when {
             parseMessageType(type) == MessageType.THINKING -> MessageType.THINKING
+            parseMessageType(type) == MessageType.ACTIVITY -> MessageType.ACTIVITY
+            parseMessageType(type) == MessageType.CLI -> MessageType.CLI
             attachments.isNotEmpty() -> MessageType.FILE
             else -> parseMessageType(type)
         }
@@ -1422,6 +1539,33 @@ class MessageRepository(
             syncSeq = syncSeq,
             isStreaming = isStreaming
         )
+    }
+
+    private fun buildActivityContent(
+        title: String?,
+        detail: String?,
+        kind: String?,
+        status: String?
+    ): String {
+        val cleanedTitle = title?.trim().takeUnless { it.isNullOrEmpty() }
+        val cleanedDetail = detail?.trim().takeUnless { it.isNullOrEmpty() }
+        val cleanedKind = kind?.trim()?.uppercase().takeUnless { it.isNullOrEmpty() }
+        val cleanedStatus = status?.trim()?.uppercase().takeUnless { it.isNullOrEmpty() }
+
+        return listOfNotNull(
+            listOfNotNull(cleanedKind, cleanedStatus).takeIf { it.isNotEmpty() }?.joinToString(" · "),
+            cleanedTitle,
+            cleanedDetail
+        ).joinToString("\n")
+    }
+
+    private fun buildCliContent(stream: String?, text: String?): String {
+        val cleanedText = text?.trim().orEmpty()
+        if (cleanedText.isEmpty()) {
+            return ""
+        }
+        val prefix = stream?.trim()?.uppercase().takeUnless { it.isNullOrEmpty() }
+        return if (prefix == null) cleanedText else "[$prefix]\n$cleanedText"
     }
 
     private fun serializeAttachments(attachments: List<MessageAttachment>): String? =

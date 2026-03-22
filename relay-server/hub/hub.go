@@ -17,6 +17,7 @@ type ProjectInfo struct {
 	ID          string
 	Name        string
 	Path        string
+	GroupName   string
 	AgentID     string
 	CLIProvider string
 	CLIModel    string
@@ -248,6 +249,7 @@ func (h *Hub) HandleMessage(from *Client, env *model.Envelope) {
 			ID:          p.ProjectID,
 			Name:        p.Name,
 			Path:        p.Path,
+			GroupName:   p.GroupName,
 			AgentID:     from.AgentID,
 			CLIProvider: p.CLIProvider,
 			CLIModel:    p.CLIModel,
@@ -492,12 +494,13 @@ func (h *Hub) sendError(to *Client, refID, code, message string) {
 }
 
 // BindProject registers a project->agent mapping (used by REST handler).
-func (h *Hub) BindProject(projectID, agentID, name, path, cliProvider, cliModel string) {
+func (h *Hub) BindProject(projectID, agentID, name, path, groupName, cliProvider, cliModel string) {
 	h.projects.Store(projectID, agentID)
 	h.projectInfos.Store(projectID, &ProjectInfo{
 		ID:          projectID,
 		Name:        name,
 		Path:        path,
+		GroupName:   groupName,
 		AgentID:     agentID,
 		CLIProvider: cliProvider,
 		CLIModel:    cliModel,
@@ -556,6 +559,7 @@ func (h *Hub) ReplaceAgentProjects(agentID string, projects []model.ProjectListI
 			ID:          project.ID,
 			Name:        project.Name,
 			Path:        project.Path,
+			GroupName:   project.GroupName,
 			AgentID:     agentID,
 			CLIProvider: project.CLIProvider,
 			CLIModel:    project.CLIModel,
@@ -619,6 +623,7 @@ func (h *Hub) getAgentProjectListItems(agentID string) []model.ProjectListItem {
 			ID:          info.ID,
 			Name:        info.Name,
 			Path:        info.Path,
+			GroupName:   info.GroupName,
 			CLIProvider: info.CLIProvider,
 			CLIModel:    info.CLIModel,
 			Online:      online,

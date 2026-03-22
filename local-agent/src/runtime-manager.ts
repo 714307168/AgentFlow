@@ -18,6 +18,10 @@ import SessionHistoryStore, {
 import type {
   CliProvider,
   CliTraceEntry,
+  ConversationSummary,
+  HistoryPageKind,
+  HistoryPageRequest,
+  HistoryPageResult,
   ProjectSessionSnapshot,
   QueuedRunSnapshot,
   RunAttachment,
@@ -54,6 +58,18 @@ interface PendingRun extends EnqueueMessageOptions {
   queuedAt: number;
 }
 
+interface ProjectConversationState {
+  id: string;
+  title?: string;
+  createdAt: number;
+  updatedAt: number;
+  cliTrace: CliTraceEntry[];
+  messages: SessionMessage[];
+  activities: SessionActivity[];
+  claudeSessionId: string | null;
+  codexThreadId: string | null;
+}
+
 interface ProjectState {
   projectId: string;
   queue: PendingRun[];
@@ -63,6 +79,8 @@ interface ProjectState {
   currentSource: RunSource | null;
   currentPrompt: string | null;
   currentStartedAt: number | null;
+  activeConversationId: string | null;
+  conversations: ProjectConversationState[];
   cliTrace: CliTraceEntry[];
   messages: SessionMessage[];
   activities: SessionActivity[];
@@ -103,6 +121,7 @@ interface RunProcessOptions {
 const MAX_CLI_TRACE_ENTRIES = 60;
 const MAX_CLI_TRACE_TOTAL_CHARS = 24_000;
 const MAX_CLI_TRACE_ENTRY_CHARS = 1_200;
+const DEFAULT_HISTORY_PAGE_SIZE = 30;
 const SNAPSHOT_EMIT_INTERVAL_MS = 120;
 const CLI_TRACE_NOISE_PATTERNS = [
   /^reading prompt from stdin\.\.\.$/i,
@@ -187,6 +206,7 @@ class RuntimeManager extends EventEmitter {
 
   getSnapshot(projectId: string): ProjectSessionSnapshot {
     const state = this.ensureState(projectId);
+    this.syncActiveConversationMeta(state);
     const provider = state.active ? state.provider : this.getResolvedProvider(projectId);
     return {
       projectId,
@@ -198,6 +218,11 @@ class RuntimeManager extends EventEmitter {
       currentSource: state.currentSource,
       currentPrompt: state.currentPrompt,
       currentStartedAt: state.currentStartedAt,
+      activeConversationId: state.activeConversationId,
+      conversations: this.listConversationSummaries(projectId),
+      messageTotal: state.messages.length,
+      activityTotal: state.activities.length,
+      cliTraceTotal: state.cliTrace.length,
       queue: state.queue.map((entry) => ({
         runId: entry.runId,
         prompt: entry.prompt,
@@ -205,9 +230,9 @@ class RuntimeManager extends EventEmitter {
         source: entry.source,
         queuedAt: entry.queuedAt,
       })),
-      cliTrace: state.cliTrace.map((entry) => ({ ...entry })),
-      messages: state.messages.map((message) => this.cloneMessage(message)),
-      activities: state.activities.map((activity) => ({
+      cliTrace: state.cliTrace.slice(-DEFAULT_HISTORY_PAGE_SIZE).map((entry) => ({ ...entry })),
+      messages: state.messages.slice(-DEFAULT_HISTORY_PAGE_SIZE).map((message) => this.cloneMessage(message)),
+      activities: state.activities.slice(-DEFAULT_HISTORY_PAGE_SIZE).map((activity) => ({
         ...activity,
         meta: activity.meta ? { ...activity.meta } : undefined,
       })),
@@ -224,6 +249,88 @@ class RuntimeManager extends EventEmitter {
 
   buildSyncDelta(projectId: string, request: number | ProjectSyncRequest = 0) {
     return this.historyStore.buildSyncDelta(projectId, request);
+  }
+
+  getHistoryPage(
+    projectId: string,
+    kind: HistoryPageKind,
+    request: HistoryPageRequest = {},
+  ): HistoryPageResult<SessionMessage | SessionActivity | CliTraceEntry> {
+    const state = this.ensureState(projectId);
+    const conversation = this.getConversationById(state, request.conversationId) ?? this.getActiveConversation(state);
+    if (!conversation) {
+      return {
+        conversationId: null,
+        items: [],
+        hasMore: false,
+        total: 0,
+      };
+    }
+
+    const sourceItems = kind === "messages"
+      ? conversation.messages
+      : (kind === "activities" ? conversation.activities : conversation.cliTrace);
+    const limit = Number(request.limit) > 0 ? Math.max(1, Number(request.limit)) : DEFAULT_HISTORY_PAGE_SIZE;
+    const beforeId = request.beforeId?.trim() || "";
+    const anchorIndex = beforeId
+      ? sourceItems.findIndex((entry) => entry.id === beforeId)
+      : sourceItems.length;
+    const safeAnchorIndex = anchorIndex >= 0 ? anchorIndex : sourceItems.length;
+    const startIndex = Math.max(0, safeAnchorIndex - limit);
+    const items = sourceItems.slice(startIndex, safeAnchorIndex).map((entry) => this.cloneHistoryItem(kind, entry));
+
+    return {
+      conversationId: conversation.id,
+      items,
+      hasMore: startIndex > 0,
+      total: sourceItems.length,
+    };
+  }
+
+  listConversationSummaries(projectId: string): ConversationSummary[] {
+    const state = this.ensureState(projectId);
+    this.syncActiveConversationMeta(state);
+    return state.conversations
+      .map((conversation) => ({
+        id: conversation.id,
+        title: this.getConversationTitle(conversation),
+        createdAt: conversation.createdAt,
+        updatedAt: conversation.updatedAt,
+        isActive: conversation.id === state.activeConversationId,
+        messageCount: conversation.messages.length,
+        activityCount: conversation.activities.length,
+        cliCount: conversation.cliTrace.length,
+      }))
+      .sort((left, right) => right.updatedAt - left.updatedAt || right.createdAt - left.createdAt);
+  }
+
+  createConversation(projectId: string): { success: boolean; conversationId?: string; error?: string } {
+    const state = this.ensureState(projectId);
+    if (state.active || state.queue.length > 0) {
+      return { success: false, error: "Stop the current run and clear the queue before creating a new conversation." };
+    }
+
+    const conversation = this.createConversationState();
+    state.conversations.push(conversation);
+    this.activateConversationState(state, conversation.id);
+    this.emitSnapshot(projectId);
+    return { success: true, conversationId: conversation.id };
+  }
+
+  activateConversation(projectId: string, conversationId: string): { success: boolean; error?: string } {
+    const state = this.ensureState(projectId);
+    if (state.active || state.queue.length > 0) {
+      return { success: false, error: "Stop the current run and clear the queue before switching conversations." };
+    }
+
+    const nextConversation = this.getConversationById(state, conversationId);
+    if (!nextConversation) {
+      return { success: false, error: "Conversation not found." };
+    }
+
+    this.activateConversationState(state, nextConversation.id);
+    this.emitSnapshot(projectId);
+    return { success: true };
   }
 
   dispose(): void {
@@ -249,6 +356,55 @@ class RuntimeManager extends EventEmitter {
     this.clearScheduledSnapshot(projectId);
     this.states.delete(projectId);
     this.historyStore.clearProject(projectId);
+  }
+
+  clearHistoryCache(projectId?: string | null): { cleared: number; skipped: number } {
+    const targetStates = projectId
+      ? Array.from(this.states.values()).filter((state) => state.projectId === projectId)
+      : Array.from(this.states.values());
+    let cleared = 0;
+    let skipped = 0;
+
+    for (const state of targetStates) {
+      if (state.active || state.queue.length > 0) {
+        skipped += 1;
+        continue;
+      }
+      this.resetProjectHistoryState(state);
+      this.rebuildProjectHistoryStore(state);
+      cleared += 1;
+      this.emitSnapshot(state.projectId);
+    }
+
+    return { cleared, skipped };
+  }
+
+  pruneHistoryCache(retentionDays: number): { changed: number } {
+    if (!Number.isFinite(retentionDays) || retentionDays <= 0) {
+      return { changed: 0 };
+    }
+
+    const cutoff = Date.now() - Math.floor(retentionDays * 24 * 60 * 60 * 1000);
+    let changed = 0;
+    for (const state of this.states.values()) {
+      if (state.active || state.queue.length > 0) {
+        continue;
+      }
+      this.syncActiveConversationMeta(state);
+      const keptConversations = state.conversations
+        .filter((conversation) => conversation.updatedAt >= cutoff);
+      if (keptConversations.length === state.conversations.length) {
+        continue;
+      }
+
+      state.conversations = keptConversations.length > 0 ? keptConversations : [this.createConversationState()];
+      this.activateConversationState(state, state.conversations[state.conversations.length - 1].id);
+      this.rebuildProjectHistoryStore(state);
+      changed += 1;
+      this.emitSnapshot(state.projectId);
+    }
+
+    return { changed };
   }
 
   private async processNext(projectId: string): Promise<void> {
@@ -882,6 +1038,10 @@ class RuntimeManager extends EventEmitter {
       createdAt: Date.now(),
     });
     this.trimCliTrace(state);
+    const latestEntry = state.cliTrace[state.cliTrace.length - 1];
+    if (latestEntry) {
+      this.historyStore.appendCliTrace(state.projectId, state.activeConversationId, latestEntry);
+    }
     appLogger.info("runtime", normalized, {
       projectId: state.projectId,
       provider: state.provider,
@@ -935,7 +1095,7 @@ class RuntimeManager extends EventEmitter {
     message.updatedAt = Date.now();
     message.status = "streaming";
     this.trimMessages(state);
-    this.historyStore.upsertMessage(state.projectId, message);
+    this.historyStore.upsertMessage(state.projectId, state.activeConversationId, message);
     this.emitSnapshot(state.projectId);
   }
 
@@ -957,7 +1117,7 @@ class RuntimeManager extends EventEmitter {
       existing.updatedAt = Date.now();
       existing.status = "done";
       this.trimMessages(state);
-      this.historyStore.upsertMessage(state.projectId, existing);
+      this.historyStore.upsertMessage(state.projectId, state.activeConversationId, existing);
       this.emitSnapshot(state.projectId);
       return;
     }
@@ -978,7 +1138,7 @@ class RuntimeManager extends EventEmitter {
   private addMessage(state: ProjectState, message: SessionMessage): void {
     state.messages.push(message);
     this.trimMessages(state);
-    this.historyStore.upsertMessage(state.projectId, message);
+    this.historyStore.upsertMessage(state.projectId, state.activeConversationId, message);
     this.emitSnapshot(state.projectId);
   }
 
@@ -1014,14 +1174,14 @@ class RuntimeManager extends EventEmitter {
       message.status = patch.status;
     }
     message.updatedAt = Date.now();
-    this.historyStore.upsertMessage(state.projectId, message);
+    this.historyStore.upsertMessage(state.projectId, state.activeConversationId, message);
     this.emitSnapshot(state.projectId);
   }
 
   private addActivity(state: ProjectState, activity: SessionActivity): string {
     state.activities.push(activity);
     this.trimActivities(state);
-    this.historyStore.upsertActivity(state.projectId, activity);
+    this.historyStore.upsertActivity(state.projectId, state.activeConversationId, activity);
     this.emitSnapshot(state.projectId);
     return activity.id;
   }
@@ -1046,7 +1206,7 @@ class RuntimeManager extends EventEmitter {
       activity.meta = patch.meta;
     }
     activity.updatedAt = Date.now();
-    this.historyStore.upsertActivity(state.projectId, activity);
+    this.historyStore.upsertActivity(state.projectId, state.activeConversationId, activity);
     this.emitSnapshot(state.projectId);
   }
 
@@ -1058,7 +1218,7 @@ class RuntimeManager extends EventEmitter {
 
     activity.detail += chunk;
     activity.updatedAt = Date.now();
-    this.historyStore.upsertActivity(state.projectId, activity);
+    this.historyStore.upsertActivity(state.projectId, state.activeConversationId, activity);
     this.emitSnapshot(state.projectId);
   }
 
@@ -1088,7 +1248,7 @@ class RuntimeManager extends EventEmitter {
         activity.detail = detail;
       }
       activity.updatedAt = Date.now();
-      this.historyStore.upsertActivity(state.projectId, activity);
+      this.historyStore.upsertActivity(state.projectId, state.activeConversationId, activity);
     }
 
     this.emitSnapshot(state.projectId);
@@ -1379,6 +1539,151 @@ class RuntimeManager extends EventEmitter {
     });
   }
 
+  private createConversationState(createdAt = Date.now()): ProjectConversationState {
+    return {
+      id: uuidv4(),
+      title: "",
+      createdAt,
+      updatedAt: createdAt,
+      cliTrace: [],
+      messages: [],
+      activities: [],
+      claudeSessionId: null,
+      codexThreadId: null,
+    };
+  }
+
+  private getConversationById(
+    state: ProjectState,
+    conversationId?: string | null,
+  ): ProjectConversationState | null {
+    const targetId = conversationId?.trim() || "";
+    if (!targetId) {
+      return null;
+    }
+    return state.conversations.find((entry) => entry.id === targetId) ?? null;
+  }
+
+  private getActiveConversation(state: ProjectState): ProjectConversationState | null {
+    return this.getConversationById(state, state.activeConversationId)
+      ?? state.conversations[0]
+      ?? null;
+  }
+
+  private activateConversationState(
+    state: ProjectState,
+    conversationId: string,
+    conversationState?: ProjectConversationState,
+  ): void {
+    this.syncActiveConversationMeta(state);
+    const conversation = conversationState
+      ?? this.getConversationById(state, conversationId)
+      ?? null;
+    if (!conversation) {
+      return;
+    }
+
+    if (!state.conversations.some((entry) => entry.id === conversation.id)) {
+      state.conversations.push(conversation);
+    }
+
+    state.activeConversationId = conversation.id;
+    state.cliTrace = conversation.cliTrace;
+    state.messages = conversation.messages;
+    state.activities = conversation.activities;
+    state.claudeSessionId = conversation.claudeSessionId;
+    state.codexThreadId = conversation.codexThreadId;
+    conversation.updatedAt = Date.now();
+  }
+
+  private syncActiveConversationMeta(state: ProjectState): void {
+    const conversation = this.getConversationById(state, state.activeConversationId);
+    if (!conversation) {
+      return;
+    }
+    conversation.claudeSessionId = state.claudeSessionId;
+    conversation.codexThreadId = state.codexThreadId;
+    conversation.updatedAt = Math.max(
+      conversation.updatedAt,
+      state.currentStartedAt ?? 0,
+      state.messages[state.messages.length - 1]?.updatedAt ?? 0,
+      state.activities[state.activities.length - 1]?.updatedAt ?? 0,
+      state.cliTrace[state.cliTrace.length - 1]?.createdAt ?? 0,
+    );
+  }
+
+  private getConversationTitle(conversation: ProjectConversationState): string {
+    const explicitTitle = conversation.title?.trim() ?? "";
+    if (explicitTitle) {
+      return explicitTitle;
+    }
+
+    const firstUserMessage = conversation.messages.find((entry) => entry.role === "user" && entry.content.trim());
+    if (firstUserMessage) {
+      return this.previewConversationTitle(firstUserMessage.content);
+    }
+
+    return "New conversation";
+  }
+
+  private previewConversationTitle(content: string): string {
+    const normalized = content.replace(/\s+/g, " ").trim();
+    if (!normalized) {
+      return "New conversation";
+    }
+    return normalized.length > 48 ? `${normalized.slice(0, 45)}...` : normalized;
+  }
+
+  private cloneHistoryItem(
+    kind: HistoryPageKind,
+    entry: SessionMessage | SessionActivity | CliTraceEntry,
+  ): SessionMessage | SessionActivity | CliTraceEntry {
+    if (kind === "messages") {
+      return this.cloneMessage(entry as SessionMessage);
+    }
+    if (kind === "activities") {
+      const activity = entry as SessionActivity;
+      return {
+        ...activity,
+        meta: activity.meta ? { ...activity.meta } : undefined,
+      };
+    }
+    return { ...(entry as CliTraceEntry) };
+  }
+
+  private resetProjectHistoryState(state: ProjectState): void {
+    const freshConversation = this.createConversationState();
+    state.conversations = [freshConversation];
+    state.currentSource = null;
+    state.currentPrompt = null;
+    state.currentStartedAt = null;
+    state.pendingStop = null;
+    this.activateConversationState(state, freshConversation.id, freshConversation);
+  }
+
+  private rebuildProjectHistoryStore(state: ProjectState): void {
+    this.historyStore.clearProject(state.projectId);
+    for (const conversation of state.conversations) {
+      this.historyStore.upsertConversationMeta(state.projectId, {
+        conversationId: conversation.id,
+        title: conversation.title,
+        createdAt: conversation.createdAt,
+        updatedAt: conversation.updatedAt,
+        claudeSessionId: conversation.claudeSessionId,
+        codexThreadId: conversation.codexThreadId,
+      });
+      for (const message of conversation.messages) {
+        this.historyStore.upsertMessage(state.projectId, conversation.id, message);
+      }
+      for (const activity of conversation.activities) {
+        this.historyStore.upsertActivity(state.projectId, conversation.id, activity);
+      }
+      for (const entry of conversation.cliTrace) {
+        this.historyStore.appendCliTrace(state.projectId, conversation.id, entry);
+      }
+    }
+  }
+
   private restorePersistedStates(): void {
     for (const { projectId, state: snapshot } of this.historyStore.getAllProjects()) {
       const restoredQueue = (snapshot.queue ?? [])
@@ -1393,6 +1698,33 @@ class RuntimeManager extends EventEmitter {
           queuedAt: entry.queuedAt,
         }));
 
+      const restoredConversations = (snapshot.conversations ?? []).map((conversation) => ({
+        id: conversation.id,
+        title: conversation.title,
+        createdAt: conversation.createdAt,
+        updatedAt: conversation.updatedAt,
+        cliTrace: (conversation.cliTrace ?? []).map((entry) => ({
+          id: entry.id,
+          stream: entry.stream,
+          text: entry.text,
+          createdAt: entry.createdAt,
+        })),
+        messages: (conversation.messages ?? []).map((message) => ({
+          ...message,
+          status: "done" as const,
+        })),
+        activities: (conversation.activities ?? []).map((activity) => ({
+          ...activity,
+          status: (activity.status === "running" || activity.status === "pending" ? "error" : activity.status) as SessionActivity["status"],
+          updatedAt: activity.updatedAt ?? activity.createdAt ?? Date.now(),
+        })),
+        claudeSessionId: conversation.claudeSessionId ?? null,
+        codexThreadId: conversation.codexThreadId ?? null,
+      }));
+      const initialConversation = restoredConversations.find((entry) => entry.id === snapshot.activeConversationId)
+        ?? restoredConversations[0]
+        ?? this.createConversationState();
+
       this.states.set(projectId, {
         projectId,
         queue: restoredQueue,
@@ -1402,18 +1734,13 @@ class RuntimeManager extends EventEmitter {
         currentSource: null,
         currentPrompt: null,
         currentStartedAt: null,
-        cliTrace: [],
-        messages: (snapshot.messages ?? []).map((message) => ({
-          ...message,
-          status: "done",
-        })),
-        activities: (snapshot.activities ?? []).map((activity) => ({
-          ...activity,
-          status: activity.status === "running" || activity.status === "pending" ? "error" : activity.status,
-          updatedAt: activity.updatedAt ?? activity.createdAt ?? Date.now(),
-        })),
-        claudeSessionId: snapshot.claudeSessionId ?? null,
-        codexThreadId: snapshot.codexThreadId ?? null,
+        activeConversationId: initialConversation.id,
+        conversations: restoredConversations.length > 0 ? restoredConversations : [initialConversation],
+        cliTrace: initialConversation.cliTrace,
+        messages: initialConversation.messages,
+        activities: initialConversation.activities,
+        claudeSessionId: initialConversation.claudeSessionId,
+        codexThreadId: initialConversation.codexThreadId,
         process: null,
         pendingStop: null,
       });
@@ -1443,6 +1770,8 @@ class RuntimeManager extends EventEmitter {
       currentSource: null,
       currentPrompt: null,
       currentStartedAt: null,
+      activeConversationId: null,
+      conversations: [],
       cliTrace: [],
       messages: [],
       activities: [],
@@ -1451,6 +1780,8 @@ class RuntimeManager extends EventEmitter {
       process: null,
       pendingStop: null,
     };
+    const initialConversation = this.createConversationState();
+    this.activateConversationState(created, initialConversation.id, initialConversation);
     this.states.set(projectId, created);
     return created;
   }
@@ -1458,6 +1789,8 @@ class RuntimeManager extends EventEmitter {
   private emitSnapshot(projectId: string): void {
     const state = this.states.get(projectId);
     if (state) {
+      this.syncActiveConversationMeta(state);
+      const activeConversation = this.getActiveConversation(state);
       this.historyStore.updateProjectMeta(projectId, {
         queue: state.queue
           .filter((entry) => entry.source === "desktop")
@@ -1469,8 +1802,11 @@ class RuntimeManager extends EventEmitter {
             source: entry.source,
             queuedAt: entry.queuedAt,
           })),
+        activeConversationId: state.activeConversationId,
         claudeSessionId: state.claudeSessionId,
         codexThreadId: state.codexThreadId,
+        conversationCreatedAt: activeConversation?.createdAt ?? null,
+        conversationUpdatedAt: activeConversation?.updatedAt ?? Date.now(),
       });
     }
     this.scheduleSnapshotEmit(projectId);

@@ -9,13 +9,24 @@ contextBridge.exposeInMainWorld('claudeAgent', {
     ipcRenderer.on('projects-changed', (_event, projects: unknown[]) => callback(projects));
   },
   getProjectSession: (projectId: string) => ipcRenderer.invoke('get-project-session', projectId),
+  getProjectHistoryPage: (data: {
+    projectId: string;
+    kind: 'messages' | 'activities' | 'cli';
+    conversationId?: string | null;
+    beforeId?: string | null;
+    limit?: number;
+  }) => ipcRenderer.invoke('get-project-history-page', data),
+  listProjectConversations: (projectId: string) => ipcRenderer.invoke('list-project-conversations', projectId),
+  createProjectConversation: (projectId: string) => ipcRenderer.invoke('create-project-conversation', projectId),
+  activateProjectConversation: (data: { projectId: string; conversationId: string }) => ipcRenderer.invoke('activate-project-conversation', data),
+  clearHistoryCache: (projectId?: string | null) => ipcRenderer.invoke('clear-history-cache', projectId),
   sendProjectPrompt: (data: { projectId: string; prompt: string; attachments?: unknown[] }) => ipcRenderer.invoke('send-project-prompt', data),
   pickProjectAttachments: (data: { projectId: string; kind: 'image' | 'file' }) => ipcRenderer.invoke('pick-project-attachments', data),
   saveClipboardProjectImage: (data: { projectId: string }) => ipcRenderer.invoke('save-clipboard-project-image', data),
   getAttachmentImageData: (data: { path?: string | null }) => ipcRenderer.invoke('get-attachment-image-data', data),
   stopProjectRun: (projectId: string) => ipcRenderer.invoke('stop-project-run', projectId),
   removeQueuedProjectPrompt: (data: { projectId: string; runId: string }) => ipcRenderer.invoke('remove-queued-project-prompt', data),
-  addProject: (data: { name: string; path: string; cliProvider?: string; cliModel?: string | null }) => ipcRenderer.invoke('add-project', data),
+  addProject: (data: { name: string; path: string; groupName?: string | null; cliProvider?: string; cliModel?: string | null }) => ipcRenderer.invoke('add-project', data),
   updateProject: (data: { projectId: string; updates: Record<string, string | null> }) => ipcRenderer.invoke('update-project', data),
   deleteProject: (projectId: string) => ipcRenderer.invoke('delete-project', projectId),
   openProjectWindow: (projectId: string) => {
@@ -37,7 +48,7 @@ contextBridge.exposeInMainWorld('claudeAgent', {
     ipcRenderer.on('lang-changed', (_event, payload) => callback(payload));
   },
   getAppSettings: () => ipcRenderer.invoke('get-app-settings'),
-  setAppSettings: (settings: Record<string, boolean>) => ipcRenderer.invoke('set-app-settings', settings),
+  setAppSettings: (settings: Record<string, boolean | number>) => ipcRenderer.invoke('set-app-settings', settings),
   getUpdateState: () => ipcRenderer.invoke('get-update-state'),
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
   downloadAvailableUpdate: () => ipcRenderer.invoke('download-available-update'),

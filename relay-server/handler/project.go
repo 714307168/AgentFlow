@@ -17,6 +17,7 @@ type projectBindRequest struct {
 	AgentID     string `json:"agent_id"`
 	Path        string `json:"path"`
 	Name        string `json:"name"`
+	GroupName   string `json:"group_name"`
 	CLIProvider string `json:"cli_provider"`
 	CLIModel    string `json:"cli_model"`
 }
@@ -59,7 +60,7 @@ func ProjectBindHandler(h *hub.Hub, cfg *config.Config) http.HandlerFunc {
 			return
 		}
 
-		h.BindProject(req.ProjectID, req.AgentID, req.Name, req.Path, req.CLIProvider, req.CLIModel)
+		h.BindProject(req.ProjectID, req.AgentID, req.Name, req.Path, req.GroupName, req.CLIProvider, req.CLIModel)
 
 		// Forward project.bind to agent via WebSocket
 		payloadData := map[string]interface{}{
@@ -68,6 +69,7 @@ func ProjectBindHandler(h *hub.Hub, cfg *config.Config) http.HandlerFunc {
 			"name":         req.Name,
 			"path":         req.Path,
 			"agent_id":     req.AgentID,
+			"group_name":   req.GroupName,
 			"cli_provider": req.CLIProvider,
 			"cli_model":    req.CLIModel,
 		}

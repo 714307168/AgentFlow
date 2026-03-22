@@ -164,16 +164,27 @@ fun SessionListScreen(
                         }
 
                         else -> {
+                            val groupedSessions = uiState.sessions
+                                .groupBy { session ->
+                                    session.groupName?.trim().takeUnless { it.isNullOrEmpty() }
+                                        ?: stringResource(R.string.default_group)
+                                }
+                                .toSortedMap(compareBy(String.CASE_INSENSITIVE_ORDER) { it })
                             LazyColumn(
                                 modifier = Modifier.weight(1f),
                                 contentPadding = PaddingValues(bottom = 16.dp),
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                items(uiState.sessions, key = { it.id }) { session ->
-                                    SessionCard(
-                                        session = session,
-                                        onClick = { onNavigateToChat(session) }
-                                    )
+                                groupedSessions.forEach { (groupName, sessions) ->
+                                    item(key = "group-$groupName") {
+                                        GroupHeader(groupName = groupName, count = sessions.size)
+                                    }
+                                    items(sessions, key = { it.id }) { session ->
+                                        SessionCard(
+                                            session = session,
+                                            onClick = { onNavigateToChat(session) }
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -239,6 +250,36 @@ fun SessionListScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun GroupHeader(groupName: String, count: Int) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Text(
+            text = groupName,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onBackground,
+            fontWeight = FontWeight.SemiBold
+        )
+        Surface(
+            shape = RoundedCornerShape(999.dp),
+            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.14f))
+        ) {
+            Text(
+                text = count.toString(),
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }

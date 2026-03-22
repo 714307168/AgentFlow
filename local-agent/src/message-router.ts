@@ -174,6 +174,7 @@ class MessageRouter {
       name?: string;
       path?: string;
       agent_id?: string;
+      group_name?: string | null;
       cli_provider?: CliProvider;
       cli_model?: string | null;
     } | undefined;
@@ -191,6 +192,7 @@ class MessageRouter {
       projectStore.update(projectId, {
         name: payload.name,
         path: payload.path,
+        groupName: payload.group_name?.trim() || (existing.groupName ?? null),
         cliProvider,
         cliModel: payload.cli_model?.trim() ? payload.cli_model.trim() : existing.cliModel ?? null,
       });
@@ -200,6 +202,7 @@ class MessageRouter {
         name: payload.name,
         path: payload.path,
         agentId: payload.agent_id ?? "",
+        groupName: payload.group_name?.trim() || null,
         cliProvider,
         cliModel: payload.cli_model?.trim() ? payload.cli_model.trim() : null,
         createdAt: Date.now(),
@@ -233,17 +236,36 @@ class MessageRouter {
       return;
     }
 
+    const payloadObject = env.payload as {
+      after_seq?: number;
+      before_seq?: number;
+      limit?: number;
+      action?: string;
+      conversation_id?: string;
+    } | undefined;
+    const action = typeof payloadObject?.action === "string" ? payloadObject.action.trim().toLowerCase() : "";
+    const requestedConversationId = typeof payloadObject?.conversation_id === "string"
+      ? payloadObject.conversation_id.trim()
+      : "";
+    if (action === "new_conversation") {
+      this.options.runtimeManager.createConversation(projectId);
+    } else if (action === "switch_conversation" && requestedConversationId) {
+      this.options.runtimeManager.activateConversation(projectId, requestedConversationId);
+    }
+
     const snapshot = this.options.runtimeManager.getSnapshot(projectId);
-    const payloadObject = env.payload as { after_seq?: number; before_seq?: number } | undefined;
     const afterSeq = Number(payloadObject?.after_seq) > 0 ? Number(payloadObject?.after_seq) : 0;
     const beforeSeq = Number(payloadObject?.before_seq) > 0 ? Number(payloadObject?.before_seq) : 0;
+    const limit = Number(payloadObject?.limit) > 0 ? Number(payloadObject?.limit) : undefined;
     const delta = this.options.runtimeManager.buildSyncDelta(projectId, {
       afterSeq,
       beforeSeq,
+      limit,
     });
     const payload = buildSessionSyncPayload(snapshot, delta, {
       afterSeq,
       beforeSeq,
+      limit,
     });
     this.relayClient.send({
       id: uuidv4(),

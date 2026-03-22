@@ -47,6 +47,9 @@ interface SessionDao {
             currentPrompt = :currentPrompt,
             queuePreview = :queuePreview,
             currentStartedAt = :currentStartedAt,
+            activeConversationId = :activeConversationId,
+            activeConversationTitle = :activeConversationTitle,
+            conversationsJson = :conversationsJson,
             lastActiveAt = :lastActiveAt
         WHERE projectId = :projectId
         """
@@ -60,6 +63,9 @@ interface SessionDao {
         currentPrompt: String?,
         queuePreview: String?,
         currentStartedAt: Long?,
+        activeConversationId: String?,
+        activeConversationTitle: String?,
+        conversationsJson: String?,
         lastActiveAt: Long
     )
 

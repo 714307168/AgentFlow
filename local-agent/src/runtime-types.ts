@@ -49,6 +49,32 @@ export interface CliTraceEntry {
   createdAt: number;
 }
 
+export interface ConversationSummary {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  isActive: boolean;
+  messageCount: number;
+  activityCount: number;
+  cliCount: number;
+}
+
+export type HistoryPageKind = "messages" | "activities" | "cli";
+
+export interface HistoryPageRequest {
+  conversationId?: string | null;
+  beforeId?: string | null;
+  limit?: number;
+}
+
+export interface HistoryPageResult<T> {
+  conversationId: string | null;
+  items: T[];
+  hasMore: boolean;
+  total: number;
+}
+
 export interface ProjectSessionSnapshot {
   projectId: string;
   provider: CliProvider;
@@ -59,6 +85,11 @@ export interface ProjectSessionSnapshot {
   currentSource: RunSource | null;
   currentPrompt: string | null;
   currentStartedAt: number | null;
+  activeConversationId: string | null;
+  conversations: ConversationSummary[];
+  messageTotal: number;
+  activityTotal: number;
+  cliTraceTotal: number;
   queue: QueuedRunSnapshot[];
   cliTrace: CliTraceEntry[];
   messages: SessionMessage[];

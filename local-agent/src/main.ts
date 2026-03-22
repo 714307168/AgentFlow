@@ -8,7 +8,7 @@ import { createAppIcon, createTrayIcon } from "./app-icon";
 import appLogger from "./app-logger";
 import RelayClient from "./relay-client";
 import MessageRouter from "./message-router";
-import projectStore, { Project } from "./project-store";
+import projectStore, { normalizeProjectGroupName, Project } from "./project-store";
 import ptyManager from "./pty-manager";
 import RuntimeManager, { CliProvider, ProjectSessionSnapshot, RunAttachment } from "./runtime-manager";
 import { buildSessionSyncPayload } from "./session-sync-payload";
@@ -41,6 +41,7 @@ interface AppSettings {
   e2eEnabled: boolean;
   autoUpdateCheck: boolean;
   autoUpdateDownload: boolean;
+  historyRetentionDays: number;
 }
 
 const configStore = new Store<AgentConfig>({
@@ -65,6 +66,7 @@ const appSettingsStore = new Store<AppSettings>({
     e2eEnabled: false,
     autoUpdateCheck: true,
     autoUpdateDownload: false,
+    historyRetentionDays: 30,
   },
 });
 
@@ -220,6 +222,7 @@ function buildProjectListPayload(agentId: string): {
     id: string;
     name: string;
     path: string;
+    group_name: string;
     cli_provider: CliProvider;
     cli_model: string;
   }>;
@@ -230,6 +233,7 @@ function buildProjectListPayload(agentId: string): {
       id: project.id,
       name: project.name,
       path: project.path,
+      group_name: project.groupName ?? "",
       cli_provider: project.cliProvider,
       cli_model: project.cliModel ?? "",
     })),
@@ -254,6 +258,7 @@ const runtimeManager = new RuntimeManager(() => ({
   },
   captureProjectScreenshot: async (projectId) => captureProjectScreenshot(projectId),
 }));
+runtimeManager.pruneHistoryCache(appSettingsStore.get("historyRetentionDays") as number);
 
 async function captureProjectScreenshot(projectId: string): Promise<RunAttachment> {
   const primaryDisplay = screen.getPrimaryDisplay();
@@ -717,6 +722,7 @@ function sendProjectBind(project: Project, agentId: string): void {
       name: project.name,
       path: project.path,
       agent_id: agentId,
+      group_name: project.groupName ?? "",
       cli_provider: project.cliProvider,
       cli_model: project.cliModel ?? "",
     },
@@ -790,7 +796,13 @@ function initRelay(config: AgentConfig): void {
 // IPC handlers
 ipcMain.handle("get-projects", () => projectStore.getAll());
 
-ipcMain.handle("add-project", async (_event, data: { name: string; path: string; cliProvider?: CliProvider; cliModel?: string | null }) => {
+ipcMain.handle("add-project", async (_event, data: {
+  name: string;
+  path: string;
+  groupName?: string | null;
+  cliProvider?: CliProvider;
+  cliModel?: string | null;
+}) => {
   const config = loadConfig();
   const projectId = uuidv4();
   const cliProvider = normalizeCliProvider(data.cliProvider, getDefaultCliProvider());
@@ -802,6 +814,7 @@ ipcMain.handle("add-project", async (_event, data: { name: string; path: string;
     name: data.name,
     path: data.path,
     agentId: config.agentId,
+    groupName: normalizeProjectGroupName(data.groupName),
     cliProvider,
     cliModel,
     createdAt: Date.now(),
@@ -818,13 +831,16 @@ ipcMain.handle("add-project", async (_event, data: { name: string; path: string;
 
 ipcMain.handle(
   "update-project",
-  (_event, data: { projectId: string; updates: Partial<Pick<Project, "name" | "path" | "cliProvider" | "cliModel">> }) => {
+  (_event, data: { projectId: string; updates: Partial<Pick<Project, "name" | "path" | "groupName" | "cliProvider" | "cliModel">> }) => {
     const project = projectStore.getById(data.projectId);
     if (!project) {
       return { success: false, error: "Project not found" };
     }
 
     const nextUpdates: Partial<Project> = { ...data.updates };
+    if (data.updates.groupName !== undefined) {
+      nextUpdates.groupName = normalizeProjectGroupName(data.updates.groupName);
+    }
     if (data.updates.cliProvider !== undefined) {
       nextUpdates.cliProvider = normalizeCliProvider(
         data.updates.cliProvider,
@@ -974,6 +990,7 @@ ipcMain.handle("get-app-settings", () => {
     e2eEnabled: appSettingsStore.get("e2eEnabled") as boolean,
     autoUpdateCheck: appSettingsStore.get("autoUpdateCheck") as boolean,
     autoUpdateDownload: appSettingsStore.get("autoUpdateDownload") as boolean,
+    historyRetentionDays: appSettingsStore.get("historyRetentionDays") as number,
     logDirectory: appLogger.getLogDirectory(),
   };
 });
@@ -1008,6 +1025,11 @@ ipcMain.handle("set-app-settings", (_event, settings: Partial<AppSettings>) => {
   }
   if (settings.autoUpdateDownload !== undefined) {
     appSettingsStore.set("autoUpdateDownload", settings.autoUpdateDownload);
+  }
+  if (settings.historyRetentionDays !== undefined) {
+    const normalizedRetentionDays = Math.max(1, Math.floor(Number(settings.historyRetentionDays) || 30));
+    appSettingsStore.set("historyRetentionDays", normalizedRetentionDays);
+    runtimeManager.pruneHistoryCache(normalizedRetentionDays);
   }
   return true;
 });
@@ -1058,6 +1080,65 @@ ipcMain.handle("get-project-session", (_event, projectId: string) => {
     success: true,
     project,
     session: runtimeManager.getSnapshot(projectId),
+  };
+});
+
+ipcMain.handle("get-project-history-page", (_event, data: {
+  projectId: string;
+  kind: "messages" | "activities" | "cli";
+  conversationId?: string | null;
+  beforeId?: string | null;
+  limit?: number;
+}) => {
+  const project = projectStore.getById(data.projectId);
+  if (!project) {
+    return { success: false, error: "Project not found" };
+  }
+
+  return {
+    success: true,
+    page: runtimeManager.getHistoryPage(data.projectId, data.kind, {
+      conversationId: data.conversationId,
+      beforeId: data.beforeId,
+      limit: data.limit,
+    }),
+  };
+});
+
+ipcMain.handle("list-project-conversations", (_event, projectId: string) => {
+  const project = projectStore.getById(projectId);
+  if (!project) {
+    return { success: false, error: "Project not found" };
+  }
+
+  return {
+    success: true,
+    conversations: runtimeManager.listConversationSummaries(projectId),
+  };
+});
+
+ipcMain.handle("create-project-conversation", (_event, projectId: string) => {
+  const project = projectStore.getById(projectId);
+  if (!project) {
+    return { success: false, error: "Project not found" };
+  }
+
+  return runtimeManager.createConversation(projectId);
+});
+
+ipcMain.handle("activate-project-conversation", (_event, data: { projectId: string; conversationId: string }) => {
+  const project = projectStore.getById(data.projectId);
+  if (!project) {
+    return { success: false, error: "Project not found" };
+  }
+
+  return runtimeManager.activateConversation(data.projectId, data.conversationId);
+});
+
+ipcMain.handle("clear-history-cache", (_event, projectId?: string | null) => {
+  return {
+    success: true,
+    ...runtimeManager.clearHistoryCache(projectId),
   };
 });
 
