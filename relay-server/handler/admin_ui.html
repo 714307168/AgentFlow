@@ -103,7 +103,7 @@
       text-transform: uppercase;
     }
 
-    input, select {
+    input, select, textarea {
       width: 100%;
       min-width: 0;
       padding: 12px 14px;
@@ -115,10 +115,12 @@
       transition: border-color 0.16s ease, box-shadow 0.16s ease;
     }
 
-    input:focus, select:focus {
+    input:focus, select:focus, textarea:focus {
       border-color: rgba(23, 104, 255, 0.36);
       box-shadow: 0 0 0 4px rgba(23, 104, 255, 0.10);
     }
+
+    textarea { resize: vertical; min-height: 96px; }
 
     .primary-btn, .ghost-btn, .danger-btn, .subtle-btn {
       border-radius: 999px;
@@ -237,6 +239,7 @@
     .toolbar .actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
     .toolbar-check { display: inline-flex; align-items: center; gap: 8px; padding: 0 4px; }
     .toolbar-check input { width: auto; min-width: auto; padding: 0; margin: 0; }
+    .release-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 
     .endpoint-chip, .account-value {
       padding: 14px 16px;
@@ -385,6 +388,7 @@
           <button class="tab" type="button" data-tab="agents" data-i18n="tab.agents">Agents</button>
           <button class="tab" type="button" data-tab="devices" data-i18n="tab.devices">Devices</button>
           <button class="tab hidden" type="button" data-tab="users" id="usersTab" data-i18n="tab.users">Users</button>
+          <button class="tab" type="button" data-tab="releases" id="releasesTab" data-i18n="tab.releases">Releases</button>
           <button class="tab" type="button" data-tab="account" data-i18n="tab.account">Account</button>
         </div>
 
@@ -517,6 +521,74 @@
           </div>
         </section>
 
+        <section class="panel" id="releasesPanel">
+          <div class="table-shell">
+            <div class="section-head">
+              <div class="section-title">
+                <h2 data-i18n="releases.heading">Releases</h2>
+                <p data-i18n="releases.subheading">Publish new build packages.</p>
+              </div>
+              <div class="actions">
+                <a class="ghost-btn" href="/admin/releases" target="_blank" data-i18n="releases.openCenter">Open Release Center</a>
+              </div>
+            </div>
+            <form class="form-grid" id="releaseForm">
+              <div class="form-row">
+                <label for="releasePlatform" data-i18n="releases.platform">Platform</label>
+                <select id="releasePlatform">
+                  <option value="desktop-win">desktop-win</option>
+                  <option value="android">android</option>
+                </select>
+              </div>
+              <div class="form-row">
+                <label for="releaseChannel" data-i18n="releases.channel">Channel</label>
+                <input id="releaseChannel" type="text" value="stable">
+              </div>
+              <div class="form-row">
+                <label for="releaseArch" data-i18n="releases.arch">Arch</label>
+                <input id="releaseArch" type="text" data-i18n-placeholder="releases.arch.placeholder" placeholder="x64 or empty">
+              </div>
+              <div class="form-row">
+                <label for="releaseVersion" data-i18n="releases.version">Version</label>
+                <input id="releaseVersion" type="text" data-i18n-placeholder="releases.version.placeholder" placeholder="1.1.12">
+              </div>
+              <div class="form-row">
+                <label for="releaseBuild" data-i18n="releases.build">Build</label>
+                <input id="releaseBuild" type="number" value="0">
+              </div>
+              <div class="form-row">
+                <label for="releaseMinSupported" data-i18n="releases.minSupported">Min Supported Version</label>
+                <input id="releaseMinSupported" type="text" data-i18n-placeholder="releases.minSupported.placeholder" placeholder="Optional">
+              </div>
+              <div class="form-row full">
+                <label for="releaseNotes" data-i18n="releases.notes">Release Notes</label>
+                <textarea id="releaseNotes" data-i18n-placeholder="releases.notes.placeholder" placeholder="What changed in this build?"></textarea>
+              </div>
+              <div class="form-row full">
+                <label for="releaseFile" data-i18n="releases.package">Package File</label>
+                <input id="releaseFile" type="file" required>
+              </div>
+              <div class="form-row full release-actions">
+                <label class="toolbar-check"><input id="releasePublished" type="checkbox" checked><span data-i18n="releases.published">Publish immediately</span></label>
+                <label class="toolbar-check"><input id="releaseMandatory" type="checkbox"><span data-i18n="releases.mandatory">Force update</span></label>
+                <button class="primary-btn" type="submit" data-i18n="releases.upload">Upload Release</button>
+              </div>
+            </form>
+          </div>
+          <div class="table-shell">
+            <div class="section-head">
+              <div class="section-title">
+                <h2 data-i18n="releases.list.heading">Published Packages</h2>
+                <p data-i18n="releases.list.subheading">Latest packages available in the update feed.</p>
+              </div>
+            </div>
+            <table>
+              <thead id="releasesHead"></thead>
+              <tbody id="releasesBody"></tbody>
+            </table>
+          </div>
+        </section>
+
         <section class="panel" id="accountPanel">
           <div class="account-grid">
             <div class="card account-side">
@@ -577,7 +649,8 @@
       overview: emptyOverview(),
       agents: [],
       devices: [],
-      users: []
+      users: [],
+      releases: []
     };
 
     const dict = {
@@ -597,6 +670,7 @@
         "tab.agents": "Agents",
         "tab.devices": "Devices",
         "tab.users": "Users",
+        "tab.releases": "Releases",
         "tab.account": "Account",
         "overview.heading": "Overview",
         "overview.subheading": "Live connections and current scope.",
@@ -661,6 +735,40 @@
         "users.delete": "Delete User",
         "users.role.admin": "Admin",
         "users.role.user": "User",
+        "releases.heading": "Releases",
+        "releases.subheading": "Publish new build packages.",
+        "releases.openCenter": "Open Release Center",
+        "releases.platform": "Platform",
+        "releases.channel": "Channel",
+        "releases.arch": "Arch",
+        "releases.arch.placeholder": "x64 or empty",
+        "releases.version": "Version",
+        "releases.version.placeholder": "1.1.12",
+        "releases.build": "Build",
+        "releases.minSupported": "Min Supported Version",
+        "releases.minSupported.placeholder": "Optional",
+        "releases.notes": "Release Notes",
+        "releases.notes.placeholder": "What changed in this build?",
+        "releases.package": "Package File",
+        "releases.published": "Publish immediately",
+        "releases.mandatory": "Force update",
+        "releases.upload": "Upload Release",
+        "releases.list.heading": "Published Packages",
+        "releases.list.subheading": "Latest packages available in the update feed.",
+        "releases.table.id": "ID",
+        "releases.table.target": "Target",
+        "releases.table.version": "Version",
+        "releases.table.package": "Package",
+        "releases.table.size": "Size",
+        "releases.table.published": "Published",
+        "releases.table.actions": "Actions",
+        "releases.empty": "No releases yet.",
+        "releases.download": "Download",
+        "releases.delete": "Delete",
+        "toast.releaseUploaded": "Release uploaded.",
+        "toast.releaseDeleted": "Release deleted.",
+        "toast.releaseFileRequired": "Select a package file.",
+        "confirm.deleteRelease": "Delete release #{id}?",
         "account.username": "Username",
         "account.role": "Role",
         "account.password.heading": "Change Password",
@@ -737,6 +845,7 @@
         "tab.agents": "桌面端",
         "tab.devices": "设备",
         "tab.users": "用户",
+        "tab.releases": "发布版本",
         "tab.account": "账户",
         "overview.heading": "概览",
         "overview.subheading": "在线连接与当前权限范围。",
@@ -801,6 +910,40 @@
         "users.delete": "删除用户",
         "users.role.admin": "管理员",
         "users.role.user": "普通用户",
+        "releases.heading": "发布版本",
+        "releases.subheading": "上传桌面端或移动端安装包。",
+        "releases.openCenter": "打开发布中心",
+        "releases.platform": "平台",
+        "releases.channel": "通道",
+        "releases.arch": "架构",
+        "releases.arch.placeholder": "x64 或留空",
+        "releases.version": "版本号",
+        "releases.version.placeholder": "1.1.12",
+        "releases.build": "构建号",
+        "releases.minSupported": "最低支持版本",
+        "releases.minSupported.placeholder": "可选",
+        "releases.notes": "更新说明",
+        "releases.notes.placeholder": "本次更新内容",
+        "releases.package": "安装包文件",
+        "releases.published": "立即发布",
+        "releases.mandatory": "强制更新",
+        "releases.upload": "上传发布",
+        "releases.list.heading": "已发布版本",
+        "releases.list.subheading": "更新中心会对外提供最新发布版本。",
+        "releases.table.id": "ID",
+        "releases.table.target": "目标",
+        "releases.table.version": "版本",
+        "releases.table.package": "文件",
+        "releases.table.size": "大小",
+        "releases.table.published": "发布时间",
+        "releases.table.actions": "操作",
+        "releases.empty": "暂无发布记录。",
+        "releases.download": "下载",
+        "releases.delete": "删除",
+        "toast.releaseUploaded": "发布已上传。",
+        "toast.releaseDeleted": "发布已删除。",
+        "toast.releaseFileRequired": "请先选择安装包。",
+        "confirm.deleteRelease": "确认删除发布 #{id} 吗？",
         "account.username": "用户名",
         "account.role": "角色",
         "account.password.heading": "修改密码",
@@ -885,6 +1028,14 @@
       return new Date(value).toLocaleString(state.currentLang === "zh" ? "zh-CN" : "en-US");
     }
 
+    function formatBytes(value) {
+      const size = Number(value || 0);
+      if (!Number.isFinite(size) || size <= 0) return "0 B";
+      if (size < 1024) return size + " B";
+      if (size < 1024 * 1024) return (size / 1024).toFixed(1) + " KB";
+      return (size / (1024 * 1024)).toFixed(1) + " MB";
+    }
+
     function wsUrl() {
       return (window.location.protocol === "https:" ? "wss:" : "ws:") + "//" + window.location.host + "/ws";
     }
@@ -926,11 +1077,12 @@
     }
 
     async function api(method, path, body) {
+      const isForm = body instanceof FormData;
       const response = await fetch(path, {
         method,
         credentials: "same-origin",
-        headers: body ? { "Content-Type": "application/json" } : {},
-        body: body ? JSON.stringify(body) : undefined
+        headers: body && !isForm ? { "Content-Type": "application/json" } : {},
+        body: body ? (isForm ? body : JSON.stringify(body)) : undefined
       });
       const raw = await response.text();
       let data = {};
@@ -966,6 +1118,7 @@
       state.agents = [];
       state.devices = [];
       state.users = [];
+      state.releases = [];
       applyI18n();
       showLogin();
       showToast(t("error.unauthorized"), false);
@@ -1029,9 +1182,11 @@
     }
 
     function applySessionUI() {
-      $("usersTab").classList.toggle("hidden", !(state.currentUser && state.currentUser.is_admin));
+      const isAdmin = Boolean(state.currentUser && state.currentUser.is_admin);
+      $("usersTab").classList.toggle("hidden", !isAdmin);
+      $("releasesTab").classList.toggle("hidden", !isAdmin);
       $("currentUserLabel").textContent = state.currentUser ? state.currentUser.username + " · " + roleLabel(state.currentUser.is_admin) : "-";
-      if ((!state.currentUser || !state.currentUser.is_admin) && document.querySelector('[data-tab="users"].active')) {
+      if (!isAdmin && (document.querySelector('[data-tab="users"].active') || document.querySelector('[data-tab="releases"].active'))) {
         activateTab("overview");
       }
       refreshOwnerSelects();
@@ -1050,6 +1205,7 @@
       renderDevices();
       renderUsers();
       renderAccount();
+      renderReleases();
     }
 
     function activateTab(name) {
@@ -1120,6 +1276,36 @@
       $("accountRoleWrap").innerHTML = state.currentUser ? '<span class="role-pill ' + (state.currentUser.is_admin ? "admin" : "") + '">' + esc(roleLabel(state.currentUser.is_admin)) + "</span>" : "";
     }
 
+    function renderReleases() {
+      $("releasesHead").innerHTML = "<tr><th>" + esc(t("releases.table.id")) + "</th><th>" +
+        esc(t("releases.table.target")) + "</th><th>" +
+        esc(t("releases.table.version")) + "</th><th>" +
+        esc(t("releases.table.package")) + "</th><th>" +
+        esc(t("releases.table.size")) + "</th><th>" +
+        esc(t("releases.table.published")) + "</th><th>" +
+        esc(t("releases.table.actions")) + "</th></tr>";
+      if (!state.releases.length) {
+        $("releasesBody").innerHTML = '<tr><td colspan="7" class="empty">' + esc(t("releases.empty")) + "</td></tr>";
+        return;
+      }
+      $("releasesBody").innerHTML = state.releases.map((release) => {
+        const target = [release.platform, release.channel, release.arch].filter(Boolean).join(" / ");
+        const published = release.published ? fmtDate(release.published_at || release.created_at) : "-";
+        return "<tr>" +
+          '<td class="mono">' + esc(release.id) + "</td>" +
+          "<td>" + esc(target) + "</td>" +
+          "<td><strong>" + esc(release.version) + "</strong><div class=\"muted\">build " + esc(release.build) + "</div></td>" +
+          "<td><div>" + esc(release.original_filename || release.filename || "-") + "</div><div class=\"mono muted\">" + esc(release.sha256 || "") + "</div></td>" +
+          "<td>" + esc(formatBytes(release.size)) + "</td>" +
+          "<td>" + esc(published) + "</td>" +
+          "<td><div class=\"table-actions\">" +
+            '<a class="ghost-btn" href="/api/update/download/' + encodeURIComponent(release.id) + '">' + esc(t("releases.download")) + "</a>" +
+            '<button type="button" class="danger-btn" data-action="delete-release" data-id="' + esc(release.id) + '">' + esc(t("releases.delete")) + "</button>" +
+          "</div></td>" +
+        "</tr>";
+      }).join("");
+    }
+
     async function loadOverview() { state.overview = await api("GET", "/admin/api/overview"); }
     async function loadAgents() {
       state.agents = await api("GET", "/admin/api/agents");
@@ -1140,8 +1326,17 @@
       if (!Array.isArray(state.users)) state.users = [];
     }
 
+    async function loadReleases() {
+      if (!state.currentUser || !state.currentUser.is_admin) {
+        state.releases = [];
+        return;
+      }
+      state.releases = await api("GET", "/admin/api/releases");
+      if (!Array.isArray(state.releases)) state.releases = [];
+    }
+
     async function refreshAll() {
-      await Promise.all([loadOverview(), loadAgents(), loadDevices(), loadUsers()]);
+      await Promise.all([loadOverview(), loadAgents(), loadDevices(), loadUsers(), loadReleases()]);
       applyI18n();
     }
 
@@ -1205,6 +1400,7 @@
       state.agents = [];
       state.devices = [];
       state.users = [];
+      state.releases = [];
       applyI18n();
       showLogin();
     });
@@ -1313,6 +1509,46 @@
       }
     });
 
+    $("releaseForm").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const fileInput = $("releaseFile");
+      const file = fileInput.files && fileInput.files[0];
+      if (!file) {
+        showToast(t("toast.releaseFileRequired"), false);
+        return;
+      }
+      const version = $("releaseVersion").value.trim();
+      if (!version) {
+        showToast(t("releases.version.placeholder"), false);
+        return;
+      }
+      const form = new FormData();
+      form.set("platform", $("releasePlatform").value);
+      form.set("channel", $("releaseChannel").value.trim() || "stable");
+      form.set("arch", $("releaseArch").value.trim());
+      form.set("version", version);
+      form.set("build", String($("releaseBuild").value || 0));
+      const minSupported = $("releaseMinSupported").value.trim();
+      if (minSupported) form.set("min_supported_version", minSupported);
+      const notes = $("releaseNotes").value.trim();
+      if (notes) form.set("notes", notes);
+      form.set("published", $("releasePublished").checked ? "true" : "false");
+      if ($("releaseMandatory").checked) form.set("mandatory", "true");
+      form.set("package", file);
+      try {
+        await api("POST", "/admin/api/releases", form);
+        $("releaseNotes").value = "";
+        $("releaseFile").value = "";
+        $("releaseBuild").value = "0";
+        $("releasePublished").checked = true;
+        $("releaseMandatory").checked = false;
+        showToast(t("toast.releaseUploaded"), true);
+        await safeRefresh();
+      } catch (error) {
+        if (!handleSessionError(error)) showToast(error.message, false);
+      }
+    });
+
     $("agentsBody").addEventListener("click", async (event) => {
       const button = event.target.closest("[data-action='delete-agent']");
       if (!button) return;
@@ -1370,6 +1606,20 @@
       try {
         await api("DELETE", "/admin/api/users/" + encodeURIComponent(userId));
         showToast(t("toast.userDeleted"), true);
+        await safeRefresh();
+      } catch (error) {
+        if (!handleSessionError(error)) showToast(error.message, false);
+      }
+    });
+
+    $("releasesBody").addEventListener("click", async (event) => {
+      const deleteButton = event.target.closest("[data-action='delete-release']");
+      if (!deleteButton) return;
+      const id = deleteButton.dataset.id || "";
+      if (!window.confirm(t("confirm.deleteRelease", { id }))) return;
+      try {
+        await api("DELETE", "/admin/api/releases/" + encodeURIComponent(id));
+        showToast(t("toast.releaseDeleted"), true);
         await safeRefresh();
       } catch (error) {
         if (!handleSessionError(error)) showToast(error.message, false);
