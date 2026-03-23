@@ -628,6 +628,7 @@ body {
 .project-group-header {
   align-items: center;
   color: var(--text-soft);
+  cursor: grab;
   display: flex;
   font-size: 11px;
   font-weight: 700;
@@ -635,6 +636,54 @@ body {
   letter-spacing: 0.08em;
   padding: 4px 2px 0;
   text-transform: uppercase;
+  user-select: none;
+}
+
+.project-group-header:active {
+  cursor: grabbing;
+}
+
+.project-group-header.drag-source {
+  opacity: 0.6;
+}
+
+.project-group.drag-over .project-group-header {
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+.project-group-toggle {
+  align-items: center;
+  display: inline-flex;
+  height: 10px;
+  justify-content: center;
+  width: 10px;
+}
+
+.project-group-title {
+  flex: 1;
+}
+
+.project-group-toggle::before {
+  border-color: var(--text-soft) transparent transparent transparent;
+  border-style: solid;
+  border-width: 5px 4px 0 4px;
+  content: "";
+  display: block;
+  height: 0;
+  transform-origin: center;
+  transition: transform 0.15s ease;
+  width: 0;
+}
+
+.project-group.collapsed .project-group-toggle::before {
+  transform: rotate(-90deg);
+}
+
+.project-group.collapsed .project-list-item {
+  display: none;
 }
 
 .project-group-count {

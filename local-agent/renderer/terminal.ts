@@ -278,6 +278,8 @@ const state: {
   activeView: WorkspaceView;
   pendingAttachments: AttachmentRef[];
   preferredViews: Record<"claude" | "codex", WorkspaceView>;
+  groupOrder: string[];
+  collapsedGroups: Set<string>;
   hint: HintState;
   attachmentPreview: AttachmentPreviewState | null;
 } = {
@@ -293,6 +295,8 @@ const state: {
     claude: "messages",
     codex: "cli",
   },
+  groupOrder: [],
+  collapsedGroups: new Set<string>(),
   hint: {
     key: "terminal.hint.default",
     fallback: "Press Enter to send, Shift+Enter for a new line. Conversation stays in front, with Activity, CLI, and Queue one tab away.",
@@ -300,6 +304,9 @@ const state: {
   },
   attachmentPreview: null,
 };
+
+let draggingGroupKey: string | null = null;
+let dragOverGroupKey: string | null = null;
 
 function escapeHtml(value: string): string {
   return value
@@ -324,6 +331,46 @@ function msg(key: string, fallback: string, vars?: Record<string, string>): stri
 
 function inlineText(en: string, zh: string): string {
   return state.lang === "zh" ? zh : en;
+}
+
+const storageKeys = {
+  groupOrder: "claude.projectGroupOrder.v1",
+  groupCollapsed: "claude.projectGroupCollapsed.v1",
+};
+
+function readStorageJson<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) {
+      return fallback;
+    }
+    return (JSON.parse(raw) as T) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeStorageJson<T>(key: string, value: T): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Ignore storage failures (private mode, quota exceeded).
+  }
+}
+
+function hydrateProjectGroupState(): void {
+  const storedOrder = readStorageJson<string[]>(storageKeys.groupOrder, []);
+  const storedCollapsed = readStorageJson<string[]>(storageKeys.groupCollapsed, []);
+  state.groupOrder = Array.isArray(storedOrder) ? storedOrder : [];
+  state.collapsedGroups = new Set(Array.isArray(storedCollapsed) ? storedCollapsed : []);
+}
+
+function persistGroupOrder(): void {
+  writeStorageJson(storageKeys.groupOrder, state.groupOrder);
+}
+
+function persistCollapsedGroups(): void {
+  writeStorageJson(storageKeys.groupCollapsed, Array.from(state.collapsedGroups));
 }
 
 function getLocale(): string {
@@ -373,6 +420,97 @@ function translateCliStream(stream: CliTraceEntry["stream"]): string {
     stderr: "stderr",
   };
   return labels[stream];
+}
+
+function getProjectGroupKey(project: ProjectState): string {
+  const name = project.groupName?.trim();
+  return name && name.length > 0 ? name : "__default__";
+}
+
+function getProjectGroupLabel(project: ProjectState): string {
+  const name = project.groupName?.trim();
+  return name && name.length > 0 ? name : inlineText("Default", "默认分组");
+}
+
+function getOrderedGroupKeys(groupKeys: string[]): string[] {
+  const normalized = Array.from(new Set(groupKeys));
+  const ordered = state.groupOrder.filter((name) => normalized.includes(name));
+  const remaining = normalized.filter((name) => !ordered.includes(name));
+  return [...ordered, ...remaining];
+}
+
+function reorderGroupKeys(order: string[], source: string, target: string): string[] {
+  if (source === target || !order.includes(source) || !order.includes(target)) {
+    return order;
+  }
+  const next = order.filter((name) => name !== source);
+  const targetIndex = next.indexOf(target);
+  next.splice(targetIndex, 0, source);
+  return next;
+}
+
+function getCurrentGroupKeys(): string[] {
+  return Array.from(new Set(state.projects.map((project) => getProjectGroupKey(project))));
+}
+
+function toggleGroupCollapsed(groupKey: string): void {
+  if (!groupKey) {
+    return;
+  }
+  if (state.collapsedGroups.has(groupKey)) {
+    state.collapsedGroups.delete(groupKey);
+  } else {
+    state.collapsedGroups.add(groupKey);
+  }
+  persistCollapsedGroups();
+  renderProjectList();
+}
+
+function applyGroupOrderFromDrag(source: string, target: string): void {
+  if (!source || !target || source === target) {
+    return;
+  }
+  const ordered = getOrderedGroupKeys(getCurrentGroupKeys());
+  const next = reorderGroupKeys(ordered, source, target);
+  if (next.join("|") === ordered.join("|")) {
+    return;
+  }
+  state.groupOrder = next;
+  persistGroupOrder();
+  renderProjectList();
+}
+
+function getProjectLastActivityAt(projectId: string): number {
+  const session = state.sessionsByProjectId.get(projectId) ?? null;
+  if (!session) {
+    return 0;
+  }
+
+  let last = 0;
+  const update = (value?: number | null): void => {
+    if (value && value > last) {
+      last = value;
+    }
+  };
+
+  for (const message of session.messages) {
+    update(message.updatedAt || message.createdAt);
+  }
+  for (const activity of session.activities) {
+    update(activity.updatedAt || activity.createdAt);
+  }
+  for (const entry of session.cliTrace) {
+    update(entry.createdAt);
+  }
+  for (const item of session.queue) {
+    update(item.queuedAt);
+  }
+  for (const convo of session.conversations ?? []) {
+    update(convo.updatedAt || convo.createdAt);
+  }
+  update(session.currentStartedAt ?? null);
+
+  return last;
 }
 
 function translateActivityStatus(status: SessionActivity["status"]): string {
@@ -1278,35 +1416,76 @@ function renderProjectList(): void {
     return;
   }
 
-  const groups = new Map<string, ProjectState[]>();
+  const groups = new Map<string, { label: string; projects: ProjectState[] }>();
   for (const project of state.projects) {
-    const groupName = project.groupName?.trim() || inlineText("Default", "默认分组");
-    const items = groups.get(groupName) ?? [];
-    items.push(project);
-    groups.set(groupName, items);
+    const groupKey = getProjectGroupKey(project);
+    const groupLabel = getProjectGroupLabel(project);
+    const entry = groups.get(groupKey) ?? { label: groupLabel, projects: [] };
+    entry.label = groupLabel;
+    entry.projects.push(project);
+    groups.set(groupKey, entry);
   }
 
-  elements.projectList.innerHTML = Array.from(groups.entries())
-    .sort((left, right) => left[0].localeCompare(right[0], undefined, { sensitivity: "base" }))
-    .map(([groupName, projects]) => [
-      '<section class="project-group">',
-      `<div class="project-group-header"><span>${escapeHtml(groupName)}</span><span class="project-group-count">${projects.length}</span></div>`,
-      ...projects.map((project) => {
-        const status = getProjectStatusMeta(project.id);
-        const isSelected = project.id === state.projectId;
-        return [
-          `<button class="project-list-item${isSelected ? " selected" : ""}" type="button" data-project-id="${escapeHtml(project.id)}">`,
-          '<div class="project-list-top">',
-          `<span class="project-list-name">${escapeHtml(project.name)}</span>`,
-          `<span class="project-status-pill ${escapeHtml(status.tone)}">${escapeHtml(status.label)}</span>`,
-          "</div>",
-          `<div class="project-list-detail">${escapeHtml(status.detail)}</div>`,
-          `<div class="project-list-path">${escapeHtml(project.path)}</div>`,
-          "</button>",
-        ].join("");
-      }),
-      "</section>",
-    ].join(""))
+  const groupKeys = getOrderedGroupKeys(Array.from(groups.keys()));
+  if (groupKeys.length !== state.groupOrder.length || groupKeys.some((key, index) => state.groupOrder[index] !== key)) {
+    state.groupOrder = groupKeys;
+    persistGroupOrder();
+  }
+
+  const activeCollapsed = new Set(Array.from(state.collapsedGroups).filter((key) => groups.has(key)));
+  if (activeCollapsed.size !== state.collapsedGroups.size) {
+    state.collapsedGroups = activeCollapsed;
+    persistCollapsedGroups();
+  }
+
+  const activityCache = new Map<string, number>();
+  const getActivity = (projectId: string): number => {
+    if (activityCache.has(projectId)) {
+      return activityCache.get(projectId) ?? 0;
+    }
+    const value = getProjectLastActivityAt(projectId);
+    activityCache.set(projectId, value);
+    return value;
+  };
+
+  elements.projectList.innerHTML = groupKeys
+    .map((groupKey) => {
+      const group = groups.get(groupKey);
+      if (!group) {
+        return "";
+      }
+      const isCollapsed = state.collapsedGroups.has(groupKey);
+      const projects = [...group.projects].sort((left, right) => {
+        const activityDiff = getActivity(right.id) - getActivity(left.id);
+        if (activityDiff !== 0) {
+          return activityDiff;
+        }
+        return left.name.localeCompare(right.name, getLocale(), { sensitivity: "base" });
+      });
+      return [
+        `<section class="project-group${isCollapsed ? " collapsed" : ""}" data-group-key="${escapeHtml(groupKey)}">`,
+        `<div class="project-group-header" role="button" tabindex="0" draggable="true" data-group-header="${escapeHtml(groupKey)}" data-group-key="${escapeHtml(groupKey)}" aria-expanded="${isCollapsed ? "false" : "true"}">`,
+        '<span class="project-group-toggle" aria-hidden="true"></span>',
+        `<span class="project-group-title">${escapeHtml(group.label)}</span>`,
+        `<span class="project-group-count">${projects.length}</span>`,
+        "</div>",
+        ...projects.map((project) => {
+          const status = getProjectStatusMeta(project.id);
+          const isSelected = project.id === state.projectId;
+          return [
+            `<button class="project-list-item${isSelected ? " selected" : ""}" type="button" data-project-id="${escapeHtml(project.id)}">`,
+            '<div class="project-list-top">',
+            `<span class="project-list-name">${escapeHtml(project.name)}</span>`,
+            `<span class="project-status-pill ${escapeHtml(status.tone)}">${escapeHtml(status.label)}</span>`,
+            "</div>",
+            `<div class="project-list-detail">${escapeHtml(status.detail)}</div>`,
+            `<div class="project-list-path">${escapeHtml(project.path)}</div>`,
+            "</button>",
+          ].join("");
+        }),
+        "</section>",
+      ].join("");
+    })
     .join("");
 }
 
@@ -1916,6 +2095,12 @@ elements.composerInput?.addEventListener("paste", (event) => {
 
 elements.projectList?.addEventListener("click", (event) => {
   const target = event.target instanceof Element ? event.target : null;
+  const header = target?.closest("[data-group-header]") as HTMLElement | null;
+  const groupKey = header?.dataset.groupHeader;
+  if (groupKey) {
+    toggleGroupCollapsed(groupKey);
+    return;
+  }
   const item = target?.closest("[data-project-id]") as HTMLElement | null;
   const projectId = item?.dataset.projectId;
   if (!projectId) {
@@ -1923,6 +2108,86 @@ elements.projectList?.addEventListener("click", (event) => {
   }
 
   void selectProject(projectId);
+});
+
+elements.projectList?.addEventListener("keydown", (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  const header = target?.closest("[data-group-header]") as HTMLElement | null;
+  if (!header) {
+    return;
+  }
+  if (event.key !== "Enter" && event.key !== " ") {
+    return;
+  }
+  event.preventDefault();
+  const groupKey = header.dataset.groupHeader;
+  if (groupKey) {
+    toggleGroupCollapsed(groupKey);
+  }
+});
+
+elements.projectList?.addEventListener("dragstart", (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  const header = target?.closest("[data-group-header]") as HTMLElement | null;
+  const groupKey = header?.dataset.groupHeader;
+  if (!header || !groupKey) {
+    return;
+  }
+  draggingGroupKey = groupKey;
+  dragOverGroupKey = null;
+  event.dataTransfer?.setData("text/plain", groupKey);
+  event.dataTransfer?.setDragImage(header, 12, 12);
+  header.classList.add("drag-source");
+  elements.projectList?.classList.add("is-dragging-groups");
+});
+
+elements.projectList?.addEventListener("dragover", (event) => {
+  if (!draggingGroupKey) {
+    return;
+  }
+  const target = event.target instanceof Element ? event.target : null;
+  const header = target?.closest("[data-group-header]") as HTMLElement | null;
+  const groupKey = header?.dataset.groupHeader;
+  if (!header || !groupKey) {
+    return;
+  }
+  event.preventDefault();
+  if (groupKey === draggingGroupKey) {
+    return;
+  }
+  if (dragOverGroupKey !== groupKey) {
+    elements.projectList?.querySelectorAll(".project-group.drag-over").forEach((node) => {
+      node.classList.remove("drag-over");
+    });
+    const group = header.closest(".project-group");
+    group?.classList.add("drag-over");
+    dragOverGroupKey = groupKey;
+  }
+});
+
+elements.projectList?.addEventListener("drop", (event) => {
+  if (!draggingGroupKey) {
+    return;
+  }
+  const target = event.target instanceof Element ? event.target : null;
+  const header = target?.closest("[data-group-header]") as HTMLElement | null;
+  const groupKey = header?.dataset.groupHeader;
+  if (groupKey) {
+    event.preventDefault();
+    applyGroupOrderFromDrag(draggingGroupKey, groupKey);
+  }
+});
+
+elements.projectList?.addEventListener("dragend", () => {
+  draggingGroupKey = null;
+  dragOverGroupKey = null;
+  elements.projectList?.querySelectorAll(".project-group.drag-over").forEach((node) => {
+    node.classList.remove("drag-over");
+  });
+  elements.projectList?.querySelectorAll(".project-group-header.drag-source").forEach((node) => {
+    node.classList.remove("drag-source");
+  });
+  elements.projectList?.classList.remove("is-dragging-groups");
 });
 
 elements.queueList?.addEventListener("click", (event) => {
@@ -2090,6 +2355,7 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
+hydrateProjectGroupState();
 void loadI18n();
 void syncProjects();
 render();
