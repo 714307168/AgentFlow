@@ -1351,6 +1351,9 @@ function renderWorkbench(): void {
   if (elements.detailDock) {
     elements.detailDock.classList.toggle("is-open", showDock);
   }
+  if (elements.messagesView) {
+    elements.messagesView.classList.toggle("is-hidden", showDock);
+  }
 
   tabs.forEach(({ button, view }) => {
     const isActive = state.activeView === view;

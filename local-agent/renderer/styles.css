@@ -703,6 +703,10 @@ body {
   padding: 2px 0 4px;
 }
 
+.messages-stage.is-hidden {
+  display: none;
+}
+
 .history-loader {
   color: var(--text-soft);
   font-size: 12px;
