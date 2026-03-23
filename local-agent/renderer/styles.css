@@ -517,6 +517,11 @@ body {
   display: flex;
 }
 
+.messages-stage.is-hidden + .detail-dock {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
 .workbench-view {
   display: none;
   flex: 1;
