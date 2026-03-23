@@ -71,6 +71,7 @@ class ChatViewModel(
     private var lastSyncedProjectId: String? = null
     private var allMessages: List<Message> = emptyList()
     private var visibleMessageCount: Int = MESSAGE_PAGE_SIZE
+    private var isAutoLoadingConversationHistory = false
 
     init {
         viewModelScope.launch {
@@ -96,6 +97,7 @@ class ChatViewModel(
 
         visibleMessageCount = MESSAGE_PAGE_SIZE
         allMessages = emptyList()
+        isAutoLoadingConversationHistory = false
         _uiState.update {
             it.copy(
                 projectId = projectId,
@@ -149,6 +151,7 @@ class ChatViewModel(
                 messageRepository.getMessagesForProject(projectId).collect { messages ->
                     allMessages = messages
                     publishVisibleMessages()
+                    maybeLoadMoreConversationHistory()
                 }
             } catch (e: Exception) {
                 CrashLogger.logError("ChatViewModel", "Error collecting messages", e)
@@ -191,9 +194,11 @@ class ChatViewModel(
             return
         }
 
-        if (visibleMessageCount < allMessages.size) {
+        val conversationMessages = allMessages.filter(::isConversationMessage)
+        if (visibleMessageCount < conversationMessages.size) {
             visibleMessageCount += MESSAGE_PAGE_SIZE
             publishVisibleMessages()
+            maybeLoadMoreConversationHistory()
             return
         }
 
@@ -206,21 +211,7 @@ class ChatViewModel(
             return
         }
 
-        _uiState.update { it.copy(isLoadingOlder = true) }
-        viewModelScope.launch {
-            try {
-                messageRepository.loadOlderProjectMessages(
-                    projectId = state.projectId,
-                    agentId = state.agentId,
-                    beforeSeq = earliestSyncSeq,
-                    limit = MESSAGE_PAGE_SIZE
-                )
-            } catch (e: Exception) {
-                CrashLogger.logError("ChatViewModel", "Error loading older messages", e)
-            } finally {
-                _uiState.update { it.copy(isLoadingOlder = false) }
-            }
-        }
+        requestOlderMessages(earliestSyncSeq, state.projectId, state.agentId)
     }
 
     fun createConversation() {
@@ -428,8 +419,9 @@ class ChatViewModel(
     }
 
     private fun publishVisibleMessages() {
-        val startIndex = (allMessages.size - visibleMessageCount).coerceAtLeast(0)
-        val visibleMessages = allMessages.drop(startIndex)
+        val conversationMessages = allMessages.filter(::isConversationMessage)
+        val startIndex = (conversationMessages.size - visibleMessageCount).coerceAtLeast(0)
+        val visibleMessages = conversationMessages.drop(startIndex)
         val earliestSyncSeq = allMessages
             .mapNotNull { message -> message.syncSeq.takeIf { it > 0L } }
             .minOrNull()
@@ -442,6 +434,72 @@ class ChatViewModel(
             )
         }
     }
+
+    private fun maybeLoadMoreConversationHistory() {
+        val state = _uiState.value
+        if (state.projectId.isBlank() || state.isLoadingOlder || state.isSwitchingConversation) {
+            return
+        }
+        if (webSocket.connectionState.value != RelayWebSocket.ConnectionState.CONNECTED) {
+            return
+        }
+        if (isAutoLoadingConversationHistory) {
+            return
+        }
+
+        val conversationCount = allMessages.count(::isConversationMessage)
+        if (conversationCount >= visibleMessageCount) {
+            return
+        }
+
+        val earliestSyncSeq = allMessages
+            .mapNotNull { message -> message.syncSeq.takeIf { it > 0L } }
+            .minOrNull()
+            ?: 0L
+        if (earliestSyncSeq <= 1L) {
+            return
+        }
+
+        requestOlderMessages(
+            beforeSeq = earliestSyncSeq,
+            projectId = state.projectId,
+            agentId = state.agentId,
+            autoTriggered = true
+        )
+    }
+
+    private fun requestOlderMessages(
+        beforeSeq: Long,
+        projectId: String,
+        agentId: String,
+        autoTriggered: Boolean = false
+    ) {
+        _uiState.update { it.copy(isLoadingOlder = true) }
+        if (autoTriggered) {
+            isAutoLoadingConversationHistory = true
+        }
+        viewModelScope.launch {
+            try {
+                messageRepository.loadOlderProjectMessages(
+                    projectId = projectId,
+                    agentId = agentId,
+                    beforeSeq = beforeSeq,
+                    limit = MESSAGE_PAGE_SIZE
+                )
+            } catch (e: Exception) {
+                CrashLogger.logError("ChatViewModel", "Error loading older messages", e)
+            } finally {
+                if (autoTriggered) {
+                    isAutoLoadingConversationHistory = false
+                }
+                _uiState.update { it.copy(isLoadingOlder = false) }
+            }
+        }
+    }
+
+    private fun isConversationMessage(message: Message): Boolean =
+        message.type == com.claudecode.remote.data.model.MessageType.TEXT
+            || message.type == com.claudecode.remote.data.model.MessageType.FILE
 
     private fun parseConversationItems(
         rawJson: String?,
