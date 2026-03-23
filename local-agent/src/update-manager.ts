@@ -3,6 +3,7 @@ import { createHash } from "crypto";
 import { EventEmitter } from "events";
 import * as fs from "fs";
 import * as path from "path";
+import { getLang } from "./i18n";
 
 type UpdateStatus = "idle" | "checking" | "available" | "downloading" | "downloaded" | "up_to_date" | "error";
 
@@ -99,7 +100,7 @@ class UpdateManager extends EventEmitter {
     if (!this.latestRelease) {
       this.setState({
         status: "error",
-        message: "No update is ready to download.",
+        message: this.text("No update is ready to download.", "当前没有可下载的更新。"),
       });
       return this.getState();
     }
@@ -109,7 +110,7 @@ class UpdateManager extends EventEmitter {
       latestVersion: this.latestRelease.latestVersion,
       notes: this.latestRelease.notes ?? "",
       mandatory: Boolean(this.latestRelease.mandatory),
-      message: `Downloading ${this.latestRelease.latestVersion}...`,
+      message: null,
     });
 
     try {
@@ -140,13 +141,13 @@ class UpdateManager extends EventEmitter {
         latestVersion: this.latestRelease.latestVersion,
         notes: this.latestRelease.notes ?? "",
         mandatory: Boolean(this.latestRelease.mandatory),
-        message: `Version ${this.latestRelease.latestVersion} is ready to install.`,
+        message: null,
       });
       await this.promptToInstall();
     } catch (error) {
       this.setState({
         status: "error",
-        message: error instanceof Error ? error.message : String(error),
+        message: this.formatError(error),
       });
     }
 
@@ -158,7 +159,7 @@ class UpdateManager extends EventEmitter {
     if (!downloadedPath || !fs.existsSync(downloadedPath)) {
       this.setState({
         status: "error",
-        message: "No downloaded installer is available.",
+        message: this.text("No downloaded installer is available.", "当前没有已下载的安装包。"),
       });
       return false;
     }
@@ -167,13 +168,19 @@ class UpdateManager extends EventEmitter {
     if (errorMessage) {
       this.setState({
         status: "error",
-        message: errorMessage,
+        message: this.text(
+          `Failed to launch installer: ${errorMessage}`,
+          `启动安装程序失败：${errorMessage}`,
+        ),
       });
       return false;
     }
 
     this.setState({
-      message: "Installer launched. Finish the setup to update this app.",
+      message: this.text(
+        "Installer launched. Finish the setup to update this app.",
+        "安装程序已启动，按提示完成更新即可。",
+      ),
     });
     return true;
   }
@@ -183,14 +190,14 @@ class UpdateManager extends EventEmitter {
     if (!baseUrl) {
       this.setState({
         status: "error",
-        message: "Relay Server URL is not configured.",
+        message: this.text("Relay Server URL is not configured.", "尚未配置 Relay 服务器地址。"),
       });
       return;
     }
 
     this.setState({
       status: "checking",
-      message: manual ? "Checking for updates..." : null,
+      message: null,
     });
 
     try {
@@ -203,7 +210,10 @@ class UpdateManager extends EventEmitter {
       });
       const response = await fetch(`${baseUrl}/api/update/check?${query.toString()}`);
       if (!response.ok) {
-        throw new Error(`Update check failed with status ${response.status}`);
+        throw new Error(this.text(
+          `Update check failed with status ${response.status}`,
+          `更新检查失败，状态码 ${response.status}`,
+        ));
       }
 
       const payload = await response.json() as {
@@ -228,7 +238,7 @@ class UpdateManager extends EventEmitter {
           notes: "",
           mandatory: false,
           downloadedPath: null,
-          message: manual ? "You already have the latest version." : null,
+          message: null,
           lastCheckedAt: Date.now(),
         });
         return;
@@ -252,7 +262,7 @@ class UpdateManager extends EventEmitter {
         notes: this.latestRelease.notes ?? "",
         mandatory: Boolean(this.latestRelease.mandatory),
         downloadedPath: null,
-        message: `Version ${this.latestRelease.latestVersion} is available.`,
+        message: null,
         lastCheckedAt: Date.now(),
       });
 
@@ -268,7 +278,7 @@ class UpdateManager extends EventEmitter {
       this.latestRelease = null;
       this.setState({
         status: "error",
-        message: error instanceof Error ? error.message : String(error),
+        message: this.formatError(error),
         lastCheckedAt: Date.now(),
       });
     }
@@ -283,10 +293,19 @@ class UpdateManager extends EventEmitter {
     if (parentWindow) {
       const result = await dialog.showMessageBox(parentWindow, {
         type: "info",
-        title: "Update Available",
-        message: `Claude Code Agent ${this.latestRelease.latestVersion} is available.`,
-        detail: this.latestRelease.notes || "A newer desktop build is ready to download.",
-        buttons: ["Download", "Later"],
+        title: this.text("Update Available", "发现新版本"),
+        message: this.text(
+          `Claude Code Agent ${this.latestRelease.latestVersion} is available.`,
+          `发现 Claude Code Agent ${this.latestRelease.latestVersion} 新版本。`,
+        ),
+        detail: this.latestRelease.notes || this.text(
+          "A newer desktop build is ready to download.",
+          "新的桌面端版本已经可以下载。",
+        ),
+        buttons: [
+          this.text("Download", "下载"),
+          this.text("Later", "稍后"),
+        ],
         cancelId: 1,
         defaultId: 0,
         noLink: true,
@@ -299,8 +318,11 @@ class UpdateManager extends EventEmitter {
 
     if (Notification.isSupported()) {
       new Notification({
-        title: "Update Available",
-        body: `Claude Code Agent ${this.latestRelease.latestVersion} is ready to download.`,
+        title: this.text("Update Available", "发现新版本"),
+        body: this.text(
+          `Claude Code Agent ${this.latestRelease.latestVersion} is ready to download.`,
+          `Claude Code Agent ${this.latestRelease.latestVersion} 已可下载。`,
+        ),
       }).show();
     }
   }
@@ -314,10 +336,19 @@ class UpdateManager extends EventEmitter {
     if (parentWindow) {
       const result = await dialog.showMessageBox(parentWindow, {
         type: "info",
-        title: "Update Ready",
-        message: `Version ${this.state.latestVersion} has finished downloading.`,
-        detail: "Open the installer now to complete the update.",
-        buttons: ["Install Now", "Later"],
+        title: this.text("Update Ready", "更新已就绪"),
+        message: this.text(
+          `Version ${this.state.latestVersion} has finished downloading.`,
+          `版本 ${this.state.latestVersion} 已下载完成。`,
+        ),
+        detail: this.text(
+          "Open the installer now to complete the update.",
+          "现在打开安装程序即可完成更新。",
+        ),
+        buttons: [
+          this.text("Install Now", "立即安装"),
+          this.text("Later", "稍后"),
+        ],
         cancelId: 1,
         defaultId: 0,
         noLink: true,
@@ -330,8 +361,11 @@ class UpdateManager extends EventEmitter {
 
     if (Notification.isSupported()) {
       new Notification({
-        title: "Update Ready",
-        body: `Claude Code Agent ${this.state.latestVersion} is ready to install.`,
+        title: this.text("Update Ready", "更新已就绪"),
+        body: this.text(
+          `Claude Code Agent ${this.state.latestVersion} is ready to install.`,
+          `Claude Code Agent ${this.state.latestVersion} 已可安装。`,
+        ),
       }).show();
     }
   }
@@ -361,6 +395,18 @@ class UpdateManager extends EventEmitter {
       currentVersion: app.getVersion(),
     };
     this.emit("state-changed", this.getState());
+  }
+
+  private text(en: string, zh: string): string {
+    return getLang() === "zh" ? zh : en;
+  }
+
+  private formatError(error: unknown): string {
+    const detail = error instanceof Error ? error.message : String(error);
+    return this.text(
+      `Update failed: ${detail}`,
+      `更新失败：${detail}`,
+    );
   }
 }
 
