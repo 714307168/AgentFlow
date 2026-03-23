@@ -280,6 +280,7 @@ const state: {
   preferredViews: Record<"claude" | "codex", WorkspaceView>;
   groupOrder: string[];
   collapsedGroups: Set<string>;
+  forceDockScroll: WorkspaceView | null;
   hint: HintState;
   attachmentPreview: AttachmentPreviewState | null;
 } = {
@@ -297,6 +298,7 @@ const state: {
   },
   groupOrder: [],
   collapsedGroups: new Set<string>(),
+  forceDockScroll: null,
   hint: {
     key: "terminal.hint.default",
     fallback: "Press Enter to send, Shift+Enter for a new line. Conversation stays in front, with Activity, CLI, and Queue one tab away.",
@@ -774,6 +776,18 @@ function getDisplayedCliTrace(): CliTraceEntry[] {
   return getProjectHistoryState(projectId)?.cliTrace ?? getCurrentSession()?.cliTrace ?? [];
 }
 
+function shouldStickToBottom(container: HTMLElement | null): boolean {
+  if (!container) {
+    return false;
+  }
+  const initialized = container.dataset.initialized === "true";
+  const nearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 80;
+  if (!initialized) {
+    container.dataset.initialized = "true";
+  }
+  return !initialized || nearBottom;
+}
+
 function getLatestActivity(session: SessionSnapshot | null): SessionActivity | null {
   if (!session || session.activities.length === 0) {
     return null;
@@ -905,6 +919,9 @@ function setActiveProject(projectId: string | null): void {
 
 function setActiveView(view: WorkspaceView, persistPreference = true): void {
   state.activeView = view;
+  if (view !== "messages") {
+    state.forceDockScroll = view;
+  }
   if (!persistPreference) {
     return;
   }
@@ -916,6 +933,9 @@ function setActiveView(view: WorkspaceView, persistPreference = true): void {
 function syncActiveViewForCurrentProject(): void {
   const provider = getConfiguredProvider(getCurrentProject(), getCurrentSession());
   state.activeView = state.preferredViews[provider] ?? defaultViewForProvider(provider);
+  if (state.activeView !== "messages") {
+    state.forceDockScroll = state.activeView;
+  }
 }
 
 function updateDocumentTitle(): void {
@@ -1389,7 +1409,11 @@ function renderQueue(): void {
     return;
   }
 
-  elements.queueList.innerHTML = queuedItems
+  const forceScroll = state.forceDockScroll === "queue";
+  const stickToBottom = forceScroll || shouldStickToBottom(elements.queueList);
+  const orderedQueue = [...queuedItems].sort((left, right) => left.queuedAt - right.queuedAt);
+
+  elements.queueList.innerHTML = orderedQueue
     .map((item, index) => [
       `<article class="queue-item" data-queue-run-id="${escapeHtml(item.runId)}">`,
       '<div class="queue-item-copy">',
@@ -1404,6 +1428,13 @@ function renderQueue(): void {
       "</article>",
     ].join(""))
     .join("");
+
+  if (stickToBottom) {
+    elements.queueList.scrollTop = elements.queueList.scrollHeight;
+  }
+  if (forceScroll) {
+    state.forceDockScroll = null;
+  }
 }
 
 function renderProjectList(): void {
@@ -1520,8 +1551,8 @@ function renderCliTrace(): void {
     return;
   }
 
-  const stickToBottom =
-    elements.cliTrace.scrollHeight - elements.cliTrace.scrollTop - elements.cliTrace.clientHeight < 80;
+  const forceScroll = state.forceDockScroll === "cli";
+  const stickToBottom = forceScroll || shouldStickToBottom(elements.cliTrace);
 
   elements.cliTrace.innerHTML = [
     historyState?.hasMoreCli ? `<div class="history-loader">${escapeHtml(inlineText("Scroll up to load earlier CLI output", "向上滚动加载更早 CLI 输出"))}</div>` : "",
@@ -1538,6 +1569,9 @@ function renderCliTrace(): void {
 
   if (stickToBottom) {
     elements.cliTrace.scrollTop = elements.cliTrace.scrollHeight;
+  }
+  if (forceScroll) {
+    state.forceDockScroll = null;
   }
 }
 
@@ -1627,11 +1661,12 @@ function renderActivities(): void {
     return;
   }
 
+  const forceScroll = state.forceDockScroll === "activity";
+  const stickToBottom = forceScroll || shouldStickToBottom(elements.activityList);
+
   elements.activityList.innerHTML = [
     historyState?.hasMoreActivities ? `<div class="history-loader">${escapeHtml(inlineText("Scroll up to load earlier activity", "向上滚动加载更早活动"))}</div>` : "",
     ...activities
-    .slice()
-    .reverse()
     .map((activity) => [
       '<article class="activity-card">',
       '<div class="activity-shell">',
@@ -1646,6 +1681,13 @@ function renderActivities(): void {
       "</article>",
     ].join("")),
   ].join("");
+
+  if (stickToBottom) {
+    elements.activityList.scrollTop = elements.activityList.scrollHeight;
+  }
+  if (forceScroll) {
+    state.forceDockScroll = null;
+  }
 }
 
 function renderHeader(): void {
