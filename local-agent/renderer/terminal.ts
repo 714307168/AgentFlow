@@ -53,7 +53,7 @@ interface ClaudeAgentApi {
   getLang?: () => Promise<Lang>;
   getI18nMessages?: () => Promise<Record<string, string>>;
   onLangChanged?: (callback: (payload: LangPayload) => void) => void;
-  openSettingsWindow?: () => void;
+  openSettingsWindow?: (pane?: "connection" | "project" | "system") => void;
   setActiveProject?: (projectId: string | null) => void;
   minimizeWindow?: () => void;
   maximizeWindow?: () => void;
@@ -256,6 +256,8 @@ const elements = {
   projectsTitle: document.getElementById("projectsTitle"),
   sessionViewTitle: document.getElementById("sessionViewTitle"),
   composerLabel: document.getElementById("composerLabel"),
+  serverSettingsBtn: document.getElementById("serverSettingsBtn") as HTMLButtonElement | null,
+  projectSettingsBtn: document.getElementById("projectSettingsBtn") as HTMLButtonElement | null,
   settingsBtn: document.getElementById("settingsBtn") as HTMLButtonElement | null,
   minimizeBtn: document.getElementById("minimizeBtn"),
   maximizeBtn: document.getElementById("maximizeBtn"),
@@ -997,9 +999,19 @@ function applyStaticI18n(): void {
     elements.maximizeBtn.title = msg("common.maximize", "Maximize");
   }
   if (elements.settingsBtn) {
-    const settingsLabel = msg("tray.settings", "Settings");
+    const settingsLabel = inlineText("System", "系统");
     elements.settingsBtn.textContent = settingsLabel;
     elements.settingsBtn.title = settingsLabel;
+  }
+  if (elements.serverSettingsBtn) {
+    const serverLabel = inlineText("Server", "服务器");
+    elements.serverSettingsBtn.textContent = serverLabel;
+    elements.serverSettingsBtn.title = inlineText("Server Connection", "服务器连接");
+  }
+  if (elements.projectSettingsBtn) {
+    const projectLabel = inlineText("Projects", "项目");
+    elements.projectSettingsBtn.textContent = projectLabel;
+    elements.projectSettingsBtn.title = inlineText("Project Settings", "项目设置");
   }
   if (elements.closeBtn) {
     elements.closeBtn.title = msg("common.close", "Close");
@@ -2061,7 +2073,9 @@ function bindClick(id: string, handler: () => void): void {
 
 bindClick("minimizeBtn", () => api.minimizeWindow?.());
 bindClick("maximizeBtn", () => api.maximizeWindow?.());
-bindClick("settingsBtn", () => api.openSettingsWindow?.());
+bindClick("serverSettingsBtn", () => api.openSettingsWindow?.("connection"));
+bindClick("projectSettingsBtn", () => api.openSettingsWindow?.("project"));
+bindClick("settingsBtn", () => api.openSettingsWindow?.("system"));
 bindClick("closeBtn", () => {
   if (typeof api.closeWindow === "function") {
     api.closeWindow();

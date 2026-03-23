@@ -44,6 +44,21 @@ interface AppSettings {
   historyRetentionDays: number;
 }
 
+type SettingsPane = "connection" | "project" | "system";
+
+interface PersistedWindowState {
+  x?: number;
+  y?: number;
+  width: number;
+  height: number;
+  maximized: boolean;
+}
+
+interface WindowStateSchema {
+  settingsWindow: PersistedWindowState;
+  workspaceWindow: PersistedWindowState;
+}
+
 const configStore = new Store<AgentConfig>({
   defaults: {
     serverUrl: "ws://localhost:8080/ws",
@@ -70,6 +85,22 @@ const appSettingsStore = new Store<AppSettings>({
   },
 });
 
+const windowStateStore = new Store<WindowStateSchema>({
+  name: "window-state",
+  defaults: {
+    settingsWindow: {
+      width: 800,
+      height: 700,
+      maximized: false,
+    },
+    workspaceWindow: {
+      width: 1000,
+      height: 700,
+      maximized: false,
+    },
+  },
+});
+
 appLogger.setEnabled(appSettingsStore.get("saveLogs") as boolean);
 appLogger.installConsoleCapture();
 
@@ -77,6 +108,7 @@ let tray: Tray | null = null;
 let mainWindow: BrowserWindow | null = null;
 let workspaceWindow: BrowserWindow | null = null;
 let activeWorkspaceProjectId: string | null = null;
+let activeSettingsPane: SettingsPane = "system";
 let relayClient: RelayClient | null = null;
 const lastBroadcastSyncSeqByProject = new Map<string, number>();
 const updateManager = new UpdateManager({
@@ -293,8 +325,43 @@ async function captureProjectScreenshot(projectId: string): Promise<RunAttachmen
   });
 }
 
-function getSettingsWindowTitle(): string {
-  return t("settings.title");
+function normalizeSettingsPane(pane?: string | null): SettingsPane {
+  if (pane === "connection" || pane === "project" || pane === "system") {
+    return pane;
+  }
+  return "system";
+}
+
+function getSettingsPaneTitle(pane: SettingsPane): string {
+  if (getLang() === "zh") {
+    switch (pane) {
+      case "connection":
+        return "服务器连接";
+      case "project":
+        return "项目设置";
+      default:
+        return "系统设置";
+    }
+  }
+
+  switch (pane) {
+    case "connection":
+      return "Server Connection";
+    case "project":
+      return "Project Settings";
+    default:
+      return "System Settings";
+  }
+}
+
+function broadcastSettingsPane(): void {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("settings-pane-changed", activeSettingsPane);
+  }
+}
+
+function getSettingsWindowTitle(pane: SettingsPane = activeSettingsPane): string {
+  return `${getSettingsPaneTitle(pane)} - ${t("app.name")}`;
 }
 
 function getWorkspaceWindowTitle(projectId?: string | null): string {
@@ -313,6 +380,104 @@ function getLangPayload(): { lang: Lang; messages: Record<string, string> } {
   };
 }
 
+function getWindowState(storeKey: keyof WindowStateSchema): PersistedWindowState {
+  const fallback = windowStateStore.get(storeKey) as PersistedWindowState | undefined;
+  return {
+    width: Math.max(640, Number(fallback?.width) || (storeKey === "settingsWindow" ? 800 : 1000)),
+    height: Math.max(520, Number(fallback?.height) || 700),
+    maximized: Boolean(fallback?.maximized),
+    x: Number.isFinite(fallback?.x) ? Number(fallback?.x) : undefined,
+    y: Number.isFinite(fallback?.y) ? Number(fallback?.y) : undefined,
+  };
+}
+
+function isWindowBoundsVisible(state: PersistedWindowState): boolean {
+  if (!Number.isFinite(state.x) || !Number.isFinite(state.y)) {
+    return false;
+  }
+
+  const bounds = {
+    x: Number(state.x),
+    y: Number(state.y),
+    width: Math.max(1, Number(state.width) || 1),
+    height: Math.max(1, Number(state.height) || 1),
+  };
+
+  return screen.getAllDisplays().some((display) => {
+    const area = display.workArea;
+    return bounds.x < area.x + area.width
+      && bounds.x + bounds.width > area.x
+      && bounds.y < area.y + area.height
+      && bounds.y + bounds.height > area.y;
+  });
+}
+
+function buildWindowOptions(
+  storeKey: keyof WindowStateSchema,
+  baseOptions: Electron.BrowserWindowConstructorOptions,
+): Electron.BrowserWindowConstructorOptions {
+  const state = getWindowState(storeKey);
+  const options: Electron.BrowserWindowConstructorOptions = {
+    ...baseOptions,
+    width: state.width,
+    height: state.height,
+  };
+
+  if (isWindowBoundsVisible(state)) {
+    options.x = Number(state.x);
+    options.y = Number(state.y);
+  }
+
+  return options;
+}
+
+function persistWindowState(
+  storeKey: keyof WindowStateSchema,
+  win: BrowserWindow,
+): void {
+  if (win.isDestroyed()) {
+    return;
+  }
+
+  const bounds = win.isMaximized() ? win.getNormalBounds() : win.getBounds();
+  windowStateStore.set(storeKey, {
+    x: bounds.x,
+    y: bounds.y,
+    width: bounds.width,
+    height: bounds.height,
+    maximized: win.isMaximized(),
+  });
+}
+
+function bindWindowStatePersistence(
+  storeKey: keyof WindowStateSchema,
+  win: BrowserWindow,
+): void {
+  let persistTimer: NodeJS.Timeout | null = null;
+
+  const schedulePersist = (): void => {
+    if (persistTimer) {
+      clearTimeout(persistTimer);
+    }
+    persistTimer = setTimeout(() => {
+      persistTimer = null;
+      persistWindowState(storeKey, win);
+    }, 180);
+  };
+
+  win.on("resize", schedulePersist);
+  win.on("move", schedulePersist);
+  win.on("maximize", () => persistWindowState(storeKey, win));
+  win.on("unmaximize", schedulePersist);
+  win.on("close", () => persistWindowState(storeKey, win));
+  win.on("closed", () => {
+    if (persistTimer) {
+      clearTimeout(persistTimer);
+      persistTimer = null;
+    }
+  });
+}
+
 function updateTrayTooltip(): void {
   if (!tray) {
     return;
@@ -324,7 +489,7 @@ function updateTrayTooltip(): void {
 
 function updateWindowTitles(): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.setTitle(getSettingsWindowTitle());
+    mainWindow.setTitle(getSettingsWindowTitle(activeSettingsPane));
   }
 
   if (workspaceWindow && !workspaceWindow.isDestroyed()) {
@@ -449,13 +614,14 @@ function loadConfig(): AgentConfig {
   };
 }
 
-function getPublicConfig(): Omit<AgentConfig, "password" | "encryptedToken" | "encryptedPassword"> {
+function getPublicConfig(): Omit<AgentConfig, "encryptedToken" | "encryptedPassword"> {
   const config = loadConfig();
   return {
     serverUrl: config.serverUrl,
     agentId: config.agentId,
     token: config.token ? "__cached__" : "",
     username: config.username,
+    password: config.password,
     tokenExpiresAt: config.tokenExpiresAt,
     cliProvider: config.cliProvider,
   };
@@ -609,17 +775,18 @@ function rebuildTrayMenu(trayInstance?: Tray): void {
 
 function showMainWindow(parentWindow?: BrowserWindow | null): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.setTitle(getSettingsWindowTitle(activeSettingsPane));
+    broadcastSettingsPane();
     revealWindow(mainWindow);
     return;
   }
-  mainWindow = new BrowserWindow({
-    width: 800,
-    height: 700,
-    title: getSettingsWindowTitle(),
+  const initialState = getWindowState("settingsWindow");
+  mainWindow = new BrowserWindow(buildWindowOptions("settingsWindow", {
+    title: getSettingsWindowTitle(activeSettingsPane),
     icon: createAppIcon(256),
     frame: false,
     transparent: false,
-    backgroundColor: '#0d1117',
+    backgroundColor: "#0d1117",
     parent: parentWindow ?? undefined,
     resizable: true,
     webPreferences: {
@@ -627,16 +794,21 @@ function showMainWindow(parentWindow?: BrowserWindow | null): void {
       contextIsolation: true,
       nodeIntegration: false,
     },
-  });
+  }));
+  bindWindowStatePersistence("settingsWindow", mainWindow);
   mainWindow.loadFile(path.join(__dirname, "..", "..", "renderer", "settings.html"));
   mainWindow.webContents.on("did-finish-load", () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send("lang-changed", getLangPayload());
       mainWindow.webContents.send("update-state-changed", updateManager.getState());
+      mainWindow.webContents.send("settings-pane-changed", activeSettingsPane);
     }
   });
   mainWindow.once("ready-to-show", () => {
     if (mainWindow) {
+      if (initialState.maximized) {
+        mainWindow.maximize();
+      }
       revealWindow(mainWindow);
     }
   });
@@ -646,9 +818,8 @@ function showMainWindow(parentWindow?: BrowserWindow | null): void {
 }
 
 function createWorkspaceWindow(): BrowserWindow {
-  const win = new BrowserWindow({
-    width: 1000,
-    height: 700,
+  const initialState = getWindowState("workspaceWindow");
+  const win = new BrowserWindow(buildWindowOptions("workspaceWindow", {
     title: getWorkspaceWindowTitle(activeWorkspaceProjectId),
     icon: createAppIcon(256),
     frame: false,
@@ -661,10 +832,14 @@ function createWorkspaceWindow(): BrowserWindow {
       nodeIntegration: false,
     },
     backgroundColor: "#0d1117",
-  });
+  }));
+  bindWindowStatePersistence("workspaceWindow", win);
 
   win.loadFile(path.join(__dirname, "..", "..", "renderer", "index.html"));
   win.once("ready-to-show", () => {
+    if (initialState.maximized) {
+      win.maximize();
+    }
     revealWindow(win);
   });
 
@@ -706,7 +881,8 @@ function showWorkspaceWindow(projectId?: string): void {
   workspaceWindow = createWorkspaceWindow();
 }
 
-function openSettingsWindow(): void {
+function openSettingsWindow(pane: SettingsPane = "system"): void {
+  activeSettingsPane = normalizeSettingsPane(pane);
   showMainWindow(workspaceWindow);
 }
 
@@ -905,6 +1081,7 @@ ipcMain.handle("save-config", (_event, config: Partial<AgentConfig>) => {
     configStore.set("token", "");
   }
   if (config.username !== undefined) configStore.set("username", config.username);
+  if (config.password !== undefined) configStore.set("encryptedPassword", encodeSecretForStore(config.password));
   if (config.cliProvider !== undefined) configStore.set("cliProvider", config.cliProvider);
   return true;
 });
@@ -1060,8 +1237,9 @@ ipcMain.handle("open-project", (_event, projectId: string) => {
   return { success: false, error: "Project not found" };
 });
 
-ipcMain.on("open-settings-window", (event) => {
+ipcMain.on("open-settings-window", (event, pane?: SettingsPane) => {
   const senderWindow = BrowserWindow.fromWebContents(event.sender);
+  activeSettingsPane = normalizeSettingsPane(pane);
   showMainWindow(senderWindow ?? workspaceWindow);
 });
 

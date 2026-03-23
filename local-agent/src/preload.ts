@@ -58,7 +58,10 @@ contextBridge.exposeInMainWorld('claudeAgent', {
   },
   getConnectionStatus: () => ipcRenderer.invoke('get-connection-status'),
   openProject: (projectId: string) => ipcRenderer.invoke('open-project', projectId),
-  openSettingsWindow: () => ipcRenderer.send('open-settings-window'),
+  openSettingsWindow: (pane?: string) => ipcRenderer.send('open-settings-window', pane),
+  onSettingsPaneChanged: (callback: (pane: string) => void) => {
+    ipcRenderer.on('settings-pane-changed', (_event, pane: string) => callback(pane));
+  },
   setActiveProject: (projectId: string | null) => ipcRenderer.send('set-active-project', projectId),
   minimizeWindow: () => ipcRenderer.send('minimize-window'),
   maximizeWindow: () => ipcRenderer.send('maximize-window'),

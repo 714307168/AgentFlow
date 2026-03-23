@@ -69,22 +69,10 @@
       overflow: auto;
     }
     .settings-shell {
-      display: grid;
-      grid-template-columns: 220px minmax(0, 1fr);
-      gap: 18px;
-      align-items: start;
+      display: block;
     }
     .settings-nav {
-      position: sticky;
-      top: 24px;
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: 10px;
-      box-shadow: 0 8px 24px var(--shadow);
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
+      display: none;
     }
     .settings-nav-item {
       display: flex;
@@ -423,16 +411,8 @@
       font-size: 12px;
     }
     @media (max-width: 960px) {
-      .settings-shell {
-        grid-template-columns: 1fr;
-      }
-      .settings-nav {
-        position: static;
-        flex-direction: row;
-        flex-wrap: wrap;
-      }
-      .settings-nav-item {
-        justify-content: center;
+      .content {
+        padding: 16px;
       }
     }
   </style>
@@ -676,6 +656,29 @@
     let activeSettingsPane = "system";
     let latestUpdateState = null;
 
+    function normalizeSettingsPane(pane) {
+      return ["connection", "project", "system"].includes(pane) ? pane : "system";
+    }
+
+    function getSettingsPaneTitle(pane = activeSettingsPane) {
+      switch (normalizeSettingsPane(pane)) {
+        case "connection":
+          return inlineText("Server Connection", "服务器连接");
+        case "project":
+          return inlineText("Project Settings", "项目设置");
+        default:
+          return inlineText("System Settings", "系统设置");
+      }
+    }
+
+    function applyPageChrome() {
+      const title = getSettingsPaneTitle(activeSettingsPane);
+      document.documentElement.lang = currentLang;
+      document.title = title;
+      document.getElementById("titlebarTitle").textContent = title;
+      document.getElementById("title").textContent = title;
+    }
+
     function formatTemplate(template, vars) {
       if (!vars) return template;
       return String(template).replace(/\{(\w+)\}/g, (_match, key) => (
@@ -704,15 +707,16 @@
     }
 
     function setActiveSettingsPane(pane) {
-      activeSettingsPane = pane;
+      activeSettingsPane = normalizeSettingsPane(pane);
       document.querySelectorAll("[data-pane-content]").forEach((node) => {
-        node.classList.toggle("hidden", node.dataset.paneContent !== pane);
+        node.classList.toggle("hidden", node.dataset.paneContent !== activeSettingsPane);
       });
       document.querySelectorAll("[data-pane]").forEach((node) => {
-        const isActive = node.dataset.pane === pane;
+        const isActive = node.dataset.pane === activeSettingsPane;
         node.classList.toggle("active", isActive);
         node.setAttribute("aria-current", isActive ? "page" : "false");
       });
+      applyPageChrome();
     }
 
     function modelLabel(model) {
@@ -728,10 +732,7 @@
     }
 
     function applyI18n() {
-      document.documentElement.lang = currentLang;
-      document.title = msg("settings.title", "Agent Settings");
-      document.getElementById("titlebarTitle").textContent = msg("settings.titlebarTitle", "Settings");
-      document.getElementById("title").textContent = msg("settings.title", "Agent Settings");
+      applyPageChrome();
       document.getElementById("savedText").textContent = msg("settings.saved.short", "Saved");
       document.getElementById("connectionMenuItem").textContent = inlineText("Server Connection", "服务器连接");
       document.getElementById("projectMenuItem").textContent = inlineText("Project Settings", "项目设置");
@@ -817,6 +818,7 @@
       await api.saveConfig({
         serverUrl: document.getElementById("serverUrl").value.trim(),
         username: document.getElementById("username").value.trim(),
+        password: document.getElementById("password").value,
         agentId: document.getElementById("agentId").value.trim(),
         cliProvider: document.getElementById("cliProvider").value,
       });
@@ -1038,6 +1040,7 @@
       ]);
       document.getElementById("serverUrl").value = config.serverUrl || "";
       document.getElementById("username").value = config.username || "";
+      document.getElementById("password").value = config.password || "";
       document.getElementById("agentId").value = config.agentId || "";
       document.getElementById("cliProvider").value = config.cliProvider || "claude";
       document.getElementById("projectProvider").value = config.cliProvider || "claude";
@@ -1056,7 +1059,7 @@
       await syncLanguage(lang || "en", i18nMessages || {});
     }
 
-    ["serverUrl", "username", "agentId"].forEach((id) => {
+    ["serverUrl", "username", "password", "agentId"].forEach((id) => {
       document.getElementById(id).addEventListener("blur", () => { void saveConnectionConfig(); });
     });
 
@@ -1079,7 +1082,6 @@
         const result = await api.login({ username, password, agentId });
         if (result.success) {
           showStatus(msg("settings.loginSuccess", "Login successful"), false);
-          document.getElementById("password").value = "";
           await updateLoginStatus();
           setTimeout(() => api.reconnectRelay(), 500);
         } else {
@@ -1258,6 +1260,12 @@
 
     if (typeof api.onUpdateStateChanged === "function") {
       api.onUpdateStateChanged((state) => { renderUpdateState(state); });
+    }
+
+    if (typeof api.onSettingsPaneChanged === "function") {
+      api.onSettingsPaneChanged((pane) => {
+        setActiveSettingsPane(pane || "system");
+      });
     }
 
     document.getElementById("minimizeBtn").addEventListener("click", () => api.minimizeWindow());
