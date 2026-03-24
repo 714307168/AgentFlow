@@ -106,7 +106,7 @@ class SessionRepository(
                 CrashLogger.logInfo("SessionRepository", "Project $index: id=${project.id}, name=${project.name}, path=${project.path}")
             }
 
-            replaceSessionsFromDesktop(response.agentId, response.projects)
+            replaceSessionsFromDesktop(response.agentId, response.projects, fullReplace = true)
 
             CrashLogger.logInfo("SessionRepository", "syncFromServer completed successfully")
             Result.success(Unit)
@@ -148,7 +148,7 @@ class SessionRepository(
                     )
                 } ?: emptyList()
 
-                replaceSessionsFromDesktop(agentId, projects)
+                replaceSessionsFromDesktop(agentId, projects, fullReplace = false)
             }
             Events.AGENT_STATUS -> {
                 val payloadObj = envelope.payload?.jsonObject ?: return
@@ -164,10 +164,10 @@ class SessionRepository(
         }
     }
 
-    private suspend fun replaceSessionsFromDesktop(agentId: String, projects: List<ProjectInfo>) {
+    private suspend fun replaceSessionsFromDesktop(agentId: String, projects: List<ProjectInfo>, fullReplace: Boolean) {
         val now = System.currentTimeMillis()
         val existingByProjectId = sessionDao.getAllSessionsSnapshot().associateBy { it.projectId }
-        if (projects.isEmpty() && existingByProjectId.isNotEmpty()) {
+        if (fullReplace && projects.isEmpty() && existingByProjectId.isNotEmpty()) {
             CrashLogger.logInfo(
                 "SessionRepository",
                 "Ignoring empty project sync because local cache already has sessions"
@@ -175,11 +175,22 @@ class SessionRepository(
             return
         }
         val nextProjectIds = projects.map { it.id }.toSet()
-        val removedProjectIds = existingByProjectId.keys - nextProjectIds
+        val removedProjectIds = if (fullReplace) {
+            existingByProjectId.keys - nextProjectIds
+        } else {
+            existingByProjectId.values
+                .filter { it.agentId == agentId }
+                .map { it.projectId }
+                .filter { !nextProjectIds.contains(it) }
+                .toSet()
+        }
 
         db.withTransaction {
             projects.forEach { project ->
                 val existing = existingByProjectId[project.id]
+                val resolvedAgentId = project.agentId.ifBlank {
+                    agentId.ifBlank { existing?.agentId.orEmpty() }
+                }
                 if (project.online == true) {
                     cancelPendingOffline(project.id)
                 }
@@ -187,7 +198,7 @@ class SessionRepository(
                     SessionEntity(
                         id = project.id,
                         name = project.name.ifEmpty { "Project ${project.id.take(8)}" },
-                        agentId = agentId.ifBlank { existing?.agentId.orEmpty() },
+                        agentId = resolvedAgentId,
                         projectId = project.id,
                         projectPath = project.path,
                         groupName = project.groupName?.trim().takeUnless { it.isNullOrEmpty() } ?: existing?.groupName,

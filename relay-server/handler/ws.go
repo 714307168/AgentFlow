@@ -110,6 +110,9 @@ func WSHandler(h *hub.Hub, cfg *config.Config, st *store.Store) http.HandlerFunc
 				return
 			}
 			client.AgentID = claims.AgentID
+			if userID, ok := st.GetAgentUserID(claims.AgentID); ok {
+				client.UserID = userID
+			}
 			h.RegisterAgent(client)
 			client.ProjectIDs = h.GetProjectIDsByAgent(client.AgentID)
 		case model.ClientTypeDevice:
@@ -119,6 +122,9 @@ func WSHandler(h *hub.Hub, cfg *config.Config, st *store.Store) http.HandlerFunc
 				return
 			}
 			client.DeviceID = claims.DeviceID
+			if userID, ok := st.GetDeviceUserID(claims.DeviceID); ok {
+				client.UserID = userID
+			}
 			if boundAgentID, ok := st.GetDeviceAgentID(claims.DeviceID); ok {
 				client.AgentID = boundAgentID
 			}

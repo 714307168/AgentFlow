@@ -94,6 +94,7 @@ data class SyncResponse(
 @Serializable
 data class ProjectInfo(
     val id: String,
+    @SerialName("agent_id") val agentId: String = "",
     val name: String,
     val path: String,
     @SerialName("group_name") val groupName: String? = null,

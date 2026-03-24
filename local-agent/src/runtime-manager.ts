@@ -33,6 +33,8 @@ import type {
 export interface RuntimeConfig {
   getProjectProvider: (projectId: string) => CliProvider;
   getProjectModel: (projectId: string) => string | null;
+  getProjectPrompt?: (projectId: string) => string | null;
+  getProviderEnvironment?: (provider: CliProvider) => Record<string, string>;
   updateProject: (projectId: string, updates: { cliModel?: string | null }) => void;
   onProjectConfigChanged?: (projectId: string) => void;
   captureProjectScreenshot?: (projectId: string) => Promise<RunAttachment>;
@@ -379,6 +381,15 @@ class RuntimeManager extends EventEmitter {
     return { cleared, skipped };
   }
 
+  hasActiveOrQueuedRuns(): boolean {
+    for (const state of this.states.values()) {
+      if (state.active || state.queue.length > 0) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   pruneHistoryCache(retentionDays: number): { changed: number } {
     if (!Number.isFinite(retentionDays) || retentionDays <= 0) {
       return { changed: 0 };
@@ -667,6 +678,7 @@ class RuntimeManager extends EventEmitter {
         }
       },
       this.buildPromptWithAttachments(run),
+      this.getConfig().getProviderEnvironment?.("claude"),
     );
   }
 
@@ -818,6 +830,7 @@ class RuntimeManager extends EventEmitter {
         }
       },
       this.buildPromptWithAttachments(run),
+      this.getConfig().getProviderEnvironment?.("codex"),
       {
         onChildSpawn: (child) => {
           codexChild = child;
@@ -911,6 +924,7 @@ class RuntimeManager extends EventEmitter {
     cwd: string,
     onStdoutLine: (line: string) => void,
     stdinData?: string,
+    envOverrides?: Record<string, string>,
     options?: RunProcessOptions,
   ): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -919,6 +933,7 @@ class RuntimeManager extends EventEmitter {
         env: {
           ...process.env,
           FORCE_COLOR: "0",
+          ...(envOverrides ?? {}),
         },
         stdio: ["pipe", "pipe", "pipe"],
       });
@@ -1316,11 +1331,17 @@ class RuntimeManager extends EventEmitter {
 
   private buildPromptWithAttachments(run: PendingRun): string {
     const attachments = this.normalizeAttachments(run.attachments);
+    const projectPrompt = this.buildProjectPrompt(run.projectId);
     if (!attachments || attachments.length === 0) {
-      return run.prompt;
+      return [projectPrompt, run.prompt].filter(Boolean).join("\n\n");
     }
 
-    const lines = [run.prompt.trim() || this.describeAttachmentPrompt(attachments), "", "Local attachments:"];
+    const lines = [
+      projectPrompt,
+      run.prompt.trim() || this.describeAttachmentPrompt(attachments),
+      "",
+      "Local attachments:",
+    ].filter((line) => line !== "");
     for (const attachment of attachments) {
       lines.push(`- [${attachment.kind}] ${attachment.name}: ${attachment.path}`);
     }
@@ -1330,6 +1351,20 @@ class RuntimeManager extends EventEmitter {
     }
 
     return lines.join("\n");
+  }
+
+  private buildProjectPrompt(projectId: string): string {
+    const prompt = this.getConfig().getProjectPrompt?.(projectId)?.trim() ?? "";
+    if (!prompt) {
+      return "";
+    }
+
+    return [
+      "Project guidance:",
+      prompt,
+      "",
+      "Use the project guidance above as persistent context for this repository.",
+    ].join("\n");
   }
 
   private parseSlashCommand(prompt: string): SlashCommand | null {

@@ -17,17 +17,19 @@ Both desktop and Android clients use the same update center.
 
 ## Update Policy
 
-The current policy is the same on both platforms:
+Current policy:
 
-- manual update checks are supported
+- manual update checks are supported on both platforms
 - auto-check is optional
 - auto-download is optional
-- installation always requires a user action
+- desktop can optionally perform a silent install after download
+- desktop silent install must wait until there are no running or queued local tasks
+- Android still requires the system package installer
 
 Not supported:
 
 - Android silent install
-- desktop silent install
+- forced desktop update while local tasks are still running or queued
 - offline push-triggered auto update
 
 ## Server Endpoints
@@ -114,7 +116,8 @@ Flow:
 2. surface the result in the desktop settings UI
 3. optionally auto-download the installer
 4. verify `sha256` after download
-5. launch the installer only after user confirmation
+5. if `silentUpdateInstall` is enabled and no local task is active or queued, quit the app and start the NSIS installer with `/S`
+6. otherwise wait for manual confirmation
 
 ### Android
 
@@ -173,6 +176,31 @@ The script:
 5. checks local and public health
 6. verifies the deployed binary SHA-256
 7. rolls back on failure
+
+## Multi-Desktop Access Grants
+
+`relay-server` now also stores one-way desktop control grants in SQLite:
+
+- table: `agent_access_grants`
+- purpose: allow user `A` to see and control user `B`'s desktop agent projects without giving `B` visibility into `A`
+
+Current access behavior:
+
+- mobile sync can aggregate projects from multiple accessible desktop agents
+- WebSocket project broadcasts are scoped by accessible agent set instead of a single bound agent
+- the public app-side grant API is `GET/POST/DELETE /api/access/grants`
+
+This is a server-side migration only. Deploy the latest `relay-server` before relying on multi-desktop access.
+
+## Desktop Project Guidance And Provider API Config
+
+Desktop now supports:
+
+- per-project guidance text
+- OpenAI-compatible API key and base URL
+- Claude-compatible API key and base URL
+
+Project guidance is prepended as persistent repository context before each local CLI run.
 
 ## Recommended Release Order
 

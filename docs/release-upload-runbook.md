@@ -48,6 +48,8 @@ What it does by default:
 6. uploads both packages
 7. verifies `/health`, `/api/update/check`, and download links
 
+If the release includes schema or access-control changes in `relay-server`, do not skip relay deployment.
+
 Common flags:
 
 - `-SkipRelayDeploy`
@@ -176,6 +178,12 @@ The script already does:
 6. public health check
 7. deployed binary SHA256 verification
 8. rollback on failure
+
+Important for recent builds:
+
+- deploy `relay-server` before testing multi-desktop mobile sync
+- the server now migrates `agent_access_grants` automatically on startup
+- desktop silent update only starts when there are no running or queued local tasks
 
 ## Production Preconditions
 
@@ -352,6 +360,15 @@ Expected:
 - `HTTP/1.1 200 OK`
 - correct `Content-Disposition`
 - expected `Content-Length`
+
+### Multi-Desktop Access Verification
+
+After deploying the latest `relay-server`, also verify:
+
+1. sign in with an app account that can access more than one desktop agent
+2. call `GET /api/device/sync`
+3. confirm the `projects` array contains entries from multiple `agent_id` values
+4. confirm the Android app still loads the merged project list correctly
 
 ## Common Failure Cases
 

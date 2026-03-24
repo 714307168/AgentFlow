@@ -1,7 +1,7 @@
 import WebSocket from "ws";
 import { EventEmitter } from "events";
 import { v4 as uuidv4 } from "uuid";
-import { Envelope, Events } from "./types";
+import { ClientType, Envelope, Events } from "./types";
 import E2ECrypto, { EncryptedPayload } from "./crypto";
 
 class RelayClient extends EventEmitter {
@@ -9,7 +9,9 @@ class RelayClient extends EventEmitter {
   private reconnectDelay: number = 1000;
   private maxDelay: number = 30000;
   private lastSeq: number = 0;
+  private clientType: ClientType;
   private agentId: string;
+  private deviceId: string;
   private token: string;
   private serverUrl: string;
   private reconnectTimer: NodeJS.Timeout | null = null;
@@ -17,10 +19,18 @@ class RelayClient extends EventEmitter {
   private e2e: E2ECrypto;
   private e2eEnabled: boolean;
 
-  constructor(serverUrl: string, agentId: string, token: string, e2eEnabled: boolean = false) {
+  constructor(
+    serverUrl: string,
+    agentId: string,
+    token: string,
+    e2eEnabled: boolean = false,
+    options?: { clientType?: ClientType; deviceId?: string },
+  ) {
     super();
     this.serverUrl = serverUrl;
+    this.clientType = options?.clientType ?? "agent";
     this.agentId = agentId;
+    this.deviceId = options?.deviceId ?? "";
     this.token = token;
     this.e2eEnabled = e2eEnabled;
     this.e2e = new E2ECrypto();
@@ -42,9 +52,12 @@ class RelayClient extends EventEmitter {
     return this.ws !== null && this.ws.readyState === WebSocket.OPEN;
   }
 
-  updateAuth(serverUrl: string, agentId: string, token: string): void {
+  updateAuth(serverUrl: string, agentId: string, token: string, deviceId?: string): void {
     this.serverUrl = serverUrl;
     this.agentId = agentId;
+    if (typeof deviceId === "string") {
+      this.deviceId = deviceId;
+    }
     this.token = token;
   }
 
@@ -82,10 +95,14 @@ class RelayClient extends EventEmitter {
     this.resetBackoff();
     const event = this.lastSeq > 0 ? Events.AUTH_RESUME : Events.AUTH_LOGIN;
     const payload: Record<string, unknown> = {
-      agent_id: this.agentId,
       token: this.token,
-      type: "agent",
+      type: this.clientType,
     };
+    if (this.clientType === "agent") {
+      payload.agent_id = this.agentId;
+    } else if (this.deviceId) {
+      payload.device_id = this.deviceId;
+    }
     if (event === Events.AUTH_RESUME) {
       payload.last_seq = this.lastSeq;
     }

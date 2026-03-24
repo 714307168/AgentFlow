@@ -10,6 +10,7 @@ import RelayClient from "./relay-client";
 import MessageRouter from "./message-router";
 import projectStore, { normalizeProjectGroupName, Project } from "./project-store";
 import ptyManager from "./pty-manager";
+import RemoteSessionStore, { RemoteProjectRecord } from "./remote-session-store";
 import RuntimeManager, { CliProvider, ProjectSessionSnapshot, RunAttachment } from "./runtime-manager";
 import { buildSessionSyncPayload } from "./session-sync-payload";
 import UpdateManager, { UpdateState } from "./update-manager";
@@ -29,8 +30,18 @@ interface AgentConfig {
   username?: string;
   password?: string;
   tokenExpiresAt?: string;
+  controllerDeviceId?: string;
+  controllerToken?: string;
+  controllerTokenExpiresAt?: string;
   encryptedToken?: string;
   encryptedPassword?: string;
+  encryptedControllerToken?: string;
+  openaiApiKey?: string;
+  openaiBaseUrl?: string;
+  anthropicApiKey?: string;
+  anthropicBaseUrl?: string;
+  encryptedOpenaiApiKey?: string;
+  encryptedAnthropicApiKey?: string;
   cliProvider: CliProvider;
 }
 
@@ -41,6 +52,7 @@ interface AppSettings {
   e2eEnabled: boolean;
   autoUpdateCheck: boolean;
   autoUpdateDownload: boolean;
+  silentUpdateInstall: boolean;
   historyRetentionDays: number;
 }
 
@@ -66,8 +78,18 @@ const configStore = new Store<AgentConfig>({
     token: "",
     username: "",
     tokenExpiresAt: "",
+    controllerDeviceId: "",
+    controllerToken: "",
+    controllerTokenExpiresAt: "",
     encryptedToken: "",
     encryptedPassword: "",
+    encryptedControllerToken: "",
+    openaiApiKey: "",
+    openaiBaseUrl: "",
+    anthropicApiKey: "",
+    anthropicBaseUrl: "",
+    encryptedOpenaiApiKey: "",
+    encryptedAnthropicApiKey: "",
     cliProvider: "claude",
   },
 });
@@ -81,6 +103,7 @@ const appSettingsStore = new Store<AppSettings>({
     e2eEnabled: false,
     autoUpdateCheck: true,
     autoUpdateDownload: false,
+    silentUpdateInstall: false,
     historyRetentionDays: 30,
   },
 });
@@ -110,17 +133,34 @@ let workspaceWindow: BrowserWindow | null = null;
 let activeWorkspaceProjectId: string | null = null;
 let activeSettingsPane: SettingsPane = "system";
 let relayClient: RelayClient | null = null;
+let controllerRelayClient: RelayClient | null = null;
+let remoteSessionStore: RemoteSessionStore | null = null;
 const lastBroadcastSyncSeqByProject = new Map<string, number>();
 const updateManager = new UpdateManager({
   getServerUrl: () => loadConfig().serverUrl,
   getAutoCheckEnabled: () => appSettingsStore.get("autoUpdateCheck") as boolean,
   getAutoDownloadEnabled: () => appSettingsStore.get("autoUpdateDownload") as boolean,
+  getSilentInstallEnabled: () => appSettingsStore.get("silentUpdateInstall") as boolean,
+  canInstallNow: () => !runtimeManager.hasActiveOrQueuedRuns(),
+  prepareForSilentInstall: async () => {
+    if (relayClient) {
+      relayClient.disconnect();
+    }
+    if (workspaceWindow && !workspaceWindow.isDestroyed()) {
+      workspaceWindow.hide();
+    }
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.hide();
+    }
+  },
   getParentWindow: () => workspaceWindow ?? mainWindow ?? null,
 });
 const TOKEN_REFRESH_WINDOW_MS = 5 * 60 * 1000;
 const MIN_TOKEN_REFRESH_DELAY_MS = 30 * 1000;
 let tokenRefreshTimer: NodeJS.Timeout | null = null;
 let tokenRefreshPromise: Promise<boolean> | null = null;
+let controllerTokenRefreshTimer: NodeJS.Timeout | null = null;
+let controllerTokenRefreshPromise: Promise<boolean> | null = null;
 
 function normalizeIncomingAttachments(payload: unknown): RunAttachment[] {
   if (!Array.isArray(payload)) {
@@ -248,6 +288,12 @@ function getProjectCliModel(projectId: string): string | null {
   return model || null;
 }
 
+function getProjectPrompt(projectId: string): string | null {
+  const project = projectStore.getById(projectId);
+  const prompt = project?.projectPrompt?.trim() ?? "";
+  return prompt || null;
+}
+
 function buildProjectListPayload(agentId: string): {
   agent_id: string;
   projects: Array<{
@@ -275,6 +321,8 @@ function buildProjectListPayload(agentId: string): {
 const runtimeManager = new RuntimeManager(() => ({
   getProjectProvider: getProjectCliProvider,
   getProjectModel: getProjectCliModel,
+  getProjectPrompt,
+  getProviderEnvironment: (provider) => getProviderEnvironment(provider),
   updateProject: (projectId, updates) => {
     projectStore.update(projectId, updates);
   },
@@ -369,7 +417,7 @@ function getWorkspaceWindowTitle(projectId?: string | null): string {
     return t("app.name");
   }
 
-  const project = projectStore.getById(projectId);
+  const project = getProjectById(projectId);
   return project ? `${project.name} - ${t("app.name")}` : t("app.name");
 }
 
@@ -524,6 +572,7 @@ runtimeManager.on("snapshot", (projectId: string, snapshot: ProjectSessionSnapsh
     workspaceWindow.webContents.send("project-session-snapshot", snapshot);
   }
   broadcastSessionSync(snapshot);
+  void updateManager.maybeInstallDownloadedUpdate();
 });
 
 updateManager.on("state-changed", (state: UpdateState) => {
@@ -531,7 +580,7 @@ updateManager.on("state-changed", (state: UpdateState) => {
 });
 
 function broadcastProjectsChanged(): void {
-  const projects = projectStore.getAll();
+  const projects = getAllProjects();
 
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send("projects-changed", projects);
@@ -543,9 +592,34 @@ function broadcastProjectsChanged(): void {
 }
 
 function broadcastProjectSnapshot(projectId: string): void {
-  if (workspaceWindow && !workspaceWindow.isDestroyed()) {
-    workspaceWindow.webContents.send("project-session-snapshot", runtimeManager.getSnapshot(projectId));
+  const snapshot = getProjectSnapshot(projectId);
+  if (!snapshot) {
+    return;
   }
+  if (workspaceWindow && !workspaceWindow.isDestroyed()) {
+    workspaceWindow.webContents.send("project-session-snapshot", snapshot);
+  }
+}
+
+function getAllProjects(): Array<Project | RemoteProjectRecord> {
+  const localProjects = projectStore.getAll();
+  const remoteProjects = remoteSessionStore?.getProjects() ?? [];
+  return [...localProjects, ...remoteProjects];
+}
+
+function getProjectById(projectId: string): (Project & { isRemote?: false }) | RemoteProjectRecord | undefined {
+  return getAllProjects().find((project) => project.id === projectId);
+}
+
+function isRemoteProject(projectId: string): boolean {
+  return remoteSessionStore?.hasProject(projectId) ?? false;
+}
+
+function getProjectSnapshot(projectId: string): ProjectSessionSnapshot | null {
+  if (isRemoteProject(projectId)) {
+    return remoteSessionStore?.getSnapshot(projectId) ?? null;
+  }
+  return runtimeManager.getSnapshot(projectId);
 }
 
 function broadcastSessionSync(snapshot: ProjectSessionSnapshot): void {
@@ -609,12 +683,19 @@ function loadConfig(): AgentConfig {
     token: resolvedToken,
     username: configStore.get("username") as string,
     password: decodeSecretFromStore(configStore.get("encryptedPassword") as string),
+    controllerDeviceId: (configStore.get("controllerDeviceId") as string) || "",
+    controllerToken: decodeSecretFromStore(configStore.get("encryptedControllerToken") as string),
+    controllerTokenExpiresAt: (configStore.get("controllerTokenExpiresAt") as string) || "",
+    openaiApiKey: decodeSecretFromStore(configStore.get("encryptedOpenaiApiKey") as string),
+    openaiBaseUrl: (configStore.get("openaiBaseUrl") as string) || "",
+    anthropicApiKey: decodeSecretFromStore(configStore.get("encryptedAnthropicApiKey") as string),
+    anthropicBaseUrl: (configStore.get("anthropicBaseUrl") as string) || "",
     tokenExpiresAt: (configStore.get("tokenExpiresAt") as string) || "",
     cliProvider: ((process.env.CLI_PROVIDER ?? configStore.get("cliProvider")) as CliProvider) || "claude",
   };
 }
 
-function getPublicConfig(): Omit<AgentConfig, "encryptedToken" | "encryptedPassword"> {
+function getPublicConfig(): Omit<AgentConfig, "encryptedToken" | "encryptedPassword" | "encryptedOpenaiApiKey" | "encryptedAnthropicApiKey"> {
   const config = loadConfig();
   return {
     serverUrl: config.serverUrl,
@@ -622,9 +703,40 @@ function getPublicConfig(): Omit<AgentConfig, "encryptedToken" | "encryptedPassw
     token: config.token ? "__cached__" : "",
     username: config.username,
     password: config.password,
+    controllerDeviceId: config.controllerDeviceId,
+    controllerToken: config.controllerToken ? "__cached__" : "",
+    controllerTokenExpiresAt: config.controllerTokenExpiresAt,
+    openaiApiKey: config.openaiApiKey,
+    openaiBaseUrl: config.openaiBaseUrl,
+    anthropicApiKey: config.anthropicApiKey,
+    anthropicBaseUrl: config.anthropicBaseUrl,
     tokenExpiresAt: config.tokenExpiresAt,
     cliProvider: config.cliProvider,
   };
+}
+
+function getProviderEnvironment(provider: CliProvider): Record<string, string> {
+  const config = loadConfig();
+  if (provider === "codex") {
+    const env: Record<string, string> = {};
+    if (config.openaiApiKey?.trim()) {
+      env.OPENAI_API_KEY = config.openaiApiKey.trim();
+    }
+    if (config.openaiBaseUrl?.trim()) {
+      env.OPENAI_BASE_URL = config.openaiBaseUrl.trim();
+    }
+    return env;
+  }
+
+  const env: Record<string, string> = {};
+  if (config.anthropicApiKey?.trim()) {
+    env.ANTHROPIC_API_KEY = config.anthropicApiKey.trim();
+    env.ANTHROPIC_AUTH_TOKEN = config.anthropicApiKey.trim();
+  }
+  if (config.anthropicBaseUrl?.trim()) {
+    env.ANTHROPIC_BASE_URL = config.anthropicBaseUrl.trim();
+  }
+  return env;
 }
 
 function saveAuthState(data: {
@@ -640,6 +752,17 @@ function saveAuthState(data: {
   configStore.set("tokenExpiresAt", data.expiresAt);
 }
 
+function saveControllerAuthState(data: {
+  token: string;
+  expiresAt: string;
+  deviceId: string;
+}): void {
+  configStore.set("controllerDeviceId", data.deviceId);
+  configStore.set("encryptedControllerToken", encodeSecretForStore(data.token));
+  configStore.set("controllerToken", "");
+  configStore.set("controllerTokenExpiresAt", data.expiresAt);
+}
+
 function updateRelayClientAuthFromConfig(): void {
   if (!relayClient) {
     return;
@@ -647,6 +770,29 @@ function updateRelayClientAuthFromConfig(): void {
 
   const config = loadConfig();
   relayClient.updateAuth(config.serverUrl, config.agentId, config.token);
+}
+
+function getControllerDeviceId(): string {
+  const config = loadConfig();
+  const stored = config.controllerDeviceId?.trim() ?? "";
+  if (stored) {
+    return stored;
+  }
+  return config.agentId?.trim() ? `desktop-controller-${config.agentId.trim()}` : `desktop-controller-${uuidv4()}`;
+}
+
+function updateControllerRelayClientAuthFromConfig(): void {
+  if (!controllerRelayClient) {
+    return;
+  }
+
+  const config = loadConfig();
+  controllerRelayClient.updateAuth(
+    config.serverUrl,
+    "",
+    config.controllerToken ?? "",
+    getControllerDeviceId(),
+  );
 }
 
 function scheduleTokenRefresh(delayOverrideMs?: number): void {
@@ -675,6 +821,33 @@ function scheduleTokenRefresh(delayOverrideMs?: number): void {
 
   tokenRefreshTimer = setTimeout(() => {
     void refreshAgentToken(true);
+  }, delayMs);
+}
+
+function scheduleControllerTokenRefresh(delayOverrideMs?: number): void {
+  if (controllerTokenRefreshTimer) {
+    clearTimeout(controllerTokenRefreshTimer);
+    controllerTokenRefreshTimer = null;
+  }
+
+  const config = loadConfig();
+  if (!config.username?.trim() || !config.password?.trim() || !config.agentId?.trim()) {
+    return;
+  }
+
+  const delayMs = delayOverrideMs ?? (() => {
+    if (!config.controllerTokenExpiresAt) {
+      return MIN_TOKEN_REFRESH_DELAY_MS;
+    }
+    const expiresAtMs = Date.parse(config.controllerTokenExpiresAt);
+    if (Number.isNaN(expiresAtMs)) {
+      return MIN_TOKEN_REFRESH_DELAY_MS;
+    }
+    return Math.max(MIN_TOKEN_REFRESH_DELAY_MS, expiresAtMs - Date.now() - TOKEN_REFRESH_WINDOW_MS);
+  })();
+
+  controllerTokenRefreshTimer = setTimeout(() => {
+    void refreshControllerToken(true);
   }, delayMs);
 }
 
@@ -737,6 +910,63 @@ async function refreshAgentToken(force: boolean = false): Promise<boolean> {
     return await tokenRefreshPromise;
   } finally {
     tokenRefreshPromise = null;
+  }
+}
+
+async function refreshControllerToken(force: boolean = false): Promise<boolean> {
+  if (controllerTokenRefreshPromise) {
+    return controllerTokenRefreshPromise;
+  }
+
+  controllerTokenRefreshPromise = (async () => {
+    const config = loadConfig();
+    const deviceId = getControllerDeviceId();
+    if (!config.username?.trim() || !config.password?.trim() || !config.agentId?.trim()) {
+      return false;
+    }
+
+    if (!force && config.controllerToken && !isTokenExpiringSoon(config.controllerTokenExpiresAt)) {
+      scheduleControllerTokenRefresh();
+      updateControllerRelayClientAuthFromConfig();
+      return true;
+    }
+
+    try {
+      const response = await fetch(`${toHttpBaseUrl(config.serverUrl)}/api/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username: config.username,
+          password: config.password,
+          client_type: "device",
+          client_id: deviceId,
+        }),
+      });
+
+      if (!response.ok) {
+        scheduleControllerTokenRefresh(MIN_TOKEN_REFRESH_DELAY_MS);
+        return Boolean(config.controllerToken) && !isTokenExpiringSoon(config.controllerTokenExpiresAt);
+      }
+
+      const result = await response.json() as { token: string; expires_at: string };
+      saveControllerAuthState({
+        token: result.token,
+        expiresAt: result.expires_at,
+        deviceId,
+      });
+      updateControllerRelayClientAuthFromConfig();
+      scheduleControllerTokenRefresh();
+      return true;
+    } catch (_error) {
+      scheduleControllerTokenRefresh(MIN_TOKEN_REFRESH_DELAY_MS);
+      return Boolean(config.controllerToken) && !isTokenExpiringSoon(config.controllerTokenExpiresAt);
+    }
+  })();
+
+  try {
+    return await controllerTokenRefreshPromise;
+  } finally {
+    controllerTokenRefreshPromise = null;
   }
 }
 
@@ -846,9 +1076,12 @@ function createWorkspaceWindow(): BrowserWindow {
   win.webContents.on("did-finish-load", () => {
     win.webContents.send("lang-changed", getLangPayload());
     win.webContents.send("update-state-changed", updateManager.getState());
-    win.webContents.send("projects-changed", projectStore.getAll());
-    for (const project of projectStore.getAll()) {
-      win.webContents.send("project-session-snapshot", runtimeManager.getSnapshot(project.id));
+    win.webContents.send("projects-changed", getAllProjects());
+    for (const project of getAllProjects()) {
+      const snapshot = getProjectSnapshot(project.id);
+      if (snapshot) {
+        win.webContents.send("project-session-snapshot", snapshot);
+      }
     }
     if (activeWorkspaceProjectId) {
       win.webContents.send("project-id", activeWorkspaceProjectId);
@@ -931,7 +1164,6 @@ function initRelay(config: AgentConfig): void {
     appSettingsStore.get("e2eEnabled") as boolean,
   );
   new MessageRouter(relayClient, {
-    revealProjectWindow: (projectId: string) => showWorkspaceWindow(projectId),
     runtimeManager,
     getDefaultCliProvider,
     syncProjectCatalog: () => syncProjectCatalog(loadConfig().agentId),
@@ -969,8 +1201,61 @@ function initRelay(config: AgentConfig): void {
   relayClient.connect();
 }
 
+function initRemoteRelay(config: AgentConfig): void {
+  if (!config.username?.trim() || !config.password?.trim() || !config.agentId?.trim()) {
+    return;
+  }
+
+  const controllerDeviceId = getControllerDeviceId();
+  if (!config.controllerToken?.trim()) {
+    return;
+  }
+
+  controllerRelayClient = new RelayClient(
+    config.serverUrl,
+    "",
+    config.controllerToken,
+    false,
+    {
+      clientType: "device",
+      deviceId: controllerDeviceId,
+    },
+  );
+  remoteSessionStore = new RemoteSessionStore(controllerRelayClient, {
+    localAgentId: () => loadConfig().agentId,
+  });
+
+  remoteSessionStore.on("projects-changed", () => {
+    broadcastProjectsChanged();
+    updateWindowTitles();
+  });
+  remoteSessionStore.on("snapshot", (projectId: string, snapshot: ProjectSessionSnapshot) => {
+    if (workspaceWindow && !workspaceWindow.isDestroyed()) {
+      workspaceWindow.webContents.send("project-session-snapshot", snapshot);
+    }
+  });
+
+  controllerRelayClient.on("connected", () => {
+    scheduleControllerTokenRefresh();
+    remoteSessionStore?.requestProjectList();
+  });
+  controllerRelayClient.on("disconnected", () => {
+    void 0;
+  });
+  controllerRelayClient.on("auth-failed", () => {
+    void refreshControllerToken(true);
+  });
+  controllerRelayClient.on("message", (env: any) => {
+    remoteSessionStore?.handleEnvelope(env);
+  });
+  controllerRelayClient.on("error", () => {
+    void 0;
+  });
+  controllerRelayClient.connect();
+}
+
 // IPC handlers
-ipcMain.handle("get-projects", () => projectStore.getAll());
+ipcMain.handle("get-projects", () => getAllProjects());
 
 ipcMain.handle("add-project", async (_event, data: {
   name: string;
@@ -978,6 +1263,7 @@ ipcMain.handle("add-project", async (_event, data: {
   groupName?: string | null;
   cliProvider?: CliProvider;
   cliModel?: string | null;
+  projectPrompt?: string | null;
 }) => {
   const config = loadConfig();
   const projectId = uuidv4();
@@ -993,6 +1279,7 @@ ipcMain.handle("add-project", async (_event, data: {
     groupName: normalizeProjectGroupName(data.groupName),
     cliProvider,
     cliModel,
+    projectPrompt: data.projectPrompt?.trim() ? data.projectPrompt.trim() : null,
     createdAt: Date.now(),
   });
 
@@ -1007,7 +1294,7 @@ ipcMain.handle("add-project", async (_event, data: {
 
 ipcMain.handle(
   "update-project",
-  (_event, data: { projectId: string; updates: Partial<Pick<Project, "name" | "path" | "groupName" | "cliProvider" | "cliModel">> }) => {
+  (_event, data: { projectId: string; updates: Partial<Pick<Project, "name" | "path" | "groupName" | "cliProvider" | "cliModel" | "projectPrompt">> }) => {
     const project = projectStore.getById(data.projectId);
     if (!project) {
       return { success: false, error: "Project not found" };
@@ -1025,6 +1312,9 @@ ipcMain.handle(
     }
     if (data.updates.cliModel !== undefined) {
       nextUpdates.cliModel = data.updates.cliModel?.trim() ? data.updates.cliModel.trim() : null;
+    }
+    if (data.updates.projectPrompt !== undefined) {
+      nextUpdates.projectPrompt = data.updates.projectPrompt?.trim() ? data.updates.projectPrompt.trim() : null;
     }
 
     projectStore.update(data.projectId, nextUpdates);
@@ -1073,6 +1363,89 @@ ipcMain.on("open-project-window", (_event, projectId: string) => {
 
 ipcMain.handle("get-config", () => getPublicConfig());
 
+ipcMain.handle("list-access-grants", async () => {
+  const refreshed = await refreshAgentToken(false);
+  const config = loadConfig();
+  if (!refreshed || !config.token) {
+    return { success: false, error: "Not logged in" };
+  }
+
+  try {
+    const response = await fetch(`${toHttpBaseUrl(config.serverUrl)}/api/access/grants`, {
+      headers: {
+        Authorization: `Bearer ${config.token}`,
+      },
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      return { success: false, error: errorText || response.statusText };
+    }
+    const data = await response.json();
+    return { success: true, data };
+  } catch (error: any) {
+    return { success: false, error: error?.message ?? String(error) };
+  }
+});
+
+ipcMain.handle("grant-access-to-user", async (_event, data: { controllerUsername: string; note?: string | null }) => {
+  const refreshed = await refreshAgentToken(false);
+  const config = loadConfig();
+  if (!refreshed || !config.token || !config.agentId) {
+    return { success: false, error: "Not logged in" };
+  }
+
+  try {
+    const response = await fetch(`${toHttpBaseUrl(config.serverUrl)}/api/access/grants`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${config.token}`,
+      },
+      body: JSON.stringify({
+        controller_username: data.controllerUsername,
+        target_agent_id: config.agentId,
+        note: data.note ?? "",
+      }),
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      return { success: false, error: errorText || response.statusText };
+    }
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error?.message ?? String(error) };
+  }
+});
+
+ipcMain.handle("revoke-access-grant", async (_event, data: { controllerUserId: number; targetAgentId?: string | null }) => {
+  const refreshed = await refreshAgentToken(false);
+  const config = loadConfig();
+  const targetAgentId = data.targetAgentId?.trim() || config.agentId;
+  if (!refreshed || !config.token || !targetAgentId) {
+    return { success: false, error: "Not logged in" };
+  }
+
+  try {
+    const query = new URLSearchParams({
+      controller_user_id: String(data.controllerUserId),
+      target_agent_id: targetAgentId,
+    });
+    const response = await fetch(`${toHttpBaseUrl(config.serverUrl)}/api/access/grants?${query.toString()}`, {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${config.token}`,
+      },
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      return { success: false, error: errorText || response.statusText };
+    }
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error?.message ?? String(error) };
+  }
+});
+
 ipcMain.handle("save-config", (_event, config: Partial<AgentConfig>) => {
   if (config.serverUrl !== undefined) configStore.set("serverUrl", config.serverUrl);
   if (config.agentId !== undefined) configStore.set("agentId", config.agentId);
@@ -1082,6 +1455,10 @@ ipcMain.handle("save-config", (_event, config: Partial<AgentConfig>) => {
   }
   if (config.username !== undefined) configStore.set("username", config.username);
   if (config.password !== undefined) configStore.set("encryptedPassword", encodeSecretForStore(config.password));
+  if (config.openaiApiKey !== undefined) configStore.set("encryptedOpenaiApiKey", encodeSecretForStore(config.openaiApiKey));
+  if (config.openaiBaseUrl !== undefined) configStore.set("openaiBaseUrl", config.openaiBaseUrl);
+  if (config.anthropicApiKey !== undefined) configStore.set("encryptedAnthropicApiKey", encodeSecretForStore(config.anthropicApiKey));
+  if (config.anthropicBaseUrl !== undefined) configStore.set("anthropicBaseUrl", config.anthropicBaseUrl);
   if (config.cliProvider !== undefined) configStore.set("cliProvider", config.cliProvider);
   return true;
 });
@@ -1116,6 +1493,8 @@ ipcMain.handle("login", async (_event, data: { username: string; password: strin
     });
     scheduleTokenRefresh();
     updateRelayClientAuthFromConfig();
+    await refreshControllerToken(true);
+    updateControllerRelayClientAuthFromConfig();
 
     return { success: true, token: result.token, user: result.user };
   } catch (err: any) {
@@ -1138,11 +1517,18 @@ ipcMain.handle("set-e2e-enabled", (_event, enabled: boolean) => {
 
 ipcMain.handle("reconnect-relay", async () => {
   await refreshAgentToken(false);
+  await refreshControllerToken(false);
   if (relayClient) {
     relayClient.disconnect();
   }
+  if (controllerRelayClient) {
+    controllerRelayClient.disconnect();
+    controllerRelayClient = null;
+  }
+  remoteSessionStore = null;
   const config = loadConfig();
   initRelay(config);
+  initRemoteRelay(config);
   return true;
 });
 
@@ -1167,6 +1553,7 @@ ipcMain.handle("get-app-settings", () => {
     e2eEnabled: appSettingsStore.get("e2eEnabled") as boolean,
     autoUpdateCheck: appSettingsStore.get("autoUpdateCheck") as boolean,
     autoUpdateDownload: appSettingsStore.get("autoUpdateDownload") as boolean,
+    silentUpdateInstall: appSettingsStore.get("silentUpdateInstall") as boolean,
     historyRetentionDays: appSettingsStore.get("historyRetentionDays") as number,
     logDirectory: appLogger.getLogDirectory(),
   };
@@ -1203,6 +1590,12 @@ ipcMain.handle("set-app-settings", (_event, settings: Partial<AppSettings>) => {
   if (settings.autoUpdateDownload !== undefined) {
     appSettingsStore.set("autoUpdateDownload", settings.autoUpdateDownload);
   }
+  if (settings.silentUpdateInstall !== undefined) {
+    appSettingsStore.set("silentUpdateInstall", settings.silentUpdateInstall);
+    if (settings.silentUpdateInstall) {
+      void updateManager.maybeInstallDownloadedUpdate();
+    }
+  }
   if (settings.historyRetentionDays !== undefined) {
     const normalizedRetentionDays = Math.max(1, Math.floor(Number(settings.historyRetentionDays) || 30));
     appSettingsStore.set("historyRetentionDays", normalizedRetentionDays);
@@ -1229,7 +1622,7 @@ ipcMain.handle("get-connection-status", () => {
 });
 
 ipcMain.handle("open-project", (_event, projectId: string) => {
-  const project = projectStore.getById(projectId);
+  const project = getProjectById(projectId);
   if (project) {
     showWorkspaceWindow(project.id);
     return { success: true };
@@ -1249,15 +1642,19 @@ ipcMain.on("set-active-project", (_event, projectId: string | null) => {
 });
 
 ipcMain.handle("get-project-session", (_event, projectId: string) => {
-  const project = projectStore.getById(projectId);
+  const project = getProjectById(projectId);
   if (!project) {
     return { success: false, error: "Project not found" };
+  }
+
+  if (isRemoteProject(projectId)) {
+    remoteSessionStore?.requestSessionSync(projectId, { limit: 30 });
   }
 
   return {
     success: true,
     project,
-    session: runtimeManager.getSnapshot(projectId),
+    session: getProjectSnapshot(projectId),
   };
 });
 
@@ -1268,9 +1665,32 @@ ipcMain.handle("get-project-history-page", (_event, data: {
   beforeId?: string | null;
   limit?: number;
 }) => {
-  const project = projectStore.getById(data.projectId);
+  const project = getProjectById(data.projectId);
   if (!project) {
     return { success: false, error: "Project not found" };
+  }
+
+  if (isRemoteProject(data.projectId)) {
+    const page = remoteSessionStore?.getHistoryPage(data.projectId, data.kind, {
+      beforeId: data.beforeId,
+      limit: data.limit,
+    });
+    if (!page) {
+      return { success: false, error: "Remote project history unavailable" };
+    }
+
+    if ((data.kind === "messages" || data.kind === "activities" || data.kind === "cli") && page.hasMore) {
+      const earliest = page.items[0];
+      const earliestSeq = earliest && typeof earliest === "object" && "id" in earliest
+        ? undefined
+        : undefined;
+      void earliestSeq;
+    }
+
+    return {
+      success: true,
+      page,
+    };
   }
 
   return {
@@ -1284,9 +1704,17 @@ ipcMain.handle("get-project-history-page", (_event, data: {
 });
 
 ipcMain.handle("list-project-conversations", (_event, projectId: string) => {
-  const project = projectStore.getById(projectId);
+  const project = getProjectById(projectId);
   if (!project) {
     return { success: false, error: "Project not found" };
+  }
+
+  if (isRemoteProject(projectId)) {
+    const snapshot = remoteSessionStore?.getSnapshot(projectId);
+    return {
+      success: true,
+      conversations: snapshot?.conversations ?? [],
+    };
   }
 
   return {
@@ -1296,18 +1724,27 @@ ipcMain.handle("list-project-conversations", (_event, projectId: string) => {
 });
 
 ipcMain.handle("create-project-conversation", (_event, projectId: string) => {
-  const project = projectStore.getById(projectId);
+  const project = getProjectById(projectId);
   if (!project) {
     return { success: false, error: "Project not found" };
+  }
+
+  if (isRemoteProject(projectId)) {
+    return remoteSessionStore?.createConversation(projectId) ?? { success: false, error: "Remote controller unavailable" };
   }
 
   return runtimeManager.createConversation(projectId);
 });
 
 ipcMain.handle("activate-project-conversation", (_event, data: { projectId: string; conversationId: string }) => {
-  const project = projectStore.getById(data.projectId);
+  const project = getProjectById(data.projectId);
   if (!project) {
     return { success: false, error: "Project not found" };
+  }
+
+  if (isRemoteProject(data.projectId)) {
+    return remoteSessionStore?.activateConversation(data.projectId, data.conversationId)
+      ?? { success: false, error: "Remote controller unavailable" };
   }
 
   return runtimeManager.activateConversation(data.projectId, data.conversationId);
@@ -1397,7 +1834,7 @@ ipcMain.handle("get-attachment-image-data", (_event, data: { path?: string | nul
 });
 
 ipcMain.handle("send-project-prompt", (_event, data: { projectId: string; prompt: string; attachments?: unknown[] }) => {
-  const project = projectStore.getById(data.projectId);
+  const project = getProjectById(data.projectId);
   if (!project) {
     return { success: false, error: "Project not found" };
   }
@@ -1405,6 +1842,11 @@ ipcMain.handle("send-project-prompt", (_event, data: { projectId: string; prompt
   const attachments = normalizeIncomingAttachments(data.attachments);
   if (!data.prompt.trim() && attachments.length === 0) {
     return { success: false, error: "Prompt cannot be empty" };
+  }
+
+  if (isRemoteProject(data.projectId)) {
+    return remoteSessionStore?.sendPrompt(data.projectId, data.prompt, attachments)
+      ?? { success: false, error: "Remote controller unavailable" };
   }
 
   runtimeManager.enqueueMessage({
@@ -1419,9 +1861,13 @@ ipcMain.handle("send-project-prompt", (_event, data: { projectId: string; prompt
 });
 
 ipcMain.handle("stop-project-run", (_event, projectId: string) => {
-  const project = projectStore.getById(projectId);
+  const project = getProjectById(projectId);
   if (!project) {
     return { success: false, error: "Project not found" };
+  }
+
+  if (isRemoteProject(projectId)) {
+    return remoteSessionStore?.stopRun(projectId) ?? { success: false, error: "Remote controller unavailable" };
   }
 
   const stopped = runtimeManager.stopCurrentRun(
@@ -1437,9 +1883,13 @@ ipcMain.handle("stop-project-run", (_event, projectId: string) => {
 });
 
 ipcMain.handle("remove-queued-project-prompt", (_event, data: { projectId: string; runId: string }) => {
-  const project = projectStore.getById(data.projectId);
+  const project = getProjectById(data.projectId);
   if (!project) {
     return { success: false, error: "Project not found" };
+  }
+
+  if (isRemoteProject(data.projectId)) {
+    return { success: false, error: "Remote queue removal is not supported yet" };
   }
 
   const removed = runtimeManager.removeQueuedRun(data.projectId, data.runId);
@@ -1475,9 +1925,12 @@ ipcMain.on("close-window", (event) => {
 app.whenReady().then(async () => {
   tray = createTray();
   await refreshAgentToken(false);
+  await refreshControllerToken(false);
   const config = loadConfig();
   initRelay(config);
+  initRemoteRelay(config);
   scheduleTokenRefresh();
+  scheduleControllerTokenRefresh();
   updateManager.start();
 
   // Open workspace window unless silent launch is configured
@@ -1497,7 +1950,12 @@ app.on("before-quit", () => {
     clearTimeout(tokenRefreshTimer);
     tokenRefreshTimer = null;
   }
+  if (controllerTokenRefreshTimer) {
+    clearTimeout(controllerTokenRefreshTimer);
+    controllerTokenRefreshTimer = null;
+  }
   if (relayClient) relayClient.disconnect();
+  if (controllerRelayClient) controllerRelayClient.disconnect();
   updateManager.stop();
   runtimeManager.dispose();
   for (const project of projectStore.getAll()) {

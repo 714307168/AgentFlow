@@ -19,11 +19,13 @@ const (
 
 // Client represents a single WebSocket connection (agent or device).
 type Client struct {
-	ID         string
-	AgentID    string
-	DeviceID   string
-	Type       model.ClientType
-	ProjectIDs []string
+	ID                 string
+	AgentID            string
+	DeviceID           string
+	UserID             int
+	Type               model.ClientType
+	ProjectIDs         []string
+	AccessibleAgentIDs map[string]struct{}
 
 	conn *websocket.Conn
 	send chan []byte
@@ -31,6 +33,20 @@ type Client struct {
 
 	closed    chan struct{}
 	closeOnce sync.Once
+}
+
+func (c *Client) CanAccessAgent(agentID string) bool {
+	if agentID == "" {
+		return false
+	}
+	if c.Type == model.ClientTypeAgent {
+		return c.AgentID != "" && c.AgentID == agentID
+	}
+	if len(c.AccessibleAgentIDs) == 0 {
+		return c.AgentID != "" && c.AgentID == agentID
+	}
+	_, ok := c.AccessibleAgentIDs[agentID]
+	return ok
 }
 
 // NewClient creates a Client bound to the given hub and connection.

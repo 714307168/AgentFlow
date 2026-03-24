@@ -478,6 +478,29 @@
               </div>
             </div>
           </div>
+          <div class="section">
+            <div class="section-title" id="remoteAccessSection">Remote Access</div>
+            <div class="field">
+              <label id="shareAccessUserLabel">Allow Username</label>
+              <input type="text" id="shareAccessUser" placeholder="friend-account">
+            </div>
+            <div class="field">
+              <label id="shareAccessNoteLabel">Note</label>
+              <input type="text" id="shareAccessNote" placeholder="Optional note">
+            </div>
+            <div class="btn-row">
+              <button class="btn-primary btn-small" id="shareAccessBtn">Grant Access</button>
+              <button class="btn-secondary btn-small" id="refreshAccessBtn">Refresh</button>
+            </div>
+            <div class="field" style="margin-top: 12px;">
+              <label id="sharedWithLabel">Users With Access</label>
+              <div class="project-list" id="incomingGrantList" data-empty-message="No users have access yet."></div>
+            </div>
+            <div class="field" style="margin-top: 12px;">
+              <label id="controllableAgentsLabel">Controllable Desktops</label>
+              <div class="project-list" id="controllableAgentList" data-empty-message="No remote desktops available."></div>
+            </div>
+          </div>
         </section>
 
         <section class="settings-pane hidden" id="projectPane" data-pane-content="project">
@@ -509,6 +532,10 @@
               <div class="field">
                 <label id="projectModelLabel">Project Model</label>
                 <input type="text" id="projectModel" placeholder="Leave blank to use the provider default">
+              </div>
+              <div class="field">
+                <label id="projectPromptLabel">Project Guidance</label>
+                <textarea id="projectPrompt" rows="6" placeholder="Where are the docs, deployment notes, test docs, and server config docs for this project?"></textarea>
               </div>
               <div class="btn-row">
                 <button class="btn-primary btn-small" id="saveProjectBtn">Save</button>
@@ -601,6 +628,16 @@
                 <span class="slider"></span>
               </div>
             </div>
+            <div class="toggle-row">
+              <div class="toggle-copy">
+                <label id="silentUpdateInstallLabel" for="silentUpdateInstallToggle">Silently install downloaded updates</label>
+                <div class="toggle-help" id="silentUpdateInstallHint">When no task is running or queued, the app can quit itself and launch the installer automatically.</div>
+              </div>
+              <div class="toggle">
+                <input type="checkbox" id="silentUpdateInstallToggle">
+                <span class="slider"></span>
+              </div>
+            </div>
             <div class="field" style="margin-top: 12px;">
               <label id="updateStatusLabel">Update Status</label>
               <div class="pubkey" id="updateStatusText">—</div>
@@ -625,6 +662,22 @@
                 <option value="codex">OpenAI Codex</option>
               </select>
               <div id="runtimeHint">Both providers run in full-auto mode with no approval prompts or click-throughs.</div>
+            </div>
+            <div class="field">
+              <label id="openaiApiKeyLabel">OpenAI-Compatible API Key</label>
+              <input type="password" id="openaiApiKey" placeholder="sk-...">
+            </div>
+            <div class="field">
+              <label id="openaiBaseUrlLabel">OpenAI-Compatible Base URL</label>
+              <input type="text" id="openaiBaseUrl" placeholder="https://api.openai.com/v1">
+            </div>
+            <div class="field">
+              <label id="anthropicApiKeyLabel">Claude-Compatible API Key</label>
+              <input type="password" id="anthropicApiKey" placeholder="sk-ant-...">
+            </div>
+            <div class="field">
+              <label id="anthropicBaseUrlLabel">Claude-Compatible Base URL</label>
+              <input type="text" id="anthropicBaseUrl" placeholder="https://api.anthropic.com">
             </div>
           </div>
 
@@ -655,6 +708,7 @@
     let msgs = {};
     let activeSettingsPane = "system";
     let latestUpdateState = null;
+    let latestAccessState = null;
 
     function normalizeSettingsPane(pane) {
       return ["connection", "project", "system"].includes(pane) ? pane : "system";
@@ -731,6 +785,13 @@
       );
     }
 
+    function projectPromptPlaceholder() {
+      return inlineText(
+        "Where are the test docs, development docs, deployment docs, server config docs, and what kind of project is this?",
+        "这里可以写这个项目是什么、测试文档在哪里、开发文档在哪里、部署文档在哪里、服务器配置文档在哪里等长期提示。"
+      );
+    }
+
     function applyI18n() {
       applyPageChrome();
       document.getElementById("savedText").textContent = msg("settings.saved.short", "Saved");
@@ -750,6 +811,8 @@
       document.getElementById("projectProviderLabel").textContent = msg("settings.cliProvider", "CLI Provider");
       document.getElementById("projectModelLabel").textContent = inlineText("Project Model", "项目模型");
       document.getElementById("projectModel").placeholder = projectModelPlaceholder();
+      document.getElementById("projectPromptLabel").textContent = inlineText("Project Guidance", "项目提示词");
+      document.getElementById("projectPrompt").placeholder = projectPromptPlaceholder();
       document.getElementById("projectList").setAttribute("data-empty-message", msg("settings.projectEmpty", "No projects yet. Add one above to get started."));
       document.getElementById("saveProjectBtn").textContent = msg("settings.save", "Save");
       document.getElementById("cancelProjectBtn").textContent = msg("settings.cancel", "Cancel");
@@ -779,6 +842,11 @@
         "The installer is downloaded in the background, but you still need to click install manually.",
         "安装包会在后台自动下载，但安装仍然需要你手动点一下。"
       );
+      document.getElementById("silentUpdateInstallLabel").textContent = inlineText("Silently install downloaded updates", "静默安装已下载更新");
+      document.getElementById("silentUpdateInstallHint").textContent = inlineText(
+        "When no task is running or queued, the app can quit itself and launch the installer automatically.",
+        "当没有运行中或排队中的任务时，桌面端可自行退出并自动拉起安装程序。"
+      );
       document.getElementById("updateStatusLabel").textContent = inlineText("Update Status", "更新状态");
       document.getElementById("updateNotesLabel").textContent = inlineText("Release Notes", "版本说明");
       document.getElementById("checkUpdatesBtn").textContent = inlineText("Check for Updates", "检查更新");
@@ -787,6 +855,10 @@
       document.getElementById("runtimeSection").textContent = msg("settings.runtime", "Runtime");
       document.getElementById("cliProviderLabel").textContent = msg("settings.cliProvider", "CLI Provider");
       document.getElementById("runtimeHint").textContent = msg("settings.runtimeHint", "Both providers run in full-auto mode with no approval prompts or click-throughs.");
+      document.getElementById("openaiApiKeyLabel").textContent = inlineText("OpenAI-Compatible API Key", "OpenAI 协议 API Key");
+      document.getElementById("openaiBaseUrlLabel").textContent = inlineText("OpenAI-Compatible Base URL", "OpenAI 协议 Base URL");
+      document.getElementById("anthropicApiKeyLabel").textContent = inlineText("Claude-Compatible API Key", "Claude 协议 API Key");
+      document.getElementById("anthropicBaseUrlLabel").textContent = inlineText("Claude-Compatible Base URL", "Claude 协议 Base URL");
       document.getElementById("serverSection").textContent = msg("settings.serverConnection", "Server Connection");
       document.getElementById("serverUrlLabel").textContent = msg("settings.relayServerUrl", "Relay Server URL");
       document.getElementById("usernameLabel").textContent = msg("settings.username", "Username");
@@ -798,6 +870,15 @@
       document.getElementById("loginBtn").textContent = msg("settings.login", "Login");
       document.getElementById("reconnectBtn").textContent = msg("settings.reconnect", "Reconnect");
       document.getElementById("loginStatusLabel").textContent = msg("settings.loginStatus", "Login Status");
+      document.getElementById("remoteAccessSection").textContent = inlineText("Remote Access", "远程访问");
+      document.getElementById("shareAccessUserLabel").textContent = inlineText("Allow Username", "允许访问的用户名");
+      document.getElementById("shareAccessUser").placeholder = inlineText("friend-account", "朋友账号");
+      document.getElementById("shareAccessNoteLabel").textContent = inlineText("Note", "备注");
+      document.getElementById("shareAccessNote").placeholder = inlineText("Optional note", "可选备注");
+      document.getElementById("shareAccessBtn").textContent = inlineText("Grant Access", "授权访问");
+      document.getElementById("refreshAccessBtn").textContent = inlineText("Refresh", "刷新");
+      document.getElementById("sharedWithLabel").textContent = inlineText("Users With Access", "已授权用户");
+      document.getElementById("controllableAgentsLabel").textContent = inlineText("Controllable Desktops", "可控制桌面");
       document.getElementById("e2eSection").textContent = msg("settings.e2e", "End-to-End Encryption");
       document.getElementById("e2eLabel").textContent = msg("settings.e2eEnable", "Enable E2E Encryption");
       document.getElementById("pubkeyLabel").textContent = msg("settings.publicKey", "Public Key");
@@ -805,6 +886,7 @@
       document.getElementById("maximizeBtn").title = msg("common.maximize", "Maximize");
       document.getElementById("closeBtn").title = msg("common.close", "Close");
       renderUpdateState(latestUpdateState);
+      renderAccessGrants(latestAccessState);
     }
 
     function flashSaved() {
@@ -820,6 +902,10 @@
         username: document.getElementById("username").value.trim(),
         password: document.getElementById("password").value,
         agentId: document.getElementById("agentId").value.trim(),
+        openaiApiKey: document.getElementById("openaiApiKey").value,
+        openaiBaseUrl: document.getElementById("openaiBaseUrl").value.trim(),
+        anthropicApiKey: document.getElementById("anthropicApiKey").value,
+        anthropicBaseUrl: document.getElementById("anthropicBaseUrl").value.trim(),
         cliProvider: document.getElementById("cliProvider").value,
       });
       flashSaved();
@@ -904,6 +990,66 @@
       setTimeout(() => { el.style.display = "none"; }, 3000);
     }
 
+    function renderAccessGrants(state) {
+      latestAccessState = state || latestAccessState;
+      const incomingList = document.getElementById("incomingGrantList");
+      const controllableList = document.getElementById("controllableAgentList");
+      const incoming = latestAccessState?.incoming_grants || [];
+      const controllable = latestAccessState?.controllable_agents || [];
+
+      incomingList.innerHTML = incoming.length === 0
+        ? `<div class="empty-state">${escapeHtml(incomingList.dataset.emptyMessage || inlineText("No users have access yet.", "暂未授权给其他用户。"))}</div>`
+        : incoming.map((grant) => `
+            <div class="project-item">
+              <div class="project-info">
+                <div class="project-name">${escapeHtml(grant.controller_username || "")}</div>
+                <div class="project-path">${escapeHtml(grant.target_agent_id || "")}</div>
+                <div class="project-path">${escapeHtml(grant.note || "")}</div>
+              </div>
+              <div class="project-actions">
+                <button class="btn-danger btn-small" onclick="revokeAccessGrant(${Number(grant.controller_user_id || 0)}, '${escapeHtml(grant.target_agent_id || "")}')">${escapeHtml(inlineText("Revoke", "撤销"))}</button>
+              </div>
+            </div>
+          `).join("");
+
+      controllableList.innerHTML = controllable.length === 0
+        ? `<div class="empty-state">${escapeHtml(controllableList.dataset.emptyMessage || inlineText("No remote desktops available.", "暂无可控制桌面。"))}</div>`
+        : controllable.map((agent) => `
+            <div class="project-item">
+              <div class="project-info">
+                <div class="project-name">${escapeHtml(agent.owner_username || "")}</div>
+                <div class="project-path">${escapeHtml(agent.agent_id || "")}</div>
+                <div class="project-path">${escapeHtml(agent.owner_note || "")}</div>
+              </div>
+            </div>
+          `).join("");
+    }
+
+    async function loadAccessGrants() {
+      try {
+        const result = await api.listAccessGrants();
+        if (result?.success) {
+          renderAccessGrants(result.data || {});
+        }
+      } catch (error) {
+        console.error("Failed to load access grants:", error);
+      }
+    }
+
+    async function revokeAccessGrant(controllerUserId, targetAgentId) {
+      try {
+        const result = await api.revokeAccessGrant({ controllerUserId, targetAgentId });
+        if (!result?.success) {
+          showStatus(result?.error || inlineText("Failed to revoke access.", "撤销授权失败。"), true);
+          return;
+        }
+        await loadAccessGrants();
+        flashSaved();
+      } catch (error) {
+        showStatus(getErrorMessage(error), true);
+      }
+    }
+
     async function loadProjects() {
       try {
         const projects = await api.getProjects();
@@ -945,6 +1091,12 @@
                 onblur="updateProjectModel('${project.id}', this.value)"
                 onkeydown="handleProjectTextKey(event, '${project.id}', this, 'model')"
               >
+              <textarea
+                class="project-model-input"
+                rows="4"
+                placeholder="${escapeHtml(projectPromptPlaceholder())}"
+                onblur="updateProjectPrompt('${project.id}', this.value)"
+              >${escapeHtml(project.projectPrompt || "")}</textarea>
               <button class="btn-secondary btn-small" onclick="openProject('${project.id}')">${escapeHtml(msg("settings.projectOpen", "Open"))}</button>
               <button class="btn-danger btn-small" onclick="deleteProject('${project.id}')">${escapeHtml(msg("settings.projectDelete", "Delete"))}</button>
             </div>
@@ -1008,6 +1160,12 @@
       });
     }
 
+    async function updateProjectPrompt(projectId, projectPrompt) {
+      await updateProjectConfig(projectId, {
+        projectPrompt: String(projectPrompt || "").trim() || null,
+      });
+    }
+
     function handleProjectTextKey(event, projectId, input, kind) {
       if (event.key !== "Enter") {
         return;
@@ -1042,9 +1200,14 @@
       document.getElementById("username").value = config.username || "";
       document.getElementById("password").value = config.password || "";
       document.getElementById("agentId").value = config.agentId || "";
+      document.getElementById("openaiApiKey").value = config.openaiApiKey || "";
+      document.getElementById("openaiBaseUrl").value = config.openaiBaseUrl || "";
+      document.getElementById("anthropicApiKey").value = config.anthropicApiKey || "";
+      document.getElementById("anthropicBaseUrl").value = config.anthropicBaseUrl || "";
       document.getElementById("cliProvider").value = config.cliProvider || "claude";
       document.getElementById("projectProvider").value = config.cliProvider || "claude";
       document.getElementById("projectModel").value = "";
+      document.getElementById("projectPrompt").value = "";
       document.getElementById("projectGroup").value = "";
       document.getElementById("e2eToggle").checked = e2e.enabled;
       document.getElementById("pubkey").textContent = e2e.publicKey || "—";
@@ -1053,13 +1216,15 @@
       document.getElementById("saveLogsToggle").checked = appSettings.saveLogs || false;
       document.getElementById("autoUpdateCheckToggle").checked = appSettings.autoUpdateCheck !== false;
       document.getElementById("autoUpdateDownloadToggle").checked = appSettings.autoUpdateDownload || false;
+      document.getElementById("silentUpdateInstallToggle").checked = appSettings.silentUpdateInstall || false;
       document.getElementById("historyRetentionDays").value = String(appSettings.historyRetentionDays || 30);
       document.getElementById("logPath").textContent = appSettings.logDirectory || "—";
       renderUpdateState(updateState);
       await syncLanguage(lang || "en", i18nMessages || {});
+      await loadAccessGrants();
     }
 
-    ["serverUrl", "username", "password", "agentId"].forEach((id) => {
+    ["serverUrl", "username", "password", "agentId", "openaiApiKey", "openaiBaseUrl", "anthropicApiKey", "anthropicBaseUrl"].forEach((id) => {
       document.getElementById(id).addEventListener("blur", () => { void saveConnectionConfig(); });
     });
 
@@ -1083,6 +1248,7 @@
         if (result.success) {
           showStatus(msg("settings.loginSuccess", "Login successful"), false);
           await updateLoginStatus();
+          await loadAccessGrants();
           setTimeout(() => api.reconnectRelay(), 500);
         } else {
           showStatus(msg("settings.loginFailed", "Login failed: {error}", {
@@ -1152,6 +1318,11 @@
       flashSaved();
     });
 
+    document.getElementById("silentUpdateInstallToggle").addEventListener("change", async (event) => {
+      await api.setAppSettings({ silentUpdateInstall: event.target.checked });
+      flashSaved();
+    });
+
     document.getElementById("e2eToggle").addEventListener("change", async (event) => {
       await api.setE2EEnabled(event.target.checked);
       flashSaved();
@@ -1169,11 +1340,41 @@
         setTimeout(async () => {
           const e2e = await api.getE2EStatus();
           document.getElementById("pubkey").textContent = e2e.publicKey || "—";
-          await Promise.all([updateConnectionStatus(), updateLoginStatus()]);
+          await Promise.all([updateConnectionStatus(), updateLoginStatus(), loadAccessGrants()]);
         }, 1000);
       } catch (error) {
         showStatus(msg("settings.saveFailed", "Failed: {error}", { error: getErrorMessage(error) }), true);
       }
+    });
+
+    document.getElementById("shareAccessBtn").addEventListener("click", async () => {
+      const controllerUsername = document.getElementById("shareAccessUser").value.trim();
+      const note = document.getElementById("shareAccessNote").value.trim();
+      if (!controllerUsername) {
+        showStatus(inlineText("Enter a username to grant access.", "请输入要授权的用户名。"), true);
+        return;
+      }
+      try {
+        const result = await api.grantAccessToUser({
+          controllerUsername,
+          note: note || null,
+        });
+        if (!result?.success) {
+          showStatus(result?.error || inlineText("Failed to grant access.", "授权失败。"), true);
+          return;
+        }
+        document.getElementById("shareAccessUser").value = "";
+        document.getElementById("shareAccessNote").value = "";
+        await loadAccessGrants();
+        flashSaved();
+      } catch (error) {
+        showStatus(getErrorMessage(error), true);
+      }
+    });
+
+    document.getElementById("refreshAccessBtn").addEventListener("click", async () => {
+      await loadAccessGrants();
+      flashSaved();
     });
 
     document.getElementById("checkUpdatesBtn").addEventListener("click", async () => {
@@ -1217,6 +1418,7 @@
       document.getElementById("projectGroup").value = "";
       document.getElementById("projectProvider").value = document.getElementById("cliProvider").value || "claude";
       document.getElementById("projectModel").value = "";
+      document.getElementById("projectPrompt").value = "";
     });
 
     document.getElementById("saveProjectBtn").addEventListener("click", async () => {
@@ -1225,18 +1427,27 @@
       const groupName = document.getElementById("projectGroup").value.trim();
       const cliProvider = document.getElementById("projectProvider").value;
       const cliModel = document.getElementById("projectModel").value.trim();
+      const projectPrompt = document.getElementById("projectPrompt").value.trim();
       if (!name || !path) {
         showStatus(msg("settings.projectRequired", "Project name and path are required."), true);
         return;
       }
       try {
-        await api.addProject({ name, path, groupName: groupName || null, cliProvider, cliModel: cliModel || null });
+        await api.addProject({
+          name,
+          path,
+          groupName: groupName || null,
+          cliProvider,
+          cliModel: cliModel || null,
+          projectPrompt: projectPrompt || null,
+        });
         document.getElementById("addProjectForm").classList.remove("visible");
         document.getElementById("projectName").value = "";
         document.getElementById("projectPath").value = "";
         document.getElementById("projectGroup").value = "";
         document.getElementById("projectProvider").value = document.getElementById("cliProvider").value || "claude";
         document.getElementById("projectModel").value = "";
+        document.getElementById("projectPrompt").value = "";
         await loadProjects();
         flashSaved();
       } catch (error) {

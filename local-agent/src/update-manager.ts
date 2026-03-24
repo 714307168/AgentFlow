@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, Notification, shell } from "electron";
+import { spawn } from "child_process";
 import { createHash } from "crypto";
 import { EventEmitter } from "events";
 import * as fs from "fs";
@@ -34,6 +35,9 @@ interface UpdateManagerOptions {
   getServerUrl: () => string;
   getAutoCheckEnabled: () => boolean;
   getAutoDownloadEnabled: () => boolean;
+  getSilentInstallEnabled: () => boolean;
+  canInstallNow: () => boolean;
+  prepareForSilentInstall: () => Promise<void> | void;
   getParentWindow: () => BrowserWindow | null;
 }
 
@@ -52,6 +56,7 @@ class UpdateManager extends EventEmitter {
   private latestRelease: UpdateReleaseInfo | null = null;
   private checkTimer: NodeJS.Timeout | null = null;
   private activeCheck: Promise<void> | null = null;
+  private silentInstallInFlight = false;
 
   constructor(options: UpdateManagerOptions) {
     super();
@@ -143,7 +148,9 @@ class UpdateManager extends EventEmitter {
         mandatory: Boolean(this.latestRelease.mandatory),
         message: null,
       });
-      await this.promptToInstall();
+      if (!(await this.tryInstallSilently())) {
+        await this.promptToInstall();
+      }
     } catch (error) {
       this.setState({
         status: "error",
@@ -155,6 +162,14 @@ class UpdateManager extends EventEmitter {
   }
 
   async installDownloadedUpdate(): Promise<boolean> {
+    return this.installDownloadedUpdateInternal(false);
+  }
+
+  async maybeInstallDownloadedUpdate(): Promise<boolean> {
+    return this.tryInstallSilently();
+  }
+
+  private async installDownloadedUpdateInternal(silent: boolean): Promise<boolean> {
     const downloadedPath = this.state.downloadedPath;
     if (!downloadedPath || !fs.existsSync(downloadedPath)) {
       this.setState({
@@ -162,6 +177,34 @@ class UpdateManager extends EventEmitter {
         message: this.text("No downloaded installer is available.", "当前没有已下载的安装包。"),
       });
       return false;
+    }
+
+    if (silent) {
+      try {
+        await this.options.prepareForSilentInstall();
+        const child = spawn(downloadedPath, ["/S"], {
+          detached: true,
+          stdio: "ignore",
+          windowsHide: true,
+        });
+        child.unref();
+        this.setState({
+          message: this.text(
+            "Downloaded update is installing silently.",
+            "已下载的更新正在静默安装。",
+          ),
+        });
+        setTimeout(() => {
+          app.exit(0);
+        }, 150);
+        return true;
+      } catch (error) {
+        this.setState({
+          status: "error",
+          message: this.formatError(error),
+        });
+        return false;
+      }
     }
 
     const errorMessage = await shell.openPath(downloadedPath);
@@ -332,6 +375,21 @@ class UpdateManager extends EventEmitter {
       return;
     }
 
+    if (this.options.getSilentInstallEnabled()) {
+      if (this.options.canInstallNow()) {
+        if (await this.tryInstallSilently()) {
+          return;
+        }
+      } else {
+        this.setState({
+          message: this.text(
+            "Update downloaded. Silent install will start after queued and running tasks finish.",
+            "更新已下载，待运行中和排队任务完成后会自动静默安装。",
+          ),
+        });
+      }
+    }
+
     const parentWindow = this.options.getParentWindow();
     if (parentWindow) {
       const result = await dialog.showMessageBox(parentWindow, {
@@ -407,6 +465,34 @@ class UpdateManager extends EventEmitter {
       `Update failed: ${detail}`,
       `更新失败：${detail}`,
     );
+  }
+
+  private async tryInstallSilently(): Promise<boolean> {
+    if (!this.options.getSilentInstallEnabled()) {
+      return false;
+    }
+    if (this.silentInstallInFlight) {
+      return true;
+    }
+    if (this.state.status !== "downloaded") {
+      return false;
+    }
+    if (!this.options.canInstallNow()) {
+      this.setState({
+        message: this.text(
+          "Update downloaded. Waiting for running and queued tasks to finish before silent install.",
+          "更新已下载，等待运行中和排队任务结束后再静默安装。",
+        ),
+      });
+      return false;
+    }
+
+    this.silentInstallInFlight = true;
+    try {
+      return await this.installDownloadedUpdateInternal(true);
+    } finally {
+      this.silentInstallInFlight = false;
+    }
   }
 }
 

@@ -165,6 +165,49 @@ func (s *Store) UpdateDeviceAgent(deviceID, agentID string) error {
 	return nil
 }
 
+func (s *Store) GetDeviceUserID(deviceID string) (int, bool) {
+	userID, err := s.db.GetDeviceUserID(deviceID)
+	if err != nil || userID <= 0 {
+		return 0, false
+	}
+	return userID, true
+}
+
+func (s *Store) GetAgentUserID(agentID string) (int, bool) {
+	userID, err := s.db.GetAgentUserID(agentID)
+	if err != nil || userID <= 0 {
+		return 0, false
+	}
+	return userID, true
+}
+
+func (s *Store) UserCanAccessAgent(userID int, agentID string) bool {
+	ok, err := s.db.UserCanAccessAgent(userID, agentID)
+	return err == nil && ok
+}
+
+func (s *Store) ListAccessibleAgentIDsForUser(userID int) []string {
+	items, err := s.db.ListAccessibleAgentsForUser(userID)
+	if err != nil {
+		return nil
+	}
+	ids := make([]string, 0, len(items))
+	for _, item := range items {
+		if item.AgentID != "" {
+			ids = append(ids, item.AgentID)
+		}
+	}
+	return ids
+}
+
+func (s *Store) ListAccessibleAgentIDsForDevice(deviceID string) []string {
+	userID, ok := s.GetDeviceUserID(deviceID)
+	if !ok {
+		return nil
+	}
+	return s.ListAccessibleAgentIDsForUser(userID)
+}
+
 func (s *Store) resolveAdminUserID() (int, error) {
 	var userID int
 	err := s.db.QueryRow("SELECT id FROM users ORDER BY id ASC LIMIT 1").Scan(&userID)

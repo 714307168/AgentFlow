@@ -104,6 +104,7 @@ type ProjectBindPayload struct {
 
 type ProjectListItem struct {
 	ID          string `json:"id"`
+	AgentID     string `json:"agent_id,omitempty"`
 	Name        string `json:"name"`
 	Path        string `json:"path"`
 	GroupName   string `json:"group_name,omitempty"`

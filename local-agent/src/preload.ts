@@ -26,13 +26,16 @@ contextBridge.exposeInMainWorld('claudeAgent', {
   getAttachmentImageData: (data: { path?: string | null }) => ipcRenderer.invoke('get-attachment-image-data', data),
   stopProjectRun: (projectId: string) => ipcRenderer.invoke('stop-project-run', projectId),
   removeQueuedProjectPrompt: (data: { projectId: string; runId: string }) => ipcRenderer.invoke('remove-queued-project-prompt', data),
-  addProject: (data: { name: string; path: string; groupName?: string | null; cliProvider?: string; cliModel?: string | null }) => ipcRenderer.invoke('add-project', data),
+  addProject: (data: { name: string; path: string; groupName?: string | null; cliProvider?: string; cliModel?: string | null; projectPrompt?: string | null }) => ipcRenderer.invoke('add-project', data),
   updateProject: (data: { projectId: string; updates: Record<string, string | null> }) => ipcRenderer.invoke('update-project', data),
   deleteProject: (projectId: string) => ipcRenderer.invoke('delete-project', projectId),
   openProjectWindow: (projectId: string) => {
     ipcRenderer.send('open-project-window', projectId);
   },
   getConfig: () => ipcRenderer.invoke('get-config'),
+  listAccessGrants: () => ipcRenderer.invoke('list-access-grants'),
+  grantAccessToUser: (data: { controllerUsername: string; note?: string | null }) => ipcRenderer.invoke('grant-access-to-user', data),
+  revokeAccessGrant: (data: { controllerUserId: number; targetAgentId?: string | null }) => ipcRenderer.invoke('revoke-access-grant', data),
   saveConfig: (config: Record<string, string>) => ipcRenderer.invoke('save-config', config),
   login: (data: { username: string; password: string; agentId: string }) => ipcRenderer.invoke('login', data),
   onProjectId: (callback: (id: string) => void) => {

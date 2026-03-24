@@ -69,6 +69,7 @@ func main() {
 	mux.HandleFunc("/api/auth/login", rateLimitMiddleware("user-login", loginRateLimiter, handler.LoginHandler(database, cfg)))
 	mux.HandleFunc("/api/auth/register-client", rateLimitMiddleware("client-register", registerRateLimiter, handler.RegisterClientHandler(database, cfg)))
 	mux.HandleFunc("/api/auth/change-password", rateLimitMiddleware("password-change", changePasswordRateLimiter, handler.ChangePasswordHandler(database)))
+	mux.HandleFunc("/api/access/grants", handler.AccessGrantsHandler(cfg, database))
 
 	// Legacy endpoints (kept for backward compatibility)
 	mux.HandleFunc("/api/session", handler.SessionHandler(cfg, st))

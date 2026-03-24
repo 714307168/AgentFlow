@@ -86,6 +86,19 @@ func (db *DB) initSchema() error {
 		FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE SET NULL
 	);
 
+	-- One-way remote control grants.
+	CREATE TABLE IF NOT EXISTS agent_access_grants (
+		controller_user_id INTEGER NOT NULL,
+		target_agent_id TEXT NOT NULL,
+		note TEXT,
+		created_by_user_id INTEGER NOT NULL,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		PRIMARY KEY (controller_user_id, target_agent_id),
+		FOREIGN KEY (controller_user_id) REFERENCES users(id) ON DELETE CASCADE,
+		FOREIGN KEY (target_agent_id) REFERENCES agents(id) ON DELETE CASCADE,
+		FOREIGN KEY (created_by_user_id) REFERENCES users(id) ON DELETE CASCADE
+	);
+
 	-- Login sessions table
 	CREATE TABLE IF NOT EXISTS login_sessions (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -127,6 +140,8 @@ func (db *DB) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_agents_user_id ON agents(user_id);
 	CREATE INDEX IF NOT EXISTS idx_devices_user_id ON devices(user_id);
 	CREATE INDEX IF NOT EXISTS idx_devices_agent_id ON devices(agent_id);
+	CREATE INDEX IF NOT EXISTS idx_agent_access_grants_controller ON agent_access_grants(controller_user_id);
+	CREATE INDEX IF NOT EXISTS idx_agent_access_grants_target_agent ON agent_access_grants(target_agent_id);
 	CREATE INDEX IF NOT EXISTS idx_login_sessions_user_id ON login_sessions(user_id);
 	CREATE INDEX IF NOT EXISTS idx_login_sessions_token_hash ON login_sessions(token_hash);
 	CREATE INDEX IF NOT EXISTS idx_releases_lookup ON releases(platform, channel, arch, published, created_at);

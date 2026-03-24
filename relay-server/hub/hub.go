@@ -2,6 +2,7 @@ package hub
 
 import (
 	"encoding/json"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -92,6 +93,7 @@ func (h *Hub) RegisterAgent(client *Client) {
 
 // RegisterDevice stores the device client.
 func (h *Hub) RegisterDevice(client *Client) {
+	_ = h.refreshDeviceAccess(client, "")
 	h.devices.Store(client.DeviceID, client)
 	log.Info().Str("device_id", client.DeviceID).Str("agent_id", client.AgentID).Msg("device registered")
 }
@@ -216,14 +218,26 @@ func (h *Hub) HandleMessage(from *Client, env *model.Envelope) {
 			log.Warn().Str("client_id", from.ID).Msg("project.list.request ignored for non-device client")
 			return
 		}
-		if !h.refreshDeviceBinding(from, env.ID) {
+		if !h.refreshDeviceAccess(from, env.ID) {
 			return
 		}
-		if from.AgentID == "" {
-			h.sendError(from, env.ID, "no_agent", "device is not bound to an agent")
+		accessibleAgentIDs := h.getSortedAccessibleAgentIDs(from)
+		if len(accessibleAgentIDs) == 0 {
+			payload, _ := json.Marshal(model.ProjectListPayload{
+				Projects: []model.ProjectListItem{},
+			})
+			_ = from.Send(&model.Envelope{
+				ID:        newID(),
+				Event:     model.EventProjectListed,
+				Seq:       h.NextSeq(),
+				Timestamp: time.Now().UnixMilli(),
+				Payload:   payload,
+			})
 			return
 		}
-		h.Route(env, from.AgentID)
+		for _, agentID := range accessibleAgentIDs {
+			h.sendProjectListToClient(from, agentID)
+		}
 
 	case model.EventProjectBind:
 		if from.Type != model.ClientTypeAgent {
@@ -411,7 +425,7 @@ func (h *Hub) BroadcastToDevices(env *model.Envelope, projectID string) {
 func (h *Hub) broadcastToDevicesByAgent(agentID string, env *model.Envelope) {
 	h.devices.Range(func(_, v interface{}) bool {
 		d := v.(*Client)
-		if d.AgentID == agentID {
+		if d.CanAccessAgent(agentID) {
 			if err := d.Send(env); err != nil {
 				log.Warn().Err(err).Str("device_id", d.DeviceID).Msg("broadcast send failed")
 			}
@@ -440,10 +454,10 @@ func (h *Hub) authorizeProjectAccess(from *Client, refID, projectID string) (str
 			return "", false
 		}
 	case model.ClientTypeDevice:
-		if !h.refreshDeviceBinding(from, refID) {
+		if !h.refreshDeviceAccess(from, refID) {
 			return "", false
 		}
-		if from.AgentID == "" || from.AgentID != agentID {
+		if !from.CanAccessAgent(agentID) {
 			h.sendError(from, refID, "forbidden", "device is not authorized for project")
 			return "", false
 		}
@@ -455,19 +469,47 @@ func (h *Hub) authorizeProjectAccess(from *Client, refID, projectID string) (str
 	return agentID, true
 }
 
-func (h *Hub) refreshDeviceBinding(from *Client, refID string) bool {
+func (h *Hub) refreshDeviceAccess(from *Client, refID string) bool {
 	if from.Type != model.ClientTypeDevice || from.DeviceID == "" || h.store == nil {
 		return true
 	}
 
-	agentID, ok := h.store.GetDeviceAgentID(from.DeviceID)
-	if !ok || agentID == "" {
+	userID, ok := h.store.GetDeviceUserID(from.DeviceID)
+	if !ok || userID <= 0 {
+		from.UserID = 0
 		from.AgentID = ""
-		h.sendError(from, refID, "no_agent", "device is not bound to an agent")
+		from.AccessibleAgentIDs = nil
+		h.sendError(from, refID, "auth_failed", "device owner is unavailable")
 		return false
 	}
 
-	from.AgentID = agentID
+	accessibleAgentIDs := h.store.ListAccessibleAgentIDsForUser(userID)
+	nextAccessible := make(map[string]struct{}, len(accessibleAgentIDs))
+	for _, agentID := range accessibleAgentIDs {
+		if agentID != "" {
+			nextAccessible[agentID] = struct{}{}
+		}
+	}
+
+	from.UserID = userID
+	from.AccessibleAgentIDs = nextAccessible
+
+	primaryAgentID := ""
+	if agentID, bound := h.store.GetDeviceAgentID(from.DeviceID); bound {
+		primaryAgentID = agentID
+	}
+	if primaryAgentID != "" {
+		if _, allowed := nextAccessible[primaryAgentID]; allowed {
+			from.AgentID = primaryAgentID
+			return true
+		}
+	}
+
+	from.AgentID = ""
+	for agentID := range nextAccessible {
+		from.AgentID = agentID
+		break
+	}
 	return true
 }
 
@@ -526,6 +568,19 @@ func (h *Hub) SendToAgent(agentID string, env *model.Envelope) bool {
 // GetAgentProjects returns all projects bound to the given agent.
 func (h *Hub) GetAgentProjects(agentID string) []model.ProjectListItem {
 	return h.getAgentProjectListItems(agentID)
+}
+
+func (h *Hub) GetAccessibleProjectsByDevice(deviceID string) []model.ProjectListItem {
+	if h.store == nil || deviceID == "" {
+		return nil
+	}
+
+	agentIDs := h.store.ListAccessibleAgentIDsForDevice(deviceID)
+	projects := make([]model.ProjectListItem, 0)
+	for _, agentID := range agentIDs {
+		projects = append(projects, h.getAgentProjectListItems(agentID)...)
+	}
+	return projects
 }
 
 func (h *Hub) ReplaceAgentProjects(agentID string, projects []model.ProjectListItem) {
@@ -621,6 +676,7 @@ func (h *Hub) getAgentProjectListItems(agentID string) []model.ProjectListItem {
 		}
 		projects = append(projects, model.ProjectListItem{
 			ID:          info.ID,
+			AgentID:     info.AgentID,
 			Name:        info.Name,
 			Path:        info.Path,
 			GroupName:   info.GroupName,
@@ -631,6 +687,44 @@ func (h *Hub) getAgentProjectListItems(agentID string) []model.ProjectListItem {
 		return true
 	})
 	return projects
+}
+
+func (h *Hub) sendProjectListToClient(client *Client, agentID string) {
+	if client == nil {
+		return
+	}
+
+	payload, err := json.Marshal(model.ProjectListPayload{
+		AgentID:  agentID,
+		Projects: h.getAgentProjectListItems(agentID),
+	})
+	if err != nil {
+		log.Warn().Err(err).Str("agent_id", agentID).Msg("failed to marshal targeted project.listed payload")
+		return
+	}
+
+	_ = client.Send(&model.Envelope{
+		ID:        newID(),
+		Event:     model.EventProjectListed,
+		Seq:       h.NextSeq(),
+		Timestamp: time.Now().UnixMilli(),
+		Payload:   payload,
+	})
+}
+
+func (h *Hub) getSortedAccessibleAgentIDs(client *Client) []string {
+	if client == nil || len(client.AccessibleAgentIDs) == 0 {
+		return nil
+	}
+
+	agentIDs := make([]string, 0, len(client.AccessibleAgentIDs))
+	for agentID := range client.AccessibleAgentIDs {
+		if agentID != "" {
+			agentIDs = append(agentIDs, agentID)
+		}
+	}
+	sort.Strings(agentIDs)
+	return agentIDs
 }
 
 func (h *Hub) broadcastAgentStatus(agentID string, online bool, projectIDs ...string) {

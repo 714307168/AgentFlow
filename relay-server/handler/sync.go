@@ -41,14 +41,16 @@ func SyncHandler(h *hub.Hub, cfg *config.Config, st *store.Store) http.HandlerFu
 			return
 		}
 
-		agentID, ok := st.GetDeviceAgentID(claims.DeviceID)
-		if !ok || agentID == "" {
-			http.Error(w, "device not bound to agent", http.StatusNotFound)
+		agentID, _ := st.GetDeviceAgentID(claims.DeviceID)
+		projects := h.GetAccessibleProjectsByDevice(claims.DeviceID)
+		if len(projects) == 0 {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(syncResponse{
+				AgentID:  agentID,
+				Projects: []model.ProjectListItem{},
+			})
 			return
 		}
-
-		// Get projects from hub (in-memory)
-		projects := h.GetAgentProjects(agentID)
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(syncResponse{

@@ -15,6 +15,7 @@ interface Project {
   cliProvider: ProjectCliProvider;
   cliModel?: string | null;
   groupName?: string | null;
+  projectPrompt?: string | null;
   createdAt: number;
 }
 
@@ -36,6 +37,7 @@ class ProjectStore {
     projects.push({
       ...project,
       groupName: normalizeProjectGroupName(project.groupName),
+      projectPrompt: typeof project.projectPrompt === "string" ? project.projectPrompt.trim() || null : null,
     });
     this.store.set("projects", projects);
   }
@@ -49,6 +51,7 @@ class ProjectStore {
     return this.store.get("projects", []).map((project) => ({
       ...project,
       groupName: normalizeProjectGroupName(project.groupName),
+      projectPrompt: typeof project.projectPrompt === "string" ? project.projectPrompt.trim() || null : null,
     }));
   }
 
@@ -65,6 +68,9 @@ class ProjectStore {
             groupName: updates.groupName !== undefined
               ? normalizeProjectGroupName(updates.groupName)
               : normalizeProjectGroupName(p.groupName),
+            projectPrompt: updates.projectPrompt !== undefined
+              ? (typeof updates.projectPrompt === "string" ? updates.projectPrompt.trim() || null : null)
+              : (typeof p.projectPrompt === "string" ? p.projectPrompt.trim() || null : null),
           }
         : p
     );
