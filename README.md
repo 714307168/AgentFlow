@@ -1,156 +1,52 @@
 # Claude Code Remote
 
-Remote control for desktop Claude Code through an Android app, backed by a self-hosted relay server and a desktop local agent.
+[English](./README.en.md)
+
+`Claude Code Remote` 是一个自托管的远程协作方案，用来通过手机控制桌面端 Claude Code。
 
 ```text
 Android App  <-->  Relay Server  <-->  Local Agent  <-->  Claude Code CLI
 ```
 
-## Repository Layout
+它由三部分组成：
 
-- `android-app/`: Kotlin + Compose Android client
-- `relay-server/`: Go relay server, admin UI, and update center
-- `local-agent/`: Electron + TypeScript desktop agent
+- `android-app/`：Android 客户端，负责项目列表、聊天、文件接收、更新下载
+- `local-agent/`：桌面端 Agent，负责连接中继、管理 Claude Code CLI、保存本地历史
+- `relay-server/`：自托管中继服务，负责认证、同步、设备协调、后台管理和更新中心
 
-## What Is Implemented
+## 功能概览
 
-- Real-time project and chat sync between desktop and Android
-- Structured per-project history storage on the desktop agent
-- Incremental sync based on `seq`, with Android keeping only the latest 200 interactions per project
-- Self-hosted update center served by `relay-server`
-- Desktop and Android update checks with optional auto-check and optional auto-download
-- Manual install confirmation on both platforms
+- 手机端查看项目列表、聊天记录和运行状态
+- 桌面端执行 Claude Code CLI，并把消息、活动、附件同步到手机端
+- 支持自托管 Relay Server，不依赖第三方中转
+- 支持桌面端和 Android 端检查更新
+- 支持后台管理、用户体系、设备绑定和版本发布
+- 支持按项目保存本地历史，并基于增量序列同步到移动端
 
-## What Is Intentionally Not Implemented
-
-- No offline push notifications
-- No Android silent install
-- No desktop silent install
-
-## Architecture
-
-### Relay Server
-
-Responsibilities:
-
-- user authentication
-- device and agent coordination
-- WebSocket message routing
-- update metadata and package distribution
-- admin dashboard and release center
-
-Key endpoints:
-
-- `GET /health`
-- `POST /api/auth/login`
-- `GET /api/device/sync`
-- `POST /api/agent/wakeup`
-- `GET /api/update/check`
-- `GET /api/update/download/{id}`
-- `GET /admin/releases`
-- `GET/POST/DELETE /admin/api/releases`
-
-### Local Agent
-
-Responsibilities:
-
-- tray-resident desktop app
-- relay connection lifecycle
-- Claude Code runtime management
-- structured history persistence
-- incremental sync generation for Android
-- desktop update check, download, and install handoff
-
-### Android App
-
-Responsibilities:
-
-- project list and chat UI
-- WebSocket sync with the desktop agent
-- local message cache
-- update check, APK download, and system installer handoff
-
-## Incremental Sync Model
-
-The desktop agent is the source of truth.
-
-- each project is stored in its own history file
-- each message and activity receives a monotonically increasing `seq`
-- Android requests sync with `after_seq`
-- the desktop only returns missing items
-- Android upserts by `id + seq`
-- Android trims each project to the latest 200 synced interactions
-
-This replaced the old full-history sync because large projects could stop syncing reliably.
-
-Relevant files:
-
-- [session-history-store.ts](./local-agent/src/session-history-store.ts)
-- [session-sync-payload.ts](./local-agent/src/session-sync-payload.ts)
-- [runtime-manager.ts](./local-agent/src/runtime-manager.ts)
-- [MessageRepository.kt](./android-app/app/src/main/java/com/claudecode/remote/domain/MessageRepository.kt)
-
-## Update Center
-
-The update center is fully self-hosted inside `relay-server`.
-
-Client policy on both platforms:
-
-- manual update check is always supported
-- automatic update check is optional
-- automatic package download is optional
-- installation always requires a manual user action
-
-Desktop example:
+## 仓库结构
 
 ```text
-/api/update/check?platform=desktop-win&channel=stable&arch=x64&version=1.0.0&build=0
+.
+|-- android-app/   Android 客户端
+|-- local-agent/   Electron 桌面端 Agent
+|-- relay-server/  Go 中继服务和管理后台
+|-- docs/          补充文档
+`-- CLAUDE.md      项目协作说明
 ```
 
-Android example:
+## 工作方式
 
-```text
-/api/update/check?platform=android&channel=stable&arch=&version=1.0.0&build=1
-```
+桌面端 Agent 是项目数据的真实来源。
 
-Release center UI:
+- 每个项目单独保存历史数据
+- 每条消息和活动都有递增的同步序列
+- 手机端按 `after_seq` 拉取增量数据
+- 大历史场景下不再走整包全量同步
+- 更新包由 `relay-server` 内置更新中心统一分发
 
-- `https://relay.example.com/admin/releases`
+## 快速开始
 
-Server-side package storage:
-
-- `DATA_DIR/releases/`
-
-See [docs/release-and-update-center.md](./docs/release-and-update-center.md) for the full release flow.
-
-## Local Data
-
-### Desktop
-
-User data directory:
-
-- `%APPDATA%\claude-code-agent`
-
-Important files:
-
-- `config.json`: relay config, account fields, and project list
-- `app-settings.json`: startup and update settings
-- `i18n.json`: UI language
-- `runtime-history/<projectId>.json`: structured per-project runtime history
-
-Legacy `runtime-sessions.json` data is migrated into `runtime-history/`.
-
-### Android
-
-Android uses Room and preferences for:
-
-- `lastSyncSeq` per project
-- `syncSeq` per message
-- auto update preferences
-
-## Build Commands
-
-### Relay Server
+### 1. 启动 Relay Server
 
 ```bash
 cd relay-server
@@ -158,7 +54,7 @@ go build ./...
 go test ./...
 ```
 
-Common environment variables:
+常用环境变量：
 
 - `PORT`
 - `JWT_SECRET`
@@ -169,21 +65,23 @@ Common environment variables:
 - `ADMIN_USER`
 - `ADMIN_PASSWORD`
 
-### Local Agent
+### 2. 启动桌面端 Agent
 
 ```bash
 cd local-agent
 npm install
 npm run build
 npm start
+```
+
+Windows 打包：
+
+```bash
+cd local-agent
 npm run dist:win
 ```
 
-Expected installer output:
-
-- `local-agent/release/Claude Code Agent-<version>-x64-setup.exe`
-
-### Android
+### 3. 构建 Android App
 
 ```bash
 cd android-app
@@ -191,43 +89,58 @@ cd android-app
 ./gradlew.bat :app:assembleRelease
 ```
 
-Expected APK output:
+## 本地数据
 
-- `android-app/app/build/outputs/apk/release/app-release.apk`
+### 桌面端
 
-## Relay Deployment
+桌面端默认数据目录：
 
-Use the root deployment script:
+- `%APPDATA%\\claude-code-agent`
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\deploy-relay-server.local.ps1
+常见文件：
+
+- `config.json`：中继地址、账号信息、项目列表、默认配置
+- `app-settings.json`：启动、更新、日志等系统设置
+- `i18n.json`：界面语言
+- `runtime-history/<projectId>.json`：项目历史、活动、队列、会话信息
+
+### Android
+
+Android 端使用 Room 和 Preferences 保存：
+
+- 已同步消息
+- 每个项目的 `lastSyncSeq`
+- 登录态和更新设置
+
+## 更新中心
+
+更新中心内置在 `relay-server` 中。
+
+支持能力：
+
+- 桌面端检查更新
+- Android 端检查更新
+- 可选自动检查
+- 可选自动下载
+- 安装仍需用户确认
+
+示例接口：
+
+```text
+/api/update/check?platform=desktop-win&channel=stable&arch=x64&version=1.0.0&build=0
+/api/update/check?platform=android&channel=stable&arch=&version=1.0.0&build=1
 ```
 
-The script does all of the following:
+## 文档导航
 
-1. runs `go test ./...`
-2. cross-compiles Linux `amd64`
-3. uploads the new binary
-4. restarts the `relay-server` systemd service
-5. verifies local and public health checks
-6. verifies the deployed binary SHA-256
-7. rolls back automatically on failure
+- [English README](./README.en.md)
+- [更新中心与发布说明](./docs/release-and-update-center.md)
+- [发布上传 Runbook](./docs/release-upload-runbook.md)
+- [桌面端说明](./local-agent/README.md)
+- [协作说明](./CLAUDE.md)
 
-For the full release flow including package build, relay deployment, and update-center upload, use:
+## 开源说明
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\publish-release.local.ps1
-```
-
-## Production Endpoints
-
-- Relay and Admin: `https://relay.example.com`
-- Health: `https://relay.example.com/health`
-- Release Center: `https://relay.example.com/admin/releases`
-
-## Related Docs
-
-- [docs/release-and-update-center.md](./docs/release-and-update-center.md)
-- [docs/release-upload-runbook.md](./docs/release-upload-runbook.md)
-- [local-agent/README.md](./local-agent/README.md)
-- [CLAUDE.md](./CLAUDE.md)
+- 不要把真实生产域名、服务器 IP、数据库文件、发布脚本和口令提交到仓库
+- 本地部署脚本请保留在本机，并加入 `.gitignore`
+- 文档中的域名、账号、密码、服务器地址都应使用占位符示例

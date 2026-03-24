@@ -211,7 +211,7 @@ Project guidance is prepended as persistent repository context before each local
 5. verify `/api/update/check`
 6. verify `/api/update/download/{id}`
 
-## Production URLs
+## Example URLs
 
 - Relay: `https://relay.example.com`
 - Release Center: `https://relay.example.com/admin/releases`

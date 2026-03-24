@@ -1,8 +1,8 @@
 # Release Upload Runbook
 
-This runbook documents the exact release flow used to publish a new desktop installer, Android APK, and relay-server build to production.
+This runbook documents a reference release flow used to publish a new desktop installer, Android APK, and relay-server build.
 
-It is written for the current production environment:
+Replace all example hostnames, domains, and credentials with your own environment values.
 
 - Relay: `https://relay.example.com`
 - Release Center: `https://relay.example.com/admin/releases`
@@ -23,9 +23,7 @@ This flow covers:
 
 ## One-Command Release
 
-The repo root now includes:
-
-- `publish-release.local.ps1`
+If you maintain a local-only helper script, keep it outside Git or add it to `.gitignore`.
 
 Recommended usage:
 
@@ -61,7 +59,7 @@ Common flags:
 - `-SkipTests`
 - `-Draft`
 
-If you want the script to repair production nginx and release-directory permissions automatically without relying on the existing deploy script defaults, also set:
+If you want your local helper script to repair nginx and release-directory permissions automatically, also set:
 
 ```powershell
 $env:RELAY_SERVER_HOST = '<SERVER_HOST>'
@@ -161,7 +159,7 @@ Get-FileHash "$RepoRoot\artifacts\ClaudeCodeRemote-<version>-release.apk" -Algor
 
 ## Deploy Relay Server
 
-Use the root deployment script:
+Use your own local deployment script:
 
 ```powershell
 cd $RepoRoot
@@ -193,13 +191,13 @@ Before uploading a large Windows installer, confirm the production server accept
 
 Current working setting:
 
-- file: `/www/server/panel/vhost/nginx/relay.example.com.conf`
+- file: `/www/server/panel/vhost/nginx/<relay-domain>.conf`
 - required line: `client_max_body_size 200m;`
 
 If the upload fails with `413 Request Entity Too Large`, fix it with:
 
 ```bash
-sed -i 's/client_max_body_size 50m;/client_max_body_size 200m;/' /www/server/panel/vhost/nginx/relay.example.com.conf
+sed -i 's/client_max_body_size 50m;/client_max_body_size 200m;/' /www/server/panel/vhost/nginx/<relay-domain>.conf
 nginx -t
 nginx -s reload
 ```
