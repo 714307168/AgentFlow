@@ -672,12 +672,20 @@
               <input type="text" id="openaiBaseUrl" placeholder="https://api.openai.com/v1">
             </div>
             <div class="field">
+              <label id="openaiDefaultModelLabel">OpenAI-Compatible Default Model</label>
+              <input type="text" id="openaiDefaultModel" placeholder="gpt-5.4">
+            </div>
+            <div class="field">
               <label id="anthropicApiKeyLabel">Claude-Compatible API Key</label>
               <input type="password" id="anthropicApiKey" placeholder="sk-ant-...">
             </div>
             <div class="field">
               <label id="anthropicBaseUrlLabel">Claude-Compatible Base URL</label>
               <input type="text" id="anthropicBaseUrl" placeholder="https://api.anthropic.com">
+            </div>
+            <div class="field">
+              <label id="anthropicDefaultModelLabel">Claude-Compatible Default Model</label>
+              <input type="text" id="anthropicDefaultModel" placeholder="claude-sonnet-4-5">
             </div>
           </div>
 
@@ -857,8 +865,10 @@
       document.getElementById("runtimeHint").textContent = msg("settings.runtimeHint", "Both providers run in full-auto mode with no approval prompts or click-throughs.");
       document.getElementById("openaiApiKeyLabel").textContent = inlineText("OpenAI-Compatible API Key", "OpenAI 协议 API Key");
       document.getElementById("openaiBaseUrlLabel").textContent = inlineText("OpenAI-Compatible Base URL", "OpenAI 协议 Base URL");
+      document.getElementById("openaiDefaultModelLabel").textContent = inlineText("OpenAI-Compatible Default Model", "OpenAI 协议默认模型");
       document.getElementById("anthropicApiKeyLabel").textContent = inlineText("Claude-Compatible API Key", "Claude 协议 API Key");
       document.getElementById("anthropicBaseUrlLabel").textContent = inlineText("Claude-Compatible Base URL", "Claude 协议 Base URL");
+      document.getElementById("anthropicDefaultModelLabel").textContent = inlineText("Claude-Compatible Default Model", "Claude 协议默认模型");
       document.getElementById("serverSection").textContent = msg("settings.serverConnection", "Server Connection");
       document.getElementById("serverUrlLabel").textContent = msg("settings.relayServerUrl", "Relay Server URL");
       document.getElementById("usernameLabel").textContent = msg("settings.username", "Username");
@@ -904,8 +914,10 @@
         agentId: document.getElementById("agentId").value.trim(),
         openaiApiKey: document.getElementById("openaiApiKey").value,
         openaiBaseUrl: document.getElementById("openaiBaseUrl").value.trim(),
+        openaiDefaultModel: document.getElementById("openaiDefaultModel").value.trim(),
         anthropicApiKey: document.getElementById("anthropicApiKey").value,
         anthropicBaseUrl: document.getElementById("anthropicBaseUrl").value.trim(),
+        anthropicDefaultModel: document.getElementById("anthropicDefaultModel").value.trim(),
         cliProvider: document.getElementById("cliProvider").value,
       });
       flashSaved();
@@ -1202,8 +1214,10 @@
       document.getElementById("agentId").value = config.agentId || "";
       document.getElementById("openaiApiKey").value = config.openaiApiKey || "";
       document.getElementById("openaiBaseUrl").value = config.openaiBaseUrl || "";
+      document.getElementById("openaiDefaultModel").value = config.openaiDefaultModel || "";
       document.getElementById("anthropicApiKey").value = config.anthropicApiKey || "";
       document.getElementById("anthropicBaseUrl").value = config.anthropicBaseUrl || "";
+      document.getElementById("anthropicDefaultModel").value = config.anthropicDefaultModel || "";
       document.getElementById("cliProvider").value = config.cliProvider || "claude";
       document.getElementById("projectProvider").value = config.cliProvider || "claude";
       document.getElementById("projectModel").value = "";
@@ -1224,7 +1238,7 @@
       await loadAccessGrants();
     }
 
-    ["serverUrl", "username", "password", "agentId", "openaiApiKey", "openaiBaseUrl", "anthropicApiKey", "anthropicBaseUrl"].forEach((id) => {
+    ["serverUrl", "username", "password", "agentId", "openaiApiKey", "openaiBaseUrl", "openaiDefaultModel", "anthropicApiKey", "anthropicBaseUrl", "anthropicDefaultModel"].forEach((id) => {
       document.getElementById(id).addEventListener("blur", () => { void saveConnectionConfig(); });
     });
 

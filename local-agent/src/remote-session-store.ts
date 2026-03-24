@@ -75,8 +75,19 @@ interface RemoteState {
   lastSyncSeq: number;
 }
 
+interface PendingHistoryRequest {
+  projectId: string;
+  kind: HistoryPageKind;
+  beforeId: string;
+  beforeSeq: number;
+  limit: number;
+  conversationId: string | null;
+  timeout: NodeJS.Timeout;
+  resolve: (page: HistoryPageResult<SessionMessage | SessionActivity | CliTraceEntry>) => void;
+}
+
 const DEFAULT_PAGE_SIZE = 30;
-const MAX_REMOTE_ITEMS = 400;
+const MAX_REMOTE_ITEMS = 1200;
 
 function cloneAttachments(attachments?: RunAttachment[]): RunAttachment[] | undefined {
   if (!attachments || attachments.length === 0) {
@@ -96,6 +107,7 @@ export default class RemoteSessionStore extends EventEmitter {
   private readonly relayClient: RelayClient;
   private readonly localAgentId: () => string;
   private readonly states = new Map<string, RemoteState>();
+  private readonly pendingHistoryRequests = new Map<string, PendingHistoryRequest[]>();
 
   constructor(relayClient: RelayClient, options: { localAgentId: () => string }) {
     super();
@@ -154,6 +166,7 @@ export default class RemoteSessionStore extends EventEmitter {
     if (!state) {
       return null;
     }
+    const totals = this.getConversationTotals(state);
     return {
       projectId,
       provider: state.provider,
@@ -166,9 +179,9 @@ export default class RemoteSessionStore extends EventEmitter {
       currentStartedAt: state.currentStartedAt,
       activeConversationId: state.activeConversationId,
       conversations: state.conversations.map((conversation) => ({ ...conversation })),
-      messageTotal: state.messages.length,
-      activityTotal: state.activities.length,
-      cliTraceTotal: state.cliTrace.length,
+      messageTotal: totals.messageTotal,
+      activityTotal: totals.activityTotal,
+      cliTraceTotal: totals.cliTraceTotal,
       queue: state.queue.map((entry) => ({
         ...entry,
         attachments: cloneAttachments(entry.attachments),
@@ -216,9 +229,67 @@ export default class RemoteSessionStore extends EventEmitter {
     return {
       conversationId: state.activeConversationId,
       items,
-      hasMore: startIndex > 0,
-      total: source.length,
+      hasMore: startIndex > 0 || this.getTotalForKind(state, kind) > safeAnchorIndex,
+      total: this.getTotalForKind(state, kind),
     };
+  }
+
+  async loadHistoryPage(
+    projectId: string,
+    kind: HistoryPageKind,
+    request: {
+      beforeId?: string | null;
+      limit?: number;
+      conversationId?: string | null;
+    } = {},
+  ): Promise<HistoryPageResult<SessionMessage | SessionActivity | CliTraceEntry> | null> {
+    const state = this.states.get(projectId);
+    if (!state) {
+      return null;
+    }
+
+    const limit = Number(request.limit) > 0 ? Number(request.limit) : DEFAULT_PAGE_SIZE;
+    const beforeId = request.beforeId?.trim() ?? "";
+    const localPage = this.getHistoryPage(projectId, kind, {
+      beforeId,
+      limit,
+    });
+    if (!localPage || !beforeId) {
+      return localPage;
+    }
+    if (localPage.items.length > 0 || !localPage.hasMore) {
+      return localPage;
+    }
+
+    const beforeSeq = this.findEntrySyncSeq(state, kind, beforeId);
+    if (beforeSeq <= 0) {
+      return localPage;
+    }
+
+    return await new Promise((resolve) => {
+      const pending: PendingHistoryRequest = {
+        projectId,
+        kind,
+        beforeId,
+        beforeSeq,
+        limit,
+        conversationId: request.conversationId?.trim() || state.activeConversationId,
+        timeout: setTimeout(() => {
+          this.removePendingHistoryRequest(projectId, pending);
+          resolve(this.getHistoryPage(projectId, kind, { beforeId, limit }) ?? localPage);
+        }, 15000),
+        resolve,
+      };
+      const requests = this.pendingHistoryRequests.get(projectId) ?? [];
+      requests.push(pending);
+      this.pendingHistoryRequests.set(projectId, requests);
+
+      this.requestSessionSync(projectId, {
+        beforeSeq,
+        limit,
+        conversationId: pending.conversationId,
+      });
+    });
   }
 
   requestSessionSync(projectId: string, options: {
@@ -360,6 +431,7 @@ export default class RemoteSessionStore extends EventEmitter {
 
     for (const [projectId, state] of this.states.entries()) {
       if (state.project.agentId === agentID && !nextIDs.has(projectId)) {
+        this.pendingHistoryRequests.delete(projectId);
         this.states.delete(projectId);
       }
     }
@@ -414,6 +486,7 @@ export default class RemoteSessionStore extends EventEmitter {
       this.applySyncItem(state, item);
     }
     state.lastSyncSeq = Math.max(state.lastSyncSeq, latestSeq);
+    this.resolvePendingHistoryRequests(projectId, Number(sync?.before_seq ?? 0) || 0);
     this.emitSnapshot(projectId);
   }
 
@@ -579,6 +652,104 @@ export default class RemoteSessionStore extends EventEmitter {
       cliTrace: [],
       lastSyncSeq: 0,
     };
+  }
+
+  private getConversationTotals(state: RemoteState): {
+    messageTotal: number;
+    activityTotal: number;
+    cliTraceTotal: number;
+  } {
+    const activeConversation = state.conversations.find((conversation) => conversation.id === state.activeConversationId)
+      ?? state.conversations.find((conversation) => conversation.isActive)
+      ?? null;
+    if (!activeConversation) {
+      return {
+        messageTotal: state.messages.length,
+        activityTotal: state.activities.length,
+        cliTraceTotal: state.cliTrace.length,
+      };
+    }
+
+    return {
+      messageTotal: Math.max(activeConversation.messageCount, state.messages.length),
+      activityTotal: Math.max(activeConversation.activityCount, state.activities.length),
+      cliTraceTotal: Math.max(activeConversation.cliCount, state.cliTrace.length),
+    };
+  }
+
+  private getTotalForKind(state: RemoteState, kind: HistoryPageKind): number {
+    const totals = this.getConversationTotals(state);
+    if (kind === "messages") {
+      return totals.messageTotal;
+    }
+    if (kind === "activities") {
+      return totals.activityTotal;
+    }
+    return totals.cliTraceTotal;
+  }
+
+  private findEntrySyncSeq(state: RemoteState, kind: HistoryPageKind, entryId: string): number {
+    if (!entryId) {
+      return 0;
+    }
+
+    const source = kind === "messages"
+      ? state.messages
+      : (kind === "activities" ? state.activities : state.cliTrace);
+    const target = source.find((entry) => entry.id === entryId);
+    return Number(target?.syncSeq ?? 0) || 0;
+  }
+
+  private resolvePendingHistoryRequests(projectId: string, requestedBeforeSeq: number): void {
+    if (requestedBeforeSeq <= 0) {
+      return;
+    }
+
+    const requests = this.pendingHistoryRequests.get(projectId);
+    if (!requests || requests.length === 0) {
+      return;
+    }
+
+    const remaining: PendingHistoryRequest[] = [];
+    for (const request of requests) {
+      if (request.beforeSeq !== requestedBeforeSeq) {
+        remaining.push(request);
+        continue;
+      }
+
+      clearTimeout(request.timeout);
+      request.resolve(
+        this.getHistoryPage(projectId, request.kind, {
+          beforeId: request.beforeId,
+          limit: request.limit,
+        }) ?? {
+          conversationId: request.conversationId,
+          items: [],
+          hasMore: false,
+          total: 0,
+        },
+      );
+    }
+
+    if (remaining.length > 0) {
+      this.pendingHistoryRequests.set(projectId, remaining);
+    } else {
+      this.pendingHistoryRequests.delete(projectId);
+    }
+  }
+
+  private removePendingHistoryRequest(projectId: string, request: PendingHistoryRequest): void {
+    const requests = this.pendingHistoryRequests.get(projectId);
+    if (!requests || requests.length === 0) {
+      return;
+    }
+
+    const nextRequests = requests.filter((entry) => entry !== request);
+    if (nextRequests.length > 0) {
+      this.pendingHistoryRequests.set(projectId, nextRequests);
+    } else {
+      this.pendingHistoryRequests.delete(projectId);
+    }
   }
 
   private trimMessages(state: RemoteState): void {

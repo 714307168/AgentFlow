@@ -38,8 +38,10 @@ interface AgentConfig {
   encryptedControllerToken?: string;
   openaiApiKey?: string;
   openaiBaseUrl?: string;
+  openaiDefaultModel?: string;
   anthropicApiKey?: string;
   anthropicBaseUrl?: string;
+  anthropicDefaultModel?: string;
   encryptedOpenaiApiKey?: string;
   encryptedAnthropicApiKey?: string;
   cliProvider: CliProvider;
@@ -86,8 +88,10 @@ const configStore = new Store<AgentConfig>({
     encryptedControllerToken: "",
     openaiApiKey: "",
     openaiBaseUrl: "",
+    openaiDefaultModel: "",
     anthropicApiKey: "",
     anthropicBaseUrl: "",
+    anthropicDefaultModel: "",
     encryptedOpenaiApiKey: "",
     encryptedAnthropicApiKey: "",
     cliProvider: "claude",
@@ -285,7 +289,18 @@ function getProjectCliProvider(projectId: string): CliProvider {
 function getProjectCliModel(projectId: string): string | null {
   const project = projectStore.getById(projectId);
   const model = project?.cliModel?.trim() ?? "";
-  return model || null;
+  if (model) {
+    return model;
+  }
+
+  const config = loadConfig();
+  if (getProjectCliProvider(projectId) === "codex") {
+    const defaultModel = config.openaiDefaultModel?.trim() ?? "";
+    return defaultModel || null;
+  }
+
+  const defaultModel = config.anthropicDefaultModel?.trim() ?? "";
+  return defaultModel || null;
 }
 
 function getProjectPrompt(projectId: string): string | null {
@@ -688,8 +703,10 @@ function loadConfig(): AgentConfig {
     controllerTokenExpiresAt: (configStore.get("controllerTokenExpiresAt") as string) || "",
     openaiApiKey: decodeSecretFromStore(configStore.get("encryptedOpenaiApiKey") as string),
     openaiBaseUrl: (configStore.get("openaiBaseUrl") as string) || "",
+    openaiDefaultModel: (configStore.get("openaiDefaultModel") as string) || "",
     anthropicApiKey: decodeSecretFromStore(configStore.get("encryptedAnthropicApiKey") as string),
     anthropicBaseUrl: (configStore.get("anthropicBaseUrl") as string) || "",
+    anthropicDefaultModel: (configStore.get("anthropicDefaultModel") as string) || "",
     tokenExpiresAt: (configStore.get("tokenExpiresAt") as string) || "",
     cliProvider: ((process.env.CLI_PROVIDER ?? configStore.get("cliProvider")) as CliProvider) || "claude",
   };
@@ -708,8 +725,10 @@ function getPublicConfig(): Omit<AgentConfig, "encryptedToken" | "encryptedPassw
     controllerTokenExpiresAt: config.controllerTokenExpiresAt,
     openaiApiKey: config.openaiApiKey,
     openaiBaseUrl: config.openaiBaseUrl,
+    openaiDefaultModel: config.openaiDefaultModel,
     anthropicApiKey: config.anthropicApiKey,
     anthropicBaseUrl: config.anthropicBaseUrl,
+    anthropicDefaultModel: config.anthropicDefaultModel,
     tokenExpiresAt: config.tokenExpiresAt,
     cliProvider: config.cliProvider,
   };
@@ -1457,8 +1476,10 @@ ipcMain.handle("save-config", (_event, config: Partial<AgentConfig>) => {
   if (config.password !== undefined) configStore.set("encryptedPassword", encodeSecretForStore(config.password));
   if (config.openaiApiKey !== undefined) configStore.set("encryptedOpenaiApiKey", encodeSecretForStore(config.openaiApiKey));
   if (config.openaiBaseUrl !== undefined) configStore.set("openaiBaseUrl", config.openaiBaseUrl);
+  if (config.openaiDefaultModel !== undefined) configStore.set("openaiDefaultModel", config.openaiDefaultModel);
   if (config.anthropicApiKey !== undefined) configStore.set("encryptedAnthropicApiKey", encodeSecretForStore(config.anthropicApiKey));
   if (config.anthropicBaseUrl !== undefined) configStore.set("anthropicBaseUrl", config.anthropicBaseUrl);
+  if (config.anthropicDefaultModel !== undefined) configStore.set("anthropicDefaultModel", config.anthropicDefaultModel);
   if (config.cliProvider !== undefined) configStore.set("cliProvider", config.cliProvider);
   return true;
 });
@@ -1658,7 +1679,7 @@ ipcMain.handle("get-project-session", (_event, projectId: string) => {
   };
 });
 
-ipcMain.handle("get-project-history-page", (_event, data: {
+ipcMain.handle("get-project-history-page", async (_event, data: {
   projectId: string;
   kind: "messages" | "activities" | "cli";
   conversationId?: string | null;
@@ -1671,20 +1692,13 @@ ipcMain.handle("get-project-history-page", (_event, data: {
   }
 
   if (isRemoteProject(data.projectId)) {
-    const page = remoteSessionStore?.getHistoryPage(data.projectId, data.kind, {
+    const page = await remoteSessionStore?.loadHistoryPage(data.projectId, data.kind, {
       beforeId: data.beforeId,
       limit: data.limit,
+      conversationId: data.conversationId,
     });
     if (!page) {
       return { success: false, error: "Remote project history unavailable" };
-    }
-
-    if ((data.kind === "messages" || data.kind === "activities" || data.kind === "cli") && page.hasMore) {
-      const earliest = page.items[0];
-      const earliestSeq = earliest && typeof earliest === "object" && "id" in earliest
-        ? undefined
-        : undefined;
-      void earliestSeq;
     }
 
     return {
