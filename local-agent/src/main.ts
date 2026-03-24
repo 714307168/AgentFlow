@@ -161,10 +161,18 @@ const updateManager = new UpdateManager({
 });
 const TOKEN_REFRESH_WINDOW_MS = 5 * 60 * 1000;
 const MIN_TOKEN_REFRESH_DELAY_MS = 30 * 1000;
+const MAX_TIMEOUT_DELAY_MS = 2_147_483_647;
 let tokenRefreshTimer: NodeJS.Timeout | null = null;
 let tokenRefreshPromise: Promise<boolean> | null = null;
 let controllerTokenRefreshTimer: NodeJS.Timeout | null = null;
 let controllerTokenRefreshPromise: Promise<boolean> | null = null;
+
+function clampTimeoutDelayMs(delayMs: number): number {
+  if (!Number.isFinite(delayMs)) {
+    return MIN_TOKEN_REFRESH_DELAY_MS;
+  }
+  return Math.min(Math.max(MIN_TOKEN_REFRESH_DELAY_MS, Math.trunc(delayMs)), MAX_TIMEOUT_DELAY_MS);
+}
 
 function normalizeIncomingAttachments(payload: unknown): RunAttachment[] {
   if (!Array.isArray(payload)) {
@@ -825,7 +833,7 @@ function scheduleTokenRefresh(delayOverrideMs?: number): void {
     return;
   }
 
-  const delayMs = delayOverrideMs ?? (() => {
+  const delayMs = clampTimeoutDelayMs(delayOverrideMs ?? (() => {
     if (!config.tokenExpiresAt) {
       return MIN_TOKEN_REFRESH_DELAY_MS;
     }
@@ -836,7 +844,7 @@ function scheduleTokenRefresh(delayOverrideMs?: number): void {
     }
 
     return Math.max(MIN_TOKEN_REFRESH_DELAY_MS, expiresAtMs - Date.now() - TOKEN_REFRESH_WINDOW_MS);
-  })();
+  })());
 
   tokenRefreshTimer = setTimeout(() => {
     void refreshAgentToken(true);
@@ -854,7 +862,7 @@ function scheduleControllerTokenRefresh(delayOverrideMs?: number): void {
     return;
   }
 
-  const delayMs = delayOverrideMs ?? (() => {
+  const delayMs = clampTimeoutDelayMs(delayOverrideMs ?? (() => {
     if (!config.controllerTokenExpiresAt) {
       return MIN_TOKEN_REFRESH_DELAY_MS;
     }
@@ -863,7 +871,7 @@ function scheduleControllerTokenRefresh(delayOverrideMs?: number): void {
       return MIN_TOKEN_REFRESH_DELAY_MS;
     }
     return Math.max(MIN_TOKEN_REFRESH_DELAY_MS, expiresAtMs - Date.now() - TOKEN_REFRESH_WINDOW_MS);
-  })();
+  })());
 
   controllerTokenRefreshTimer = setTimeout(() => {
     void refreshControllerToken(true);

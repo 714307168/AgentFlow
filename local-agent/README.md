@@ -52,6 +52,14 @@ The desktop app uses the relay update center and follows this policy:
 - no silent install
 - installer launch is always user-confirmed
 
+## Auth Refresh
+
+The desktop agent refreshes both the agent token and the controller token before expiry.
+
+- refresh scheduling is based on the server-reported `expires_at`
+- long refresh delays are clamped to Node.js' maximum safe `setTimeout` range
+- this avoids `TimeoutOverflowWarning` and runaway refresh loops on long-lived tokens
+
 Relevant code:
 
 - `src/update-manager.ts`
