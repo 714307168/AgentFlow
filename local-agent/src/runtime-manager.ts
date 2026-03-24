@@ -126,7 +126,7 @@ const MAX_CLI_TRACE_ENTRY_CHARS = 1_200;
 const DEFAULT_HISTORY_PAGE_SIZE = 30;
 const SNAPSHOT_EMIT_INTERVAL_MS = 120;
 const CLI_TRACE_NOISE_PATTERNS = [
-  /^reading prompt from stdin\.\.\.$/i,
+  /reading prompt from stdin/i,
 ] as const;
 
 class StopRunError extends Error {
@@ -960,11 +960,11 @@ class RuntimeManager extends EventEmitter {
         const lines = stdoutBuffer.split(/\r?\n/);
         stdoutBuffer = lines.pop() ?? "";
         for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed) {
+          const normalized = this.normalizeCliOutputText(line);
+          if (!normalized) {
             continue;
           }
-          onStdoutLine(trimmed);
+          onStdoutLine(normalized);
           this.emitSnapshot(state.projectId);
         }
       });
@@ -1000,8 +1000,8 @@ class RuntimeManager extends EventEmitter {
       });
 
       child.on("close", (code) => {
-        if (stdoutBuffer.trim()) {
-          const finalStdout = stdoutBuffer.trim();
+        const finalStdout = this.normalizeCliOutputText(stdoutBuffer);
+        if (finalStdout) {
           onStdoutLine(finalStdout);
           this.emitSnapshot(state.projectId);
         }
@@ -1022,7 +1022,7 @@ class RuntimeManager extends EventEmitter {
           return;
         }
 
-        const stderr = stderrBuffer.trim();
+        const stderr = this.normalizeCliOutputText(stderrBuffer);
         this.appendCliTrace(state, "system", `${command} exited with code ${code ?? "unknown"}`);
         reject(new Error(stderr || `${command} exited with code ${code ?? "unknown"}`));
       });
@@ -1034,13 +1034,7 @@ class RuntimeManager extends EventEmitter {
     stream: CliTraceEntry["stream"],
     text: string,
   ): void {
-    const normalized = text
-      .replace(/\r\n/g, "\n")
-      .split("\n")
-      .map((line) => line.trim())
-      .filter((line) => line && !this.isCliNoiseLine(line))
-      .join("\n")
-      .trim();
+    const normalized = this.normalizeCliOutputText(text);
     if (!normalized) {
       return;
     }
@@ -1067,6 +1061,16 @@ class RuntimeManager extends EventEmitter {
 
   private isCliNoiseLine(line: string): boolean {
     return CLI_TRACE_NOISE_PATTERNS.some((pattern) => pattern.test(line));
+  }
+
+  private normalizeCliOutputText(text: string): string {
+    return text
+      .replace(/\r\n/g, "\n")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line && !this.isCliNoiseLine(line))
+      .join("\n")
+      .trim();
   }
 
   private formatCliCommand(command: string, args: string[]): string {
