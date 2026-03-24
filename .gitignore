@@ -51,3 +51,15 @@ relay-server/release/
 # === Local deployment / release scripts ===
 deploy-relay-server.local.ps1
 publish-release.local.ps1
+
+# === Generated release artifacts ===
+artifacts/**/*.apk
+artifacts/**/*.aab
+artifacts/**/*.blockmap
+artifacts/**/*.exe
+artifacts/**/*.msi
+artifacts/**/*.dmg
+artifacts/**/*.zip
+artifacts/**/*.deb
+artifacts/**/*.rpm
+artifacts/**/*.AppImage

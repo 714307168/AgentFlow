@@ -143,4 +143,5 @@ Example endpoints:
 
 - Do not commit real production domains, server IPs, database files, release scripts, or credentials
 - Keep deployment and publishing helpers local-only and ignored by Git
+- Ship installers and APKs through the update center or GitHub Release attachments, not through the source repository
 - Use placeholders in public docs for domains, accounts, passwords, and server addresses
