@@ -156,6 +156,7 @@
     }
     input[type="text"],
     input[type="password"],
+    textarea,
     select {
       width: 100%;
       border: 1px solid var(--border);
@@ -167,9 +168,43 @@
     }
     input[type="text"]:focus,
     input[type="password"]:focus,
+    textarea:focus,
     select:focus {
       border-color: var(--accent);
       box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.12);
+    }
+    textarea {
+      min-height: 104px;
+      resize: vertical;
+    }
+    .section-subtitle {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+      margin: -6px 0 14px;
+    }
+    .runtime-grid {
+      display: grid;
+      gap: 14px;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      margin-top: 14px;
+    }
+    .runtime-card {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 14px;
+    }
+    .runtime-card-title {
+      font-size: 13px;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+    .field-help {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+      margin-top: 6px;
     }
     .toggle-row {
       display: flex;
@@ -655,6 +690,7 @@
 
           <div class="section">
             <div class="section-title" id="runtimeSection">Runtime</div>
+            <div class="section-subtitle" id="runtimeSectionHint">Set provider defaults here. Leave the per-project model blank to use these defaults.</div>
             <div class="field">
               <label id="cliProviderLabel">CLI Provider</label>
               <select id="cliProvider">
@@ -663,29 +699,39 @@
               </select>
               <div id="runtimeHint">Both providers run in full-auto mode with no approval prompts or click-throughs.</div>
             </div>
-            <div class="field">
-              <label id="openaiApiKeyLabel">OpenAI-Compatible API Key</label>
-              <input type="password" id="openaiApiKey" placeholder="sk-...">
-            </div>
-            <div class="field">
-              <label id="openaiBaseUrlLabel">OpenAI-Compatible Base URL</label>
-              <input type="text" id="openaiBaseUrl" placeholder="https://api.openai.com/v1">
-            </div>
-            <div class="field">
-              <label id="openaiDefaultModelLabel">OpenAI-Compatible Default Model</label>
-              <input type="text" id="openaiDefaultModel" placeholder="gpt-5.4">
-            </div>
-            <div class="field">
-              <label id="anthropicApiKeyLabel">Claude-Compatible API Key</label>
-              <input type="password" id="anthropicApiKey" placeholder="sk-ant-...">
-            </div>
-            <div class="field">
-              <label id="anthropicBaseUrlLabel">Claude-Compatible Base URL</label>
-              <input type="text" id="anthropicBaseUrl" placeholder="https://api.anthropic.com">
-            </div>
-            <div class="field">
-              <label id="anthropicDefaultModelLabel">Claude-Compatible Default Model</label>
-              <input type="text" id="anthropicDefaultModel" placeholder="claude-sonnet-4-5">
+            <div class="runtime-grid">
+              <div class="runtime-card">
+                <div class="runtime-card-title" id="openaiRuntimeTitle">OpenAI-Compatible</div>
+                <div class="field">
+                  <label id="openaiApiKeyLabel">OpenAI-Compatible API Key</label>
+                  <input type="password" id="openaiApiKey" placeholder="sk-...">
+                </div>
+                <div class="field">
+                  <label id="openaiBaseUrlLabel">OpenAI-Compatible Base URL</label>
+                  <input type="text" id="openaiBaseUrl" placeholder="https://api.openai.com/v1">
+                </div>
+                <div class="field">
+                  <label id="openaiDefaultModelLabel">OpenAI-Compatible Default Model</label>
+                  <input type="text" id="openaiDefaultModel" placeholder="gpt-5.4">
+                  <div class="field-help" id="openaiDefaultModelHint">Used when a Codex project does not set its own model.</div>
+                </div>
+              </div>
+              <div class="runtime-card">
+                <div class="runtime-card-title" id="anthropicRuntimeTitle">Claude-Compatible</div>
+                <div class="field">
+                  <label id="anthropicApiKeyLabel">Claude-Compatible API Key</label>
+                  <input type="password" id="anthropicApiKey" placeholder="sk-ant-...">
+                </div>
+                <div class="field">
+                  <label id="anthropicBaseUrlLabel">Claude-Compatible Base URL</label>
+                  <input type="text" id="anthropicBaseUrl" placeholder="https://api.anthropic.com">
+                </div>
+                <div class="field">
+                  <label id="anthropicDefaultModelLabel">Claude-Compatible Default Model</label>
+                  <input type="text" id="anthropicDefaultModel" placeholder="claude-sonnet-4-5">
+                  <div class="field-help" id="anthropicDefaultModelHint">Used when a Claude project does not set its own model.</div>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -861,14 +907,28 @@
       document.getElementById("downloadUpdateBtn").textContent = inlineText("Download Update", "下载更新");
       document.getElementById("installUpdateBtn").textContent = inlineText("Install Downloaded Update", "安装已下载更新");
       document.getElementById("runtimeSection").textContent = msg("settings.runtime", "Runtime");
+      document.getElementById("runtimeSectionHint").textContent = inlineText(
+        "Set provider defaults here. Leave the per-project model blank to use these defaults.",
+        "这里配置 provider 级默认值。项目模型留空时，会自动使用这里的默认模型。"
+      );
       document.getElementById("cliProviderLabel").textContent = msg("settings.cliProvider", "CLI Provider");
       document.getElementById("runtimeHint").textContent = msg("settings.runtimeHint", "Both providers run in full-auto mode with no approval prompts or click-throughs.");
+      document.getElementById("openaiRuntimeTitle").textContent = inlineText("OpenAI-Compatible", "OpenAI 协议");
       document.getElementById("openaiApiKeyLabel").textContent = inlineText("OpenAI-Compatible API Key", "OpenAI 协议 API Key");
       document.getElementById("openaiBaseUrlLabel").textContent = inlineText("OpenAI-Compatible Base URL", "OpenAI 协议 Base URL");
       document.getElementById("openaiDefaultModelLabel").textContent = inlineText("OpenAI-Compatible Default Model", "OpenAI 协议默认模型");
+      document.getElementById("openaiDefaultModelHint").textContent = inlineText(
+        "Used when a Codex project does not set its own model.",
+        "当 Codex 项目未单独设置模型时，使用这里的默认模型。"
+      );
+      document.getElementById("anthropicRuntimeTitle").textContent = inlineText("Claude-Compatible", "Claude 协议");
       document.getElementById("anthropicApiKeyLabel").textContent = inlineText("Claude-Compatible API Key", "Claude 协议 API Key");
       document.getElementById("anthropicBaseUrlLabel").textContent = inlineText("Claude-Compatible Base URL", "Claude 协议 Base URL");
       document.getElementById("anthropicDefaultModelLabel").textContent = inlineText("Claude-Compatible Default Model", "Claude 协议默认模型");
+      document.getElementById("anthropicDefaultModelHint").textContent = inlineText(
+        "Used when a Claude project does not set its own model.",
+        "当 Claude 项目未单独设置模型时，使用这里的默认模型。"
+      );
       document.getElementById("serverSection").textContent = msg("settings.serverConnection", "Server Connection");
       document.getElementById("serverUrlLabel").textContent = msg("settings.relayServerUrl", "Relay Server URL");
       document.getElementById("usernameLabel").textContent = msg("settings.username", "Username");

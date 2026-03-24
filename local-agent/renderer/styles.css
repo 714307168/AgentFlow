@@ -719,6 +719,11 @@ body {
   text-align: center;
 }
 
+.history-loader.loading {
+  color: var(--accent);
+  font-weight: 600;
+}
+
 .detail-dock .activity-list {
   padding: 0;
 }
