@@ -88,6 +88,7 @@ func (c *Client) ReadPump() {
 			continue
 		}
 
+		c.hub.RecordInbound(env.Event, len(msg))
 		c.hub.HandleMessage(c, &env)
 	}
 }
@@ -139,6 +140,7 @@ func (c *Client) Send(env *model.Envelope) error {
 
 	select {
 	case c.send <- data:
+		c.hub.RecordOutbound(env.Event, len(data))
 	case <-c.closed:
 		return errors.New("client closed")
 	default:

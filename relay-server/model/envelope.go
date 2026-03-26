@@ -12,13 +12,24 @@ const (
 	EventAuthError   = "auth.error"
 
 	// Project events
-	EventProjectBind        = "project.bind"
-	EventProjectBound       = "project.bound"
-	EventProjectListRequest = "project.list.request"
-	EventProjectList        = "project.list"
-	EventProjectListed      = "project.listed"
-	EventSessionSyncRequest = "session.sync.request"
-	EventSessionSync        = "session.sync"
+	EventProjectBind            = "project.bind"
+	EventProjectBound           = "project.bound"
+	EventProjectListRequest     = "project.list.request"
+	EventProjectList            = "project.list"
+	EventProjectListed          = "project.listed"
+	EventSessionSyncRequest     = "session.sync.request"
+	EventSessionSync            = "session.sync"
+	EventWorkgroupListRequest   = "workgroup.list.request"
+	EventWorkgroupList          = "workgroup.list"
+	EventWorkgroupCommand       = "workgroup.command"
+	EventWorkgroupCommandResult = "workgroup.command.result"
+	EventWorkgroupCollabListRequest   = "workgroup.collaboration.list.request"
+	EventWorkgroupCollabList          = "workgroup.collaboration.list"
+	EventWorkgroupCollabSessionRequest = "workgroup.collaboration.session.request"
+	EventWorkgroupCollabSession       = "workgroup.collaboration.session"
+	EventWorkgroupCollabMessageSend   = "workgroup.collaboration.message.send"
+	EventWorkgroupCollabMessageResult = "workgroup.collaboration.message.result"
+	EventWorkgroupCollabSnapshot      = "workgroup.collaboration.snapshot"
 
 	// Message events
 	EventMessageSend  = "message.send"
@@ -118,6 +129,30 @@ type ProjectListPayload struct {
 	Projects []ProjectListItem `json:"projects"`
 }
 
+type AgentScopedPayload struct {
+	AgentID string `json:"agent_id"`
+}
+
+type WorkgroupCommandPayload struct {
+	AgentID string `json:"agent_id"`
+	Action  string `json:"action"`
+	TaskID  string `json:"task_id,omitempty"`
+	Status  string `json:"status,omitempty"`
+}
+
+type WorkgroupCollaborationSessionRequestPayload struct {
+	AgentID   string `json:"agent_id"`
+	WorkgroupID string `json:"workgroup_id"`
+	BeforeID  string `json:"before_id,omitempty"`
+	Limit     int    `json:"limit,omitempty"`
+}
+
+type WorkgroupCollaborationMessageSendPayload struct {
+	AgentID    string `json:"agent_id"`
+	WorkgroupID string `json:"workgroup_id"`
+	Content    string `json:"content"`
+}
+
 // MessageSendPayload is the payload for message.send
 type MessageSendPayload struct {
 	Content   string `json:"content"`
@@ -157,12 +192,19 @@ type FileSyncPayload struct {
 
 // E2EOfferPayload is the payload for e2e.offer (public key exchange)
 type E2EOfferPayload struct {
-	PublicKey string `json:"public_key"` // base64-encoded X25519 public key
+	PublicKey string `json:"public_key"`           // base64-encoded ECDH public key
+	AgentID   string `json:"agent_id,omitempty"`   // target agent
+	DeviceID  string `json:"device_id,omitempty"`  // sender device
 }
 
 // E2EAnswerPayload is the payload for e2e.answer
 type E2EAnswerPayload struct {
-	PublicKey string `json:"public_key"` // base64-encoded X25519 public key
+	PublicKey string `json:"public_key"`            // base64-encoded ECDH public key
+	AgentID   string `json:"agent_id,omitempty"`    // sender agent
+	DeviceID  string `json:"device_id,omitempty"`   // target device
+	Ciphertext string `json:"ciphertext,omitempty"` // encrypted room key payload
+	Nonce      string `json:"nonce,omitempty"`      // base64-encoded nonce
+	Encrypted  bool   `json:"encrypted,omitempty"`
 }
 
 // EncryptedPayload wraps an encrypted message payload

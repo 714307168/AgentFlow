@@ -1,0 +1,459 @@
+package com.claudecode.remote.domain
+
+import com.claudecode.remote.data.model.AgentWorkgroups
+import com.claudecode.remote.data.model.Envelope
+import com.claudecode.remote.data.model.Events
+import com.claudecode.remote.data.model.Workgroup
+import com.claudecode.remote.data.model.WorkgroupMember
+import com.claudecode.remote.data.model.WorkgroupMessage
+import com.claudecode.remote.data.model.WorkgroupSession
+import com.claudecode.remote.data.remote.RelayWebSocket
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
+import java.security.MessageDigest
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
+
+class WorkgroupRepository(
+    private val webSocket: RelayWebSocket
+) {
+    companion object {
+        private const val REQUEST_TIMEOUT_MS = 15_000L
+        private const val DEFAULT_PAGE_SIZE = 30
+        private const val KNOWN_ITEM_LIMIT = 60
+    }
+
+    private data class SessionResponse(
+        val agentId: String,
+        val session: WorkgroupSession
+    )
+
+    private val _agentWorkgroups = MutableStateFlow<List<AgentWorkgroups>>(emptyList())
+    val agentWorkgroups: StateFlow<List<AgentWorkgroups>> = _agentWorkgroups.asStateFlow()
+
+    private val _sessions = MutableStateFlow<Map<String, WorkgroupSession>>(emptyMap())
+    val sessions: StateFlow<Map<String, WorkgroupSession>> = _sessions.asStateFlow()
+
+    private val pendingSessionRequests = ConcurrentHashMap<String, CompletableDeferred<Result<SessionResponse>>>()
+    private val pendingSendRequests = ConcurrentHashMap<String, CompletableDeferred<Result<Unit>>>()
+
+    suspend fun refresh(agentIds: List<String>) {
+        val normalizedAgentIds = normalizeAgentIds(agentIds)
+        retainAgentIds(normalizedAgentIds)
+
+        normalizedAgentIds.forEach { agentId ->
+            webSocket.send(
+                Envelope(
+                    id = UUID.randomUUID().toString(),
+                    event = Events.WORKGROUP_COLLABORATION_LIST_REQUEST,
+                    payload = JsonObject(
+                        mapOf("agent_id" to JsonPrimitive(agentId))
+                    ),
+                    ts = System.currentTimeMillis()
+                )
+            )
+        }
+    }
+
+    fun retainAgentIds(agentIds: List<String>) {
+        val allowed = normalizeAgentIds(agentIds).toSet()
+        _agentWorkgroups.value = if (allowed.isEmpty()) {
+            emptyList()
+        } else {
+            _agentWorkgroups.value.filter { it.agentId in allowed }
+        }
+        _sessions.value = if (allowed.isEmpty()) {
+            emptyMap()
+        } else {
+            _sessions.value.filterKeys { key ->
+                sessionKeyAgentId(key) in allowed
+            }
+        }
+    }
+
+    suspend fun requestSession(
+        agentId: String,
+        workgroupId: String,
+        beforeId: String? = null,
+        limit: Int = DEFAULT_PAGE_SIZE
+    ): Result<Unit> {
+        val normalizedAgentId = agentId.trim()
+        val normalizedWorkgroupId = workgroupId.trim()
+        if (normalizedAgentId.isEmpty() || normalizedWorkgroupId.isEmpty()) {
+            return Result.failure(IllegalArgumentException("agentId and workgroupId are required"))
+        }
+
+        val requestId = UUID.randomUUID().toString()
+        val deferred = CompletableDeferred<Result<SessionResponse>>()
+        pendingSessionRequests[requestId] = deferred
+
+        webSocket.send(
+            Envelope(
+                id = requestId,
+                event = Events.WORKGROUP_COLLABORATION_SESSION_REQUEST,
+                payload = JsonObject(buildMap {
+                    put("agent_id", JsonPrimitive(normalizedAgentId))
+                    put("workgroup_id", JsonPrimitive(normalizedWorkgroupId))
+                    beforeId?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                        put("before_id", JsonPrimitive(it))
+                    }
+                    put("limit", JsonPrimitive(limit))
+                    val knownItems = buildKnownItems(
+                        agentId = normalizedAgentId,
+                        workgroupId = normalizedWorkgroupId,
+                        beforeId = beforeId,
+                        limit = limit
+                    )
+                    if (knownItems.isNotEmpty()) {
+                        put("known_items", kotlinx.serialization.json.JsonArray(knownItems))
+                    }
+                }),
+                ts = System.currentTimeMillis()
+            )
+        )
+
+        return try {
+            withTimeout(REQUEST_TIMEOUT_MS) {
+                deferred.await().map { Unit }
+            }
+        } catch (error: Exception) {
+            pendingSessionRequests.remove(requestId)
+            Result.failure(error)
+        }
+    }
+
+    suspend fun sendMessage(
+        agentId: String,
+        workgroupId: String,
+        content: String
+    ): Result<Unit> {
+        val normalizedAgentId = agentId.trim()
+        val normalizedWorkgroupId = workgroupId.trim()
+        val normalizedContent = content.trim()
+        if (normalizedAgentId.isEmpty() || normalizedWorkgroupId.isEmpty()) {
+            return Result.failure(IllegalArgumentException("agentId and workgroupId are required"))
+        }
+        if (normalizedContent.isEmpty()) {
+            return Result.failure(IllegalArgumentException("content is required"))
+        }
+
+        val requestId = UUID.randomUUID().toString()
+        val deferred = CompletableDeferred<Result<Unit>>()
+        pendingSendRequests[requestId] = deferred
+
+        webSocket.send(
+            Envelope(
+                id = requestId,
+                event = Events.WORKGROUP_COLLABORATION_MESSAGE_SEND,
+                payload = JsonObject(
+                    buildMap {
+                        put("agent_id", JsonPrimitive(normalizedAgentId))
+                        put("workgroup_id", JsonPrimitive(normalizedWorkgroupId))
+                        put("content", JsonPrimitive(content))
+                    }
+                ),
+                ts = System.currentTimeMillis()
+            )
+        )
+
+        return try {
+            withTimeout(REQUEST_TIMEOUT_MS) { deferred.await() }
+        } catch (error: Exception) {
+            pendingSendRequests.remove(requestId)
+            Result.failure(error)
+        }
+    }
+
+    fun getSession(agentId: String, workgroupId: String): WorkgroupSession? =
+        _sessions.value[sessionKey(agentId, workgroupId)]
+
+    suspend fun processEnvelope(envelope: Envelope) {
+        when (envelope.event) {
+            Events.WORKGROUP_COLLABORATION_LIST -> {
+                val payload = envelope.payload?.jsonObject ?: return
+                applyAgentWorkgroups(payload)
+            }
+
+            Events.WORKGROUP_COLLABORATION_SESSION -> {
+                val payload = envelope.payload?.jsonObject ?: return
+                val requestId = payload["request_id"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+                val response = applySessionPayload(payload)
+                if (requestId.isNotBlank()) {
+                    pendingSessionRequests.remove(requestId)?.complete(
+                        response?.let { Result.success(it) }
+                            ?: Result.failure(IllegalStateException("Workgroup session unavailable"))
+                    )
+                }
+            }
+
+            Events.WORKGROUP_COLLABORATION_MESSAGE_RESULT -> {
+                val payload = envelope.payload?.jsonObject ?: return
+                val requestId = payload["request_id"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+                payload["session"]?.jsonObject?.let { sessionObject ->
+                    val agentId = payload["agent_id"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+                    applySessionSnapshot(agentId, sessionObject)
+                }
+                if (requestId.isBlank()) {
+                    return
+                }
+                pendingSendRequests.remove(requestId)?.complete(
+                    if (payload["success"]?.jsonPrimitive?.booleanOrNull == true) {
+                        Result.success(Unit)
+                    } else {
+                        Result.failure(
+                            IllegalStateException(
+                                payload["error"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+                                    .ifBlank { "Workgroup message failed." }
+                            )
+                        )
+                    }
+                )
+            }
+
+            Events.WORKGROUP_COLLABORATION_SNAPSHOT -> {
+                val payload = envelope.payload?.jsonObject ?: return
+                val agentId = payload["agent_id"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+                val sessionObject = payload["session"]?.jsonObject ?: return
+                applySessionSnapshot(agentId, sessionObject)
+            }
+        }
+    }
+
+    private fun applyAgentWorkgroups(payload: JsonObject) {
+        val agentId = payload["agent_id"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        if (agentId.isBlank()) {
+            return
+        }
+
+        val workgroups = payload["workgroups"]?.jsonArray?.mapNotNull(::parseWorkgroup).orEmpty()
+        _agentWorkgroups.value = _agentWorkgroups.value
+            .filterNot { it.agentId == agentId }
+            .plus(AgentWorkgroups(agentId = agentId, workgroups = workgroups))
+            .sortedBy { it.agentId.lowercase() }
+
+        val validKeys = workgroups
+            .map { sessionKey(agentId, it.id) }
+            .toSet()
+        _sessions.value = _sessions.value.filterKeys { key ->
+            sessionKeyAgentId(key) != agentId || key in validKeys
+        }
+    }
+
+    private fun applySessionPayload(payload: JsonObject): SessionResponse? {
+        val agentId = payload["agent_id"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        val sessionObject = payload["session"]?.jsonObject ?: return null
+        val beforeId = payload["before_id"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        val pageObject = payload["page"]?.jsonObject
+        val existingMessages = _sessions.value[sessionKey(agentId, sessionObject["workgroupId"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty())]
+            ?.messages
+            .orEmpty()
+        val existingById = existingMessages.associateBy { it.id }
+        val parsedSession = parseSession(agentId, sessionObject, existingById) ?: return null
+        val pageMessages = pageObject?.get("items")?.jsonArray?.mapNotNull { parseMessage(it, existingById) }.orEmpty()
+        val hasMore = pageObject?.get("hasMore")?.jsonPrimitive?.booleanOrNull
+            ?: (parsedSession.messageTotal > parsedSession.messages.size)
+
+        val mergedMessages = if (beforeId.isBlank()) {
+            mergeMessages(
+                _sessions.value[sessionKey(agentId, parsedSession.workgroupId)]?.messages.orEmpty(),
+                parsedSession.messages
+            )
+        } else {
+            mergeMessages(
+                _sessions.value[sessionKey(agentId, parsedSession.workgroupId)]?.messages.orEmpty(),
+                pageMessages
+            )
+        }
+
+        val nextSession = parsedSession.copy(
+            messages = mergedMessages,
+            hasMoreHistory = hasMore || mergedMessages.size < parsedSession.messageTotal
+        )
+        putSession(nextSession)
+        return SessionResponse(agentId = agentId, session = nextSession)
+    }
+
+    private fun applySessionSnapshot(agentId: String, sessionObject: JsonObject) {
+        val currentSession = _sessions.value[sessionKey(agentId, sessionObject["workgroupId"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty())]
+        val existingById = currentSession?.messages.orEmpty().associateBy { it.id }
+        val parsedSession = parseSession(agentId, sessionObject, existingById) ?: return
+        val existing = _sessions.value[sessionKey(agentId, parsedSession.workgroupId)]
+        val mergedMessages = mergeMessages(existing?.messages.orEmpty(), parsedSession.messages)
+        val nextSession = parsedSession.copy(
+            messages = mergedMessages,
+            hasMoreHistory = mergedMessages.size < parsedSession.messageTotal || existing?.hasMoreHistory == true
+        )
+        putSession(nextSession)
+    }
+
+    private fun putSession(session: WorkgroupSession) {
+        _sessions.value = _sessions.value.toMutableMap().apply {
+            put(sessionKey(session.agentId, session.workgroupId), session)
+        }
+    }
+
+    private fun parseWorkgroup(element: kotlinx.serialization.json.JsonElement): Workgroup? {
+        val obj = element as? JsonObject ?: return null
+        val id = obj["id"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        if (id.isBlank()) {
+            return null
+        }
+        return Workgroup(
+            id = id,
+            name = obj["name"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty().ifEmpty { id },
+            description = obj["description"]?.jsonPrimitive?.contentOrNull?.trim().takeUnless { it.isNullOrEmpty() },
+            updatedAt = obj["updatedAt"]?.jsonPrimitive?.longOrNull ?: 0L,
+            isRunning = obj["isRunning"]?.jsonPrimitive?.booleanOrNull == true,
+            lastMessagePreview = obj["lastMessagePreview"]?.jsonPrimitive?.contentOrNull?.trim().takeUnless { it.isNullOrEmpty() },
+            messageCount = obj["messageCount"]?.jsonPrimitive?.intOrNull ?: 0,
+            memberCount = obj["memberCount"]?.jsonPrimitive?.intOrNull ?: 0
+        )
+    }
+
+    private fun parseSession(
+        agentId: String,
+        obj: JsonObject,
+        existingById: Map<String, WorkgroupMessage> = emptyMap()
+    ): WorkgroupSession? {
+        val workgroupId = obj["workgroupId"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        if (agentId.isBlank() || workgroupId.isBlank()) {
+            return null
+        }
+        return WorkgroupSession(
+            agentId = agentId,
+            workgroupId = workgroupId,
+            workgroupName = obj["workgroupName"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty().ifEmpty { workgroupId },
+            description = obj["description"]?.jsonPrimitive?.contentOrNull?.trim().takeUnless { it.isNullOrEmpty() },
+            allowDirectMemberMessages = obj["allowDirectMemberMessages"]?.jsonPrimitive?.booleanOrNull == true,
+            updatedAt = obj["updatedAt"]?.jsonPrimitive?.longOrNull ?: 0L,
+            isRunning = obj["isRunning"]?.jsonPrimitive?.booleanOrNull == true,
+            messageTotal = obj["messageTotal"]?.jsonPrimitive?.intOrNull ?: 0,
+            members = obj["members"]?.jsonArray?.mapNotNull(::parseMember).orEmpty(),
+            messages = obj["messages"]?.jsonArray?.mapNotNull { parseMessage(it, existingById) }.orEmpty()
+        )
+    }
+
+    private fun parseMember(element: kotlinx.serialization.json.JsonElement): WorkgroupMember? {
+        val obj = element as? JsonObject ?: return null
+        val id = obj["id"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        if (id.isBlank()) {
+            return null
+        }
+        return WorkgroupMember(
+            id = id,
+            name = obj["name"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty().ifEmpty { id },
+            role = obj["role"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty().ifEmpty { "member" },
+            projectId = obj["projectId"]?.jsonPrimitive?.contentOrNull?.trim().takeUnless { it.isNullOrEmpty() },
+            projectName = obj["projectName"]?.jsonPrimitive?.contentOrNull?.trim().takeUnless { it.isNullOrEmpty() },
+            projectKind = obj["projectKind"]?.jsonPrimitive?.contentOrNull?.trim().takeUnless { it.isNullOrEmpty() },
+            projectOnline = obj["projectOnline"]?.jsonPrimitive?.booleanOrNull == true,
+            hasBinding = obj["hasBinding"]?.jsonPrimitive?.booleanOrNull == true,
+            isRunning = obj["isRunning"]?.jsonPrimitive?.booleanOrNull == true
+        )
+    }
+
+    private fun parseMessage(
+        element: kotlinx.serialization.json.JsonElement,
+        existingById: Map<String, WorkgroupMessage> = emptyMap()
+    ): WorkgroupMessage? {
+        val obj = element as? JsonObject ?: return null
+        val id = obj["id"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        if (id.isBlank()) {
+            return null
+        }
+        val existing = existingById[id]
+        val contentMd5 = obj["content_md5"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        val contentOmitted = obj["content_omitted"]?.jsonPrimitive?.booleanOrNull == true
+        val resolvedContent = if (
+            contentOmitted
+            && existing != null
+            && contentMd5.isNotBlank()
+            && createMd5(existing.content) == contentMd5
+        ) {
+            existing.content
+        } else {
+            obj["content"]?.jsonPrimitive?.contentOrNull ?: ""
+        }
+        return WorkgroupMessage(
+            id = id,
+            senderType = obj["senderType"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty().ifEmpty { "member" },
+            senderName = obj["senderName"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty().ifEmpty { "Unknown" },
+            memberId = obj["memberId"]?.jsonPrimitive?.contentOrNull?.trim().takeUnless { it.isNullOrEmpty() },
+            memberRole = obj["memberRole"]?.jsonPrimitive?.contentOrNull?.trim().takeUnless { it.isNullOrEmpty() },
+            projectId = obj["projectId"]?.jsonPrimitive?.contentOrNull?.trim().takeUnless { it.isNullOrEmpty() },
+            projectKind = obj["projectKind"]?.jsonPrimitive?.contentOrNull?.trim().takeUnless { it.isNullOrEmpty() },
+            content = resolvedContent,
+            status = obj["status"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty().ifEmpty { "done" },
+            createdAt = obj["createdAt"]?.jsonPrimitive?.longOrNull ?: 0L,
+            updatedAt = obj["updatedAt"]?.jsonPrimitive?.longOrNull ?: 0L
+        )
+    }
+
+    private fun mergeMessages(
+        existing: List<WorkgroupMessage>,
+        incoming: List<WorkgroupMessage>
+    ): List<WorkgroupMessage> {
+        if (incoming.isEmpty()) {
+            return existing.sortedWith(compareBy<WorkgroupMessage> { it.createdAt }.thenBy { it.updatedAt })
+        }
+        val merged = LinkedHashMap<String, WorkgroupMessage>()
+        existing
+            .sortedWith(compareBy<WorkgroupMessage> { it.createdAt }.thenBy { it.updatedAt })
+            .forEach { merged[it.id] = it }
+        incoming
+            .sortedWith(compareBy<WorkgroupMessage> { it.createdAt }.thenBy { it.updatedAt })
+            .forEach { merged[it.id] = it }
+        return merged.values
+            .sortedWith(compareBy<WorkgroupMessage> { it.createdAt }.thenBy { it.updatedAt })
+    }
+
+    private fun normalizeAgentIds(agentIds: List<String>): List<String> =
+        agentIds.map { it.trim() }.filter { it.isNotEmpty() }.distinct().sorted()
+
+    private fun buildKnownItems(
+        agentId: String,
+        workgroupId: String,
+        beforeId: String?,
+        limit: Int
+    ): List<JsonObject> {
+        val session = _sessions.value[sessionKey(agentId, workgroupId)] ?: return emptyList()
+        val anchorIndex = beforeId?.trim()?.takeIf { it.isNotEmpty() }?.let { anchorId ->
+            session.messages.indexOfFirst { it.id == anchorId }.takeIf { it >= 0 }
+        } ?: session.messages.size
+        return session.messages
+            .take(anchorIndex)
+            .takeLast(maxOf(KNOWN_ITEM_LIMIT, limit * 2))
+            .map { message ->
+                JsonObject(
+                    mapOf(
+                        "id" to JsonPrimitive(message.id),
+                        "content_md5" to JsonPrimitive(createMd5(message.content))
+                    )
+                )
+            }
+    }
+
+    private fun createMd5(value: String): String {
+        val digest = MessageDigest.getInstance("MD5")
+        val bytes = digest.digest(value.replace("\r\n", "\n").toByteArray(Charsets.UTF_8))
+        return bytes.joinToString(separator = "") { byte -> "%02x".format(byte) }
+    }
+
+    private fun sessionKey(agentId: String, workgroupId: String): String =
+        "${agentId.trim()}::${workgroupId.trim()}"
+
+    private fun sessionKeyAgentId(key: String): String =
+        key.substringBefore("::", "")
+}

@@ -95,6 +95,7 @@
     <string name="chat_conversations_title">会话</string>
     <string name="chat_new_conversation">新建会话</string>
     <string name="chat_loading_older">正在加载更早消息…</string>
+    <string name="chat_loading_older_safe">正在加载更早消息...</string>
     <string name="chat_switch_conversation">切换会话</string>
     <string name="default_group">默认分组</string>
     <string name="session_projects_count">%1$d 个项目</string>
@@ -111,4 +112,26 @@
     <string name="settings_open_crash_logs">Open Crash Logs</string>
     <string name="settings_no_crash_logs">No crash logs found.</string>
     <string name="settings_clear_all">Clear All</string>
+    <string name="action_expand">Expand</string>
+    <string name="action_collapse">Collapse</string>
+    <string name="workgroups_title">工作组</string>
+    <string name="workgroups_subtitle">工作组数据只保存在桌面端，本页实时同步已连接桌面端的工作组。</string>
+    <string name="workgroups_chat_subtitle">打开工作组后，像桌面端一样在群聊里直接沟通。</string>
+    <string name="workgroups_empty">还没有可用工作组，请先在桌面端创建和维护工作组。</string>
+    <string name="workgroups_agent_empty">这个桌面端还没有工作组。</string>
+    <string name="workgroups_short">WG</string>
+    <string name="workgroups_member_task_count">%1$d 个成员 · %2$d 个任务</string>
+    <string name="workgroups_member_message_count">%1$d 个成员 · %2$d 条消息</string>
+    <string name="workgroups_members_count">%1$d 个成员</string>
+    <string name="workgroups_open_chat_hint">打开群聊开始沟通</string>
+    <string name="workgroups_loading_chat">正在加载群聊...</string>
+    <string name="workgroups_no_messages">还没有群聊消息。</string>
+    <string name="workgroups_load_older">加载更早消息</string>
+    <string name="workgroups_message_hint">发送群消息</string>
+    <string name="workgroups_assignee_label">执行人：%1$s</string>
+    <string name="workgroups_dispatch">派发</string>
+    <string name="workgroups_todo">待办</string>
+    <string name="workgroups_done">完成</string>
+    <string name="workgroups_blocked">阻塞</string>
+    <string name="workgroups_agent_label">桌面端：%1$s</string>
 </resources>

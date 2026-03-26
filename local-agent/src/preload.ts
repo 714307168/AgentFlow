@@ -16,6 +16,12 @@ contextBridge.exposeInMainWorld('claudeAgent', {
     beforeId?: string | null;
     limit?: number;
   }) => ipcRenderer.invoke('get-project-history-page', data),
+  searchProjectMessages: (data: {
+    projectId: string;
+    query: string;
+    conversationId?: string | null;
+    limit?: number;
+  }) => ipcRenderer.invoke('search-project-messages', data),
   listProjectConversations: (projectId: string) => ipcRenderer.invoke('list-project-conversations', projectId),
   createProjectConversation: (projectId: string) => ipcRenderer.invoke('create-project-conversation', projectId),
   activateProjectConversation: (data: { projectId: string; conversationId: string }) => ipcRenderer.invoke('activate-project-conversation', data),
@@ -26,6 +32,63 @@ contextBridge.exposeInMainWorld('claudeAgent', {
   getAttachmentImageData: (data: { path?: string | null }) => ipcRenderer.invoke('get-attachment-image-data', data),
   stopProjectRun: (projectId: string) => ipcRenderer.invoke('stop-project-run', projectId),
   removeQueuedProjectPrompt: (data: { projectId: string; runId: string }) => ipcRenderer.invoke('remove-queued-project-prompt', data),
+  listWorkgroups: () => ipcRenderer.invoke('list-workgroups'),
+  listWorkgroupCollaborations: () => ipcRenderer.invoke('list-workgroup-collaborations'),
+  getWorkgroupCollaborationSession: (workgroupId: string) => ipcRenderer.invoke('get-workgroup-collaboration-session', workgroupId),
+  getWorkgroupCollaborationHistoryPage: (data: {
+    workgroupId: string;
+    beforeId?: string | null;
+    limit?: number;
+  }) => ipcRenderer.invoke('get-workgroup-collaboration-history-page', data),
+  searchWorkgroupCollaborationMessages: (data: {
+    workgroupId: string;
+    query: string;
+    limit?: number;
+  }) => ipcRenderer.invoke('search-workgroup-collaboration-messages', data),
+  sendWorkgroupCollaborationMessage: (data: { workgroupId: string; content: string }) => ipcRenderer.invoke('send-workgroup-collaboration-message', data),
+  saveWorkgroup: (data: {
+    id?: string;
+    name: string;
+    description?: string | null;
+    allowDirectMemberMessages?: boolean;
+  }) => ipcRenderer.invoke('save-workgroup', data),
+  deleteWorkgroup: (workgroupId: string) => ipcRenderer.invoke('delete-workgroup', workgroupId),
+  saveWorkgroupMember: (data: {
+    id?: string;
+    workgroupId: string;
+    name: string;
+    role: 'developer' | 'qa' | 'project_manager' | 'custom';
+    projectId?: string | null;
+    allowedPaths?: string[] | null;
+    systemPrompt?: string | null;
+  }) => ipcRenderer.invoke('save-workgroup-member', data),
+  deleteWorkgroupMember: (memberId: string) => ipcRenderer.invoke('delete-workgroup-member', memberId),
+  saveWorkgroupTask: (data: {
+    id?: string;
+    workgroupId: string;
+    title: string;
+    description?: string | null;
+    acceptanceCriteria?: string | null;
+    assigneeMemberId?: string | null;
+    priority?: 'low' | 'normal' | 'high';
+    status?: 'todo' | 'assigned' | 'running' | 'blocked' | 'done' | 'error';
+  }) => ipcRenderer.invoke('save-workgroup-task', data),
+  deleteWorkgroupTask: (taskId: string) => ipcRenderer.invoke('delete-workgroup-task', taskId),
+  updateWorkgroupTaskStatus: (data: {
+    taskId: string;
+    status: 'todo' | 'assigned' | 'running' | 'blocked' | 'done' | 'error';
+    lastDispatchResult?: string | null;
+  }) => ipcRenderer.invoke('update-workgroup-task-status', data),
+  dispatchWorkgroupTask: (taskId: string) => ipcRenderer.invoke('dispatch-workgroup-task', taskId),
+  onWorkgroupsChanged: (callback: (workgroups: unknown[]) => void) => {
+    ipcRenderer.on('workgroups-changed', (_event, workgroups: unknown[]) => callback(workgroups));
+  },
+  onWorkgroupCollaborationSummaries: (callback: (workgroups: unknown[]) => void) => {
+    ipcRenderer.on('workgroup-collaboration-summaries', (_event, workgroups: unknown[]) => callback(workgroups));
+  },
+  onWorkgroupCollaborationSnapshot: (callback: (snapshot: unknown) => void) => {
+    ipcRenderer.on('workgroup-collaboration-snapshot', (_event, snapshot: unknown) => callback(snapshot));
+  },
   addProject: (data: { name: string; path: string; groupName?: string | null; cliProvider?: string; cliModel?: string | null; projectPrompt?: string | null }) => ipcRenderer.invoke('add-project', data),
   updateProject: (data: { projectId: string; updates: Record<string, string | null> }) => ipcRenderer.invoke('update-project', data),
   deleteProject: (projectId: string) => ipcRenderer.invoke('delete-project', projectId),

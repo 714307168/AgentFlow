@@ -445,6 +445,19 @@
               <tbody id="connectionsBody"></tbody>
             </table>
           </div>
+
+          <div class="table-shell">
+            <div class="section-head">
+              <div class="section-title">
+                <h2 data-i18n="traffic.heading">Traffic by Event</h2>
+                <p data-i18n="traffic.subheading">Inbound and outbound payload volume by event type.</p>
+              </div>
+            </div>
+            <table>
+              <thead id="trafficHead"></thead>
+              <tbody id="trafficBody"></tbody>
+            </table>
+          </div>
         </section>
 
         <section class="panel" id="agentsPanel">
@@ -640,7 +653,8 @@
 
     const emptyOverview = () => ({
       summary: { users: 0, agents: 0, devices: 0, online_agents: 0, online_devices: 0 },
-      connections: []
+      connections: [],
+      traffic: []
     });
 
     const state = {
@@ -694,6 +708,14 @@
         "connections.table.note": "Note",
         "connections.table.status": "Status",
         "connections.table.created": "Created",
+        "traffic.heading": "Traffic by Event",
+        "traffic.subheading": "Inbound and outbound payload volume by event type.",
+        "traffic.empty": "No traffic recorded yet.",
+        "traffic.table.event": "Event",
+        "traffic.table.inboundCount": "Inbound",
+        "traffic.table.inboundBytes": "Inbound Bytes",
+        "traffic.table.outboundCount": "Outbound",
+        "traffic.table.outboundBytes": "Outbound Bytes",
         "agents.heading": "Agents",
         "agents.subheading": "Desktop clients.",
         "agents.id.placeholder": "Agent ID",
@@ -869,6 +891,14 @@
         "connections.table.note": "备注",
         "connections.table.status": "状态",
         "connections.table.created": "创建时间",
+        "traffic.heading": "事件流量",
+        "traffic.subheading": "按事件类型查看上下行消息量。",
+        "traffic.empty": "暂无流量记录。",
+        "traffic.table.event": "事件",
+        "traffic.table.inboundCount": "入站次数",
+        "traffic.table.inboundBytes": "入站流量",
+        "traffic.table.outboundCount": "出站次数",
+        "traffic.table.outboundBytes": "出站流量",
         "agents.heading": "桌面端",
         "agents.subheading": "桌面客户端。",
         "agents.id.placeholder": "桌面端 ID",
@@ -1220,6 +1250,7 @@
       $("summaryDevices").textContent = String(summary.devices ?? 0);
       $("summaryOnlineAgents").textContent = String(summary.online_agents ?? 0);
       $("summaryOnlineDevices").textContent = String(summary.online_devices ?? 0);
+
       $("connectionsHead").innerHTML = "<tr><th>" + esc(t("connections.table.type")) + "</th><th>" + esc(t("connections.table.id")) + "</th><th>" + esc(t("connections.table.user")) + "</th><th>" + esc(t("connections.table.agent")) + "</th><th>" + esc(t("connections.table.note")) + "</th><th>" + esc(t("connections.table.status")) + "</th><th>" + esc(t("connections.table.created")) + "</th></tr>";
       const rows = [...(state.overview.connections || [])].sort((left, right) => {
         if (left.online !== right.online) return left.online ? -1 : 1;
@@ -1228,9 +1259,25 @@
       });
       if (!rows.length) {
         $("connectionsBody").innerHTML = '<tr><td colspan="7" class="empty">' + esc(t("connections.empty")) + "</td></tr>";
+      } else {
+        $("connectionsBody").innerHTML = rows.map((row) => "<tr><td>" + renderType(row.kind) + '</td><td class="mono">' + esc(row.id) + '</td><td class="mono">' + esc(row.username) + '</td><td class="mono">' + esc(row.kind === "device" ? (row.agent_id || "-") : "-") + '</td><td class="muted">' + esc(row.note || "") + "</td><td>" + renderStatus(Boolean(row.online)) + '</td><td class="mono">' + esc(fmtDate(row.created_at)) + "</td></tr>").join("");
+      }
+
+      $("trafficHead").innerHTML = "<tr><th>" + esc(t("traffic.table.event")) + "</th><th>" + esc(t("traffic.table.inboundCount")) + "</th><th>" + esc(t("traffic.table.inboundBytes")) + "</th><th>" + esc(t("traffic.table.outboundCount")) + "</th><th>" + esc(t("traffic.table.outboundBytes")) + "</th></tr>";
+      const trafficRows = [...(state.overview.traffic || [])].sort((left, right) => {
+        const leftBytes = Number(left.inbound_bytes || 0) + Number(left.outbound_bytes || 0);
+        const rightBytes = Number(right.inbound_bytes || 0) + Number(right.outbound_bytes || 0);
+        if (leftBytes !== rightBytes) return rightBytes - leftBytes;
+        const leftCount = Number(left.inbound_count || 0) + Number(left.outbound_count || 0);
+        const rightCount = Number(right.inbound_count || 0) + Number(right.outbound_count || 0);
+        if (leftCount !== rightCount) return rightCount - leftCount;
+        return String(left.event || "").localeCompare(String(right.event || ""));
+      });
+      if (!trafficRows.length) {
+        $("trafficBody").innerHTML = '<tr><td colspan="5" class="empty">' + esc(t("traffic.empty")) + "</td></tr>";
         return;
       }
-      $("connectionsBody").innerHTML = rows.map((row) => "<tr><td>" + renderType(row.kind) + '</td><td class="mono">' + esc(row.id) + '</td><td class="mono">' + esc(row.username) + '</td><td class="mono">' + esc(row.kind === "device" ? (row.agent_id || "-") : "-") + '</td><td class="muted">' + esc(row.note || "") + "</td><td>" + renderStatus(Boolean(row.online)) + '</td><td class="mono">' + esc(fmtDate(row.created_at)) + "</td></tr>").join("");
+      $("trafficBody").innerHTML = trafficRows.map((row) => "<tr><td class=\"mono\">" + esc(row.event || "-") + '</td><td class="mono">' + esc(row.inbound_count ?? 0) + '</td><td class="mono">' + esc(formatBytes(row.inbound_bytes)) + '</td><td class="mono">' + esc(row.outbound_count ?? 0) + '</td><td class="mono">' + esc(formatBytes(row.outbound_bytes)) + "</td></tr>").join("");
     }
 
     function renderAgents() {

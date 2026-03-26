@@ -21,6 +21,7 @@ class E2ECrypto {
 
     private var keyPair: KeyPair
     private val sharedSecrets = mutableMapOf<String, SecretKey>()
+    private val roomKeys = mutableMapOf<String, SecretKey>()
     private val secureRandom = SecureRandom()
 
     init {
@@ -47,8 +48,53 @@ class E2ECrypto {
 
     fun hasKey(peerId: String): Boolean = sharedSecrets.containsKey(peerId)
 
+    fun hasRoomKey(roomId: String): Boolean = roomKeys.containsKey(roomId)
+
+    fun getOrCreateRoomKeyBase64(roomId: String): String {
+        val existing = roomKeys[roomId]
+        if (existing != null) {
+            return Base64.encodeToString(existing.encoded, Base64.NO_WRAP)
+        }
+        val nextKeyBytes = ByteArray(32)
+        secureRandom.nextBytes(nextKeyBytes)
+        val nextKey = SecretKeySpec(nextKeyBytes, "AES")
+        roomKeys[roomId] = nextKey
+        return Base64.encodeToString(nextKeyBytes, Base64.NO_WRAP)
+    }
+
+    fun setRoomKey(roomId: String, encodedKey: String) {
+        val decoded = Base64.decode(encodedKey, Base64.NO_WRAP)
+        if (decoded.size < 32) {
+            return
+        }
+        roomKeys[roomId] = SecretKeySpec(decoded.copyOf(32), "AES")
+    }
+
     fun encrypt(peerId: String, plaintext: String): EncryptedPayload? {
         val key = sharedSecrets[peerId] ?: return null
+        return encryptWithKey(key, plaintext)
+    }
+
+    fun encryptWithRoomKey(roomId: String, plaintext: String): EncryptedPayload? {
+        val key = roomKeys[roomId] ?: return null
+        return encryptWithKey(key, plaintext)
+    }
+
+    fun decrypt(peerId: String, payload: EncryptedPayload): String? {
+        val key = sharedSecrets[peerId] ?: return null
+        return decryptWithKey(key, payload)
+    }
+
+    fun decryptWithRoomKey(roomId: String, payload: EncryptedPayload): String? {
+        val key = roomKeys[roomId] ?: return null
+        return decryptWithKey(key, payload)
+    }
+
+    fun removeRoomKey(roomId: String) {
+        roomKeys.remove(roomId)
+    }
+
+    private fun encryptWithKey(key: SecretKey, plaintext: String): EncryptedPayload {
         val nonce = ByteArray(12)
         secureRandom.nextBytes(nonce)
 
@@ -63,8 +109,7 @@ class E2ECrypto {
         )
     }
 
-    fun decrypt(peerId: String, payload: EncryptedPayload): String? {
-        val key = sharedSecrets[peerId] ?: return null
+    private fun decryptWithKey(key: SecretKey, payload: EncryptedPayload): String {
         val nonce = Base64.decode(payload.nonce, Base64.NO_WRAP)
         val ciphertext = Base64.decode(payload.ciphertext, Base64.NO_WRAP)
 
@@ -80,6 +125,7 @@ class E2ECrypto {
 
     fun regenerateKeys() {
         sharedSecrets.clear()
+        roomKeys.clear()
         keyPair = generateKeyPair()
     }
 

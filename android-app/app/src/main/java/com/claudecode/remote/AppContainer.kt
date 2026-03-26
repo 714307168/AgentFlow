@@ -10,6 +10,7 @@ import com.claudecode.remote.data.remote.RelayApi
 import com.claudecode.remote.data.remote.RelayWebSocket
 import com.claudecode.remote.domain.MessageRepository
 import com.claudecode.remote.domain.SessionRepository
+import com.claudecode.remote.domain.WorkgroupRepository
 import com.claudecode.remote.update.AppUpdateManager
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -47,7 +48,8 @@ class AppContainer(private val appContext: Context) {
 
     val relayWebSocket = RelayWebSocket(
         serverUrl = normalizeHttpBaseUrl(tokenStore.getServerUrl() ?: DEFAULT_SERVER_URL),
-        tokenStore = tokenStore
+        tokenStore = tokenStore,
+        e2eCrypto = e2eCrypto
     )
 
     val sessionRepository = SessionRepository(
@@ -63,6 +65,10 @@ class AppContainer(private val appContext: Context) {
         authSessionManager = authSessionManager,
         tokenStore = tokenStore,
         context = appContext
+    )
+
+    val workgroupRepository = WorkgroupRepository(
+        webSocket = relayWebSocket
     )
 
     val appUpdateManager = AppUpdateManager(

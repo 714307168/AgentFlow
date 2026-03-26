@@ -1,6 +1,7 @@
 package db
 
 import (
+	"database/sql"
 	"fmt"
 	"time"
 )
@@ -74,7 +75,8 @@ func (db *DB) ListAccessibleAgentsForUser(userID int) ([]AccessibleAgent, error)
 			COALESCE(a.note, ''),
 			CASE WHEN a.user_id = ? THEN 1 ELSE 0 END AS is_owned,
 			COALESCE(g.created_by_user_id, 0),
-			COALESCE(g.created_at, a.created_at)
+			a.created_at,
+			g.created_at
 		FROM agents a
 		INNER JOIN users u ON u.id = a.user_id
 		LEFT JOIN agent_access_grants g
@@ -91,6 +93,8 @@ func (db *DB) ListAccessibleAgentsForUser(userID int) ([]AccessibleAgent, error)
 	for rows.Next() {
 		var item AccessibleAgent
 		var isOwned int
+		var agentCreatedAt time.Time
+		var grantCreatedAt sql.NullTime
 		if err := rows.Scan(
 			&item.AgentID,
 			&item.OwnerUserID,
@@ -98,11 +102,16 @@ func (db *DB) ListAccessibleAgentsForUser(userID int) ([]AccessibleAgent, error)
 			&item.OwnerNote,
 			&isOwned,
 			&item.GrantedByUserID,
-			&item.CreatedAt,
+			&agentCreatedAt,
+			&grantCreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan accessible agent: %w", err)
 		}
 		item.IsOwned = isOwned == 1
+		item.CreatedAt = agentCreatedAt
+		if grantCreatedAt.Valid {
+			item.CreatedAt = grantCreatedAt.Time
+		}
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {

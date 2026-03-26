@@ -118,6 +118,12 @@ interface PreparedRunResult {
 
 interface RunProcessOptions {
   onChildSpawn?: (child: ChildProcessWithoutNullStreams) => void;
+  shouldTreatCloseAsSuccess?: (result: {
+    code: number | null;
+    signal: NodeJS.Signals | null;
+    stderr: string;
+  }) => boolean;
+  successCloseMessage?: string | null;
 }
 
 const MAX_CLI_TRACE_ENTRIES = 60;
@@ -125,6 +131,8 @@ const MAX_CLI_TRACE_TOTAL_CHARS = 24_000;
 const MAX_CLI_TRACE_ENTRY_CHARS = 1_200;
 const DEFAULT_HISTORY_PAGE_SIZE = 30;
 const SNAPSHOT_EMIT_INTERVAL_MS = 120;
+const CODEX_EXIT_CODE_1_MAX_RETRIES = 3;
+const CODEX_EXIT_CODE_1_RETRY_DELAY_MS = 1_500;
 const CLI_TRACE_NOISE_PATTERNS = [
   /reading prompt from stdin/i,
 ] as const;
@@ -287,6 +295,46 @@ class RuntimeManager extends EventEmitter {
       hasMore: startIndex > 0,
       total: sourceItems.length,
     };
+  }
+
+  searchMessages(
+    projectId: string,
+    request: {
+      query: string;
+      conversationId?: string | null;
+      limit?: number;
+    },
+  ): SessionMessage[] {
+    const state = this.ensureState(projectId);
+    const query = request.query.trim().toLowerCase();
+    if (!query) {
+      return [];
+    }
+
+    const conversation = this.getConversationById(state, request.conversationId) ?? this.getActiveConversation(state);
+    if (!conversation) {
+      return [];
+    }
+
+    const limit = Number(request.limit) > 0 ? Math.max(1, Number(request.limit)) : 200;
+    return conversation.messages
+      .filter((message) => {
+        const attachmentText = (message.attachments ?? [])
+          .map((attachment) => `${attachment.name} ${attachment.path}`)
+          .join(" ")
+          .toLowerCase();
+        const haystack = [
+          message.role,
+          message.provider ?? "",
+          message.content,
+          attachmentText,
+        ]
+          .join(" ")
+          .toLowerCase();
+        return haystack.includes(query);
+      })
+      .slice(-limit)
+      .map((message) => this.cloneMessage(message));
   }
 
   listConversationSummaries(projectId: string): ConversationSummary[] {
@@ -482,7 +530,29 @@ class RuntimeManager extends EventEmitter {
         if (state.provider === "claude") {
           await this.executeClaude(state, run, context);
         } else {
-          await this.executeCodex(state, run, context);
+          let lastCodexError: unknown = null;
+          for (let attempt = 0; attempt <= CODEX_EXIT_CODE_1_MAX_RETRIES; attempt += 1) {
+            try {
+              await this.executeCodex(state, run, context);
+              lastCodexError = null;
+              break;
+            } catch (error) {
+              lastCodexError = error;
+              if (!this.shouldRetryCodexExitCode1(error, attempt)) {
+                throw error;
+              }
+              const nextAttempt = attempt + 2;
+              this.appendCliTrace(
+                state,
+                "system",
+                `Codex exited with code 1. Retrying ${nextAttempt}/${CODEX_EXIT_CODE_1_MAX_RETRIES + 1}...`,
+              );
+              await this.delay(CODEX_EXIT_CODE_1_RETRY_DELAY_MS);
+            }
+          }
+          if (lastCodexError) {
+            throw lastCodexError;
+          }
         }
       }
       this.finalizeRun(
@@ -491,6 +561,13 @@ class RuntimeManager extends EventEmitter {
         "completed",
         completionDetail,
       );
+      this.emit("run-completed", {
+        projectId: state.projectId,
+        runId: next.runId,
+        provider: state.provider,
+        source: next.source,
+        handledLocally: prepared.handledLocally,
+      });
       next.onDone?.();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -498,6 +575,8 @@ class RuntimeManager extends EventEmitter {
         this.finalizeRun(state, context, "completed", message);
         if (error.notifyAsError) {
           next.onError?.(message);
+        } else {
+          next.onDone?.();
         }
       } else {
         this.finalizeRun(state, context, "error", message);
@@ -835,6 +914,10 @@ class RuntimeManager extends EventEmitter {
         onChildSpawn: (child) => {
           codexChild = child;
         },
+        shouldTreatCloseAsSuccess: ({ code, signal }) => {
+          return logicalCompletionSeen && code === null && signal === "SIGTERM";
+        },
+        successCloseMessage: "Codex process terminated after logical completion.",
       },
     );
   }
@@ -951,6 +1034,8 @@ class RuntimeManager extends EventEmitter {
       let stdoutBuffer = "";
       let stderrBuffer = "";
       let stderrTraceBuffer = "";
+      let exitCode: number | null = null;
+      let exitSignal: NodeJS.Signals | null = null;
 
       child.stdout.setEncoding("utf8");
       child.stderr.setEncoding("utf8");
@@ -992,14 +1077,18 @@ class RuntimeManager extends EventEmitter {
         reject(error);
       });
 
-      child.on("exit", () => {
+      child.on("exit", (code, signal) => {
+        exitCode = code;
+        exitSignal = signal;
         // Force-destroy streams so inherited handles from grandchild processes
         // don't prevent the "close" event from firing on Windows.
         child.stdout.destroy();
         child.stderr.destroy();
       });
 
-      child.on("close", (code) => {
+      child.on("close", (code, signal) => {
+        const resolvedCode = code ?? exitCode;
+        const resolvedSignal = signal ?? exitSignal;
         const finalStdout = this.normalizeCliOutputText(stdoutBuffer);
         if (finalStdout) {
           onStdoutLine(finalStdout);
@@ -1016,15 +1105,32 @@ class RuntimeManager extends EventEmitter {
           return;
         }
 
-        if (code === 0) {
+        if (resolvedCode === 0) {
           this.appendCliTrace(state, "system", `${command} exited with code 0`);
           resolve();
           return;
         }
 
         const stderr = this.normalizeCliOutputText(stderrBuffer);
-        this.appendCliTrace(state, "system", `${command} exited with code ${code ?? "unknown"}`);
-        reject(new Error(stderr || `${command} exited with code ${code ?? "unknown"}`));
+        if (options?.shouldTreatCloseAsSuccess?.({
+          code: resolvedCode,
+          signal: resolvedSignal,
+          stderr,
+        })) {
+          this.appendCliTrace(
+            state,
+            "system",
+            options.successCloseMessage?.trim() || `${command} closed after completion`,
+          );
+          resolve();
+          return;
+        }
+
+        const exitDetail = resolvedCode !== null
+          ? `exited with code ${resolvedCode}`
+          : (resolvedSignal ? `terminated by signal ${resolvedSignal}` : "terminated without an exit code");
+        this.appendCliTrace(state, "system", `${command} ${exitDetail}`);
+        reject(new Error(stderr || `${command} ${exitDetail}`));
       });
     });
   }
@@ -1071,6 +1177,23 @@ class RuntimeManager extends EventEmitter {
       .filter((line) => line && !this.isCliNoiseLine(line))
       .join("\n")
       .trim();
+  }
+
+  private shouldRetryCodexExitCode1(error: unknown, attempt: number): boolean {
+    if (attempt >= CODEX_EXIT_CODE_1_MAX_RETRIES) {
+      return false;
+    }
+    if (error instanceof StopRunError) {
+      return false;
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    return /codex(?:\.cmd)? exited with code 1/i.test(message);
+  }
+
+  private delay(ms: number): Promise<void> {
+    return new Promise((resolve) => {
+      setTimeout(resolve, ms);
+    });
   }
 
   private formatCliCommand(command: string, args: string[]): string {

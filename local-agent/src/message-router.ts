@@ -4,7 +4,9 @@ import * as path from "path";
 import RelayClient from "./relay-client";
 import projectStore from "./project-store";
 import RuntimeManager, { CliProvider, RunAttachment } from "./runtime-manager";
+import type { SessionSyncKnownItemDigest } from "./session-sync-hash";
 import { buildSessionSyncPayload } from "./session-sync-payload";
+import { SessionSyncActions } from "./session-sync-actions";
 import { Envelope, Events } from "./types";
 import { createRunAttachmentFromPath, getUniqueAttachmentPath } from "./attachment-utils";
 
@@ -15,6 +17,29 @@ interface MessageRouterOptions {
   getDefaultCliProvider?: () => CliProvider;
   syncProjectCatalog?: () => void;
   onProjectsChanged?: () => void;
+  getWorkgroupRelayPayload?: () => { agent_id: string; workgroups: unknown[] } | null;
+  dispatchWorkgroupTask?: (taskId: string) => Promise<{ success: boolean; error?: string; workgroup?: unknown }>;
+  updateWorkgroupTaskStatus?: (data: {
+    taskId: string;
+    status: "todo" | "assigned" | "running" | "blocked" | "done" | "error";
+    lastDispatchResult?: string | null;
+  }) => { success: boolean; error?: string; workgroup?: unknown };
+  getWorkgroupCollaborationRelayPayload?: () => { agent_id: string; workgroups: unknown[] } | null;
+  getWorkgroupCollaborationSessionPayload?: (data: {
+    workgroupId: string;
+    beforeId?: string | null;
+    limit?: number;
+    knownItems?: SessionSyncKnownItemDigest[];
+  }) => {
+    agent_id: string;
+    workgroup_id: string;
+    session: unknown;
+    page: unknown;
+  } | null;
+  sendWorkgroupCollaborationMessage?: (data: {
+    workgroupId: string;
+    content: string;
+  }) => Promise<{ success: boolean; error?: string; session?: unknown }>;
 }
 
 class MessageRouter {
@@ -63,6 +88,21 @@ class MessageRouter {
         break;
       case Events.SESSION_SYNC_REQUEST:
         this.handleSessionSyncRequest(env);
+        break;
+      case Events.WORKGROUP_LIST_REQUEST:
+        this.handleWorkgroupListRequest();
+        break;
+      case Events.WORKGROUP_COMMAND:
+        void this.handleWorkgroupCommand(env);
+        break;
+      case Events.WORKGROUP_COLLABORATION_LIST_REQUEST:
+        this.handleWorkgroupCollaborationListRequest();
+        break;
+      case Events.WORKGROUP_COLLABORATION_SESSION_REQUEST:
+        this.handleWorkgroupCollaborationSessionRequest(env);
+        break;
+      case Events.WORKGROUP_COLLABORATION_MESSAGE_SEND:
+        void this.handleWorkgroupCollaborationMessageSend(env);
         break;
       case Events.TASK_STOP:
         this.handleTaskStop(env);
@@ -230,6 +270,160 @@ class MessageRouter {
     this.options.syncProjectCatalog?.();
   }
 
+  private handleWorkgroupListRequest(): void {
+    const payload = this.options.getWorkgroupRelayPayload?.();
+    if (!payload) {
+      return;
+    }
+    this.relayClient.send({
+      id: uuidv4(),
+      event: Events.WORKGROUP_LIST,
+      ts: Date.now(),
+      payload,
+    });
+  }
+
+  private async handleWorkgroupCommand(env: Envelope): Promise<void> {
+    const payload = env.payload as {
+      action?: string;
+      task_id?: string;
+      status?: "todo" | "assigned" | "running" | "blocked" | "done" | "error";
+    } | undefined;
+    const action = String(payload?.action ?? "").trim().toLowerCase();
+    const taskId = String(payload?.task_id ?? "").trim();
+
+    let result: { success: boolean; error?: string; workgroup?: unknown };
+    if (!taskId) {
+      result = { success: false, error: "Task id is required" };
+    } else if (action === "dispatch_task") {
+      if (!this.options.dispatchWorkgroupTask) {
+        result = { success: false, error: "Workgroup dispatch is unavailable" };
+      } else {
+        result = await this.options.dispatchWorkgroupTask(taskId);
+      }
+    } else if (action === "update_status") {
+      if (!this.options.updateWorkgroupTaskStatus) {
+        result = { success: false, error: "Workgroup status updates are unavailable" };
+      } else if (!payload?.status) {
+        result = { success: false, error: "Task status is required" };
+      } else {
+        result = this.options.updateWorkgroupTaskStatus({
+          taskId,
+          status: payload.status,
+        });
+      }
+    } else {
+      result = { success: false, error: `Unsupported workgroup action: ${action || "unknown"}` };
+    }
+
+    const nextPayload = this.options.getWorkgroupRelayPayload?.();
+    this.relayClient.send({
+      id: uuidv4(),
+      event: Events.WORKGROUP_COMMAND_RESULT,
+      ts: Date.now(),
+      payload: {
+        request_id: env.id,
+        agent_id: nextPayload?.agent_id ?? "",
+        success: result.success,
+        error: result.error,
+        workgroups: nextPayload?.workgroups ?? [],
+      },
+    });
+  }
+
+  private handleWorkgroupCollaborationListRequest(): void {
+    const payload = this.options.getWorkgroupCollaborationRelayPayload?.();
+    if (!payload) {
+      return;
+    }
+    this.relayClient.send({
+      id: uuidv4(),
+      event: Events.WORKGROUP_COLLABORATION_LIST,
+      ts: Date.now(),
+      payload,
+    });
+  }
+
+  private handleWorkgroupCollaborationSessionRequest(env: Envelope): void {
+    const payload = env.payload as {
+      workgroup_id?: string;
+      before_id?: string;
+      limit?: number;
+      known_items?: Array<{
+        id?: string;
+        content_md5?: string;
+      }>;
+    } | undefined;
+    const workgroupId = String(payload?.workgroup_id ?? "").trim();
+    if (!workgroupId) {
+      return;
+    }
+
+    const sessionPayload = this.options.getWorkgroupCollaborationSessionPayload?.({
+      workgroupId,
+      beforeId: typeof payload?.before_id === "string" ? payload.before_id : null,
+      limit: typeof payload?.limit === "number" ? payload.limit : undefined,
+      knownItems: Array.isArray(payload?.known_items)
+        ? payload.known_items
+            .map((item) => ({
+              id: String(item?.id ?? "").trim(),
+              content_md5: typeof item?.content_md5 === "string" ? item.content_md5.trim() : undefined,
+            }))
+            .filter((item) => Boolean(item.id))
+        : [],
+    });
+    if (!sessionPayload) {
+      return;
+    }
+
+    this.relayClient.send({
+      id: uuidv4(),
+      event: Events.WORKGROUP_COLLABORATION_SESSION,
+      ts: Date.now(),
+      payload: {
+        request_id: env.id,
+        before_id: typeof payload?.before_id === "string" ? payload.before_id : "",
+        ...sessionPayload,
+      },
+    });
+  }
+
+  private async handleWorkgroupCollaborationMessageSend(env: Envelope): Promise<void> {
+    const payload = env.payload as {
+      workgroup_id?: string;
+      content?: string;
+    } | undefined;
+    const workgroupId = String(payload?.workgroup_id ?? "").trim();
+    const content = typeof payload?.content === "string" ? payload.content : "";
+
+    let result: { success: boolean; error?: string; session?: unknown };
+    if (!workgroupId) {
+      result = { success: false, error: "Workgroup id is required" };
+    } else if (!this.options.sendWorkgroupCollaborationMessage) {
+      result = { success: false, error: "Workgroup collaboration messaging is unavailable" };
+    } else {
+      result = await this.options.sendWorkgroupCollaborationMessage({
+        workgroupId,
+        content,
+      });
+    }
+
+    const relayPayload = this.options.getWorkgroupCollaborationRelayPayload?.();
+    this.relayClient.send({
+      id: uuidv4(),
+      event: Events.WORKGROUP_COLLABORATION_MESSAGE_RESULT,
+      ts: Date.now(),
+      payload: {
+        request_id: env.id,
+        agent_id: relayPayload?.agent_id ?? "",
+        workgroup_id: workgroupId,
+        success: result.success,
+        error: result.error,
+        session: result.session ?? null,
+      },
+    });
+  }
+
   private handleSessionSyncRequest(env: Envelope): void {
     const projectId = env.project_id;
     if (!projectId || !this.options.runtimeManager) {
@@ -242,15 +436,26 @@ class MessageRouter {
       limit?: number;
       action?: string;
       conversation_id?: string;
+      run_id?: string;
+      known_items?: Array<{
+        id?: string;
+        content_md5?: string;
+        attachments_md5?: string;
+      }>;
     } | undefined;
     const action = typeof payloadObject?.action === "string" ? payloadObject.action.trim().toLowerCase() : "";
     const requestedConversationId = typeof payloadObject?.conversation_id === "string"
       ? payloadObject.conversation_id.trim()
       : "";
-    if (action === "new_conversation") {
+    const requestedRunId = typeof payloadObject?.run_id === "string"
+      ? payloadObject.run_id.trim()
+      : "";
+    if (action === SessionSyncActions.NEW_CONVERSATION) {
       this.options.runtimeManager.createConversation(projectId);
-    } else if (action === "switch_conversation" && requestedConversationId) {
+    } else if (action === SessionSyncActions.SWITCH_CONVERSATION && requestedConversationId) {
       this.options.runtimeManager.activateConversation(projectId, requestedConversationId);
+    } else if (action === SessionSyncActions.REMOVE_QUEUE && requestedRunId) {
+      this.options.runtimeManager.removeQueuedRun(projectId, requestedRunId);
     }
 
     const snapshot = this.options.runtimeManager.getSnapshot(projectId);
@@ -266,6 +471,15 @@ class MessageRouter {
       afterSeq,
       beforeSeq,
       limit,
+      knownItems: Array.isArray(payloadObject?.known_items)
+        ? payloadObject.known_items
+            .map((item) => ({
+              id: String(item?.id ?? "").trim(),
+              content_md5: typeof item?.content_md5 === "string" ? item.content_md5.trim() : undefined,
+              attachments_md5: typeof item?.attachments_md5 === "string" ? item.attachments_md5.trim() : undefined,
+            }))
+            .filter((item) => Boolean(item.id))
+        : [],
     });
     this.relayClient.send({
       id: uuidv4(),

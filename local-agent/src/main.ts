@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, dialog, safeStorage, clipboard, desktopCapturer, screen } from "electron";
+import { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, dialog, safeStorage, clipboard, desktopCapturer, screen, shell } from "electron";
 import "./user-data-bootstrap";
 import * as fs from "fs";
 import * as path from "path";
@@ -12,7 +12,17 @@ import projectStore, { normalizeProjectGroupName, Project } from "./project-stor
 import ptyManager from "./pty-manager";
 import RemoteSessionStore, { RemoteProjectRecord } from "./remote-session-store";
 import RuntimeManager, { CliProvider, ProjectSessionSnapshot, RunAttachment } from "./runtime-manager";
+import workgroupStore, { Workgroup, WorkgroupMember, WorkgroupRole, WorkgroupTask, WorkgroupTaskStatus } from "./workgroup-store";
+import WorkgroupCollaborationService, {
+  CollaborationBoundProject,
+  WorkgroupCollaborationSessionSnapshot,
+  WorkgroupCollaborationSummary,
+} from "./workgroup-collaboration-service";
 import { buildSessionSyncPayload } from "./session-sync-payload";
+import {
+  createSessionSyncContentMd5,
+  type SessionSyncKnownItemDigest,
+} from "./session-sync-hash";
 import UpdateManager, { UpdateState } from "./update-manager";
 import { Events } from "./types";
 import { t, getLang, setLang, getAllMessages, Lang } from "./i18n";
@@ -50,6 +60,7 @@ interface AgentConfig {
 interface AppSettings {
   autoStart: boolean;
   silentLaunch: boolean;
+  completionSound: boolean;
   saveLogs: boolean;
   e2eEnabled: boolean;
   autoUpdateCheck: boolean;
@@ -71,6 +82,35 @@ interface PersistedWindowState {
 interface WindowStateSchema {
   settingsWindow: PersistedWindowState;
   workspaceWindow: PersistedWindowState;
+}
+
+interface ResolvedWorkgroupProjectBinding {
+  projectId: string | null;
+  projectName: string | null;
+  projectPath: string | null;
+  projectKind: "local" | "remote" | null;
+  projectExists: boolean;
+  projectOnline: boolean;
+}
+
+interface WorkgroupMemberView extends Omit<WorkgroupMember, "projectId" | "projectName" | "projectPath" | "projectKind">, ResolvedWorkgroupProjectBinding {
+  projectBindingLabel: string;
+}
+
+interface WorkgroupTaskView extends WorkgroupTask {
+  assigneeMemberName: string | null;
+  assigneeRole: WorkgroupRole | null;
+  assigneeProjectName: string | null;
+  assigneeProjectKind: "local" | "remote" | null;
+  assigneeProjectOnline: boolean;
+  assigneeProjectBindingLabel: string | null;
+  dispatchReady: boolean;
+  dispatchBlockedReason: string | null;
+}
+
+interface WorkgroupView extends Workgroup {
+  members: WorkgroupMemberView[];
+  tasks: WorkgroupTaskView[];
 }
 
 const configStore = new Store<AgentConfig>({
@@ -103,8 +143,9 @@ const appSettingsStore = new Store<AppSettings>({
   defaults: {
     autoStart: false,
     silentLaunch: false,
+    completionSound: true,
     saveLogs: false,
-    e2eEnabled: false,
+    e2eEnabled: true,
     autoUpdateCheck: true,
     autoUpdateDownload: false,
     silentUpdateInstall: false,
@@ -166,6 +207,16 @@ let tokenRefreshTimer: NodeJS.Timeout | null = null;
 let tokenRefreshPromise: Promise<boolean> | null = null;
 let controllerTokenRefreshTimer: NodeJS.Timeout | null = null;
 let controllerTokenRefreshPromise: Promise<boolean> | null = null;
+const relaySyncTimersByProject = new Map<string, NodeJS.Timeout>();
+const pendingRelaySyncSnapshotsByProject = new Map<string, ProjectSessionSnapshot>();
+const lastBroadcastSyncPayloadHashByProject = new Map<string, string>();
+const RELAY_SYNC_DEBOUNCE_MS = 250;
+let lastWorkgroupRelayPayloadHash = "";
+const workgroupCollaborationRelaySnapshotTimers = new Map<string, NodeJS.Timeout>();
+const pendingWorkgroupCollaborationRelaySnapshots = new Map<string, WorkgroupCollaborationSessionSnapshot>();
+const lastBroadcastWorkgroupCollaborationSnapshotHashByWorkgroup = new Map<string, string>();
+const WORKGROUP_COLLABORATION_RELAY_DEBOUNCE_MS = 200;
+let lastWorkgroupCollaborationRelayPayloadHash = "";
 
 function clampTimeoutDelayMs(delayMs: number): number {
   if (!Number.isFinite(delayMs)) {
@@ -362,6 +413,24 @@ const runtimeManager = new RuntimeManager(() => ({
   captureProjectScreenshot: async (projectId) => captureProjectScreenshot(projectId),
 }));
 runtimeManager.pruneHistoryCache(appSettingsStore.get("historyRetentionDays") as number);
+const workgroupCollaborationService = new WorkgroupCollaborationService({
+  runtimeManager,
+  getBoundProject: (projectId: string): CollaborationBoundProject | null => {
+    const project = getProjectById(projectId);
+    if (!project) {
+      return null;
+    }
+    return {
+      id: project.id,
+      name: project.name,
+      path: project.path,
+      kind: isRemoteProjectRecord(project) ? "remote" : "local",
+      online: isRemoteProjectRecord(project) ? Boolean(project.online) : true,
+    };
+  },
+  getProjectSessionSnapshot: (projectId: string) => getProjectSnapshot(projectId),
+  getRemoteSessionStore: () => remoteSessionStore,
+});
 
 async function captureProjectScreenshot(projectId: string): Promise<RunAttachment> {
   const primaryDisplay = screen.getPrimaryDisplay();
@@ -590,7 +659,22 @@ function broadcastUpdateState(state: UpdateState): void {
   }
 }
 
+function playCompletionSound(): void {
+  if (!(appSettingsStore.get("completionSound") as boolean)) {
+    return;
+  }
+
+  try {
+    shell.beep();
+  } catch (error) {
+    appLogger.warn("runtime", "Failed to play completion sound.", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 runtimeManager.on("snapshot", (projectId: string, snapshot: ProjectSessionSnapshot) => {
+  syncWorkgroupTasksForProjectSnapshot(snapshot);
   if (workspaceWindow && !workspaceWindow.isDestroyed()) {
     workspaceWindow.webContents.send("project-session-snapshot", snapshot);
   }
@@ -598,8 +682,26 @@ runtimeManager.on("snapshot", (projectId: string, snapshot: ProjectSessionSnapsh
   void updateManager.maybeInstallDownloadedUpdate();
 });
 
+runtimeManager.on("run-completed", () => {
+  playCompletionSound();
+});
+
 updateManager.on("state-changed", (state: UpdateState) => {
   broadcastUpdateState(state);
+});
+
+workgroupCollaborationService.on("summaries", (summaries: WorkgroupCollaborationSummary[]) => {
+  if (workspaceWindow && !workspaceWindow.isDestroyed()) {
+    workspaceWindow.webContents.send("workgroup-collaboration-summaries", summaries);
+  }
+  broadcastWorkgroupCollaborationRelaySummaries();
+});
+
+workgroupCollaborationService.on("snapshot", (workgroupId: string, snapshot: WorkgroupCollaborationSessionSnapshot) => {
+  if (workspaceWindow && !workspaceWindow.isDestroyed()) {
+    workspaceWindow.webContents.send("workgroup-collaboration-snapshot", snapshot);
+  }
+  broadcastWorkgroupCollaborationRelaySnapshot(workgroupId, snapshot);
 });
 
 function broadcastProjectsChanged(): void {
@@ -612,6 +714,9 @@ function broadcastProjectsChanged(): void {
   if (workspaceWindow && !workspaceWindow.isDestroyed()) {
     workspaceWindow.webContents.send("projects-changed", projects);
   }
+
+  broadcastWorkgroupsChanged();
+  broadcastWorkgroupCollaborationSummaries();
 }
 
 function broadcastProjectSnapshot(projectId: string): void {
@@ -645,24 +750,579 @@ function getProjectSnapshot(projectId: string): ProjectSessionSnapshot | null {
   return runtimeManager.getSnapshot(projectId);
 }
 
+function broadcastWorkgroupCollaborationSummaries(): void {
+  if (workspaceWindow && !workspaceWindow.isDestroyed()) {
+    workspaceWindow.webContents.send(
+      "workgroup-collaboration-summaries",
+      workgroupCollaborationService.listSummaries(),
+    );
+  }
+  broadcastWorkgroupCollaborationRelaySummaries();
+}
+
+function broadcastWorkgroupCollaborationSnapshot(workgroupId: string): void {
+  const snapshot = workgroupCollaborationService.getSession(workgroupId);
+  if (!snapshot) {
+    return;
+  }
+  if (workspaceWindow && !workspaceWindow.isDestroyed()) {
+    workspaceWindow.webContents.send("workgroup-collaboration-snapshot", snapshot);
+  }
+  broadcastWorkgroupCollaborationRelaySnapshot(workgroupId, snapshot);
+}
+
+function buildWorkgroupCollaborationRelayPayload(): { agent_id: string; workgroups: WorkgroupCollaborationSummary[] } | null {
+  const agentId = loadConfig().agentId.trim();
+  if (!agentId) {
+    return null;
+  }
+  return {
+    agent_id: agentId,
+    workgroups: workgroupCollaborationService.listSummaries(),
+  };
+}
+
+function buildWorkgroupCollaborationSessionRelayPayload(data: {
+  workgroupId: string;
+  beforeId?: string | null;
+  limit?: number;
+  knownItems?: SessionSyncKnownItemDigest[];
+}): {
+  agent_id: string;
+  workgroup_id: string;
+  session: WorkgroupCollaborationSessionSnapshot & {
+    messages: Array<WorkgroupCollaborationSessionSnapshot["messages"][number] & {
+      content_md5: string;
+      content_omitted?: boolean;
+    }>;
+  };
+  page: {
+    items: Array<WorkgroupCollaborationSessionSnapshot["messages"][number] & {
+      content_md5: string;
+      content_omitted?: boolean;
+    }>;
+    hasMore: boolean;
+    total: number;
+  };
+} | null {
+  const agentId = loadConfig().agentId.trim();
+  if (!agentId) {
+    return null;
+  }
+
+  const session = workgroupCollaborationService.getSession(data.workgroupId);
+  if (!session) {
+    return null;
+  }
+
+  const page = workgroupCollaborationService.getHistoryPage(data.workgroupId, {
+    beforeId: data.beforeId,
+    limit: data.limit,
+  });
+  if (!page) {
+    return null;
+  }
+
+  const knownMap = new Map<string, string>();
+  for (const item of data.knownItems ?? []) {
+    const id = String(item?.id ?? "").trim();
+    const contentMd5 = typeof item?.content_md5 === "string" ? item.content_md5.trim() : "";
+    if (id && contentMd5) {
+      knownMap.set(id, contentMd5);
+    }
+  }
+
+  const normalizeMessages = <T extends WorkgroupCollaborationSessionSnapshot["messages"][number]>(messages: T[]) => {
+    return messages.map((message) => {
+      const contentMd5 = createSessionSyncContentMd5(message.content);
+      const shouldOmitContent = knownMap.get(message.id) === contentMd5;
+      return {
+        ...message,
+        content: shouldOmitContent ? "" : message.content,
+        content_md5: contentMd5,
+        content_omitted: shouldOmitContent || undefined,
+      };
+    });
+  };
+
+  return {
+    agent_id: agentId,
+    workgroup_id: data.workgroupId,
+    session: {
+      ...session,
+      messages: normalizeMessages(session.messages),
+    },
+    page: {
+      ...page,
+      items: normalizeMessages(page.items),
+    },
+  };
+}
+
+function broadcastWorkgroupCollaborationRelaySummaries(): void {
+  if (!relayClient || !relayClient.isConnected()) {
+    return;
+  }
+
+  const payload = buildWorkgroupCollaborationRelayPayload();
+  if (!payload) {
+    return;
+  }
+
+  const payloadHash = JSON.stringify(payload);
+  if (payloadHash === lastWorkgroupCollaborationRelayPayloadHash) {
+    return;
+  }
+  lastWorkgroupCollaborationRelayPayloadHash = payloadHash;
+  relayClient.send({
+    id: uuidv4(),
+    event: Events.WORKGROUP_COLLABORATION_LIST,
+    ts: Date.now(),
+    payload,
+  });
+}
+
+function broadcastWorkgroupCollaborationRelaySnapshot(
+  workgroupId: string,
+  snapshot?: WorkgroupCollaborationSessionSnapshot,
+): void {
+  if (!relayClient || !relayClient.isConnected()) {
+    return;
+  }
+
+  const resolvedSnapshot = snapshot ?? workgroupCollaborationService.getSession(workgroupId);
+  if (!resolvedSnapshot) {
+    return;
+  }
+
+  pendingWorkgroupCollaborationRelaySnapshots.set(workgroupId, resolvedSnapshot);
+  const existingTimer = workgroupCollaborationRelaySnapshotTimers.get(workgroupId);
+  if (existingTimer) {
+    clearTimeout(existingTimer);
+  }
+
+  workgroupCollaborationRelaySnapshotTimers.set(workgroupId, setTimeout(() => {
+    workgroupCollaborationRelaySnapshotTimers.delete(workgroupId);
+    const latestSnapshot = pendingWorkgroupCollaborationRelaySnapshots.get(workgroupId);
+    if (!latestSnapshot || !relayClient || !relayClient.isConnected()) {
+      return;
+    }
+
+    const agentId = loadConfig().agentId.trim();
+    if (!agentId) {
+      return;
+    }
+
+    const payload = {
+      agent_id: agentId,
+      workgroup_id: workgroupId,
+      session: latestSnapshot,
+    };
+    const payloadHash = JSON.stringify(payload);
+    if (lastBroadcastWorkgroupCollaborationSnapshotHashByWorkgroup.get(workgroupId) === payloadHash) {
+      return;
+    }
+
+    lastBroadcastWorkgroupCollaborationSnapshotHashByWorkgroup.set(workgroupId, payloadHash);
+    relayClient.send({
+      id: uuidv4(),
+      event: Events.WORKGROUP_COLLABORATION_SNAPSHOT,
+      ts: Date.now(),
+      payload,
+    });
+  }, WORKGROUP_COLLABORATION_RELAY_DEBOUNCE_MS));
+}
+
+function isRemoteProjectRecord(project: Project | RemoteProjectRecord): project is RemoteProjectRecord {
+  return Boolean((project as RemoteProjectRecord).isRemote);
+}
+
+function resolveWorkgroupProjectBinding(
+  projectId?: string | null,
+  fallback?: Partial<Pick<WorkgroupMember, "projectName" | "projectPath" | "projectKind">>,
+): ResolvedWorkgroupProjectBinding {
+  const normalizedProjectId = typeof projectId === "string" && projectId.trim() ? projectId.trim() : null;
+  if (normalizedProjectId) {
+    const liveProject = getProjectById(normalizedProjectId);
+    if (liveProject) {
+      const remote = isRemoteProjectRecord(liveProject);
+      return {
+        projectId: liveProject.id,
+        projectName: liveProject.name,
+        projectPath: liveProject.path,
+        projectKind: remote ? "remote" : "local",
+        projectExists: true,
+        projectOnline: remote ? liveProject.online !== false : true,
+      };
+    }
+  }
+
+  return {
+    projectId: normalizedProjectId,
+    projectName: fallback?.projectName?.trim() || null,
+    projectPath: fallback?.projectPath?.trim() || null,
+    projectKind: fallback?.projectKind === "remote" ? "remote" : (fallback?.projectKind === "local" ? "local" : null),
+    projectExists: false,
+    projectOnline: false,
+  };
+}
+
+function getWorkgroupProjectBindingLabel(binding: ResolvedWorkgroupProjectBinding): string {
+  if (!binding.projectId) {
+    return "Unbound";
+  }
+
+  const kindLabel = binding.projectKind === "remote" ? "Remote" : "Local";
+  const name = binding.projectName || binding.projectId;
+  const suffix = binding.projectExists
+    ? (binding.projectOnline ? "online" : "offline")
+    : "missing";
+  return `${kindLabel}: ${name} (${suffix})`;
+}
+
+function serializeWorkgroupMember(member: WorkgroupMember): WorkgroupMemberView {
+  const binding = resolveWorkgroupProjectBinding(member.projectId, member);
+  return {
+    ...member,
+    ...binding,
+    projectBindingLabel: getWorkgroupProjectBindingLabel(binding),
+  };
+}
+
+function getWorkgroupDispatchBlockedReason(
+  task: WorkgroupTask,
+  assignee: WorkgroupMemberView | null,
+): string | null {
+  if (!task.assigneeMemberId || !assignee) {
+    return "Task has no assignee.";
+  }
+  if (task.status === "assigned" || task.status === "running") {
+    return "Task is already dispatched. Reset or finish it before dispatching again.";
+  }
+  if (!assignee.projectId || !assignee.projectExists) {
+    return "Assignee is not bound to an available project.";
+  }
+  if (assignee.projectKind === "remote" && !assignee.projectOnline) {
+    return "Assignee's remote project is offline.";
+  }
+  return null;
+}
+
+function serializeWorkgroupTask(task: WorkgroupTask, membersById: Map<string, WorkgroupMemberView>): WorkgroupTaskView {
+  const assignee = task.assigneeMemberId ? membersById.get(task.assigneeMemberId) ?? null : null;
+  const dispatchBlockedReason = getWorkgroupDispatchBlockedReason(task, assignee);
+  return {
+    ...task,
+    assigneeMemberName: assignee?.name ?? null,
+    assigneeRole: assignee?.role ?? null,
+    assigneeProjectName: assignee?.projectName ?? null,
+    assigneeProjectKind: assignee?.projectKind ?? null,
+    assigneeProjectOnline: assignee?.projectOnline ?? false,
+    assigneeProjectBindingLabel: assignee?.projectBindingLabel ?? null,
+    dispatchReady: !dispatchBlockedReason,
+    dispatchBlockedReason,
+  };
+}
+
+function listSerializedWorkgroups(): WorkgroupView[] {
+  return workgroupStore
+    .listWorkgroups()
+    .sort((left, right) => right.updatedAt - left.updatedAt)
+    .map((workgroup) => {
+      const members = workgroupStore
+        .listMembers(workgroup.id)
+        .map(serializeWorkgroupMember)
+        .sort((left, right) => left.name.localeCompare(right.name, "zh-CN"));
+      const membersById = new Map(members.map((member) => [member.id, member]));
+      const tasks = workgroupStore
+        .listTasks(workgroup.id)
+        .map((task) => serializeWorkgroupTask(task, membersById))
+        .sort((left, right) => right.updatedAt - left.updatedAt);
+      return {
+        ...workgroup,
+        members,
+        tasks,
+      };
+    });
+}
+
+function getSerializedWorkgroupById(workgroupId: string): WorkgroupView | null {
+  return listSerializedWorkgroups().find((entry) => entry.id === workgroupId) ?? null;
+}
+
+function buildWorkgroupRelayPayload(): { agent_id: string; workgroups: WorkgroupView[] } | null {
+  const agentId = loadConfig().agentId.trim();
+  if (!agentId) {
+    return null;
+  }
+  return {
+    agent_id: agentId,
+    workgroups: listSerializedWorkgroups(),
+  };
+}
+
+function broadcastWorkgroupsChanged(): void {
+  const workgroups = listSerializedWorkgroups();
+
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("workgroups-changed", workgroups);
+  }
+
+  if (workspaceWindow && !workspaceWindow.isDestroyed()) {
+    workspaceWindow.webContents.send("workgroups-changed", workgroups);
+  }
+
+  const relayPayload = buildWorkgroupRelayPayload();
+  if (relayClient && relayClient.isConnected() && relayPayload) {
+    const payloadHash = JSON.stringify(relayPayload);
+    if (payloadHash === lastWorkgroupRelayPayloadHash) {
+      workgroupCollaborationService.notifyWorkgroupStructureChanged();
+      return;
+    }
+    lastWorkgroupRelayPayloadHash = payloadHash;
+    relayClient.send({
+      id: uuidv4(),
+      event: Events.WORKGROUP_LIST,
+      ts: Date.now(),
+      payload: relayPayload,
+    });
+  }
+  workgroupCollaborationService.notifyWorkgroupStructureChanged();
+}
+
+function buildWorkgroupDispatchPrompt(
+  workgroup: Workgroup,
+  member: WorkgroupMemberView,
+  task: WorkgroupTask,
+): string {
+  const collaborationRule = workgroup.allowDirectMemberMessages
+    ? "You may reference other members for handoff notes, but do not fabricate completed work from them."
+    : "Do not simulate direct conversations with other members. Complete only your assigned portion and leave handoff notes when needed.";
+  const roleRule = member.role === "qa"
+    ? "Focus on testing, verification, deployment checks, and evidence. Avoid broad code refactors unless the task explicitly requires it."
+    : (member.role === "project_manager"
+      ? "Act as a coordinator. Break work down, summarize status, and assign follow-ups. Do not make code changes unless the task explicitly asks for it."
+      : (member.role === "developer"
+        ? "Focus on implementation inside the assigned project. Keep changes scoped and practical."
+        : "Follow the custom role instructions below while staying within the assigned scope."));
+  const allowedPaths = member.allowedPaths.length > 0
+    ? member.allowedPaths.map((entry) => `- ${entry}`).join("\n")
+    : "- No extra path restriction was configured. Stay within the assigned project.";
+  const taskDescription = task.description?.trim() || "No additional description provided.";
+  const acceptanceCriteria = task.acceptanceCriteria?.trim() || "No explicit acceptance criteria provided.";
+  const customPrompt = member.systemPrompt?.trim()
+    ? `Custom member instructions:\n${member.systemPrompt.trim()}\n\n`
+    : "";
+
+  return [
+    "Workgroup execution context",
+    `Workgroup: ${workgroup.name}`,
+    `Member: ${member.name}`,
+    `Role: ${member.role}`,
+    `Bound project: ${member.projectName || member.projectId || "unbound"}`,
+    "",
+    "Operating rules",
+    roleRule,
+    collaborationRule,
+    "Only operate inside the bound project and the allowed paths below.",
+    allowedPaths,
+    "",
+    customPrompt.trim(),
+    customPrompt ? "" : "",
+    "Assigned task",
+    `Title: ${task.title}`,
+    `Priority: ${task.priority}`,
+    `Description: ${taskDescription}`,
+    `Acceptance criteria: ${acceptanceCriteria}`,
+    "",
+    "Response format",
+    "Provide a concise execution report with: outcome, changed files or commands, validation result, blockers or handoff notes.",
+  ]
+    .filter((entry, index, source) => !(entry === "" && source[index - 1] === ""))
+    .join("\n");
+}
+
+function touchWorkgroup(workgroupId: string): void {
+  const workgroup = workgroupStore.getWorkgroupById(workgroupId);
+  if (!workgroup) {
+    return;
+  }
+  workgroupStore.saveWorkgroup({
+    ...workgroup,
+    id: workgroup.id,
+    name: workgroup.name,
+    description: workgroup.description ?? null,
+    allowDirectMemberMessages: workgroup.allowDirectMemberMessages,
+  });
+}
+
+function updateWorkgroupTask(taskId: string, updates: Partial<WorkgroupTask>): WorkgroupTask | null {
+  const task = workgroupStore.getTaskById(taskId);
+  if (!task) {
+    return null;
+  }
+
+  const nextTask = workgroupStore.saveTask({
+    ...task,
+    ...updates,
+    id: task.id,
+    workgroupId: task.workgroupId,
+    title: updates.title ?? task.title,
+  });
+  touchWorkgroup(task.workgroupId);
+  return nextTask;
+}
+
+function getDispatchedAssistantMessageId(task: WorkgroupTask): string | null {
+  const runId = task.dispatchRunId?.trim() || "";
+  return runId ? `${runId}:assistant` : null;
+}
+
+function syncWorkgroupTasksForProjectSnapshot(snapshot: ProjectSessionSnapshot): void {
+  const trackedTasks = workgroupStore.listTasks().filter((task) => (
+    task.dispatchProjectId === snapshot.projectId
+    && Boolean(task.dispatchRunId)
+    && (task.status === "assigned" || task.status === "running")
+  ));
+  if (trackedTasks.length === 0) {
+    return;
+  }
+
+  let changed = false;
+  for (const task of trackedTasks) {
+    const runId = task.dispatchRunId?.trim() || "";
+    if (!runId) {
+      continue;
+    }
+
+    const assistantMessageId = getDispatchedAssistantMessageId(task);
+    const queued = snapshot.queue.some((entry) => entry.runId === runId);
+    const userMessage = snapshot.messages.find((entry) => entry.id === runId);
+    const assistantMessage = assistantMessageId
+      ? snapshot.messages.find((entry) => entry.id === assistantMessageId)
+      : undefined;
+    const errorMessage = assistantMessageId
+      ? snapshot.messages.find((entry) => entry.id === `${assistantMessageId}:error`)
+      : undefined;
+
+    let nextStatus: WorkgroupTaskStatus | null = null;
+    let nextResult: string | null | undefined;
+
+    if (errorMessage) {
+      nextStatus = "error";
+      nextResult = errorMessage.content?.trim() || "Assigned member project reported an error.";
+    } else if (queued) {
+      nextStatus = "assigned";
+      nextResult = "Waiting in the assigned member project queue.";
+    } else if (assistantMessage?.status === "streaming") {
+      nextStatus = "running";
+      nextResult = "Assigned member project is generating a response.";
+    } else if (assistantMessage?.status === "done") {
+      nextStatus = "done";
+      nextResult = "Completed by assigned member project.";
+    } else if (
+      snapshot.isRunning
+      && (
+        (Boolean(userMessage) && !assistantMessage)
+        || (
+          typeof snapshot.currentStartedAt === "number"
+          && typeof task.lastDispatchAt === "number"
+          && snapshot.currentStartedAt >= task.lastDispatchAt
+        )
+      )
+    ) {
+      nextStatus = "running";
+      nextResult = "Assigned member project is executing the dispatched task.";
+    }
+
+    if (!nextStatus) {
+      continue;
+    }
+
+    if (task.status === nextStatus && (nextResult === undefined || task.lastDispatchResult === nextResult)) {
+      continue;
+    }
+
+    updateWorkgroupTask(task.id, {
+      status: nextStatus,
+      lastDispatchResult: nextResult,
+    });
+    changed = true;
+  }
+
+  if (changed) {
+    broadcastWorkgroupsChanged();
+  }
+}
+
 function broadcastSessionSync(snapshot: ProjectSessionSnapshot): void {
   if (!relayClient || !relayClient.isConnected()) {
     return;
   }
 
-  const afterSeq = lastBroadcastSyncSeqByProject.has(snapshot.projectId)
-    ? (lastBroadcastSyncSeqByProject.get(snapshot.projectId) ?? 0)
-    : 0;
-  const delta = runtimeManager.buildSyncDelta(snapshot.projectId, { afterSeq });
-  const payload = buildSessionSyncPayload(snapshot, delta, { afterSeq });
-  lastBroadcastSyncSeqByProject.set(snapshot.projectId, delta.latestSeq);
-  relayClient.send({
-    id: uuidv4(),
-    event: Events.SESSION_SYNC,
-    project_id: snapshot.projectId,
-    ts: Date.now(),
-    payload,
-  });
+  pendingRelaySyncSnapshotsByProject.set(snapshot.projectId, snapshot);
+  const existingTimer = relaySyncTimersByProject.get(snapshot.projectId);
+  if (existingTimer) {
+    clearTimeout(existingTimer);
+  }
+
+  relaySyncTimersByProject.set(snapshot.projectId, setTimeout(() => {
+    relaySyncTimersByProject.delete(snapshot.projectId);
+    const latestSnapshot = pendingRelaySyncSnapshotsByProject.get(snapshot.projectId);
+    if (!latestSnapshot || !relayClient || !relayClient.isConnected()) {
+      return;
+    }
+
+    const afterSeq = lastBroadcastSyncSeqByProject.has(latestSnapshot.projectId)
+      ? (lastBroadcastSyncSeqByProject.get(latestSnapshot.projectId) ?? 0)
+      : 0;
+    const delta = runtimeManager.buildSyncDelta(latestSnapshot.projectId, { afterSeq });
+    const payload = buildSessionSyncPayload(latestSnapshot, delta, { afterSeq });
+    const payloadHash = JSON.stringify(payload);
+    if (lastBroadcastSyncPayloadHashByProject.get(latestSnapshot.projectId) === payloadHash) {
+      return;
+    }
+
+    lastBroadcastSyncSeqByProject.set(latestSnapshot.projectId, delta.latestSeq);
+    lastBroadcastSyncPayloadHashByProject.set(latestSnapshot.projectId, payloadHash);
+    relayClient.send({
+      id: uuidv4(),
+      event: Events.SESSION_SYNC,
+      project_id: latestSnapshot.projectId,
+      ts: Date.now(),
+      payload,
+    });
+  }, RELAY_SYNC_DEBOUNCE_MS));
+}
+
+function clearRelaySyncState(projectId?: string): void {
+  const projectIds = projectId ? [projectId] : Array.from(new Set([
+    ...relaySyncTimersByProject.keys(),
+    ...pendingRelaySyncSnapshotsByProject.keys(),
+    ...lastBroadcastSyncPayloadHashByProject.keys(),
+    ...lastBroadcastSyncSeqByProject.keys(),
+  ]));
+
+  for (const currentProjectId of projectIds) {
+    const timer = relaySyncTimersByProject.get(currentProjectId);
+    if (timer) {
+      clearTimeout(timer);
+      relaySyncTimersByProject.delete(currentProjectId);
+    }
+    pendingRelaySyncSnapshotsByProject.delete(currentProjectId);
+    lastBroadcastSyncPayloadHashByProject.delete(currentProjectId);
+    lastBroadcastSyncSeqByProject.delete(currentProjectId);
+  }
+
+  if (!projectId) {
+    for (const [workgroupId, timer] of workgroupCollaborationRelaySnapshotTimers.entries()) {
+      clearTimeout(timer);
+      workgroupCollaborationRelaySnapshotTimers.delete(workgroupId);
+    }
+    pendingWorkgroupCollaborationRelaySnapshots.clear();
+    lastBroadcastWorkgroupCollaborationSnapshotHashByWorkgroup.clear();
+    lastWorkgroupCollaborationRelayPayloadHash = "";
+  }
 }
 
 function revealWindow(win: BrowserWindow): void {
@@ -820,6 +1480,22 @@ function updateControllerRelayClientAuthFromConfig(): void {
     config.controllerToken ?? "",
     getControllerDeviceId(),
   );
+}
+
+function requestRemoteProjectCatalogRefresh(): void {
+  if (!remoteSessionStore || !controllerRelayClient) {
+    return;
+  }
+
+  if (controllerRelayClient.isConnected()) {
+    remoteSessionStore.requestProjectList();
+  }
+}
+
+function scheduleRemoteProjectCatalogRefresh(delayMs: number): void {
+  setTimeout(() => {
+    requestRemoteProjectCatalogRefresh();
+  }, Math.max(0, delayMs));
 }
 
 function scheduleTokenRefresh(delayOverrideMs?: number): void {
@@ -1104,6 +1780,7 @@ function createWorkspaceWindow(): BrowserWindow {
     win.webContents.send("lang-changed", getLangPayload());
     win.webContents.send("update-state-changed", updateManager.getState());
     win.webContents.send("projects-changed", getAllProjects());
+    win.webContents.send("workgroup-collaboration-summaries", workgroupCollaborationService.listSummaries());
     for (const project of getAllProjects()) {
       const snapshot = getProjectSnapshot(project.id);
       if (snapshot) {
@@ -1194,6 +1871,12 @@ function initRelay(config: AgentConfig): void {
     runtimeManager,
     getDefaultCliProvider,
     syncProjectCatalog: () => syncProjectCatalog(loadConfig().agentId),
+    getWorkgroupRelayPayload: () => buildWorkgroupRelayPayload(),
+    dispatchWorkgroupTask: (taskId: string) => handleDispatchWorkgroupTaskRequest(taskId),
+    updateWorkgroupTaskStatus: (data) => handleUpdateWorkgroupTaskStatusRequest(data),
+    getWorkgroupCollaborationRelayPayload: () => buildWorkgroupCollaborationRelayPayload(),
+    getWorkgroupCollaborationSessionPayload: (data) => buildWorkgroupCollaborationSessionRelayPayload(data),
+    sendWorkgroupCollaborationMessage: (data) => workgroupCollaborationService.sendUserMessage(data.workgroupId, data.content),
     onProjectsChanged: () => {
       rebuildTrayMenu();
       broadcastProjectsChanged();
@@ -1203,17 +1886,23 @@ function initRelay(config: AgentConfig): void {
 
   relayClient.on("connected", () => {
     console.log("[Main] Relay connected");
-    lastBroadcastSyncSeqByProject.clear();
+    clearRelaySyncState();
+    lastWorkgroupRelayPayloadHash = "";
+    lastWorkgroupCollaborationRelayPayloadHash = "";
     for (const project of projectStore.getAll()) {
       lastBroadcastSyncSeqByProject.set(project.id, runtimeManager.getLatestSyncSeq(project.id));
     }
     updateTrayTooltip();
     scheduleTokenRefresh();
     syncProjectCatalog(loadConfig().agentId);
+    broadcastWorkgroupCollaborationRelaySummaries();
   });
 
   relayClient.on("disconnected", () => {
     console.log("[Main] Relay disconnected");
+    clearRelaySyncState();
+    lastWorkgroupRelayPayloadHash = "";
+    lastWorkgroupCollaborationRelayPayloadHash = "";
     updateTrayTooltip();
   });
 
@@ -1242,10 +1931,22 @@ function initRemoteRelay(config: AgentConfig): void {
     config.serverUrl,
     "",
     config.controllerToken,
-    false,
+    appSettingsStore.get("e2eEnabled") as boolean,
     {
       clientType: "device",
       deviceId: controllerDeviceId,
+      resolveTargetAgentId: (env) => {
+        const payload = (env.payload ?? {}) as Record<string, unknown>;
+        const payloadAgentId = typeof payload.agent_id === "string" ? payload.agent_id.trim() : "";
+        if (payloadAgentId) {
+          return payloadAgentId;
+        }
+        const projectId = env.project_id?.trim() ?? "";
+        if (!projectId) {
+          return null;
+        }
+        return remoteSessionStore?.getProjectAgentId(projectId) ?? null;
+      },
     },
   );
   remoteSessionStore = new RemoteSessionStore(controllerRelayClient, {
@@ -1257,6 +1958,7 @@ function initRemoteRelay(config: AgentConfig): void {
     updateWindowTitles();
   });
   remoteSessionStore.on("snapshot", (projectId: string, snapshot: ProjectSessionSnapshot) => {
+    syncWorkgroupTasksForProjectSnapshot(snapshot);
     if (workspaceWindow && !workspaceWindow.isDestroyed()) {
       workspaceWindow.webContents.send("project-session-snapshot", snapshot);
     }
@@ -1264,7 +1966,9 @@ function initRemoteRelay(config: AgentConfig): void {
 
   controllerRelayClient.on("connected", () => {
     scheduleControllerTokenRefresh();
-    remoteSessionStore?.requestProjectList();
+    requestRemoteProjectCatalogRefresh();
+    scheduleRemoteProjectCatalogRefresh(1_500);
+    scheduleRemoteProjectCatalogRefresh(5_000);
   });
   controllerRelayClient.on("disconnected", () => {
     void 0;
@@ -1281,8 +1985,155 @@ function initRemoteRelay(config: AgentConfig): void {
   controllerRelayClient.connect();
 }
 
+function handleUpdateWorkgroupTaskStatusRequest(data: {
+  taskId: string;
+  status: WorkgroupTaskStatus;
+  lastDispatchResult?: string | null;
+}) {
+  const nextTask = updateWorkgroupTask(data.taskId, {
+    status: data.status,
+    dispatchProjectId: data.status === "todo" ? null : undefined,
+    dispatchRunId: data.status === "todo" ? null : undefined,
+    lastDispatchResult: data.lastDispatchResult ?? undefined,
+  });
+  if (!nextTask) {
+    return { success: false, error: "Task not found" };
+  }
+
+  broadcastWorkgroupsChanged();
+  return {
+    success: true,
+    task: nextTask,
+    workgroup: getSerializedWorkgroupById(nextTask.workgroupId),
+  };
+}
+
+async function handleDispatchWorkgroupTaskRequest(taskId: string) {
+  const task = workgroupStore.getTaskById(taskId);
+  if (!task) {
+    return { success: false, error: "Task not found" };
+  }
+  if (!task.assigneeMemberId) {
+    return { success: false, error: "Task has no assignee" };
+  }
+
+  const workgroup = workgroupStore.getWorkgroupById(task.workgroupId);
+  if (!workgroup) {
+    return { success: false, error: "Workgroup not found" };
+  }
+
+  const member = workgroupStore.getMemberById(task.assigneeMemberId);
+  if (!member || member.workgroupId !== workgroup.id) {
+    return { success: false, error: "Assignee not found" };
+  }
+
+  const serializedMember = serializeWorkgroupMember(member);
+  const dispatchBlockedReason = getWorkgroupDispatchBlockedReason(task, serializedMember);
+  if (dispatchBlockedReason) {
+    return { success: false, error: dispatchBlockedReason };
+  }
+
+  const project = serializedMember.projectId ? getProjectById(serializedMember.projectId) : null;
+  if (!project) {
+    return { success: false, error: "Assigned project is unavailable" };
+  }
+
+  const dispatchAt = Date.now();
+  const dispatchRunId = uuidv4();
+  const snapshot = getProjectSnapshot(project.id);
+  const initialStatus: WorkgroupTaskStatus = snapshot && (snapshot.isRunning || snapshot.queuedCount > 0)
+    ? "assigned"
+    : "running";
+  const prompt = buildWorkgroupDispatchPrompt(workgroup, serializedMember, task);
+
+  if (serializedMember.projectKind === "remote") {
+    const result = remoteSessionStore
+      ? await remoteSessionStore.sendPrompt(project.id, prompt)
+      : { success: false, error: "Remote controller unavailable" };
+    if (!result.success) {
+      updateWorkgroupTask(task.id, {
+        status: "error",
+        dispatchProjectId: project.id,
+        dispatchRunId,
+        lastDispatchAt: dispatchAt,
+        lastDispatchResult: result.error || "Remote dispatch failed",
+      });
+      broadcastWorkgroupsChanged();
+      return result;
+    }
+
+    const updatedTask = updateWorkgroupTask(task.id, {
+      status: initialStatus,
+      dispatchProjectId: project.id,
+      dispatchRunId: result.runId || dispatchRunId,
+      lastDispatchAt: dispatchAt,
+      lastDispatchResult: initialStatus === "assigned"
+        ? "Waiting in the assigned remote member project queue."
+        : "Assigned remote member project is executing the task.",
+    });
+    broadcastWorkgroupsChanged();
+    return {
+      success: true,
+      task: updatedTask,
+      workgroup: getSerializedWorkgroupById(task.workgroupId),
+    };
+  }
+
+  runtimeManager.enqueueMessage({
+    projectId: project.id,
+    cwd: project.path,
+    prompt,
+    source: "desktop",
+    runId: dispatchRunId,
+    onDone: () => {
+      const latestTask = workgroupStore.getTaskById(task.id);
+      if (!latestTask || latestTask.dispatchRunId !== dispatchRunId) {
+        return;
+      }
+      if (latestTask.status !== "running" && latestTask.status !== "assigned") {
+        return;
+      }
+      updateWorkgroupTask(task.id, {
+        status: "done",
+        lastDispatchResult: "Completed by assigned member project.",
+      });
+      broadcastWorkgroupsChanged();
+    },
+    onError: (error) => {
+      const latestTask = workgroupStore.getTaskById(task.id);
+      if (!latestTask || latestTask.dispatchRunId !== dispatchRunId) {
+        return;
+      }
+      updateWorkgroupTask(task.id, {
+        status: "error",
+        lastDispatchResult: error || "Local dispatch failed",
+      });
+      broadcastWorkgroupsChanged();
+    },
+  });
+
+  const updatedTask = updateWorkgroupTask(task.id, {
+    status: initialStatus,
+    dispatchProjectId: project.id,
+    dispatchRunId,
+    lastDispatchAt: dispatchAt,
+    lastDispatchResult: initialStatus === "assigned"
+      ? "Queued for the assigned local member project."
+      : "Assigned local member project is executing the task.",
+  });
+  broadcastWorkgroupsChanged();
+  return {
+    success: true,
+    task: updatedTask,
+    workgroup: getSerializedWorkgroupById(task.workgroupId),
+  };
+}
+
 // IPC handlers
-ipcMain.handle("get-projects", () => getAllProjects());
+ipcMain.handle("get-projects", () => {
+  requestRemoteProjectCatalogRefresh();
+  return getAllProjects();
+});
 
 ipcMain.handle("add-project", async (_event, data: {
   name: string;
@@ -1361,7 +2212,7 @@ ipcMain.handle("delete-project", (_event, projectId: string) => {
   const project = projectStore.getById(projectId);
   projectStore.remove(projectId);
   runtimeManager.clearProject(projectId);
-  lastBroadcastSyncSeqByProject.delete(projectId);
+  clearRelaySyncState(projectId);
 
   if (activeWorkspaceProjectId === projectId) {
     activeWorkspaceProjectId = null;
@@ -1408,6 +2259,7 @@ ipcMain.handle("list-access-grants", async () => {
       return { success: false, error: errorText || response.statusText };
     }
     const data = await response.json();
+    requestRemoteProjectCatalogRefresh();
     return { success: true, data };
   } catch (error: any) {
     return { success: false, error: error?.message ?? String(error) };
@@ -1438,6 +2290,7 @@ ipcMain.handle("grant-access-to-user", async (_event, data: { controllerUsername
       const errorText = await response.text();
       return { success: false, error: errorText || response.statusText };
     }
+    requestRemoteProjectCatalogRefresh();
     return { success: true };
   } catch (error: any) {
     return { success: false, error: error?.message ?? String(error) };
@@ -1467,6 +2320,7 @@ ipcMain.handle("revoke-access-grant", async (_event, data: { controllerUserId: n
       const errorText = await response.text();
       return { success: false, error: errorText || response.statusText };
     }
+    requestRemoteProjectCatalogRefresh();
     return { success: true };
   } catch (error: any) {
     return { success: false, error: error?.message ?? String(error) };
@@ -1578,6 +2432,7 @@ ipcMain.handle("get-app-settings", () => {
   return {
     autoStart: appSettingsStore.get("autoStart") as boolean,
     silentLaunch: appSettingsStore.get("silentLaunch") as boolean,
+    completionSound: appSettingsStore.get("completionSound") as boolean,
     saveLogs: appSettingsStore.get("saveLogs") as boolean,
     e2eEnabled: appSettingsStore.get("e2eEnabled") as boolean,
     autoUpdateCheck: appSettingsStore.get("autoUpdateCheck") as boolean,
@@ -1595,6 +2450,9 @@ ipcMain.handle("set-app-settings", (_event, settings: Partial<AppSettings>) => {
   }
   if (settings.silentLaunch !== undefined) {
     appSettingsStore.set("silentLaunch", settings.silentLaunch);
+  }
+  if (settings.completionSound !== undefined) {
+    appSettingsStore.set("completionSound", settings.completionSound);
   }
   if (settings.saveLogs !== undefined) {
     if (!settings.saveLogs) {
@@ -1780,7 +2638,7 @@ ipcMain.handle("clear-history-cache", (_event, projectId?: string | null) => {
 });
 
 ipcMain.handle("pick-project-attachments", async (event, data: { projectId: string; kind: "image" | "file" }) => {
-  const project = projectStore.getById(data.projectId);
+  const project = getProjectById(data.projectId);
   if (!project) {
     return { success: false, error: "Project not found" };
   }
@@ -1794,7 +2652,7 @@ ipcMain.handle("pick-project-attachments", async (event, data: { projectId: stri
     : undefined;
 
   const dialogOptions: Electron.OpenDialogOptions = {
-    defaultPath: project.path,
+    defaultPath: isRemoteProject(data.projectId) ? app.getPath("downloads") : project.path,
     properties: ["openFile", "multiSelections"],
     filters,
   };
@@ -1813,7 +2671,7 @@ ipcMain.handle("pick-project-attachments", async (event, data: { projectId: stri
 });
 
 ipcMain.handle("save-clipboard-project-image", (_event, data: { projectId: string }) => {
-  const project = projectStore.getById(data.projectId);
+  const project = getProjectById(data.projectId);
   if (!project) {
     return { success: false, error: "Project not found" };
   }
@@ -1823,7 +2681,7 @@ ipcMain.handle("save-clipboard-project-image", (_event, data: { projectId: strin
     return { success: false, error: "Clipboard does not contain an image" };
   }
 
-  const targetPath = getUniqueAttachmentPath(project.id, `clipboard-${Date.now()}.png`);
+  const targetPath = getUniqueAttachmentPath(data.projectId, `clipboard-${Date.now()}.png`);
   fs.writeFileSync(targetPath, image.toPNG());
 
   return {
@@ -1911,7 +2769,7 @@ ipcMain.handle("remove-queued-project-prompt", (_event, data: { projectId: strin
   }
 
   if (isRemoteProject(data.projectId)) {
-    return { success: false, error: "Remote queue removal is not supported yet" };
+    return remoteSessionStore?.removeQueuedRun(data.projectId, data.runId) ?? { success: false, error: "Remote controller unavailable" };
   }
 
   const removed = runtimeManager.removeQueuedRun(data.projectId, data.runId);
@@ -1923,6 +2781,262 @@ ipcMain.handle("remove-queued-project-prompt", (_event, data: { projectId: strin
 });
 
 // 窗口控制
+ipcMain.handle("list-workgroups", () => {
+  return {
+    success: true,
+    workgroups: listSerializedWorkgroups(),
+  };
+});
+
+ipcMain.handle("search-project-messages", (_event, data: {
+  projectId: string;
+  query: string;
+  conversationId?: string | null;
+  limit?: number;
+}) => {
+  const project = getProjectById(data.projectId);
+  if (!project) {
+    return { success: false, error: "Project not found" };
+  }
+
+  if (isRemoteProject(data.projectId)) {
+    return {
+      success: true,
+      items: remoteSessionStore?.searchMessages(data.projectId, {
+        query: data.query,
+        conversationId: data.conversationId,
+        limit: data.limit,
+      }) ?? [],
+    };
+  }
+
+  return {
+    success: true,
+    items: runtimeManager.searchMessages(data.projectId, {
+      query: data.query,
+      conversationId: data.conversationId,
+      limit: data.limit,
+    }),
+  };
+});
+
+ipcMain.handle("list-workgroup-collaborations", () => {
+  return {
+    success: true,
+    workgroups: workgroupCollaborationService.listSummaries(),
+  };
+});
+
+ipcMain.handle("get-workgroup-collaboration-session", (_event, workgroupId: string) => {
+  const session = workgroupCollaborationService.getSession(workgroupId);
+  if (!session) {
+    return { success: false, error: "Workgroup collaboration not found" };
+  }
+  return {
+    success: true,
+    session,
+  };
+});
+
+ipcMain.handle("get-workgroup-collaboration-history-page", (_event, data: {
+  workgroupId: string;
+  beforeId?: string | null;
+  limit?: number;
+}) => {
+  const page = workgroupCollaborationService.getHistoryPage(data.workgroupId, {
+    beforeId: data.beforeId,
+    limit: data.limit,
+  });
+  if (!page) {
+    return { success: false, error: "Workgroup collaboration not found" };
+  }
+  return {
+    success: true,
+    page,
+  };
+});
+
+ipcMain.handle("search-workgroup-collaboration-messages", (_event, data: {
+  workgroupId: string;
+  query: string;
+  limit?: number;
+}) => {
+  const items = workgroupCollaborationService.searchMessages(data.workgroupId, {
+    query: data.query,
+    limit: data.limit,
+  });
+  if (!items) {
+    return { success: false, error: "Workgroup collaboration not found" };
+  }
+  return {
+    success: true,
+    items,
+  };
+});
+
+ipcMain.handle("send-workgroup-collaboration-message", async (_event, data: { workgroupId: string; content: string }) => {
+  return await workgroupCollaborationService.sendUserMessage(data.workgroupId, data.content);
+});
+
+ipcMain.handle("save-workgroup", (_event, data: {
+  id?: string;
+  name: string;
+  description?: string | null;
+  allowDirectMemberMessages?: boolean;
+}) => {
+  const name = String(data?.name ?? "").trim();
+  if (!name) {
+    return { success: false, error: "Workgroup name is required" };
+  }
+
+  const workgroup = workgroupStore.saveWorkgroup({
+    id: typeof data?.id === "string" ? data.id.trim() : undefined,
+    name,
+    description: data?.description ?? null,
+    allowDirectMemberMessages: Boolean(data?.allowDirectMemberMessages),
+  });
+  broadcastWorkgroupsChanged();
+  return {
+    success: true,
+    workgroup: getSerializedWorkgroupById(workgroup.id),
+  };
+});
+
+ipcMain.handle("delete-workgroup", (_event, workgroupId: string) => {
+  const workgroup = workgroupStore.getWorkgroupById(workgroupId);
+  if (!workgroup) {
+    return { success: false, error: "Workgroup not found" };
+  }
+
+  workgroupStore.removeWorkgroup(workgroupId);
+  workgroupCollaborationService.removeWorkgroup(workgroupId);
+  broadcastWorkgroupsChanged();
+  return { success: true };
+});
+
+ipcMain.handle("save-workgroup-member", (_event, data: {
+  id?: string;
+  workgroupId: string;
+  name: string;
+  role: WorkgroupRole;
+  projectId?: string | null;
+  allowedPaths?: string[] | null;
+  systemPrompt?: string | null;
+}) => {
+  const workgroup = workgroupStore.getWorkgroupById(data?.workgroupId || "");
+  if (!workgroup) {
+    return { success: false, error: "Workgroup not found" };
+  }
+
+  const name = String(data?.name ?? "").trim();
+  if (!name) {
+    return { success: false, error: "Member name is required" };
+  }
+
+  const projectId = typeof data?.projectId === "string" && data.projectId.trim() ? data.projectId.trim() : null;
+  const binding = resolveWorkgroupProjectBinding(projectId);
+  const member = workgroupStore.saveMember({
+    id: typeof data?.id === "string" ? data.id.trim() : undefined,
+    workgroupId: workgroup.id,
+    name,
+    role: data.role,
+    projectId,
+    projectName: binding.projectName,
+    projectPath: binding.projectPath,
+    projectKind: binding.projectKind,
+    allowedPaths: Array.isArray(data?.allowedPaths) ? data.allowedPaths : [],
+    systemPrompt: data?.systemPrompt ?? null,
+  });
+  touchWorkgroup(workgroup.id);
+  broadcastWorkgroupsChanged();
+  return {
+    success: true,
+    member: serializeWorkgroupMember(member),
+    workgroup: getSerializedWorkgroupById(workgroup.id),
+  };
+});
+
+ipcMain.handle("delete-workgroup-member", (_event, memberId: string) => {
+  const member = workgroupStore.getMemberById(memberId);
+  if (!member) {
+    return { success: false, error: "Member not found" };
+  }
+
+  workgroupStore.removeMember(memberId);
+  touchWorkgroup(member.workgroupId);
+  broadcastWorkgroupsChanged();
+  return { success: true };
+});
+
+ipcMain.handle("save-workgroup-task", (_event, data: {
+  id?: string;
+  workgroupId: string;
+  title: string;
+  description?: string | null;
+  acceptanceCriteria?: string | null;
+  assigneeMemberId?: string | null;
+  priority?: "low" | "normal" | "high";
+  status?: WorkgroupTaskStatus;
+}) => {
+  const workgroup = workgroupStore.getWorkgroupById(data?.workgroupId || "");
+  if (!workgroup) {
+    return { success: false, error: "Workgroup not found" };
+  }
+
+  const title = String(data?.title ?? "").trim();
+  if (!title) {
+    return { success: false, error: "Task title is required" };
+  }
+
+  const assigneeMemberId = typeof data?.assigneeMemberId === "string" && data.assigneeMemberId.trim()
+    ? data.assigneeMemberId.trim()
+    : null;
+  if (assigneeMemberId) {
+    const member = workgroupStore.getMemberById(assigneeMemberId);
+    if (!member || member.workgroupId !== workgroup.id) {
+      return { success: false, error: "Assignee not found in this workgroup" };
+    }
+  }
+
+  const task = workgroupStore.saveTask({
+    id: typeof data?.id === "string" ? data.id.trim() : undefined,
+    workgroupId: workgroup.id,
+    title,
+    description: data?.description ?? null,
+    acceptanceCriteria: data?.acceptanceCriteria ?? null,
+    assigneeMemberId,
+    priority: data?.priority,
+    status: data?.status,
+  });
+  touchWorkgroup(workgroup.id);
+  broadcastWorkgroupsChanged();
+  return {
+    success: true,
+    task,
+    workgroup: getSerializedWorkgroupById(workgroup.id),
+  };
+});
+
+ipcMain.handle("delete-workgroup-task", (_event, taskId: string) => {
+  const task = workgroupStore.getTaskById(taskId);
+  if (!task) {
+    return { success: false, error: "Task not found" };
+  }
+
+  workgroupStore.removeTask(taskId);
+  touchWorkgroup(task.workgroupId);
+  broadcastWorkgroupsChanged();
+  return { success: true };
+});
+
+ipcMain.handle("update-workgroup-task-status", (_event, data: {
+  taskId: string;
+  status: WorkgroupTaskStatus;
+  lastDispatchResult?: string | null;
+}) => handleUpdateWorkgroupTaskStatusRequest(data));
+
+ipcMain.handle("dispatch-workgroup-task", async (_event, taskId: string) => handleDispatchWorkgroupTaskRequest(taskId));
+
 ipcMain.on("minimize-window", (event) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   if (win) win.minimize();

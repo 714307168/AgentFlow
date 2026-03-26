@@ -79,7 +79,7 @@ data class SettingsState(
     val token: String = "",
     val username: String = "",
     val password: String = "",
-    val e2eEnabled: Boolean = false,
+    val e2eEnabled: Boolean = true,
     val e2ePublicKey: String = "",
     val language: String = "en",
     val autoUpdateCheckEnabled: Boolean = true,

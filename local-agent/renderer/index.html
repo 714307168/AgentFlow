@@ -33,7 +33,10 @@
     <main class="workspace">
       <aside class="sidebar-panel">
         <div class="sidebar-header">
-          <h1 class="sidebar-title" id="projectsTitle">Projects</h1>
+          <div class="sidebar-heading-block">
+            <h1 class="sidebar-title" id="projectsTitle">Projects</h1>
+            <input class="search-input sidebar-search" id="projectSearchInput" type="search" placeholder="Search workspace" />
+          </div>
         </div>
         <div class="project-list" id="projectList"></div>
       </aside>
@@ -51,6 +54,7 @@
                 <select class="conversation-select" id="conversationSelect" aria-label="Conversation"></select>
                 <button class="ghost-button compact" id="newConversationBtn" type="button">New</button>
               </div>
+              <input class="search-input message-search" id="messageSearchInput" type="search" placeholder="Search messages" />
             </div>
           </div>
 
@@ -119,6 +123,7 @@
             rows="4"
             placeholder="Ask Claude Code or OpenAI Codex to inspect, edit, review, or debug this project."
           ></textarea>
+          <div class="mention-suggestions hidden" id="mentionSuggestions" aria-label="Mention suggestions"></div>
           <div class="composer-actions">
             <div class="composer-hint" id="composerHint">
               Full-auto mode is enabled for both providers. Press Enter to send, Shift+Enter for a new line.

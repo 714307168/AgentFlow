@@ -22,6 +22,18 @@ interface MessageDao {
 
     @Query(
         """
+        SELECT * FROM messages
+        WHERE projectId = :projectId
+          AND syncSeq > 0
+          AND (:beforeSeq IS NULL OR syncSeq < :beforeSeq)
+        ORDER BY syncSeq DESC
+        LIMIT :limit
+        """
+    )
+    suspend fun getSyncDigestMessages(projectId: String, beforeSeq: Long?, limit: Int): List<MessageEntity>
+
+    @Query(
+        """
         SELECT
             MIN(CASE WHEN syncSeq > 0 THEN syncSeq END) AS earliestSyncSeq,
             MAX(CASE WHEN syncSeq > 0 THEN syncSeq END) AS latestSyncSeq,

@@ -21,6 +21,7 @@ The app does not persist user data inside the install directory.
 - `app-settings.json`: startup flags and update options such as `autoUpdateCheck` and `autoUpdateDownload`
 - `i18n.json`: saved UI language
 - `runtime-history/<projectId>.json`: structured per-project history, queue, runtime session IDs, messages, and activities
+- `workgroup-collaborations.json`: shared workgroup collaboration messages stored locally on desktop only
 
 ## History Storage
 
@@ -49,8 +50,9 @@ The desktop app uses the relay update center and follows this policy:
 
 - optional automatic update checks
 - optional automatic background download
-- no silent install
-- installer launch is always user-confirmed
+- optional silent install when enabled in settings
+- silent install only starts after local running and queued tasks are fully idle
+- otherwise the installer launch remains user-confirmed
 
 ## Auth Refresh
 
@@ -60,11 +62,34 @@ The desktop agent refreshes both the agent token and the controller token before
 - long refresh delays are clamped to Node.js' maximum safe `setTimeout` range
 - this avoids `TimeoutOverflowWarning` and runaway refresh loops on long-lived tokens
 
+## System Settings
+
+The desktop app also stores system-level preferences in `app-settings.json`.
+
+- startup behavior
+- local log persistence
+- update policy
+- completion sound after successful task runs
+
 Relevant code:
 
 - `src/update-manager.ts`
 - `src/main.ts`
 - `renderer/settings.html`
+
+## Workgroup Collaboration
+
+Workgroup collaboration sessions are now stored only on the desktop host.
+
+- the relay only forwards device and project traffic
+- shared workgroup conversation history is not persisted on the server
+- member replies are mirrored into one local shared thread per workgroup
+
+Relevant code:
+
+- `src/workgroup-collaboration-store.ts`
+- `src/workgroup-collaboration-service.ts`
+- `renderer/terminal.ts`
 
 ## Packaging
 

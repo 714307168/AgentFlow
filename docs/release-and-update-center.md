@@ -56,10 +56,17 @@ Examples:
 
 ### Admin
 
+- `GET /admin/api/overview`
 - `GET /admin/releases`
 - `GET /admin/api/releases`
 - `POST /admin/api/releases`
 - `DELETE /admin/api/releases/{id}`
+
+`/admin/api/overview` currently returns:
+
+- summary counts
+- live connection rows
+- event-level inbound and outbound traffic aggregation
 
 ## Server Storage
 
@@ -208,8 +215,9 @@ Project guidance is prepended as persistent repository context before each local
 2. deploy the latest `relay-server`
 3. open `/admin/releases`
 4. upload the packages and fill in version metadata
-5. verify `/api/update/check`
-6. verify `/api/update/download/{id}`
+5. verify `/admin` overview and release list are healthy
+6. verify `/api/update/check`
+7. verify `/api/update/download/{id}`
 
 ## Example URLs
 

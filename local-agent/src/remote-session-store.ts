@@ -1,5 +1,10 @@
 import { EventEmitter } from "events";
+import * as fs from "fs";
 import { v4 as uuidv4 } from "uuid";
+import {
+  createSessionSyncAttachmentsMd5,
+  createSessionSyncContentMd5,
+} from "./session-sync-hash";
 import type {
   CliProvider,
   CliTraceEntry,
@@ -13,6 +18,7 @@ import type {
   SessionMessage,
 } from "./runtime-types";
 import type RelayClient from "./relay-client";
+import { SessionSyncActions } from "./session-sync-actions";
 import { Envelope, Events } from "./types";
 
 export interface RemoteProjectInfo {
@@ -38,12 +44,18 @@ interface SyncItemPayload {
   updatedAt: number;
   role?: SessionMessage["role"];
   content: string;
+  content_md5?: string;
+  content_omitted?: boolean;
   attachments?: RunAttachment[];
+  attachments_md5?: string | null;
+  attachments_omitted?: boolean;
   status: string;
   title?: string;
   activity_kind?: string;
   cli_stream?: "system" | "stdout" | "stderr";
 }
+
+type LooseRecord = Record<string, unknown>;
 
 interface RemoteMessageEntry extends SessionMessage {
   syncSeq: number;
@@ -86,8 +98,25 @@ interface PendingHistoryRequest {
   resolve: (page: HistoryPageResult<SessionMessage | SessionActivity | CliTraceEntry>) => void;
 }
 
+interface PendingUploadAck {
+  attachment: RunAttachment;
+  timeout: NodeJS.Timeout;
+  resolve: (attachment: RunAttachment) => void;
+  reject: (error: Error) => void;
+}
+
+interface RemoteRunObserver {
+  onTextDelta?: (chunk: string) => void;
+  onDone?: () => void;
+  onError?: (error: string) => void;
+}
+
 const DEFAULT_PAGE_SIZE = 30;
 const MAX_REMOTE_ITEMS = 1200;
+const FILE_CHUNK_SIZE = 64 * 1024;
+const FILE_UPLOAD_TIMEOUT_MS = 120_000;
+const EMPTY_PROJECT_LIST_RETRY_DELAY_MS = 1_500;
+const MAX_CONSECUTIVE_EMPTY_PROJECT_LISTS = 2;
 
 function cloneAttachments(attachments?: RunAttachment[]): RunAttachment[] | undefined {
   if (!attachments || attachments.length === 0) {
@@ -103,11 +132,24 @@ function cloneMessage(message: RemoteMessageEntry): SessionMessage {
   };
 }
 
+function readString(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function readNumber(value: unknown): number {
+  const normalized = Number(value);
+  return Number.isFinite(normalized) ? normalized : 0;
+}
+
 export default class RemoteSessionStore extends EventEmitter {
   private readonly relayClient: RelayClient;
   private readonly localAgentId: () => string;
   private readonly states = new Map<string, RemoteState>();
+  private readonly emptyProjectListCounts = new Map<string, number>();
+  private readonly emptyProjectListRetryTimers = new Map<string, NodeJS.Timeout>();
   private readonly pendingHistoryRequests = new Map<string, PendingHistoryRequest[]>();
+  private readonly pendingUploadAcks = new Map<string, PendingUploadAck>();
+  private readonly runObservers = new Map<string, RemoteRunObserver>();
 
   constructor(relayClient: RelayClient, options: { localAgentId: () => string }) {
     super();
@@ -141,6 +183,12 @@ export default class RemoteSessionStore extends EventEmitter {
       case Events.MESSAGE_ERROR:
         this.handleMessageCompleted(env);
         return;
+      case Events.FILE_DONE:
+        this.handleFileDone(env);
+        return;
+      case Events.FILE_ERROR:
+        this.handleFileError(env);
+        return;
       default:
         return;
     }
@@ -150,6 +198,14 @@ export default class RemoteSessionStore extends EventEmitter {
     return Array.from(this.states.values())
       .map((state) => ({ ...state.project }))
       .sort((left, right) => right.name.localeCompare(left.name, "zh-CN"));
+  }
+
+  getProjectAgentId(projectId: string): string | null {
+    const normalizedProjectId = projectId.trim();
+    if (!normalizedProjectId) {
+      return null;
+    }
+    return this.states.get(normalizedProjectId)?.project.agentId ?? null;
   }
 
   hasProject(projectId: string): boolean {
@@ -234,6 +290,49 @@ export default class RemoteSessionStore extends EventEmitter {
     };
   }
 
+  searchMessages(
+    projectId: string,
+    request: {
+      query: string;
+      conversationId?: string | null;
+      limit?: number;
+    },
+  ): SessionMessage[] | null {
+    const state = this.states.get(projectId);
+    if (!state) {
+      return null;
+    }
+
+    const query = request.query.trim().toLowerCase();
+    if (!query) {
+      return [];
+    }
+
+    if (request.conversationId && state.activeConversationId && request.conversationId !== state.activeConversationId) {
+      return [];
+    }
+
+    const limit = Number(request.limit) > 0 ? Math.max(1, Number(request.limit)) : 200;
+    return state.messages
+      .filter((message) => {
+        const attachmentText = (message.attachments ?? [])
+          .map((attachment) => `${attachment.name} ${attachment.path}`)
+          .join(" ")
+          .toLowerCase();
+        const haystack = [
+          message.role,
+          message.provider ?? "",
+          message.content,
+          attachmentText,
+        ]
+          .join(" ")
+          .toLowerCase();
+        return haystack.includes(query);
+      })
+      .slice(-limit)
+      .map(cloneMessage);
+  }
+
   async loadHistoryPage(
     projectId: string,
     kind: HistoryPageKind,
@@ -298,6 +397,7 @@ export default class RemoteSessionStore extends EventEmitter {
     limit?: number;
     action?: string;
     conversationId?: string | null;
+    runId?: string | null;
   } = {}): void {
     this.relayClient.send({
       id: uuidv4(),
@@ -310,17 +410,26 @@ export default class RemoteSessionStore extends EventEmitter {
         limit: options.limit,
         action: options.action,
         conversation_id: options.conversationId ?? undefined,
+        run_id: options.runId ?? undefined,
+        known_items: this.buildKnownSyncItems(projectId, options),
       },
     });
   }
 
-  sendPrompt(projectId: string, prompt: string, attachments?: RunAttachment[]): { success: boolean; error?: string } {
+  async sendPrompt(
+    projectId: string,
+    prompt: string,
+    attachments?: RunAttachment[],
+    options: {
+      runId?: string;
+      onTextDelta?: (chunk: string) => void;
+      onDone?: () => void;
+      onError?: (error: string) => void;
+    } = {},
+  ): Promise<{ success: boolean; runId?: string; error?: string }> {
     const state = this.states.get(projectId);
     if (!state) {
       return { success: false, error: "Remote project not found" };
-    }
-    if (attachments && attachments.length > 0) {
-      return { success: false, error: "Remote project attachments are not supported yet" };
     }
 
     const trimmedPrompt = prompt.trim();
@@ -328,13 +437,29 @@ export default class RemoteSessionStore extends EventEmitter {
       return { success: false, error: "Prompt cannot be empty" };
     }
 
-    const runId = uuidv4();
+    let uploadedAttachments: RunAttachment[] | undefined;
+    if (attachments && attachments.length > 0) {
+      try {
+        uploadedAttachments = [];
+        for (const attachment of attachments) {
+          uploadedAttachments.push(await this.uploadAttachment(projectId, attachment));
+        }
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }
+
+    const runId = options.runId?.trim() || uuidv4();
     const streamId = `${runId}:assistant`;
     const timestamp = Date.now();
     state.messages.push({
       id: runId,
       role: "user",
       content: trimmedPrompt,
+      attachments: cloneAttachments(uploadedAttachments),
       source: "desktop",
       createdAt: timestamp,
       updatedAt: timestamp,
@@ -352,10 +477,17 @@ export default class RemoteSessionStore extends EventEmitter {
       ts: timestamp,
       payload: {
         content: trimmedPrompt,
+        attachments: cloneAttachments(uploadedAttachments),
       },
     });
-    this.requestSessionSync(projectId, { afterSeq: Math.max(0, state.lastSyncSeq - DEFAULT_PAGE_SIZE), limit: DEFAULT_PAGE_SIZE });
-    return { success: true };
+    if (options.onTextDelta || options.onDone || options.onError) {
+      this.runObservers.set(this.getRunObserverKey(projectId, runId), {
+        onTextDelta: options.onTextDelta,
+        onDone: options.onDone,
+        onError: options.onError,
+      });
+    }
+    return { success: true, runId };
   }
 
   stopRun(projectId: string): { success: boolean; error?: string } {
@@ -371,12 +503,39 @@ export default class RemoteSessionStore extends EventEmitter {
     return { success: true };
   }
 
+  removeQueuedRun(projectId: string, runId: string): { success: boolean; error?: string } {
+    const state = this.states.get(projectId);
+    if (!state) {
+      return { success: false, error: "Remote project not found" };
+    }
+
+    const normalizedRunId = runId.trim();
+    if (!normalizedRunId) {
+      return { success: false, error: "Queued run id is required" };
+    }
+
+    const currentLength = state.queue.length;
+    state.queue = state.queue.filter((entry) => entry.runId !== normalizedRunId);
+    if (state.queue.length === currentLength) {
+      return { success: false, error: "Queued item not found" };
+    }
+    state.queuedCount = state.queue.length;
+    this.emitSnapshot(projectId);
+
+    this.requestSessionSync(projectId, {
+      action: SessionSyncActions.REMOVE_QUEUE,
+      runId: normalizedRunId,
+      limit: DEFAULT_PAGE_SIZE,
+    });
+    return { success: true };
+  }
+
   createConversation(projectId: string): { success: boolean; conversationId?: string; error?: string } {
     if (!this.states.has(projectId)) {
       return { success: false, error: "Remote project not found" };
     }
     this.requestSessionSync(projectId, {
-      action: "new_conversation",
+      action: SessionSyncActions.NEW_CONVERSATION,
       limit: DEFAULT_PAGE_SIZE,
     });
     return { success: true };
@@ -387,7 +546,7 @@ export default class RemoteSessionStore extends EventEmitter {
       return { success: false, error: "Remote project not found" };
     }
     this.requestSessionSync(projectId, {
-      action: "switch_conversation",
+      action: SessionSyncActions.SWITCH_CONVERSATION,
       conversationId,
       limit: DEFAULT_PAGE_SIZE,
     });
@@ -395,28 +554,46 @@ export default class RemoteSessionStore extends EventEmitter {
   }
 
   private handleProjectListed(env: Envelope): void {
-    const payload = env.payload as { agent_id?: string; projects?: RemoteProjectInfo[] } | undefined;
-    const agentID = payload?.agent_id?.trim() ?? "";
+    const payload = (env.payload ?? {}) as LooseRecord;
+    const agentID = readString(payload.agent_id).trim();
     const localAgentID = this.localAgentId().trim();
     if (!agentID || agentID === localAgentID) {
       return;
     }
 
-    const listedProjects = Array.isArray(payload?.projects) ? payload.projects : [];
+    const listedProjects = Array.isArray(payload.projects) ? payload.projects as LooseRecord[] : [];
+    const existingAgentProjectIDs = Array.from(this.states.entries())
+      .filter(([, state]) => state.project.agentId === agentID)
+      .map(([projectId]) => projectId);
+    if (listedProjects.length === 0) {
+      const emptyCount = (this.emptyProjectListCounts.get(agentID) ?? 0) + 1;
+      this.emptyProjectListCounts.set(agentID, emptyCount);
+      if (existingAgentProjectIDs.length > 0 && emptyCount < MAX_CONSECUTIVE_EMPTY_PROJECT_LISTS) {
+        this.scheduleEmptyProjectListRetry(agentID);
+        this.emit("projects-changed", this.getProjects());
+        return;
+      }
+    } else {
+      this.emptyProjectListCounts.delete(agentID);
+      this.clearEmptyProjectListRetry(agentID);
+    }
+
     const nextIDs = new Set<string>();
     for (const item of listedProjects) {
-      if (!item?.id || !item.agentId && !agentID) {
+      const projectID = readString(item?.id).trim();
+      const projectAgentID = readString(item?.agentId ?? item?.agent_id).trim() || agentID;
+      if (!projectID || !projectAgentID) {
         continue;
       }
       const record: RemoteProjectRecord = {
-        id: item.id,
-        agentId: item.agentId?.trim() || agentID,
-        name: item.name,
-        path: item.path,
-        groupName: item.groupName ?? null,
-        cliProvider: item.cliProvider === "codex" ? "codex" : "claude",
-        cliModel: item.cliModel ?? null,
-        online: item.online ?? true,
+        id: projectID,
+        agentId: projectAgentID,
+        name: readString(item?.name).trim() || projectID,
+        path: readString(item?.path).trim(),
+        groupName: readString(item?.groupName ?? item?.group_name).trim() || null,
+        cliProvider: readString(item?.cliProvider ?? item?.cli_provider) === "codex" ? "codex" : "claude",
+        cliModel: readString(item?.cliModel ?? item?.cli_model).trim() || null,
+        online: item?.online !== false,
         isRemote: true,
       };
       nextIDs.add(record.id);
@@ -435,6 +612,9 @@ export default class RemoteSessionStore extends EventEmitter {
         this.states.delete(projectId);
       }
     }
+    if (listedProjects.length === 0) {
+      this.clearEmptyProjectListRetry(agentID);
+    }
     this.emit("projects-changed", this.getProjects());
   }
 
@@ -448,45 +628,46 @@ export default class RemoteSessionStore extends EventEmitter {
       return;
     }
 
-    const payload = env.payload as any;
-    state.provider = payload?.provider === "codex" ? "codex" : "claude";
-    state.model = typeof payload?.model === "string" ? payload.model : null;
-    state.isRunning = Boolean(payload?.isRunning);
-    state.queuedCount = Number(payload?.queuedCount ?? 0) || 0;
-    state.currentSource = payload?.currentSource === "remote" ? "remote" : (payload?.currentSource === "desktop" ? "desktop" : null);
-    state.currentPrompt = typeof payload?.currentPrompt === "string" ? payload.currentPrompt : null;
-    state.currentStartedAt = Number(payload?.currentStartedAt) || null;
-    state.activeConversationId = typeof payload?.active_conversation_id === "string" ? payload.active_conversation_id : null;
-    state.queue = Array.isArray(payload?.queue)
+    const payload = (env.payload ?? {}) as LooseRecord;
+    state.provider = readString(payload.provider) === "codex" ? "codex" : "claude";
+    state.model = readString(payload.model).trim() || null;
+    state.isRunning = Boolean(payload.isRunning ?? payload.is_running);
+    state.queuedCount = readNumber(payload.queuedCount ?? payload.queued_count);
+    const currentSource = readString(payload.currentSource ?? payload.current_source);
+    state.currentSource = currentSource === "remote" ? "remote" : (currentSource === "desktop" ? "desktop" : null);
+    state.currentPrompt = readString(payload.currentPrompt ?? payload.current_prompt) || null;
+    state.currentStartedAt = readNumber(payload.currentStartedAt ?? payload.current_started_at) || null;
+    state.activeConversationId = readString(payload.active_conversation_id ?? payload.activeConversationId) || null;
+    state.queue = Array.isArray(payload.queue)
       ? payload.queue.map((entry: any) => ({
-          runId: String(entry.runId ?? uuidv4()),
-          prompt: String(entry.prompt ?? ""),
-          source: entry.source === "remote" ? "remote" : "desktop",
-          queuedAt: Number(entry.queuedAt ?? Date.now()),
+          runId: readString(entry.runId ?? entry.run_id).trim() || uuidv4(),
+          prompt: readString(entry.prompt),
+          source: readString(entry.source) === "remote" ? "remote" : "desktop",
+          queuedAt: readNumber(entry.queuedAt ?? entry.queued_at) || Date.now(),
           attachments: cloneAttachments(entry.attachments),
         }))
       : [];
-    state.conversations = Array.isArray(payload?.conversations)
+    state.conversations = Array.isArray(payload.conversations)
       ? payload.conversations.map((entry: any) => ({
-          id: String(entry.id ?? uuidv4()),
-          title: String(entry.title ?? "New conversation"),
-          createdAt: Number(entry.created_at ?? Date.now()),
-          updatedAt: Number(entry.updated_at ?? Date.now()),
+          id: readString(entry.id).trim() || uuidv4(),
+          title: readString(entry.title) || "New conversation",
+          createdAt: readNumber(entry.created_at ?? entry.createdAt) || Date.now(),
+          updatedAt: readNumber(entry.updated_at ?? entry.updatedAt) || Date.now(),
           isActive: Boolean(entry.is_active),
-          messageCount: Number(entry.message_count ?? 0),
-          activityCount: Number(entry.activity_count ?? 0),
-          cliCount: Number(entry.cli_count ?? 0),
+          messageCount: readNumber(entry.message_count ?? entry.messageCount),
+          activityCount: readNumber(entry.activity_count ?? entry.activityCount),
+          cliCount: readNumber(entry.cli_count ?? entry.cliCount),
         }))
       : [];
 
-    const sync = payload?.sync;
+    const sync = (payload.sync ?? {}) as LooseRecord;
     const items = Array.isArray(sync?.items) ? sync.items as SyncItemPayload[] : [];
-    const latestSeq = Number(sync?.latest_seq ?? 0) || 0;
+    const latestSeq = readNumber(sync.latest_seq ?? sync.latestSeq);
     for (const item of items) {
       this.applySyncItem(state, item);
     }
     state.lastSyncSeq = Math.max(state.lastSyncSeq, latestSeq);
-    this.resolvePendingHistoryRequests(projectId, Number(sync?.before_seq ?? 0) || 0);
+    this.resolvePendingHistoryRequests(projectId, readNumber(sync.before_seq ?? sync.beforeSeq));
     this.emitSnapshot(projectId);
   }
 
@@ -502,6 +683,26 @@ export default class RemoteSessionStore extends EventEmitter {
     this.emitSnapshot(projectId);
   }
 
+  private scheduleEmptyProjectListRetry(agentID: string): void {
+    if (!agentID || this.emptyProjectListRetryTimers.has(agentID)) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      this.emptyProjectListRetryTimers.delete(agentID);
+      this.requestProjectList();
+    }, EMPTY_PROJECT_LIST_RETRY_DELAY_MS);
+    this.emptyProjectListRetryTimers.set(agentID, timer);
+  }
+
+  private clearEmptyProjectListRetry(agentID: string): void {
+    const timer = this.emptyProjectListRetryTimers.get(agentID);
+    if (!timer) {
+      return;
+    }
+    clearTimeout(timer);
+    this.emptyProjectListRetryTimers.delete(agentID);
+  }
+
   private handleMessageChunk(env: Envelope): void {
     const projectId = env.project_id?.trim() ?? "";
     const streamId = env.stream_id?.trim() ?? "";
@@ -514,6 +715,9 @@ export default class RemoteSessionStore extends EventEmitter {
     if (!content) {
       return;
     }
+
+    const runObserver = this.runObservers.get(this.getRunObserverKey(projectId, this.getRunIdFromStreamId(streamId)));
+    runObserver?.onTextDelta?.(content);
 
     let message = state.messages.find((entry) => entry.id === streamId);
     if (!message) {
@@ -544,33 +748,136 @@ export default class RemoteSessionStore extends EventEmitter {
     if (!state || !streamId) {
       return;
     }
+    const payload = env.payload as { error?: string } | undefined;
     const message = state.messages.find((entry) => entry.id === streamId);
     if (message) {
       message.status = "done";
       message.updatedAt = Date.now();
     }
-    this.requestSessionSync(projectId, { afterSeq: Math.max(0, state.lastSyncSeq - DEFAULT_PAGE_SIZE), limit: DEFAULT_PAGE_SIZE });
+    const runId = this.getRunIdFromStreamId(streamId);
+    const runObserverKey = this.getRunObserverKey(projectId, runId);
+    const runObserver = this.runObservers.get(runObserverKey);
+    if (env.event === Events.MESSAGE_ERROR) {
+      const errorText = String(payload?.error ?? "").trim() || "Remote run failed.";
+      const errorId = `${streamId}:error`;
+      const existingError = state.messages.find((entry) => entry.id === errorId);
+      if (existingError) {
+        existingError.content = errorText;
+        existingError.updatedAt = Date.now();
+        existingError.status = "done";
+      } else {
+        state.messages.push({
+          id: errorId,
+          role: "error",
+          content: errorText,
+          source: "remote",
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          status: "done",
+          syncSeq: state.lastSyncSeq,
+        });
+      }
+      this.trimMessages(state);
+      runObserver?.onError?.(errorText);
+    } else {
+      runObserver?.onDone?.();
+    }
+    this.runObservers.delete(runObserverKey);
     this.emitSnapshot(projectId);
   }
 
-  private applySyncItem(state: RemoteState, item: SyncItemPayload): void {
-    if (!item || !item.id) {
+  private getRunObserverKey(projectId: string, runId: string): string {
+    return `${projectId}:${runId}`;
+  }
+
+  private getRunIdFromStreamId(streamId: string): string {
+    return streamId.endsWith(":assistant")
+      ? streamId.slice(0, -":assistant".length)
+      : streamId;
+  }
+
+  private handleFileDone(env: Envelope): void {
+    const payload = env.payload as Record<string, unknown> | undefined;
+    const fileId = String(payload?.file_id ?? env.stream_id ?? "").trim();
+    if (!fileId) {
       return;
     }
 
-    if (item.kind === "message") {
+    const pending = this.pendingUploadAcks.get(fileId);
+    if (!pending) {
+      return;
+    }
+
+    clearTimeout(pending.timeout);
+    this.pendingUploadAcks.delete(fileId);
+    pending.resolve({
+      ...pending.attachment,
+      path: String(payload?.file_path ?? pending.attachment.path).trim() || pending.attachment.path,
+      size: Number(payload?.file_size ?? pending.attachment.size) || pending.attachment.size,
+      kind: payload?.kind === "image" ? "image" : (payload?.kind === "file" ? "file" : pending.attachment.kind),
+      mimeType: typeof payload?.mime_type === "string" && payload.mime_type.trim()
+        ? payload.mime_type.trim()
+        : pending.attachment.mimeType,
+      previewDataUrl: typeof payload?.preview_data_url === "string" && payload.preview_data_url.trim()
+        ? payload.preview_data_url.trim()
+        : pending.attachment.previewDataUrl,
+    });
+  }
+
+  private handleFileError(env: Envelope): void {
+    const payload = env.payload as Record<string, unknown> | undefined;
+    const fileId = String(env.stream_id ?? payload?.file_id ?? "").trim();
+    if (!fileId) {
+      return;
+    }
+
+    const pending = this.pendingUploadAcks.get(fileId);
+    if (!pending) {
+      return;
+    }
+
+    clearTimeout(pending.timeout);
+    this.pendingUploadAcks.delete(fileId);
+    const message = typeof payload?.error === "string" && payload.error.trim()
+      ? payload.error.trim()
+      : "Remote desktop failed to receive attachment.";
+    pending.reject(new Error(message));
+  }
+
+  private applySyncItem(state: RemoteState, item: SyncItemPayload): void {
+    const itemRecord = item as unknown as LooseRecord;
+    const itemId = readString(item.id ?? itemRecord.id).trim();
+    const itemKind = readString(item.kind ?? itemRecord.kind);
+    const itemCreatedAt = readNumber(item.createdAt ?? itemRecord.created_at);
+    const itemUpdatedAt = readNumber(item.updatedAt ?? itemRecord.updated_at);
+    const itemSeq = readNumber(item.seq ?? itemRecord.seq);
+    if (!item || !itemId) {
+      return;
+    }
+
+    if (itemKind === "message") {
+      const existingMessage = state.messages.find((entry) => entry.id === itemId);
+      const contentMd5 = readString(item.content_md5 ?? itemRecord.content_md5).trim();
+      const attachmentsMd5 = readString(item.attachments_md5 ?? itemRecord.attachments_md5).trim();
+      const contentOmitted = Boolean(item.content_omitted ?? itemRecord.content_omitted);
+      const attachmentsOmitted = Boolean(item.attachments_omitted ?? itemRecord.attachments_omitted);
       const nextMessage: RemoteMessageEntry = {
-        id: item.id,
+        id: itemId,
         role: item.role === "user" ? "user" : (item.role === "error" ? "error" : "assistant"),
-        content: item.content ?? "",
-        attachments: cloneAttachments(item.attachments),
+        content: contentOmitted && existingMessage && createSessionSyncContentMd5(existingMessage.content) === contentMd5
+          ? existingMessage.content
+          : readString(item.content ?? itemRecord.content),
+        attachments: attachmentsOmitted && existingMessage
+          && createSessionSyncAttachmentsMd5(existingMessage.attachments) === attachmentsMd5
+          ? cloneAttachments(existingMessage.attachments)
+          : cloneAttachments(item.attachments),
         source: item.role === "user" ? "desktop" : "remote",
-        createdAt: item.createdAt,
-        updatedAt: item.updatedAt,
+        createdAt: itemCreatedAt,
+        updatedAt: itemUpdatedAt,
         status: item.status === "streaming" ? "streaming" : "done",
-        syncSeq: item.seq,
+        syncSeq: itemSeq,
       };
-      const index = state.messages.findIndex((entry) => entry.id === item.id);
+      const index = state.messages.findIndex((entry) => entry.id === itemId);
       if (index >= 0) {
         state.messages[index] = nextMessage;
       } else {
@@ -580,15 +887,20 @@ export default class RemoteSessionStore extends EventEmitter {
       return;
     }
 
-    if (item.kind === "cli") {
+    if (itemKind === "cli") {
+      const existingEntry = state.cliTrace.find((entry) => entry.id === itemId);
+      const contentMd5 = readString(item.content_md5 ?? itemRecord.content_md5).trim();
+      const contentOmitted = Boolean(item.content_omitted ?? itemRecord.content_omitted);
       const nextEntry: RemoteCliEntry = {
-        id: item.id,
+        id: itemId,
         stream: item.cli_stream === "stderr" ? "stderr" : (item.cli_stream === "system" ? "system" : "stdout"),
-        text: item.content ?? "",
-        createdAt: item.createdAt,
-        syncSeq: item.seq,
+        text: contentOmitted && existingEntry && createSessionSyncContentMd5(existingEntry.text) === contentMd5
+          ? existingEntry.text
+          : readString(item.content ?? itemRecord.content),
+        createdAt: itemCreatedAt,
+        syncSeq: itemSeq,
       };
-      const index = state.cliTrace.findIndex((entry) => entry.id === item.id);
+      const index = state.cliTrace.findIndex((entry) => entry.id === itemId);
       if (index >= 0) {
         state.cliTrace[index] = nextEntry;
       } else {
@@ -598,19 +910,24 @@ export default class RemoteSessionStore extends EventEmitter {
       return;
     }
 
+    const existingActivity = state.activities.find((entry) => entry.id === itemId);
+    const contentMd5 = readString(item.content_md5 ?? itemRecord.content_md5).trim();
+    const contentOmitted = Boolean(item.content_omitted ?? itemRecord.content_omitted);
     const nextActivity: RemoteActivityEntry = {
-      id: item.id,
-      kind: item.kind === "thinking"
+      id: itemId,
+      kind: itemKind === "thinking"
         ? "thinking"
         : ((item.activity_kind as SessionActivity["kind"]) || "status"),
-      title: item.title || (item.kind === "thinking" ? "Thinking" : "Activity"),
-      detail: item.content ?? "",
+      title: readString(item.title ?? itemRecord.title) || (itemKind === "thinking" ? "Thinking" : "Activity"),
+      detail: contentOmitted && existingActivity && createSessionSyncContentMd5(existingActivity.detail) === contentMd5
+        ? existingActivity.detail
+        : readString(item.content ?? itemRecord.content),
       status: this.mapActivityStatus(item.status),
-      createdAt: item.createdAt,
-      updatedAt: item.updatedAt,
-      syncSeq: item.seq,
+      createdAt: itemCreatedAt,
+      updatedAt: itemUpdatedAt,
+      syncSeq: itemSeq,
     };
-    const index = state.activities.findIndex((entry) => entry.id === item.id);
+    const index = state.activities.findIndex((entry) => entry.id === itemId);
     if (index >= 0) {
       state.activities[index] = nextActivity;
     } else {
@@ -632,6 +949,137 @@ export default class RemoteSessionStore extends EventEmitter {
       return;
     }
     this.emit("snapshot", projectId, snapshot);
+  }
+
+  private buildKnownSyncItems(projectId: string, options: {
+    afterSeq?: number;
+    beforeSeq?: number;
+    limit?: number;
+  }): Array<{ id: string; content_md5: string; attachments_md5?: string }> {
+    const state = this.states.get(projectId);
+    if (!state) {
+      return [];
+    }
+
+    const afterSeq = Number(options.afterSeq) > 0 ? Number(options.afterSeq) : 0;
+    if (afterSeq > 0 && !(Number(options.beforeSeq) > 0)) {
+      return [];
+    }
+
+    const beforeSeq = Number(options.beforeSeq) > 0 ? Number(options.beforeSeq) : 0;
+    const limit = Number(options.limit) > 0 ? Math.max(20, Number(options.limit) * 2) : (DEFAULT_PAGE_SIZE * 2);
+    const items: Array<{ id: string; content_md5: string; attachments_md5?: string; seq: number }> = [];
+
+    for (const message of state.messages) {
+      if (beforeSeq > 0 && message.syncSeq >= beforeSeq) {
+        continue;
+      }
+      items.push({
+        id: message.id,
+        content_md5: createSessionSyncContentMd5(message.content),
+        attachments_md5: createSessionSyncAttachmentsMd5(message.attachments) ?? undefined,
+        seq: message.syncSeq,
+      });
+    }
+
+    for (const activity of state.activities) {
+      if (beforeSeq > 0 && activity.syncSeq >= beforeSeq) {
+        continue;
+      }
+      items.push({
+        id: activity.id,
+        content_md5: createSessionSyncContentMd5(activity.detail),
+        seq: activity.syncSeq,
+      });
+    }
+
+    for (const entry of state.cliTrace) {
+      if (beforeSeq > 0 && entry.syncSeq >= beforeSeq) {
+        continue;
+      }
+      items.push({
+        id: entry.id,
+        content_md5: createSessionSyncContentMd5(entry.text),
+        seq: entry.syncSeq,
+      });
+    }
+
+    return items
+      .sort((left, right) => right.seq - left.seq)
+      .slice(0, limit)
+      .map(({ seq: _seq, ...item }) => item);
+  }
+
+  private async uploadAttachment(projectId: string, attachment: RunAttachment): Promise<RunAttachment> {
+    const resolvedPath = attachment.path?.trim() ?? "";
+    if (!resolvedPath || !fs.existsSync(resolvedPath) || !fs.statSync(resolvedPath).isFile()) {
+      throw new Error(`Attachment not found: ${attachment.name}`);
+    }
+
+    const uploaded = await new Promise<RunAttachment>(async (resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.pendingUploadAcks.delete(attachment.id);
+        reject(new Error(`Timed out while uploading ${attachment.name}.`));
+      }, FILE_UPLOAD_TIMEOUT_MS);
+
+      this.pendingUploadAcks.set(attachment.id, {
+        attachment,
+        timeout,
+        resolve,
+        reject,
+      });
+
+      try {
+        this.relayClient.send({
+          id: attachment.id,
+          event: Events.FILE_UPLOAD,
+          project_id: projectId,
+          ts: Date.now(),
+          payload: {
+            file_name: attachment.name,
+            file_size: attachment.size,
+            mime_type: attachment.mimeType,
+          },
+        });
+
+        let seq = 0;
+        for await (const chunk of fs.createReadStream(resolvedPath, { highWaterMark: FILE_CHUNK_SIZE })) {
+          const chunkBuffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+          this.relayClient.send({
+            id: uuidv4(),
+            event: Events.FILE_CHUNK,
+            project_id: projectId,
+            stream_id: attachment.id,
+            seq,
+            ts: Date.now(),
+            payload: {
+              file_id: attachment.id,
+              chunk: chunkBuffer.toString("base64"),
+              seq,
+            },
+          });
+          seq += 1;
+        }
+
+        this.relayClient.send({
+          id: uuidv4(),
+          event: Events.FILE_DONE,
+          project_id: projectId,
+          stream_id: attachment.id,
+          ts: Date.now(),
+          payload: {
+            file_id: attachment.id,
+            file_name: attachment.name,
+          },
+        });
+      } catch (error) {
+        clearTimeout(timeout);
+        this.pendingUploadAcks.delete(attachment.id);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
+
+    return uploaded;
   }
 
   private createState(project: RemoteProjectRecord): RemoteState {

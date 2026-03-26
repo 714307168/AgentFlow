@@ -348,7 +348,7 @@ class ChatViewModel(
         if (state.projectId.isBlank() || !state.isRunning) return
         viewModelScope.launch {
             try {
-                messageRepository.sendStopTask(state.projectId)
+                messageRepository.sendStopTask(state.projectId, state.agentId)
             } catch (e: Exception) {
                 CrashLogger.logError("ChatViewModel", "Error sending stop task", e)
             }

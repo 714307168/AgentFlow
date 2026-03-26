@@ -26,6 +26,10 @@ import com.claudecode.remote.ui.session.SessionViewModel
 import com.claudecode.remote.ui.settings.SettingsScreen
 import com.claudecode.remote.ui.settings.SettingsState
 import com.claudecode.remote.ui.theme.RemoteTheme
+import com.claudecode.remote.ui.workgroup.WorkgroupChatScreen
+import com.claudecode.remote.ui.workgroup.WorkgroupChatViewModel
+import com.claudecode.remote.ui.workgroup.WorkgroupScreen
+import com.claudecode.remote.ui.workgroup.WorkgroupViewModel
 import com.claudecode.remote.util.CrashLogger
 import kotlinx.coroutines.launch
 import java.util.Locale
@@ -61,6 +65,7 @@ class MainActivity : ComponentActivity() {
                 val relayWebSocket = appContainer.relayWebSocket
                 val sessionRepository = appContainer.sessionRepository
                 val messageRepository = appContainer.messageRepository
+                val workgroupRepository = appContainer.workgroupRepository
                 val appUpdateManager = appContainer.appUpdateManager
                 val e2eCrypto = appContainer.e2eCrypto
                 val navigationTarget by appContainer.chatNavigationBus.target.collectAsState()
@@ -83,7 +88,13 @@ class MainActivity : ComponentActivity() {
                 NavHost(navController = navController, startDestination = "sessions") {
                     composable("sessions") {
                         val viewModel = remember {
-                            SessionViewModel(sessionRepository, messageRepository, relayWebSocket)
+                            SessionViewModel(
+                                repository = sessionRepository,
+                                messageRepository = messageRepository,
+                                webSocket = relayWebSocket,
+                                tokenStore = tokenStore,
+                                workgroupRepository = workgroupRepository
+                            )
                         }
 
                         SessionListScreen(
@@ -115,9 +126,50 @@ class MainActivity : ComponentActivity() {
                                         RelayConnectionService.start(applicationContext)
                                 }
                             },
+                            onNavigateToWorkgroups = {
+                                navController.navigate("workgroups")
+                            },
                             onNavigateToSettings = {
                                 navController.navigate("settings")
                             }
+                        )
+                    }
+                    composable("workgroups") {
+                        val viewModel = remember {
+                            WorkgroupViewModel(sessionRepository, workgroupRepository, relayWebSocket)
+                        }
+
+                        WorkgroupScreen(
+                            viewModel = viewModel,
+                            onNavigateBack = { navController.popBackStack() },
+                            onOpenWorkgroupChat = { agentId, workgroupId, groupName ->
+                                val encodedAgentId = android.net.Uri.encode(agentId)
+                                val encodedWorkgroupId = android.net.Uri.encode(workgroupId)
+                                val encodedGroupName = android.net.Uri.encode(groupName.ifEmpty { "Workgroup" })
+                                navController.navigate("workgroups/chat/$encodedAgentId/$encodedWorkgroupId/$encodedGroupName")
+                            }
+                        )
+                    }
+                    composable("workgroups/chat/{agentId}/{workgroupId}/{workgroupName}") { backStackEntry ->
+                        val agentId = android.net.Uri.decode(
+                            backStackEntry.arguments?.getString("agentId") ?: ""
+                        )
+                        val workgroupId = android.net.Uri.decode(
+                            backStackEntry.arguments?.getString("workgroupId") ?: ""
+                        )
+                        val workgroupName = android.net.Uri.decode(
+                            backStackEntry.arguments?.getString("workgroupName") ?: "Workgroup"
+                        )
+                        val viewModel = remember(agentId, workgroupId) {
+                            WorkgroupChatViewModel(workgroupRepository, relayWebSocket, tokenStore)
+                        }
+
+                        WorkgroupChatScreen(
+                            agentId = agentId,
+                            workgroupId = workgroupId,
+                            workgroupName = workgroupName,
+                            viewModel = viewModel,
+                            onNavigateBack = { navController.popBackStack() }
                         )
                     }
                     composable("chat/{projectId}/{projectName}/{agentId}") { backStackEntry ->
@@ -182,6 +234,7 @@ class MainActivity : ComponentActivity() {
                             },
                             onE2EEnabledChange = { enabled ->
                                 tokenStore.saveE2EEnabled(enabled)
+                                relayWebSocket.setE2EEnabled(enabled)
                             },
                             onAutoUpdateCheckChange = { enabled ->
                                 tokenStore.saveAutoUpdateCheckEnabled(enabled)

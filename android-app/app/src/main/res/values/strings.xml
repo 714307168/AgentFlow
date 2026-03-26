@@ -76,6 +76,8 @@
     <string name="settings_clear_all">Clear All</string>
     <string name="settings_close">Close</string>
     <string name="action_refresh">Refresh</string>
+    <string name="action_expand">Expand</string>
+    <string name="action_collapse">Collapse</string>
     <string name="action_toggle_connection">Toggle connection</string>
     <string name="action_model">Model</string>
     <string name="chat_switch_model_title">Switch Model</string>
@@ -101,6 +103,7 @@
     <string name="chat_conversations_title">Conversations</string>
     <string name="chat_new_conversation">New conversation</string>
     <string name="chat_loading_older">Loading earlier messages…</string>
+    <string name="chat_loading_older_safe">Loading earlier messages...</string>
     <string name="chat_switch_conversation">Switch conversation</string>
     <string name="default_group">Default</string>
     <string name="session_projects_count">%1$d projects</string>
@@ -111,4 +114,24 @@
     <string name="session_update_ready_title">Version %1$s is ready to install</string>
     <string name="session_download_update">Download update</string>
     <string name="session_install_update">Install update</string>
+    <string name="workgroups_title">Workgroups</string>
+    <string name="workgroups_subtitle">Desktop-local workgroups synced live from connected agents.</string>
+    <string name="workgroups_chat_subtitle">Open a workgroup to chat with the whole group like desktop.</string>
+    <string name="workgroups_empty">No workgroups are available yet. Create and manage them on the desktop app first.</string>
+    <string name="workgroups_agent_empty">This agent has no workgroups yet.</string>
+    <string name="workgroups_short">WG</string>
+    <string name="workgroups_member_task_count">%1$d members · %2$d tasks</string>
+    <string name="workgroups_member_message_count">%1$d members · %2$d messages</string>
+    <string name="workgroups_members_count">%1$d members</string>
+    <string name="workgroups_open_chat_hint">Open the group conversation</string>
+    <string name="workgroups_loading_chat">Loading group conversation...</string>
+    <string name="workgroups_no_messages">No group messages yet.</string>
+    <string name="workgroups_load_older">Load earlier messages</string>
+    <string name="workgroups_message_hint">Send a group message</string>
+    <string name="workgroups_assignee_label">Assignee: %1$s</string>
+    <string name="workgroups_dispatch">Dispatch</string>
+    <string name="workgroups_todo">Todo</string>
+    <string name="workgroups_done">Done</string>
+    <string name="workgroups_blocked">Block</string>
+    <string name="workgroups_agent_label">Agent: %1$s</string>
 </resources>

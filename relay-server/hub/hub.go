@@ -34,6 +34,8 @@ type Hub struct {
 	projectInfos        sync.Map // projectID -> *ProjectInfo
 	queues              sync.Map // projectID -> *Queue
 	pendingAgentOffline sync.Map // agentID -> *time.Timer
+	trafficMu           sync.RWMutex
+	trafficByEvent      map[string]*EventTrafficCounter
 	cfg                 *config.Config
 	store               *store.Store
 	seq                 int64 // atomic sequence counter
@@ -44,9 +46,21 @@ type PresenceSnapshot struct {
 	Devices map[string]bool
 }
 
+type EventTrafficCounter struct {
+	Event         string `json:"event"`
+	InboundCount  int64  `json:"inbound_count"`
+	InboundBytes  int64  `json:"inbound_bytes"`
+	OutboundCount int64  `json:"outbound_count"`
+	OutboundBytes int64  `json:"outbound_bytes"`
+}
+
 // NewHub creates a Hub with the given configuration.
 func NewHub(cfg *config.Config, st *store.Store) *Hub {
-	return &Hub{cfg: cfg, store: st}
+	return &Hub{
+		cfg:            cfg,
+		store:          st,
+		trafficByEvent: make(map[string]*EventTrafficCounter),
+	}
 }
 
 func (h *Hub) PresenceSnapshot() PresenceSnapshot {
@@ -72,6 +86,64 @@ func (h *Hub) PresenceSnapshot() PresenceSnapshot {
 	return snapshot
 }
 
+func (h *Hub) RecordInbound(event string, bytes int) {
+	h.recordTraffic(event, int64(bytes), true)
+}
+
+func (h *Hub) RecordOutbound(event string, bytes int) {
+	h.recordTraffic(event, int64(bytes), false)
+}
+
+func (h *Hub) recordTraffic(event string, bytes int64, inbound bool) {
+	if event == "" {
+		event = "unknown"
+	}
+	if bytes < 0 {
+		bytes = 0
+	}
+
+	h.trafficMu.Lock()
+	defer h.trafficMu.Unlock()
+
+	counter, ok := h.trafficByEvent[event]
+	if !ok {
+		counter = &EventTrafficCounter{Event: event}
+		h.trafficByEvent[event] = counter
+	}
+	if inbound {
+		counter.InboundCount++
+		counter.InboundBytes += bytes
+		return
+	}
+	counter.OutboundCount++
+	counter.OutboundBytes += bytes
+}
+
+func (h *Hub) TrafficSnapshot() []EventTrafficCounter {
+	h.trafficMu.RLock()
+	items := make([]EventTrafficCounter, 0, len(h.trafficByEvent))
+	for _, counter := range h.trafficByEvent {
+		items = append(items, *counter)
+	}
+	h.trafficMu.RUnlock()
+
+	sort.Slice(items, func(i, j int) bool {
+		leftBytes := items[i].InboundBytes + items[i].OutboundBytes
+		rightBytes := items[j].InboundBytes + items[j].OutboundBytes
+		if leftBytes != rightBytes {
+			return leftBytes > rightBytes
+		}
+		leftCount := items[i].InboundCount + items[i].OutboundCount
+		rightCount := items[j].InboundCount + items[j].OutboundCount
+		if leftCount != rightCount {
+			return leftCount > rightCount
+		}
+		return items[i].Event < items[j].Event
+	})
+
+	return items
+}
+
 // NextSeq atomically increments and returns the next sequence number.
 func (h *Hub) NextSeq() int64 {
 	return atomic.AddInt64(&h.seq, 1)
@@ -86,6 +158,17 @@ func (h *Hub) GetOrCreateQueue(projectID string) *Queue {
 // RegisterAgent stores the agent client.
 func (h *Hub) RegisterAgent(client *Client) {
 	h.cancelPendingAgentOffline(client.AgentID)
+	if existingValue, ok := h.agents.Load(client.AgentID); ok {
+		if existing, sameType := existingValue.(*Client); sameType && existing != client {
+			log.Info().
+				Str("agent_id", client.AgentID).
+				Str("previous_client_id", existing.ID).
+				Str("next_client_id", client.ID).
+				Msg("replacing existing agent connection")
+			existing.Close()
+			_ = existing.conn.Close()
+		}
+	}
 	h.agents.Store(client.AgentID, client)
 	log.Info().Str("agent_id", client.AgentID).Msg("agent registered")
 	h.broadcastAgentStatus(client.AgentID, true)
@@ -94,6 +177,17 @@ func (h *Hub) RegisterAgent(client *Client) {
 // RegisterDevice stores the device client.
 func (h *Hub) RegisterDevice(client *Client) {
 	_ = h.refreshDeviceAccess(client, "")
+	if existingValue, ok := h.devices.Load(client.DeviceID); ok {
+		if existing, sameType := existingValue.(*Client); sameType && existing != client {
+			log.Info().
+				Str("device_id", client.DeviceID).
+				Str("previous_client_id", existing.ID).
+				Str("next_client_id", client.ID).
+				Msg("replacing existing device connection")
+			existing.Close()
+			_ = existing.conn.Close()
+		}
+	}
 	h.devices.Store(client.DeviceID, client)
 	log.Info().Str("device_id", client.DeviceID).Str("agent_id", client.AgentID).Msg("device registered")
 }
@@ -104,13 +198,31 @@ func (h *Hub) Unregister(client *Client) {
 
 	switch client.Type {
 	case model.ClientTypeAgent:
-		h.agents.Delete(client.AgentID)
-		log.Info().Str("agent_id", client.AgentID).Msg("agent unregistered")
-		h.scheduleAgentOffline(client.AgentID)
+		if existingValue, ok := h.agents.Load(client.AgentID); ok {
+			if existing, sameType := existingValue.(*Client); sameType && existing == client {
+				h.agents.Delete(client.AgentID)
+				log.Info().Str("agent_id", client.AgentID).Msg("agent unregistered")
+				h.scheduleAgentOffline(client.AgentID)
+			} else {
+				log.Info().
+					Str("agent_id", client.AgentID).
+					Str("client_id", client.ID).
+					Msg("skipping stale agent unregister")
+			}
+		}
 
 	case model.ClientTypeDevice:
-		h.devices.Delete(client.DeviceID)
-		log.Info().Str("device_id", client.DeviceID).Msg("device unregistered")
+		if existingValue, ok := h.devices.Load(client.DeviceID); ok {
+			if existing, sameType := existingValue.(*Client); sameType && existing == client {
+				h.devices.Delete(client.DeviceID)
+				log.Info().Str("device_id", client.DeviceID).Msg("device unregistered")
+			} else {
+				log.Info().
+					Str("device_id", client.DeviceID).
+					Str("client_id", client.ID).
+					Msg("skipping stale device unregister")
+			}
+		}
 	}
 }
 
@@ -172,6 +284,157 @@ func (h *Hub) HandleMessage(from *Client, env *model.Envelope) {
 			return
 		}
 		h.BroadcastToDevices(env, env.ProjectID)
+
+	case model.EventWorkgroupListRequest:
+		if from.Type != model.ClientTypeDevice {
+			h.sendError(from, env.ID, "forbidden", "only devices can request workgroup data")
+			return
+		}
+		var payload model.AgentScopedPayload
+		if len(env.Payload) > 0 {
+			if err := json.Unmarshal(env.Payload, &payload); err != nil {
+				h.sendError(from, env.ID, "bad_request", "invalid workgroup.list.request payload")
+				return
+			}
+		}
+		agentID := payload.AgentID
+		if agentID == "" {
+			agentID = from.AgentID
+		}
+		if !h.authorizeAgentAccess(from, env.ID, agentID) {
+			return
+		}
+		if !h.SendToAgent(agentID, env) {
+			h.sendError(from, env.ID, "agent_offline", "agent is offline")
+		}
+
+	case model.EventWorkgroupCommand:
+		if from.Type != model.ClientTypeDevice {
+			h.sendError(from, env.ID, "forbidden", "only devices can send workgroup commands")
+			return
+		}
+		var payload model.WorkgroupCommandPayload
+		if len(env.Payload) > 0 {
+			if err := json.Unmarshal(env.Payload, &payload); err != nil {
+				h.sendError(from, env.ID, "bad_request", "invalid workgroup.command payload")
+				return
+			}
+		}
+		agentID := payload.AgentID
+		if agentID == "" {
+			agentID = from.AgentID
+		}
+		if !h.authorizeAgentAccess(from, env.ID, agentID) {
+			return
+		}
+		if !h.SendToAgent(agentID, env) {
+			h.sendError(from, env.ID, "agent_offline", "agent is offline")
+		}
+
+	case model.EventWorkgroupList, model.EventWorkgroupCommandResult:
+		if from.Type != model.ClientTypeAgent {
+			h.sendError(from, env.ID, "forbidden", "only agents can publish workgroup updates")
+			return
+		}
+		var payload model.AgentScopedPayload
+		if len(env.Payload) > 0 {
+			_ = json.Unmarshal(env.Payload, &payload)
+		}
+		agentID := payload.AgentID
+		if agentID == "" {
+			agentID = from.AgentID
+		}
+		if !h.authorizeAgentAccess(from, env.ID, agentID) {
+			return
+		}
+		h.broadcastToDevicesByAgent(agentID, env)
+
+	case model.EventWorkgroupCollabListRequest:
+		if from.Type != model.ClientTypeDevice {
+			h.sendError(from, env.ID, "forbidden", "only devices can request workgroup collaboration data")
+			return
+		}
+		var payload model.AgentScopedPayload
+		if len(env.Payload) > 0 {
+			if err := json.Unmarshal(env.Payload, &payload); err != nil {
+				h.sendError(from, env.ID, "bad_request", "invalid workgroup.collaboration.list.request payload")
+				return
+			}
+		}
+		agentID := payload.AgentID
+		if agentID == "" {
+			agentID = from.AgentID
+		}
+		if !h.authorizeAgentAccess(from, env.ID, agentID) {
+			return
+		}
+		if !h.SendToAgent(agentID, env) {
+			h.sendError(from, env.ID, "agent_offline", "agent is offline")
+		}
+
+	case model.EventWorkgroupCollabSessionRequest:
+		if from.Type != model.ClientTypeDevice {
+			h.sendError(from, env.ID, "forbidden", "only devices can request workgroup collaboration sessions")
+			return
+		}
+		var payload model.WorkgroupCollaborationSessionRequestPayload
+		if len(env.Payload) > 0 {
+			if err := json.Unmarshal(env.Payload, &payload); err != nil {
+				h.sendError(from, env.ID, "bad_request", "invalid workgroup.collaboration.session.request payload")
+				return
+			}
+		}
+		agentID := payload.AgentID
+		if agentID == "" {
+			agentID = from.AgentID
+		}
+		if !h.authorizeAgentAccess(from, env.ID, agentID) {
+			return
+		}
+		if !h.SendToAgent(agentID, env) {
+			h.sendError(from, env.ID, "agent_offline", "agent is offline")
+		}
+
+	case model.EventWorkgroupCollabMessageSend:
+		if from.Type != model.ClientTypeDevice {
+			h.sendError(from, env.ID, "forbidden", "only devices can send workgroup collaboration messages")
+			return
+		}
+		var payload model.WorkgroupCollaborationMessageSendPayload
+		if len(env.Payload) > 0 {
+			if err := json.Unmarshal(env.Payload, &payload); err != nil {
+				h.sendError(from, env.ID, "bad_request", "invalid workgroup.collaboration.message.send payload")
+				return
+			}
+		}
+		agentID := payload.AgentID
+		if agentID == "" {
+			agentID = from.AgentID
+		}
+		if !h.authorizeAgentAccess(from, env.ID, agentID) {
+			return
+		}
+		if !h.SendToAgent(agentID, env) {
+			h.sendError(from, env.ID, "agent_offline", "agent is offline")
+		}
+
+	case model.EventWorkgroupCollabList, model.EventWorkgroupCollabSession, model.EventWorkgroupCollabMessageResult, model.EventWorkgroupCollabSnapshot:
+		if from.Type != model.ClientTypeAgent {
+			h.sendError(from, env.ID, "forbidden", "only agents can publish workgroup collaboration updates")
+			return
+		}
+		var payload model.AgentScopedPayload
+		if len(env.Payload) > 0 {
+			_ = json.Unmarshal(env.Payload, &payload)
+		}
+		agentID := payload.AgentID
+		if agentID == "" {
+			agentID = from.AgentID
+		}
+		if !h.authorizeAgentAccess(from, env.ID, agentID) {
+			return
+		}
+		h.broadcastToDevicesByAgent(agentID, env)
 
 	case model.EventAgentStatus:
 		if from.Type != model.ClientTypeAgent {
@@ -287,6 +550,72 @@ func (h *Hub) HandleMessage(from *Client, env *model.Envelope) {
 			h.sendError(from, env.ID, "forbidden", "only agents can acknowledge project bindings")
 		}
 
+	case model.EventE2EOffer:
+		if from.Type != model.ClientTypeDevice {
+			h.sendError(from, env.ID, "forbidden", "only devices can initiate e2e key exchange")
+			return
+		}
+
+		var payload model.E2EOfferPayload
+		if len(env.Payload) > 0 {
+			if err := json.Unmarshal(env.Payload, &payload); err != nil {
+				h.sendError(from, env.ID, "bad_request", "invalid e2e.offer payload")
+				return
+			}
+		}
+
+		agentID := payload.AgentID
+		if agentID == "" {
+			agentID = from.AgentID
+		}
+		if !h.authorizeAgentAccess(from, env.ID, agentID) {
+			return
+		}
+
+		payload.AgentID = agentID
+		payload.DeviceID = from.DeviceID
+		nextPayload, err := json.Marshal(payload)
+		if err != nil {
+			h.sendError(from, env.ID, "bad_request", "failed to marshal e2e.offer payload")
+			return
+		}
+		env.Payload = nextPayload
+
+		if !h.SendToAgent(agentID, env) {
+			h.sendError(from, env.ID, "agent_offline", "agent is offline")
+		}
+
+	case model.EventE2EAnswer:
+		if from.Type != model.ClientTypeAgent {
+			h.sendError(from, env.ID, "forbidden", "only agents can answer e2e key exchange")
+			return
+		}
+
+		var payload model.E2EAnswerPayload
+		if len(env.Payload) > 0 {
+			if err := json.Unmarshal(env.Payload, &payload); err != nil {
+				h.sendError(from, env.ID, "bad_request", "invalid e2e.answer payload")
+				return
+			}
+		}
+
+		if payload.DeviceID == "" {
+			h.sendError(from, env.ID, "bad_request", "device_id is required for e2e.answer")
+			return
+		}
+
+		payload.AgentID = from.AgentID
+		nextPayload, err := json.Marshal(payload)
+		if err != nil {
+			h.sendError(from, env.ID, "bad_request", "failed to marshal e2e.answer payload")
+			return
+		}
+		env.Payload = nextPayload
+
+		if !h.SendToDevice(payload.DeviceID, env, from.AgentID) {
+			h.sendError(from, env.ID, "device_offline", "device is offline or unauthorized")
+		}
+
 	case model.EventProjectList:
 		if from.Type != model.ClientTypeAgent {
 			log.Warn().Str("client_id", from.ID).Msg("project.list ignored for non-agent client")
@@ -356,38 +685,6 @@ func (h *Hub) HandleMessage(from *Client, env *model.Envelope) {
 			h.sendError(from, env.ID, "forbidden", "unknown client type")
 		}
 
-	case model.EventE2EOffer:
-		if from.Type == model.ClientTypeAgent {
-			if _, ok := h.authorizeProjectAccess(from, env.ID, env.ProjectID); !ok {
-				return
-			}
-			h.BroadcastToDevices(env, env.ProjectID)
-		} else if from.Type == model.ClientTypeDevice {
-			agentID, ok := h.authorizeProjectAccess(from, env.ID, env.ProjectID)
-			if !ok {
-				return
-			}
-			h.Route(env, agentID)
-		} else {
-			h.sendError(from, env.ID, "forbidden", "unknown client type")
-		}
-
-	case model.EventE2EAnswer:
-		if from.Type == model.ClientTypeDevice {
-			agentID, ok := h.authorizeProjectAccess(from, env.ID, env.ProjectID)
-			if !ok {
-				return
-			}
-			h.Route(env, agentID)
-		} else if from.Type == model.ClientTypeAgent {
-			if _, ok := h.authorizeProjectAccess(from, env.ID, env.ProjectID); !ok {
-				return
-			}
-			h.BroadcastToDevices(env, env.ProjectID)
-		} else {
-			h.sendError(from, env.ID, "forbidden", "unknown client type")
-		}
-
 	default:
 		log.Warn().Str("event", env.Event).Str("client_id", from.ID).Msg("unhandled event")
 	}
@@ -434,6 +731,31 @@ func (h *Hub) broadcastToDevicesByAgent(agentID string, env *model.Envelope) {
 	})
 }
 
+func (h *Hub) SendToDevice(deviceID string, env *model.Envelope, agentID string) bool {
+	if deviceID == "" {
+		return false
+	}
+
+	value, ok := h.devices.Load(deviceID)
+	if !ok {
+		return false
+	}
+
+	device := value.(*Client)
+	if !h.refreshDeviceAccess(device, env.ID) {
+		return false
+	}
+	if agentID != "" && !device.CanAccessAgent(agentID) {
+		return false
+	}
+
+	if err := device.Send(env); err != nil {
+		log.Warn().Err(err).Str("device_id", deviceID).Msg("targeted device send failed")
+		return false
+	}
+	return true
+}
+
 func (h *Hub) authorizeProjectAccess(from *Client, refID, projectID string) (string, bool) {
 	if projectID == "" {
 		h.sendError(from, refID, "bad_request", "project_id is required")
@@ -467,6 +789,34 @@ func (h *Hub) authorizeProjectAccess(from *Client, refID, projectID string) (str
 	}
 
 	return agentID, true
+}
+
+func (h *Hub) authorizeAgentAccess(from *Client, refID, agentID string) bool {
+	if agentID == "" {
+		h.sendError(from, refID, "bad_request", "agent_id is required")
+		return false
+	}
+
+	switch from.Type {
+	case model.ClientTypeAgent:
+		if from.AgentID == "" || from.AgentID != agentID {
+			h.sendError(from, refID, "forbidden", "agent is not authorized for agent scope")
+			return false
+		}
+	case model.ClientTypeDevice:
+		if !h.refreshDeviceAccess(from, refID) {
+			return false
+		}
+		if !from.CanAccessAgent(agentID) {
+			h.sendError(from, refID, "forbidden", "device is not authorized for agent")
+			return false
+		}
+	default:
+		h.sendError(from, refID, "forbidden", "unknown client type")
+		return false
+	}
+
+	return true
 }
 
 func (h *Hub) refreshDeviceAccess(from *Client, refID string) bool {

@@ -14,6 +14,7 @@ export interface EncryptedPayload {
 class E2ECrypto extends EventEmitter {
   private ecdh = createECDH(CURVE);
   private sharedSecrets: Map<string, Buffer> = new Map(); // deviceId -> sharedSecret
+  private roomKeys: Map<string, Buffer> = new Map();
   private publicKey: string; // base64
 
   constructor() {
@@ -41,8 +42,58 @@ class E2ECrypto extends EventEmitter {
     const secret = this.sharedSecrets.get(peerId);
     if (!secret) return null;
 
+    return this.encryptWithKey(secret, plaintext);
+  }
+
+  encryptWithRoomKey(roomId: string, plaintext: string): EncryptedPayload | null {
+    const roomKey = this.roomKeys.get(roomId);
+    if (!roomKey) return null;
+
+    return this.encryptWithKey(roomKey, plaintext);
+  }
+
+  decrypt(peerId: string, payload: EncryptedPayload): string | null {
+    const secret = this.sharedSecrets.get(peerId);
+    if (!secret) return null;
+
+    return this.decryptWithKey(secret, payload);
+  }
+
+  decryptWithRoomKey(roomId: string, payload: EncryptedPayload): string | null {
+    const roomKey = this.roomKeys.get(roomId);
+    if (!roomKey) return null;
+
+    return this.decryptWithKey(roomKey, payload);
+  }
+
+  hasRoomKey(roomId: string): boolean {
+    return this.roomKeys.has(roomId);
+  }
+
+  getOrCreateRoomKey(roomId: string): string {
+    const existing = this.roomKeys.get(roomId);
+    if (existing) {
+      return existing.toString("base64");
+    }
+    const nextKey = randomBytes(32);
+    this.roomKeys.set(roomId, nextKey);
+    return nextKey.toString("base64");
+  }
+
+  setRoomKey(roomId: string, encodedKey: string): void {
+    const decoded = Buffer.from(encodedKey, "base64");
+    if (decoded.length >= 32) {
+      this.roomKeys.set(roomId, decoded.subarray(0, 32));
+    }
+  }
+
+  removeRoomKey(roomId: string): void {
+    this.roomKeys.delete(roomId);
+  }
+
+  private encryptWithKey(key: Buffer, plaintext: string): EncryptedPayload {
     const nonce = randomBytes(NONCE_LENGTH);
-    const cipher = createCipheriv(ALGORITHM, secret.subarray(0, 32), nonce);
+    const cipher = createCipheriv(ALGORITHM, key.subarray(0, 32), nonce);
     const encrypted = Buffer.concat([
       cipher.update(plaintext, "utf8"),
       cipher.final(),
@@ -56,16 +107,13 @@ class E2ECrypto extends EventEmitter {
     };
   }
 
-  decrypt(peerId: string, payload: EncryptedPayload): string | null {
-    const secret = this.sharedSecrets.get(peerId);
-    if (!secret) return null;
-
+  private decryptWithKey(key: Buffer, payload: EncryptedPayload): string | null {
     const nonce = Buffer.from(payload.nonce, "base64");
     const data = Buffer.from(payload.ciphertext, "base64");
     const tag = data.subarray(data.length - 16);
     const ciphertext = data.subarray(0, data.length - 16);
 
-    const decipher = createDecipheriv(ALGORITHM, secret.subarray(0, 32), nonce);
+    const decipher = createDecipheriv(ALGORITHM, key.subarray(0, 32), nonce);
     decipher.setAuthTag(tag);
     const decrypted = Buffer.concat([
       decipher.update(ciphertext),
@@ -80,6 +128,7 @@ class E2ECrypto extends EventEmitter {
 
   reset(): void {
     this.sharedSecrets.clear();
+    this.roomKeys.clear();
     this.ecdh.generateKeys();
     this.publicKey = this.ecdh.getPublicKey("base64");
   }

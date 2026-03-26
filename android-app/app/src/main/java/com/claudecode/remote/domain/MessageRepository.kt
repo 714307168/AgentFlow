@@ -52,6 +52,7 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.security.MessageDigest
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
@@ -72,6 +73,7 @@ class MessageRepository(
         private const val FILE_SYNC_KIND_DOWNLOAD_REQUEST = "download_request"
         private const val MAX_PREVIEW_EDGE = 480
         private const val MAX_PREVIEW_BYTES = 220 * 1024
+        private const val SYNC_KNOWN_ITEM_LIMIT = 60
     }
 
     private data class UploadAck(
@@ -169,9 +171,19 @@ class MessageRepository(
                     conversationId?.trim()?.takeIf { it.isNotEmpty() }?.let {
                         put("conversation_id", JsonPrimitive(it))
                     }
+                    val knownItems = buildKnownSyncItemPayloads(
+                        projectId = projectId,
+                        afterSeq = afterSeq,
+                        beforeSeq = beforeSeq,
+                        limit = limit ?: DEFAULT_SYNC_LIMIT
+                    )
+                    if (knownItems.isNotEmpty()) {
+                        put("known_items", JsonArray(knownItems))
+                    }
                 },
                 ts = System.currentTimeMillis()
-            )
+            ),
+            targetAgentId = agentId
         )
     }
 
@@ -227,14 +239,15 @@ class MessageRepository(
         )
     }
 
-    suspend fun sendStopTask(projectId: String) {
+    suspend fun sendStopTask(projectId: String, agentId: String? = null) {
         webSocket.send(
             Envelope(
                 id = UUID.randomUUID().toString(),
                 event = Events.TASK_STOP,
                 projectId = projectId,
                 ts = System.currentTimeMillis()
-            )
+            ),
+            targetAgentId = agentId
         )
     }
 
@@ -268,7 +281,7 @@ class MessageRepository(
         }
 
         val uploadedAttachments = normalizedAttachments.map { attachment ->
-            uploadAttachment(projectId, attachment)
+            uploadAttachment(projectId, attachment, agentId)
         }
         val messageContent = if (trimmedContent.isNotEmpty()) content else buildAttachmentOnlyPrompt(uploadedAttachments)
         val runId = UUID.randomUUID().toString()
@@ -306,7 +319,7 @@ class MessageRepository(
             )
         )
 
-        webSocket.send(envelope)
+        webSocket.send(envelope, targetAgentId = agentId)
     }
 
     suspend fun downloadAttachment(
@@ -352,7 +365,8 @@ class MessageRepository(
                         put("mime_type", JsonPrimitive(attachment.mimeType))
                     },
                     ts = System.currentTimeMillis()
-                )
+                ),
+                targetAgentId = agentId
             )
 
             withTimeout(FILE_DOWNLOAD_TIMEOUT_MS) { deferred.await() }
@@ -622,7 +636,6 @@ class MessageRepository(
                         rawItems = items,
                         latestSeq = latestSeq,
                         fallbackTimestamp = envelope.ts,
-                        requestAfterSeq = requestedAfterSeq,
                         requestBeforeSeq = requestedBeforeSeq,
                         truncated = truncated
                     )
@@ -666,7 +679,6 @@ class MessageRepository(
         rawItems: JsonArray,
         latestSeq: Long,
         fallbackTimestamp: Long,
-        requestAfterSeq: Long,
         requestBeforeSeq: Long?,
         truncated: Boolean
     ): AppliedSyncWindow {
@@ -677,7 +689,14 @@ class MessageRepository(
             val currentLastSeq = sessionDao.getSessionByProjectId(projectId)?.lastSyncSeq ?: 0L
             rawItems.forEachIndexed { index, item ->
                 val entity = runCatching {
-                    parseSyncItem(projectId, item.jsonObject, fallbackTimestamp)
+                    parseSyncItem(
+                        projectId = projectId,
+                        itemObj = item.jsonObject,
+                        fallbackTimestamp = fallbackTimestamp,
+                        existing = messageDao.getMessageById(
+                            item.jsonObject["id"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+                        )
+                    )
                 }.onFailure { error ->
                     CrashLogger.logError(
                         "MessageRepository",
@@ -891,7 +910,11 @@ class MessageRepository(
             }
         }
 
-    private suspend fun uploadAttachment(projectId: String, attachment: MessageAttachment): MessageAttachment {
+    private suspend fun uploadAttachment(
+        projectId: String,
+        attachment: MessageAttachment,
+        agentId: String?
+    ): MessageAttachment {
         val deferred = CompletableDeferred<UploadAck>()
         pendingUploadAcks[attachment.id] = deferred
 
@@ -907,7 +930,8 @@ class MessageRepository(
                         put("mime_type", JsonPrimitive(attachment.mimeType))
                     },
                     ts = System.currentTimeMillis()
-                )
+                ),
+                targetAgentId = agentId
             )
 
             openAttachmentInputStream(attachment).use { inputStream ->
@@ -935,7 +959,8 @@ class MessageRepository(
                                 put("seq", JsonPrimitive(currentSeq))
                             },
                             ts = System.currentTimeMillis()
-                        )
+                        ),
+                        targetAgentId = agentId
                     )
                 }
             }
@@ -951,7 +976,8 @@ class MessageRepository(
                         put("file_name", JsonPrimitive(attachment.name))
                     },
                     ts = System.currentTimeMillis()
-                )
+                ),
+                targetAgentId = agentId
             )
 
             val ack = withTimeout(FILE_UPLOAD_TIMEOUT_MS) { deferred.await() }
@@ -1426,7 +1452,8 @@ class MessageRepository(
     private fun parseSyncItem(
         projectId: String,
         itemObj: JsonObject,
-        fallbackTimestamp: Long
+        fallbackTimestamp: Long,
+        existing: MessageEntity?
     ): MessageEntity? {
         val id = itemObj["id"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
         if (id.isBlank()) {
@@ -1437,9 +1464,28 @@ class MessageRepository(
         val timestamp = itemObj["createdAt"]?.jsonPrimitive?.longOrNull
             ?: itemObj["updatedAt"]?.jsonPrimitive?.longOrNull
             ?: fallbackTimestamp
+        val contentMd5 = itemObj["content_md5"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        val contentOmitted = itemObj["content_omitted"]?.jsonPrimitive?.booleanOrNull == true
+        val attachmentsMd5 = itemObj["attachments_md5"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        val attachmentsOmitted = itemObj["attachments_omitted"]?.jsonPrimitive?.booleanOrNull == true
         val isStreaming = when (itemObj["status"]?.jsonPrimitive?.contentOrNull?.lowercase()) {
             "streaming", "running", "pending" -> true
             else -> false
+        }
+        val existingAttachments = existing?.let { entity ->
+            deserializeAttachments(entity.attachmentsJson).ifEmpty {
+                legacyAttachment(entity.fileName, entity.fileSize, entity.mimeType, entity.filePath)?.let(::listOf) ?: emptyList()
+            }
+        }.orEmpty()
+        val resolvedContent = if (
+            contentOmitted
+            && existing != null
+            && contentMd5.isNotBlank()
+            && createMd5(existing.content) == contentMd5
+        ) {
+            existing.content
+        } else {
+            itemObj["content"]?.jsonPrimitive?.contentOrNull.orEmpty()
         }
 
         return when (kind) {
@@ -1447,7 +1493,7 @@ class MessageRepository(
                 id = id,
                 projectId = projectId,
                 role = MessageRole.ASSISTANT.name,
-                content = itemObj["content"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+                content = resolvedContent,
                 type = MessageType.THINKING.name,
                 attachmentsJson = null,
                 timestamp = timestamp,
@@ -1461,7 +1507,7 @@ class MessageRepository(
                 role = MessageRole.ASSISTANT.name,
                 content = buildActivityContent(
                     title = itemObj["title"]?.jsonPrimitive?.contentOrNull,
-                    detail = itemObj["content"]?.jsonPrimitive?.contentOrNull,
+                    detail = resolvedContent,
                     kind = itemObj["activity_kind"]?.jsonPrimitive?.contentOrNull,
                     status = itemObj["status"]?.jsonPrimitive?.contentOrNull
                 ),
@@ -1478,7 +1524,7 @@ class MessageRepository(
                 role = MessageRole.ASSISTANT.name,
                 content = buildCliContent(
                     stream = itemObj["cli_stream"]?.jsonPrimitive?.contentOrNull,
-                    text = itemObj["content"]?.jsonPrimitive?.contentOrNull
+                    text = resolvedContent
                 ),
                 type = MessageType.CLI.name,
                 attachmentsJson = null,
@@ -1488,12 +1534,20 @@ class MessageRepository(
             )
 
             else -> {
-                val attachments = parseDesktopAttachments(itemObj["attachments"]).ifEmpty {
+                val attachments = if (
+                    attachmentsOmitted
+                    && attachmentsMd5.isNotBlank()
+                    && createAttachmentsMd5(existingAttachments) == attachmentsMd5
+                ) {
+                    existingAttachments
+                } else {
+                    parseDesktopAttachments(itemObj["attachments"])
+                }.ifEmpty {
                     parseDesktopLegacyAttachment(itemObj)?.let(::listOf) ?: emptyList()
                 }
-                val content = itemObj["content"]?.jsonPrimitive?.contentOrNull
-                    ?: attachments.firstOrNull()?.name
-                    ?: ""
+                val content = resolvedContent.ifBlank {
+                    attachments.firstOrNull()?.name ?: ""
+                }
                 val roleValue = itemObj["role"]?.jsonPrimitive?.contentOrNull?.lowercase() ?: "assistant"
                 Message(
                     id = id,
@@ -1574,6 +1628,62 @@ class MessageRepository(
         } else {
             json.encodeToString(ListSerializer(MessageAttachment.serializer()), attachments)
         }
+
+    private suspend fun buildKnownSyncItemPayloads(
+        projectId: String,
+        afterSeq: Long,
+        beforeSeq: Long?,
+        limit: Int
+    ): List<JsonObject> {
+        if (afterSeq > 0L && beforeSeq == null) {
+            return emptyList()
+        }
+
+        val candidates = messageDao.getSyncDigestMessages(
+            projectId = projectId,
+            beforeSeq = beforeSeq?.takeIf { it > 0L },
+            limit = maxOf(SYNC_KNOWN_ITEM_LIMIT, limit * 2)
+        )
+        if (candidates.isEmpty()) {
+            return emptyList()
+        }
+
+        return candidates.map { entity ->
+            val attachments = deserializeAttachments(entity.attachmentsJson).ifEmpty {
+                legacyAttachment(entity.fileName, entity.fileSize, entity.mimeType, entity.filePath)?.let(::listOf) ?: emptyList()
+            }
+            buildJsonObject {
+                put("id", JsonPrimitive(entity.id))
+                put("content_md5", JsonPrimitive(createMd5(entity.content)))
+                createAttachmentsMd5(attachments)?.let {
+                    put("attachments_md5", JsonPrimitive(it))
+                }
+            }
+        }
+    }
+
+    private fun createMd5(value: String): String {
+        val digest = MessageDigest.getInstance("MD5")
+        val bytes = digest.digest(value.replace("\r\n", "\n").toByteArray(Charsets.UTF_8))
+        return bytes.joinToString(separator = "") { byte -> "%02x".format(byte) }
+    }
+
+    private fun createAttachmentsMd5(attachments: List<MessageAttachment>): String? {
+        if (attachments.isEmpty()) {
+            return null
+        }
+        val normalized = attachments.joinToString(separator = "|") { attachment ->
+            listOf(
+                attachment.id,
+                attachment.name,
+                attachment.filePath.orEmpty(),
+                attachment.size.toString(),
+                attachment.kind,
+                attachment.mimeType
+            ).joinToString(separator = "\u0001")
+        }
+        return createMd5(normalized)
+    }
 
     private fun deserializeAttachments(raw: String?): List<MessageAttachment> {
         if (raw.isNullOrBlank()) {

@@ -1,4 +1,9 @@
 import type { ProjectSyncDelta } from "./session-history-store";
+import {
+  createSessionSyncContentMd5,
+  createSessionSyncAttachmentsMd5,
+  type SessionSyncKnownItemDigest,
+} from "./session-sync-hash";
 import type {
   ProjectSessionSnapshot,
   RunAttachment,
@@ -25,7 +30,11 @@ export interface SessionSyncItemPayload {
   updatedAt: number;
   role?: SessionMessage["role"];
   content: string;
+  content_md5: string;
+  content_omitted?: boolean;
   attachments?: RunAttachment[];
+  attachments_md5?: string | null;
+  attachments_omitted?: boolean;
   status: string;
   title?: string;
   activity_kind?: string;
@@ -105,23 +114,54 @@ function buildQueuePayload(snapshot: ProjectSessionSnapshot): SessionSyncQueuePa
     }));
 }
 
-function normalizeItems(delta: ProjectSyncDelta): SessionSyncItemPayload[] {
+function buildKnownItemMap(knownItems?: SessionSyncKnownItemDigest[]): Map<string, SessionSyncKnownItemDigest> {
+  const map = new Map<string, SessionSyncKnownItemDigest>();
+  for (const item of knownItems ?? []) {
+    const id = String(item?.id ?? "").trim();
+    if (!id) {
+      continue;
+    }
+    map.set(id, {
+      id,
+      content_md5: typeof item.content_md5 === "string" ? item.content_md5.trim() : undefined,
+      attachments_md5: typeof item.attachments_md5 === "string" ? item.attachments_md5.trim() : undefined,
+    });
+  }
+  return map;
+}
+
+function normalizeItems(delta: ProjectSyncDelta, knownItems?: SessionSyncKnownItemDigest[]): SessionSyncItemPayload[] {
+  const knownItemMap = buildKnownItemMap(knownItems);
   return delta.items
     .slice(-MAX_SYNC_ITEMS)
-    .map((item) => ({
-      id: item.id,
-      kind: item.kind,
-      seq: item.seq,
-      createdAt: item.createdAt,
-      updatedAt: item.updatedAt,
-      role: item.role,
-      content: trimText(item.content, MAX_SYNC_TEXT_CHARS),
-      attachments: cloneAttachments(item.attachments),
-      status: item.status,
-      title: item.title ? trimText(item.title, 240) : undefined,
-      activity_kind: item.activityKind,
-      cli_stream: item.cliStream,
-    }));
+    .map((item) => {
+      const trimmedContent = trimText(item.content, MAX_SYNC_TEXT_CHARS);
+      const contentMd5 = createSessionSyncContentMd5(trimmedContent);
+      const attachments = cloneAttachments(item.attachments);
+      const attachmentsMd5 = createSessionSyncAttachmentsMd5(attachments);
+      const known = knownItemMap.get(item.id);
+      const shouldOmitContent = Boolean(known?.content_md5) && known?.content_md5 === contentMd5;
+      const shouldOmitAttachments = Boolean(attachmentsMd5) && known?.attachments_md5 === attachmentsMd5;
+
+      return {
+        id: item.id,
+        kind: item.kind,
+        seq: item.seq,
+        createdAt: item.createdAt,
+        updatedAt: item.updatedAt,
+        role: item.role,
+        content: shouldOmitContent ? "" : trimmedContent,
+        content_md5: contentMd5,
+        content_omitted: shouldOmitContent || undefined,
+        attachments: shouldOmitAttachments ? undefined : attachments,
+        attachments_md5: attachmentsMd5 ?? undefined,
+        attachments_omitted: shouldOmitAttachments || undefined,
+        status: item.status,
+        title: item.title ? trimText(item.title, 240) : undefined,
+        activity_kind: item.activityKind,
+        cli_stream: item.cliStream,
+      };
+    });
 }
 
 function buildConversationPayload(snapshot: ProjectSessionSnapshot): SessionConversationPayload[] {
@@ -144,6 +184,7 @@ export function buildSessionSyncPayload(
     afterSeq?: number;
     beforeSeq?: number;
     limit?: number;
+    knownItems?: SessionSyncKnownItemDigest[];
   } = {},
 ): SessionSyncPayload {
   const afterSeq = Number(request.afterSeq) > 0 ? Number(request.afterSeq) : 0;
@@ -168,7 +209,7 @@ export function buildSessionSyncPayload(
       limit,
       latest_seq: delta.latestSeq,
       truncated: delta.truncated,
-      items: normalizeItems(delta),
+      items: normalizeItems(delta, request.knownItems),
     },
   };
 
@@ -180,7 +221,8 @@ export function buildSessionSyncPayload(
         truncated: true,
         items: payload.sync.items.slice(1).map((item) => ({
           ...item,
-          content: trimText(item.content, 1_200),
+          content: item.content_omitted ? item.content : trimText(item.content, 1_200),
+          content_md5: item.content_omitted ? item.content_md5 : createSessionSyncContentMd5(trimText(item.content, 1_200)),
         })),
       },
     };

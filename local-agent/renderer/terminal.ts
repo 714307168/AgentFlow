@@ -21,6 +21,9 @@ interface ClaudeAgentApi {
   getProjects: () => Promise<ProjectState[]>;
   onProjectsChanged?: (callback: (projects: ProjectState[]) => void) => void;
   onProjectSessionSnapshot: (callback: (snapshot: SessionSnapshot) => void) => void;
+  listWorkgroupCollaborations?: () => Promise<{ success: boolean; workgroups?: WorkgroupSummary[]; error?: string }>;
+  onWorkgroupCollaborationSummaries?: (callback: (workgroups: WorkgroupSummary[]) => void) => void;
+  onWorkgroupCollaborationSnapshot?: (callback: (snapshot: WorkgroupSessionSnapshot) => void) => void;
   getProjectSession: (projectId: string) => Promise<ProjectSessionResponse>;
   getProjectHistoryPage?: (data: {
     projectId: string;
@@ -29,9 +32,27 @@ interface ClaudeAgentApi {
     beforeId?: string | null;
     limit?: number;
   }) => Promise<ProjectHistoryPageResponse>;
+  searchProjectMessages?: (data: {
+    projectId: string;
+    query: string;
+    conversationId?: string | null;
+    limit?: number;
+  }) => Promise<{ success: boolean; error?: string; items?: SessionMessage[] }>;
+  getWorkgroupCollaborationSession?: (workgroupId: string) => Promise<{ success: boolean; session?: WorkgroupSessionSnapshot; error?: string }>;
+  getWorkgroupCollaborationHistoryPage?: (data: {
+    workgroupId: string;
+    beforeId?: string | null;
+    limit?: number;
+  }) => Promise<WorkgroupHistoryPageResponse>;
+  searchWorkgroupCollaborationMessages?: (data: {
+    workgroupId: string;
+    query: string;
+    limit?: number;
+  }) => Promise<{ success: boolean; error?: string; items?: WorkgroupMessage[] }>;
   createProjectConversation?: (projectId: string) => Promise<{ success: boolean; error?: string; conversationId?: string }>;
   activateProjectConversation?: (data: { projectId: string; conversationId: string }) => Promise<{ success: boolean; error?: string }>;
   sendProjectPrompt: (data: { projectId: string; prompt: string; attachments?: AttachmentRef[] }) => Promise<{ success: boolean; error?: string }>;
+  sendWorkgroupCollaborationMessage?: (data: { workgroupId: string; content: string }) => Promise<{ success: boolean; error?: string }>;
   pickProjectAttachments?: (data: { projectId: string; kind: AttachmentKind }) => Promise<{
     success: boolean;
     error?: string;
@@ -119,11 +140,14 @@ interface SessionSnapshot {
 
 interface ProjectState {
   id: string;
+  agentId?: string;
   name: string;
   path: string;
   groupName?: string | null;
   cliProvider: "claude" | "codex";
   cliModel?: string | null;
+  online?: boolean;
+  isRemote?: boolean;
 }
 
 interface ConversationSummary {
@@ -168,6 +192,74 @@ interface ProjectHistoryState {
   loadingMessages: boolean;
   loadingActivities: boolean;
   loadingCli: boolean;
+}
+
+interface WorkgroupSummary {
+  id: string;
+  name: string;
+  description?: string | null;
+  updatedAt: number;
+  isRunning: boolean;
+  lastMessagePreview?: string | null;
+  messageCount: number;
+  memberCount: number;
+}
+
+interface WorkgroupMessage {
+  id: string;
+  workgroupId: string;
+  senderType: "user" | "member" | "system" | "error";
+  senderName: string;
+  memberId?: string | null;
+  memberRole?: "developer" | "qa" | "project_manager" | "custom" | null;
+  projectId?: string | null;
+  projectKind?: "local" | "remote" | null;
+  dispatchRunId?: string | null;
+  triggerMessageId?: string | null;
+  content: string;
+  status: "streaming" | "done";
+  createdAt: number;
+  updatedAt: number;
+}
+
+interface WorkgroupMemberState {
+  id: string;
+  name: string;
+  role: "developer" | "qa" | "project_manager" | "custom";
+  projectId?: string | null;
+  projectName?: string | null;
+  projectKind?: "local" | "remote" | null;
+  projectOnline: boolean;
+  hasBinding: boolean;
+  isRunning: boolean;
+}
+
+interface WorkgroupSessionSnapshot {
+  workgroupId: string;
+  workgroupName: string;
+  description?: string | null;
+  allowDirectMemberMessages: boolean;
+  updatedAt: number;
+  isRunning: boolean;
+  messageTotal: number;
+  members: WorkgroupMemberState[];
+  messages: WorkgroupMessage[];
+}
+
+interface WorkgroupHistoryPageResponse {
+  success: boolean;
+  error?: string;
+  page?: {
+    items: WorkgroupMessage[];
+    hasMore: boolean;
+    total: number;
+  };
+}
+
+interface WorkgroupHistoryState {
+  messages: WorkgroupMessage[];
+  hasMoreMessages: boolean;
+  loadingMessages: boolean;
 }
 
 interface HintState {
@@ -227,6 +319,7 @@ const elements = {
   cliState: document.getElementById("cliState"),
   cliTrace: document.getElementById("cliTrace"),
   projectList: document.getElementById("projectList"),
+  projectSearchInput: document.getElementById("projectSearchInput") as HTMLInputElement | null,
   workbenchTabs: document.getElementById("workbenchTabs"),
   messagesTab: document.getElementById("messagesTab") as HTMLButtonElement | null,
   messagesTabLabel: document.getElementById("messagesTabLabel"),
@@ -244,9 +337,11 @@ const elements = {
   cliView: document.getElementById("cliView"),
   queueView: document.getElementById("queueView"),
   messages: document.getElementById("messages"),
+  messageSearchInput: document.getElementById("messageSearchInput") as HTMLInputElement | null,
   activityList: document.getElementById("activityList"),
   composerForm: document.getElementById("composerForm") as HTMLFormElement | null,
   composerInput: document.getElementById("composerInput") as HTMLTextAreaElement | null,
+  mentionSuggestions: document.getElementById("mentionSuggestions"),
   composerHint: document.getElementById("composerHint"),
   attachImageBtn: document.getElementById("attachImageBtn") as HTMLButtonElement | null,
   attachFileBtn: document.getElementById("attachFileBtn") as HTMLButtonElement | null,
@@ -270,12 +365,22 @@ const elements = {
 
 const state: {
   projectId: string | null;
+  workgroupId: string | null;
   projects: ProjectState[];
+  workgroups: WorkgroupSummary[];
   sessionsByProjectId: Map<string, SessionSnapshot>;
   historyByProjectId: Map<string, ProjectHistoryState>;
+  sessionsByWorkgroupId: Map<string, WorkgroupSessionSnapshot>;
+  historyByWorkgroupId: Map<string, WorkgroupHistoryState>;
   lang: Lang;
   messages: Record<string, string>;
   activeView: WorkspaceView;
+  projectSearchQuery: string;
+  messageSearchQuery: string;
+  messageSearchWorkspaceKey: string | null;
+  messageSearchProjectResults: SessionMessage[] | null;
+  messageSearchWorkgroupResults: WorkgroupMessage[] | null;
+  messageSearchLoading: boolean;
   pendingAttachments: AttachmentRef[];
   preferredViews: Record<"claude" | "codex", WorkspaceView>;
   groupOrder: string[];
@@ -285,16 +390,26 @@ const state: {
   attachmentPreview: AttachmentPreviewState | null;
 } = {
   projectId: null,
+  workgroupId: null,
   projects: [],
+  workgroups: [],
   sessionsByProjectId: new Map<string, SessionSnapshot>(),
   historyByProjectId: new Map<string, ProjectHistoryState>(),
+  sessionsByWorkgroupId: new Map<string, WorkgroupSessionSnapshot>(),
+  historyByWorkgroupId: new Map<string, WorkgroupHistoryState>(),
   lang: "en",
   messages: {},
   activeView: "messages",
+  projectSearchQuery: "",
+  messageSearchQuery: "",
+  messageSearchWorkspaceKey: null,
+  messageSearchProjectResults: null,
+  messageSearchWorkgroupResults: null,
+  messageSearchLoading: false,
   pendingAttachments: [],
   preferredViews: {
     claude: "messages",
-    codex: "cli",
+    codex: "messages",
   },
   groupOrder: [],
   collapsedGroups: new Set<string>(),
@@ -309,6 +424,20 @@ const state: {
 
 let draggingGroupKey: string | null = null;
 let dragOverGroupKey: string | null = null;
+let messageSearchTimer: number | null = null;
+const mentionState: {
+  query: string;
+  rangeStart: number;
+  rangeEnd: number;
+  activeIndex: number;
+  items: Array<{ id: string; name: string; role: WorkgroupMemberState["role"] }>;
+} = {
+  query: "",
+  rangeStart: -1,
+  rangeEnd: -1,
+  activeIndex: 0,
+  items: [],
+};
 
 function escapeHtml(value: string): string {
   return value
@@ -317,6 +446,27 @@ function escapeHtml(value: string): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function highlightText(value: string, query: string): string {
+  if (!query.trim()) {
+    return escapeHtml(value);
+  }
+
+  const pattern = new RegExp(`(${escapeRegExp(query.trim())})`, "ig");
+  return value
+    .split(pattern)
+    .map((segment, index) => {
+      if (index % 2 === 1) {
+        return `<mark class="search-mark">${escapeHtml(segment)}</mark>`;
+      }
+      return escapeHtml(segment);
+    })
+    .join("");
 }
 
 function formatTemplate(template: string, vars?: Record<string, string>): string {
@@ -425,20 +575,27 @@ function translateCliStream(stream: CliTraceEntry["stream"]): string {
 }
 
 function getProjectGroupKey(project: ProjectState): string {
+  if (project.isRemote) {
+    return "__remote__";
+  }
   const name = project.groupName?.trim();
   return name && name.length > 0 ? name : "__default__";
 }
 
 function getProjectGroupLabel(project: ProjectState): string {
+  if (project.isRemote) {
+    return inlineText("Remote", "远程");
+  }
   const name = project.groupName?.trim();
   return name && name.length > 0 ? name : inlineText("Default", "默认分组");
 }
 
 function getOrderedGroupKeys(groupKeys: string[]): string[] {
   const normalized = Array.from(new Set(groupKeys));
-  const ordered = state.groupOrder.filter((name) => normalized.includes(name));
-  const remaining = normalized.filter((name) => !ordered.includes(name));
-  return [...ordered, ...remaining];
+  const fixedKeys = ["__remote__", "__default__"].filter((name) => normalized.includes(name));
+  const ordered = state.groupOrder.filter((name) => normalized.includes(name) && !fixedKeys.includes(name));
+  const remaining = normalized.filter((name) => !ordered.includes(name) && !fixedKeys.includes(name));
+  return [...fixedKeys, ...ordered, ...remaining];
 }
 
 function reorderGroupKeys(order: string[], source: string, target: string): string[] {
@@ -512,6 +669,23 @@ function getProjectLastActivityAt(projectId: string): number {
   }
   update(session.currentStartedAt ?? null);
 
+  return last;
+}
+
+function getWorkgroupLastActivityAt(workgroupId: string): number {
+  const summary = state.workgroups.find((entry) => entry.id === workgroupId) ?? null;
+  const session = state.sessionsByWorkgroupId.get(workgroupId) ?? null;
+  if (!session) {
+    return summary?.updatedAt ?? 0;
+  }
+
+  let last = Math.max(session.updatedAt || 0, summary?.updatedAt ?? 0);
+  for (const message of session.messages) {
+    const value = message.updatedAt || message.createdAt;
+    if (value > last) {
+      last = value;
+    }
+  }
   return last;
 }
 
@@ -698,7 +872,11 @@ function isWorkspaceView(value: string | undefined): value is WorkspaceView {
 }
 
 function defaultViewForProvider(provider: "claude" | "codex"): WorkspaceView {
-  return provider === "codex" ? "cli" : "messages";
+  return "messages";
+}
+
+function isWorkgroupSelected(): boolean {
+  return Boolean(state.workgroupId);
 }
 
 function getCurrentProject(): ProjectState | null {
@@ -711,6 +889,27 @@ function getCurrentSession(): SessionSnapshot | null {
   }
 
   return state.sessionsByProjectId.get(state.projectId) ?? null;
+}
+
+function getCurrentWorkgroup(): WorkgroupSummary | null {
+  return state.workgroups.find((workgroup) => workgroup.id === state.workgroupId) ?? null;
+}
+
+function getCurrentWorkgroupSession(): WorkgroupSessionSnapshot | null {
+  if (!state.workgroupId) {
+    return null;
+  }
+  return state.sessionsByWorkgroupId.get(state.workgroupId) ?? null;
+}
+
+function getCurrentWorkspaceSearchKey(): string | null {
+  if (state.workgroupId) {
+    return `workgroup:${state.workgroupId}`;
+  }
+  if (state.projectId) {
+    return `project:${state.projectId}`;
+  }
+  return null;
 }
 
 function createHistoryStateFromSnapshot(snapshot: SessionSnapshot): ProjectHistoryState {
@@ -730,6 +929,18 @@ function createHistoryStateFromSnapshot(snapshot: SessionSnapshot): ProjectHisto
 
 function getProjectHistoryState(projectId: string): ProjectHistoryState | null {
   return state.historyByProjectId.get(projectId) ?? null;
+}
+
+function createWorkgroupHistoryStateFromSnapshot(snapshot: WorkgroupSessionSnapshot): WorkgroupHistoryState {
+  return {
+    messages: snapshot.messages.slice(),
+    hasMoreMessages: snapshot.messageTotal > snapshot.messages.length,
+    loadingMessages: false,
+  };
+}
+
+function getWorkgroupHistoryState(workgroupId: string): WorkgroupHistoryState | null {
+  return state.historyByWorkgroupId.get(workgroupId) ?? null;
 }
 
 function syncHistoryStateFromSnapshot(snapshot: SessionSnapshot): void {
@@ -752,12 +963,58 @@ function syncHistoryStateFromSnapshot(snapshot: SessionSnapshot): void {
   existing.hasMoreCli = snapshot.cliTraceTotal > existing.cliTrace.length;
 }
 
+function syncWorkgroupHistoryStateFromSnapshot(snapshot: WorkgroupSessionSnapshot): void {
+  const existing = state.historyByWorkgroupId.get(snapshot.workgroupId);
+  if (!existing) {
+    state.historyByWorkgroupId.set(snapshot.workgroupId, createWorkgroupHistoryStateFromSnapshot(snapshot));
+    return;
+  }
+
+  const olderItems = existing.messages.filter((item) => !snapshot.messages.some((latest) => latest.id === item.id));
+  existing.messages = [...olderItems, ...snapshot.messages];
+  existing.hasMoreMessages = snapshot.messageTotal > existing.messages.length;
+}
+
 function getDisplayedMessages(): SessionMessage[] {
   const projectId = state.projectId;
   if (!projectId) {
     return [];
   }
   return getProjectHistoryState(projectId)?.messages ?? getCurrentSession()?.messages ?? [];
+}
+
+function getDisplayedWorkgroupMessages(): WorkgroupMessage[] {
+  const workgroupId = state.workgroupId;
+  if (!workgroupId) {
+    return [];
+  }
+  return getWorkgroupHistoryState(workgroupId)?.messages ?? getCurrentWorkgroupSession()?.messages ?? [];
+}
+
+function getVisibleProjectMessages(): SessionMessage[] {
+  const workspaceKey = getCurrentWorkspaceSearchKey();
+  if (
+    state.messageSearchQuery.trim()
+    && workspaceKey
+    && workspaceKey === state.messageSearchWorkspaceKey
+    && Array.isArray(state.messageSearchProjectResults)
+  ) {
+    return state.messageSearchProjectResults;
+  }
+  return getDisplayedMessages();
+}
+
+function getVisibleWorkgroupMessages(): WorkgroupMessage[] {
+  const workspaceKey = getCurrentWorkspaceSearchKey();
+  if (
+    state.messageSearchQuery.trim()
+    && workspaceKey
+    && workspaceKey === state.messageSearchWorkspaceKey
+    && Array.isArray(state.messageSearchWorkgroupResults)
+  ) {
+    return state.messageSearchWorkgroupResults;
+  }
+  return getDisplayedWorkgroupMessages();
 }
 
 function getDisplayedActivities(): SessionActivity[] {
@@ -839,6 +1096,17 @@ function getProjectStatusMeta(projectId: string): { label: string; tone: string;
   const session = state.sessionsByProjectId.get(projectId) ?? null;
   const configuredProvider = getConfiguredProvider(project, session);
   const configuredModel = getConfiguredModel(project, session);
+  if (project?.isRemote && project.online === false) {
+    return {
+      label: inlineText("Offline", "离线"),
+      tone: "idle",
+      detail: formatProjectSummary(
+        configuredProvider,
+        configuredModel,
+        inlineText("Remote desktop is offline", "远程桌面端离线"),
+      ),
+    };
+  }
   if (!session) {
     return {
       label: msg("terminal.project.status.idle", "Idle"),
@@ -909,12 +1177,25 @@ function getProjectStatusMeta(projectId: string): { label: string; tone: string;
 }
 
 function setActiveProject(projectId: string | null): void {
-  if (state.projectId !== projectId) {
+  if (state.projectId !== projectId || state.workgroupId) {
     state.pendingAttachments = [];
     state.attachmentPreview = null;
   }
+  hideMentionSuggestions();
   state.projectId = projectId;
+  state.workgroupId = null;
   api.setActiveProject?.(projectId);
+}
+
+function setActiveWorkgroup(workgroupId: string | null): void {
+  if (state.workgroupId !== workgroupId || state.projectId) {
+    state.pendingAttachments = [];
+    state.attachmentPreview = null;
+  }
+  hideMentionSuggestions();
+  state.workgroupId = workgroupId;
+  state.projectId = null;
+  api.setActiveProject?.(null);
 }
 
 function setActiveView(view: WorkspaceView, persistPreference = true): void {
@@ -931,6 +1212,10 @@ function setActiveView(view: WorkspaceView, persistPreference = true): void {
 }
 
 function syncActiveViewForCurrentProject(): void {
+  if (isWorkgroupSelected()) {
+    state.activeView = "messages";
+    return;
+  }
   const provider = getConfiguredProvider(getCurrentProject(), getCurrentSession());
   state.activeView = state.preferredViews[provider] ?? defaultViewForProvider(provider);
   if (state.activeView !== "messages") {
@@ -939,6 +1224,12 @@ function syncActiveViewForCurrentProject(): void {
 }
 
 function updateDocumentTitle(): void {
+  const workgroup = getCurrentWorkgroup();
+  if (workgroup) {
+    document.title = `${workgroup.name} - ${inlineText("Collaboration", "协作")}`;
+    return;
+  }
+
   const project = getCurrentProject();
   if (project) {
     document.title = `${project.name} - ${msg("terminal.sessionSuffix", "Session")}`;
@@ -1094,7 +1385,13 @@ function applyStaticI18n(): void {
   document.documentElement.lang = state.lang;
 
   if (elements.projectsTitle) {
-    elements.projectsTitle.textContent = msg("terminal.panel.projects", "Projects");
+    elements.projectsTitle.textContent = inlineText("Workspace", "工作区");
+  }
+  if (elements.projectSearchInput) {
+    elements.projectSearchInput.placeholder = inlineText("Search workspace", "搜索工作区");
+  }
+  if (elements.messageSearchInput) {
+    elements.messageSearchInput.placeholder = inlineText("Search messages", "搜索消息");
   }
   if (elements.messagesTabLabel) {
     elements.messagesTabLabel.textContent = inlineText("Conversation", "\u5bf9\u8bdd");
@@ -1337,6 +1634,7 @@ function renderSessionOverview(): void {
 
 function renderWorkbench(): void {
   const session = getCurrentSession();
+  const workgroupSelected = isWorkgroupSelected();
   const activityCount = session?.activities.length ?? 0;
   const queueCount = session?.queue.length ?? 0;
   const cliRunning = Boolean(session?.isRunning);
@@ -1354,7 +1652,7 @@ function renderWorkbench(): void {
     { panel: elements.cliView, view: "cli" },
     { panel: elements.queueView, view: "queue" },
   ];
-  const showDock = Boolean(state.projectId) && state.activeView !== "messages";
+  const showDock = Boolean(state.projectId) && !workgroupSelected && state.activeView !== "messages";
 
   if (elements.activityTabCount) {
     elements.activityTabCount.textContent = String(activityCount);
@@ -1367,6 +1665,15 @@ function renderWorkbench(): void {
   if (elements.cliTabState) {
     elements.cliTabState.textContent = cliRunning ? inlineText("Live", "\u5b9e\u65f6") : inlineText("Idle", "\u7a7a\u95f2");
     elements.cliTabState.dataset.tone = cliRunning ? "running" : "idle";
+  }
+  if (elements.activityTab) {
+    elements.activityTab.hidden = workgroupSelected;
+  }
+  if (elements.cliTab) {
+    elements.cliTab.hidden = workgroupSelected;
+  }
+  if (elements.queueTab) {
+    elements.queueTab.hidden = workgroupSelected;
   }
   if (elements.detailDock) {
     elements.detailDock.classList.toggle("is-open", showDock);
@@ -1424,7 +1731,7 @@ function renderQueue(): void {
       "</div>",
       `<div class="queue-text">${escapeHtml(queuePreview(item.prompt))}</div>`,
       "</div>",
-      `<button class="queue-remove" type="button" data-queue-remove="${escapeHtml(item.runId)}">${escapeHtml(inlineText("Remove", "Remove"))}</button>`,
+      `<button class="queue-remove" type="button" data-queue-remove="${escapeHtml(item.runId)}">${escapeHtml(inlineText("Remove", "移除"))}</button>`,
       "</article>",
     ].join(""))
     .join("");
@@ -1442,7 +1749,7 @@ function renderProjectList(): void {
     return;
   }
 
-  if (state.projects.length === 0) {
+  if (state.projects.length === 0 && state.workgroups.length === 0) {
     elements.projectList.innerHTML = formatEmptyState(
       msg("terminal.empty.projectsTitle", "No projects yet"),
       msg("terminal.empty.projectsDetail", "Add a project in settings, then return here."),
@@ -1482,7 +1789,70 @@ function renderProjectList(): void {
     return value;
   };
 
-  elements.projectList.innerHTML = groupKeys
+  const workgroupActivityCache = new Map<string, number>();
+  const getWorkgroupActivity = (workgroupId: string): number => {
+    if (workgroupActivityCache.has(workgroupId)) {
+      return workgroupActivityCache.get(workgroupId) ?? 0;
+    }
+    const value = getWorkgroupLastActivityAt(workgroupId);
+    workgroupActivityCache.set(workgroupId, value);
+    return value;
+  };
+
+  const workgroupSection = state.workgroups.length === 0
+    ? ""
+    : [
+        `<section class="project-group" data-group-key="__workgroups__">`,
+        `<div class="project-group-header" aria-expanded="true">`,
+        '<span class="project-group-toggle" aria-hidden="true"></span>',
+        `<span class="project-group-title">${escapeHtml(inlineText("Collaborations", "协作组"))}</span>`,
+        `<span class="project-group-count">${state.workgroups.length}</span>`,
+        "</div>",
+        ...[...state.workgroups]
+          .sort((left, right) => {
+            const activityDiff = getWorkgroupActivity(right.id) - getWorkgroupActivity(left.id);
+            if (activityDiff !== 0) {
+              return activityDiff;
+            }
+            return left.name.localeCompare(right.name, getLocale(), { sensitivity: "base" });
+          })
+          .filter((workgroup) => {
+            const query = state.projectSearchQuery.trim().toLowerCase();
+            if (!query) {
+              return true;
+            }
+            const status = getWorkgroupStatusMeta(workgroup.id);
+            const haystack = [
+              workgroup.name,
+              workgroup.description ?? "",
+              workgroup.lastMessagePreview ?? "",
+              status.label,
+              status.detail,
+            ]
+              .join(" ")
+              .toLowerCase();
+            return haystack.includes(query);
+          })
+          .map((workgroup) => {
+            const status = getWorkgroupStatusMeta(workgroup.id);
+            const isSelected = workgroup.id === state.workgroupId;
+            const subtitle = workgroup.lastMessagePreview?.trim()
+              || inlineText(`${workgroup.memberCount} members`, `${workgroup.memberCount} 个成员`);
+            return [
+              `<button class="project-list-item${isSelected ? " selected" : ""}" type="button" data-workgroup-id="${escapeHtml(workgroup.id)}">`,
+              '<div class="project-list-top">',
+              `<span class="project-list-name">${highlightText(workgroup.name, state.projectSearchQuery)}</span>`,
+              `<span class="project-status-pill ${escapeHtml(status.tone)}">${escapeHtml(status.label)}</span>`,
+              "</div>",
+              `<div class="project-list-detail">${highlightText(subtitle, state.projectSearchQuery)}</div>`,
+              `<div class="project-list-path">${highlightText(status.detail, state.projectSearchQuery)}</div>`,
+              "</button>",
+            ].join("");
+          }),
+        "</section>",
+      ].join("");
+
+  const projectSections = groupKeys
     .map((groupKey) => {
       const group = groups.get(groupKey);
       if (!group) {
@@ -1495,7 +1865,29 @@ function renderProjectList(): void {
           return activityDiff;
         }
         return left.name.localeCompare(right.name, getLocale(), { sensitivity: "base" });
-      });
+      })
+        .filter((project) => {
+          const query = state.projectSearchQuery.trim().toLowerCase();
+          if (!query) {
+            return true;
+          }
+          const status = getProjectStatusMeta(project.id);
+          const haystack = [
+            project.name,
+            project.path,
+            project.agentId ?? "",
+            status.label,
+            status.detail,
+            project.isRemote ? inlineText("Remote", "远程") : inlineText("Local", "本地"),
+            project.groupName ?? "",
+          ]
+            .join(" ")
+            .toLowerCase();
+          return haystack.includes(query);
+        });
+      if (projects.length === 0) {
+        return "";
+      }
       return [
         `<section class="project-group${isCollapsed ? " collapsed" : ""}" data-group-key="${escapeHtml(groupKey)}">`,
         `<div class="project-group-header" role="button" tabindex="0" draggable="true" data-group-header="${escapeHtml(groupKey)}" data-group-key="${escapeHtml(groupKey)}" aria-expanded="${isCollapsed ? "false" : "true"}">`,
@@ -1506,14 +1898,20 @@ function renderProjectList(): void {
         ...projects.map((project) => {
           const status = getProjectStatusMeta(project.id);
           const isSelected = project.id === state.projectId;
+          const originBadge = project.isRemote
+            ? `<span class="project-origin-pill remote">${escapeHtml(inlineText("Remote", "远程"))}</span>`
+            : "";
+          const detailPrefix = project.isRemote && project.agentId
+            ? `<span class="project-origin-meta">${escapeHtml(project.agentId)}</span>`
+            : "";
           return [
             `<button class="project-list-item${isSelected ? " selected" : ""}" type="button" data-project-id="${escapeHtml(project.id)}">`,
             '<div class="project-list-top">',
-            `<span class="project-list-name">${escapeHtml(project.name)}</span>`,
+            `<div class="project-list-name-row"><span class="project-list-name">${highlightText(project.name, state.projectSearchQuery)}</span>${originBadge}</div>`,
             `<span class="project-status-pill ${escapeHtml(status.tone)}">${escapeHtml(status.label)}</span>`,
             "</div>",
-            `<div class="project-list-detail">${escapeHtml(status.detail)}</div>`,
-            `<div class="project-list-path">${escapeHtml(project.path)}</div>`,
+            `<div class="project-list-detail">${detailPrefix}${highlightText(status.detail, state.projectSearchQuery)}</div>`,
+            `<div class="project-list-path">${highlightText(project.path, state.projectSearchQuery)}</div>`,
             "</button>",
           ].join("");
         }),
@@ -1521,6 +1919,12 @@ function renderProjectList(): void {
       ].join("");
     })
     .join("");
+
+  const markup = `${workgroupSection}${projectSections}`;
+  elements.projectList.innerHTML = markup || formatEmptyState(
+    inlineText("No matching workspace items", "没有匹配的工作区项目"),
+    inlineText("Try a different keyword.", "换个关键词试试。"),
+  );
 }
 
 function renderCliTrace(): void {
@@ -1580,6 +1984,65 @@ function renderMessages(): void {
     return;
   }
 
+  const workgroup = getCurrentWorkgroup();
+  const workgroupSession = getCurrentWorkgroupSession();
+  if (workgroup) {
+    const historyState = state.workgroupId ? getWorkgroupHistoryState(state.workgroupId) : null;
+    const messages = getVisibleWorkgroupMessages();
+    if (!workgroupSession || messages.length === 0) {
+      elements.messages.innerHTML = formatEmptyState(
+        state.messageSearchQuery.trim()
+          ? inlineText("No matching messages", "没有匹配的消息")
+          : inlineText("No collaboration yet", "还没有协作消息"),
+        state.messageSearchQuery.trim()
+          ? inlineText("Try a different keyword.", "换个关键词试试。")
+          : inlineText("Send a message to coordinate the group.", "发送一条消息开始协作。"),
+      );
+      return;
+    }
+
+    const stickToBottom =
+      elements.messages.scrollHeight - elements.messages.scrollTop - elements.messages.clientHeight < 80;
+
+    elements.messages.innerHTML = [
+      state.messageSearchQuery.trim()
+        ? `<div class="message-search-empty">${escapeHtml(inlineText(`${messages.length} matches`, `${messages.length} 条匹配`))}<span>${escapeHtml(state.messageSearchLoading ? inlineText("Searching...", "搜索中...") : inlineText("Search in current collaboration", "当前协作内搜索"))}</span></div>`
+        : (historyState?.hasMoreMessages ? `<div class="history-loader">${escapeHtml(inlineText("Scroll up to load earlier messages", "向上滚动加载更早消息"))}</div>` : ""),
+      ...messages.map((message) => {
+        const cardRole = message.senderType === "member"
+          ? "assistant"
+          : (message.senderType === "user" ? "user" : "error");
+        const senderBadge = message.senderType === "member" && message.memberRole
+          ? `${message.senderName} · ${translateWorkgroupRole(message.memberRole)}`
+          : message.senderName;
+        const sourceBadge = message.senderType === "member"
+          ? (message.projectKind === "remote" ? inlineText("Remote", "远程") : inlineText("Local", "本地"))
+          : (message.senderType === "user" ? inlineText("You", "你") : inlineText("System", "系统"));
+        const content = message.content.trim() || (message.status === "streaming"
+          ? inlineText("Responding...", "正在回复...")
+          : inlineText("No content", "无内容"));
+
+        return [
+          `<article class="message-card ${escapeHtml(cardRole)}">`,
+          '<div class="message-shell">',
+          '<div class="message-meta">',
+          `<span class="role-badge ${escapeHtml(cardRole)}">${escapeHtml(senderBadge)}</span>`,
+          `<span class="source-badge">${escapeHtml(sourceBadge)}</span>`,
+          `<span class="message-time">${escapeHtml(formatTime(message.updatedAt || message.createdAt))}</span>`,
+          "</div>",
+          `<div class="message-content${message.status === "streaming" ? " streaming" : ""}">${highlightText(content, state.messageSearchQuery)}</div>`,
+          "</div>",
+          "</article>",
+        ].join("");
+      }),
+    ].join("");
+
+    if (stickToBottom) {
+      elements.messages.scrollTop = elements.messages.scrollHeight;
+    }
+    return;
+  }
+
   const project = getCurrentProject();
   const session = getCurrentSession();
 
@@ -1592,14 +2055,18 @@ function renderMessages(): void {
   }
 
   const historyState = state.projectId ? getProjectHistoryState(state.projectId) : null;
-  const messages = getDisplayedMessages();
+  const messages = getVisibleProjectMessages();
   if (!session || messages.length === 0) {
     elements.messages.innerHTML = formatEmptyState(
-      msg("terminal.empty.messagesTitle", "No conversation yet"),
-      msg(
-        "terminal.empty.messagesDetail",
-        "Incoming remote prompts and local desktop prompts will appear here as clean message cards.",
-      ),
+      state.messageSearchQuery.trim()
+        ? inlineText("No matching messages", "没有匹配的消息")
+        : msg("terminal.empty.messagesTitle", "No conversation yet"),
+      state.messageSearchQuery.trim()
+        ? inlineText("Try a different keyword.", "换个关键词试试。")
+        : msg(
+          "terminal.empty.messagesDetail",
+          "Incoming remote prompts and local desktop prompts will appear here as clean message cards.",
+        ),
     );
     return;
   }
@@ -1608,7 +2075,9 @@ function renderMessages(): void {
     elements.messages.scrollHeight - elements.messages.scrollTop - elements.messages.clientHeight < 80;
 
   elements.messages.innerHTML = [
-    historyState?.hasMoreMessages ? `<div class="history-loader">${escapeHtml(inlineText("Scroll up to load earlier messages", "向上滚动加载更早消息"))}</div>` : "",
+    state.messageSearchQuery.trim()
+      ? `<div class="message-search-empty">${escapeHtml(inlineText(`${messages.length} matches`, `${messages.length} 条匹配`))}<span>${escapeHtml(state.messageSearchLoading ? inlineText("Searching...", "搜索中...") : inlineText("Search in current conversation", "当前对话内搜索"))}</span></div>`
+      : (historyState?.hasMoreMessages ? `<div class="history-loader">${escapeHtml(inlineText("Scroll up to load earlier messages", "向上滚动加载更早消息"))}</div>` : ""),
     ...messages.map((message) => {
       const sourceBadge = message.role === "user"
         ? translateSource(message.source)
@@ -1626,7 +2095,7 @@ function renderMessages(): void {
           ? `<div class="message-attachments">${message.attachments.map((attachment) => renderAttachmentCardView(attachment)).join("")}</div>`
           : "",
         message.content
-          ? `<div class="message-content${message.status === "streaming" ? " streaming" : ""}">${escapeHtml(message.content)}</div>`
+          ? `<div class="message-content${message.status === "streaming" ? " streaming" : ""}">${highlightText(message.content, state.messageSearchQuery)}</div>`
           : "",
         "</div>",
         "</article>",
@@ -1691,11 +2160,101 @@ function renderActivities(): void {
 }
 
 function renderHeader(): void {
+  const workgroup = getCurrentWorkgroup();
+  if (workgroup) {
+    const statusMeta = getWorkgroupStatusMeta(workgroup.id);
+    document.body.dataset.provider = "claude";
+    if (elements.projectTitle) {
+      elements.projectTitle.textContent = workgroup.name;
+    }
+    if (elements.projectMeta) {
+      elements.projectMeta.textContent = workgroup.description?.trim()
+        || inlineText(`${workgroup.memberCount} members`, `${workgroup.memberCount} 个成员`);
+    }
+    if (elements.providerBadge) {
+      elements.providerBadge.textContent = inlineText("Collab", "协作");
+    }
+    if (elements.modelBadge) {
+      elements.modelBadge.textContent = inlineText("Group", "群组");
+      elements.modelBadge.title = inlineText("Shared collaboration", "共享协作");
+      elements.modelBadge.disabled = true;
+      elements.modelBadge.hidden = false;
+    }
+    if (elements.modeBadge) {
+      elements.modeBadge.textContent = inlineText("Shared", "共享");
+    }
+    if (elements.sessionViewTitle) {
+      elements.sessionViewTitle.textContent = workgroup.name;
+    }
+    if (elements.conversationSelect) {
+      elements.conversationSelect.innerHTML = "";
+      elements.conversationSelect.disabled = true;
+      elements.conversationSelect.parentElement?.setAttribute("hidden", "true");
+    }
+    if (elements.newConversationBtn) {
+      elements.newConversationBtn.disabled = true;
+      elements.newConversationBtn.hidden = true;
+    }
+    if (elements.headerSummary) {
+      elements.headerSummary.textContent = statusMeta.detail;
+    }
+    if (elements.runState) {
+      elements.runState.textContent = statusMeta.label;
+      elements.runState.className = `project-status-pill ${statusMeta.tone}`;
+    }
+    if (elements.sendBtn) {
+      elements.sendBtn.disabled = false;
+    }
+    if (elements.stopBtn) {
+      elements.stopBtn.disabled = true;
+    }
+    if (elements.attachImageBtn) {
+      elements.attachImageBtn.disabled = true;
+    }
+    if (elements.attachFileBtn) {
+      elements.attachFileBtn.disabled = true;
+    }
+    if (elements.activityTab) {
+      elements.activityTab.disabled = true;
+    }
+    if (elements.cliTab) {
+      elements.cliTab.disabled = true;
+    }
+    if (elements.queueTab) {
+      elements.queueTab.disabled = true;
+    }
+    if (elements.composerLabel) {
+      elements.composerLabel.textContent = inlineText("Message", "消息");
+    }
+    if (elements.composerInput) {
+      elements.composerInput.placeholder = inlineText(
+        "Talk to the group with @all, @developer, @qa, @pm, or member names.",
+        "输入消息，可用 @all、@developer、@qa、@pm 或成员名。",
+      );
+    }
+    updateDocumentTitle();
+    return;
+  }
+
   const project = getCurrentProject();
   const session = getCurrentSession();
   const provider = getConfiguredProvider(project, session);
   const model = getConfiguredModel(project, session);
   const statusMeta = project ? getProjectStatusMeta(project.id) : null;
+
+  elements.conversationSelect?.parentElement?.removeAttribute("hidden");
+  if (elements.newConversationBtn) {
+    elements.newConversationBtn.hidden = false;
+  }
+  if (elements.composerLabel) {
+    elements.composerLabel.textContent = inlineText("Prompt", "提示词");
+  }
+  if (elements.composerInput) {
+    elements.composerInput.placeholder = inlineText(
+      "Ask Claude Code or OpenAI Codex to inspect, edit, review, or debug this project.",
+      "让 Claude Code 或 OpenAI Codex 帮你分析、修改、审查或调试这个项目。",
+    );
+  }
 
   document.body.dataset.provider = provider;
 
@@ -1772,13 +2331,27 @@ function renderHeader(): void {
 
 function render(): void {
   applyStaticI18n();
+  if (elements.projectSearchInput && elements.projectSearchInput.value !== state.projectSearchQuery) {
+    elements.projectSearchInput.value = state.projectSearchQuery;
+  }
+  if (elements.messageSearchInput && elements.messageSearchInput.value !== state.messageSearchQuery) {
+    elements.messageSearchInput.value = state.messageSearchQuery;
+  }
   renderProjectList();
   renderHeader();
   renderWorkbench();
-  renderQueue();
-  renderCliTrace();
-  renderMessages();
-  renderActivities();
+  const showDock = Boolean(state.projectId) && !isWorkgroupSelected() && state.activeView !== "messages";
+  if (!showDock) {
+    renderMessages();
+  } else if (state.activeView === "activity") {
+    renderActivities();
+  } else if (state.activeView === "cli") {
+    renderCliTrace();
+  } else if (state.activeView === "queue") {
+    renderQueue();
+  } else {
+    renderMessages();
+  }
   renderPendingAttachments();
   renderAttachmentLightbox();
   renderHint();
@@ -1792,6 +2365,19 @@ async function loadProjectSession(projectId: string): Promise<void> {
 
   state.sessionsByProjectId.set(projectId, result.session);
   syncHistoryStateFromSnapshot(result.session);
+}
+
+async function loadWorkgroupSession(workgroupId: string): Promise<void> {
+  if (!api.getWorkgroupCollaborationSession) {
+    return;
+  }
+  const result = await api.getWorkgroupCollaborationSession(workgroupId);
+  if (!result.success || !result.session) {
+    return;
+  }
+
+  state.sessionsByWorkgroupId.set(workgroupId, result.session);
+  syncWorkgroupHistoryStateFromSnapshot(result.session);
 }
 
 async function syncProjects(projects?: ProjectState[]): Promise<void> {
@@ -1809,19 +2395,59 @@ async function syncProjects(projects?: ProjectState[]): Promise<void> {
 
   await Promise.all(
     nextProjects
-      .filter((project) => !state.sessionsByProjectId.has(project.id))
+      .filter((project) => project.isRemote || !state.sessionsByProjectId.has(project.id))
       .map((project) => loadProjectSession(project.id)),
   );
 
   if (state.projectId && !projectIds.has(state.projectId)) {
-    setActiveProject(nextProjects[0]?.id ?? null);
+    if (state.workgroupId) {
+      setActiveProject(null);
+    } else {
+      setActiveProject(nextProjects[0]?.id ?? null);
+    }
   }
 
-  if (!state.projectId && nextProjects.length > 0) {
+  if (!state.projectId && !state.workgroupId && nextProjects.length > 0) {
     setActiveProject(nextProjects[0].id);
   }
 
   syncActiveViewForCurrentProject();
+  if (state.messageSearchQuery.trim()) {
+    scheduleMessageSearch();
+  }
+  render();
+}
+
+async function syncWorkgroups(workgroups?: WorkgroupSummary[]): Promise<void> {
+  const nextWorkgroups = workgroups ?? (await api.listWorkgroupCollaborations?.())?.workgroups ?? [];
+  const workgroupIds = new Set(nextWorkgroups.map((workgroup) => workgroup.id));
+
+  state.workgroups = nextWorkgroups;
+
+  for (const workgroupId of Array.from(state.sessionsByWorkgroupId.keys())) {
+    if (!workgroupIds.has(workgroupId)) {
+      state.sessionsByWorkgroupId.delete(workgroupId);
+      state.historyByWorkgroupId.delete(workgroupId);
+    }
+  }
+
+  await Promise.all(
+    nextWorkgroups
+      .filter((workgroup) => !state.sessionsByWorkgroupId.has(workgroup.id))
+      .map((workgroup) => loadWorkgroupSession(workgroup.id)),
+  );
+
+  if (state.workgroupId && !workgroupIds.has(state.workgroupId)) {
+    setActiveWorkgroup(null);
+  }
+
+  if (!state.projectId && !state.workgroupId && nextWorkgroups.length > 0 && state.projects.length === 0) {
+    setActiveWorkgroup(nextWorkgroups[0].id);
+  }
+
+  if (state.messageSearchQuery.trim()) {
+    scheduleMessageSearch();
+  }
   render();
 }
 
@@ -1835,10 +2461,149 @@ async function selectProject(projectId: string): Promise<void> {
     await loadProjectSession(projectId);
   }
   syncActiveViewForCurrentProject();
+  if (state.messageSearchQuery.trim()) {
+    scheduleMessageSearch();
+  }
   render();
 }
 
+async function selectWorkgroup(workgroupId: string): Promise<void> {
+  if (!state.workgroups.some((workgroup) => workgroup.id === workgroupId)) {
+    return;
+  }
+
+  setActiveWorkgroup(workgroupId);
+  if (!state.sessionsByWorkgroupId.has(workgroupId)) {
+    await loadWorkgroupSession(workgroupId);
+  }
+  state.activeView = "messages";
+  if (state.messageSearchQuery.trim()) {
+    scheduleMessageSearch();
+  }
+  render();
+}
+
+function clearMessageSearchResults(): void {
+  state.messageSearchWorkspaceKey = null;
+  state.messageSearchProjectResults = null;
+  state.messageSearchWorkgroupResults = null;
+  state.messageSearchLoading = false;
+}
+
+async function runMessageSearchForCurrentWorkspace(): Promise<void> {
+  const query = state.messageSearchQuery.trim();
+  const workspaceKey = getCurrentWorkspaceSearchKey();
+  if (!query || !workspaceKey) {
+    clearMessageSearchResults();
+    render();
+    return;
+  }
+
+  state.messageSearchLoading = true;
+  state.messageSearchWorkspaceKey = workspaceKey;
+  render();
+
+  if (state.projectId && api.searchProjectMessages) {
+    const result = await api.searchProjectMessages({
+      projectId: state.projectId,
+      query,
+      conversationId: getCurrentSession()?.activeConversationId ?? undefined,
+      limit: 200,
+    });
+    if (state.messageSearchWorkspaceKey !== workspaceKey || state.messageSearchQuery.trim() !== query) {
+      return;
+    }
+    state.messageSearchProjectResults = result.success ? (result.items ?? []) : [];
+    state.messageSearchWorkgroupResults = null;
+    state.messageSearchLoading = false;
+    render();
+    return;
+  }
+
+  if (state.workgroupId && api.searchWorkgroupCollaborationMessages) {
+    const result = await api.searchWorkgroupCollaborationMessages({
+      workgroupId: state.workgroupId,
+      query,
+      limit: 200,
+    });
+    if (state.messageSearchWorkspaceKey !== workspaceKey || state.messageSearchQuery.trim() !== query) {
+      return;
+    }
+    state.messageSearchWorkgroupResults = result.success ? (result.items ?? []) : [];
+    state.messageSearchProjectResults = null;
+    state.messageSearchLoading = false;
+    render();
+    return;
+  }
+
+  state.messageSearchLoading = false;
+  render();
+}
+
+function scheduleMessageSearch(): void {
+  if (messageSearchTimer) {
+    window.clearTimeout(messageSearchTimer);
+    messageSearchTimer = null;
+  }
+  messageSearchTimer = window.setTimeout(() => {
+    messageSearchTimer = null;
+    void runMessageSearchForCurrentWorkspace();
+  }, 120);
+}
+
 async function loadOlderHistory(kind: "messages" | "activities" | "cli"): Promise<void> {
+  if (kind === "messages" && state.messageSearchQuery.trim()) {
+    return;
+  }
+
+  if (state.workgroupId) {
+    if (kind !== "messages" || !api.getWorkgroupCollaborationHistoryPage) {
+      return;
+    }
+
+    const historyState = getWorkgroupHistoryState(state.workgroupId);
+    if (!historyState || !historyState.hasMoreMessages || historyState.loadingMessages) {
+      return;
+    }
+
+    const beforeId = historyState.messages[0]?.id;
+    if (!beforeId) {
+      return;
+    }
+
+    const previousScrollHeight = elements.messages?.scrollHeight ?? 0;
+    const previousScrollTop = elements.messages?.scrollTop ?? 0;
+    historyState.loadingMessages = true;
+    try {
+      const result = await api.getWorkgroupCollaborationHistoryPage({
+        workgroupId: state.workgroupId,
+        beforeId,
+        limit: 30,
+      });
+      if (!result.success || !result.page) {
+        setHintText(result.error ?? inlineText("Failed to load earlier history.", "加载更早记录失败。"), true);
+        return;
+      }
+
+      const currentHistory = getWorkgroupHistoryState(state.workgroupId);
+      if (!currentHistory) {
+        return;
+      }
+      currentHistory.messages = [
+        ...result.page.items,
+        ...currentHistory.messages.filter((item) => !result.page?.items.some((entry) => entry.id === item.id)),
+      ];
+      currentHistory.hasMoreMessages = result.page.hasMore;
+      render();
+      if (elements.messages) {
+        elements.messages.scrollTop = elements.messages.scrollHeight - previousScrollHeight + previousScrollTop;
+      }
+    } finally {
+      historyState.loadingMessages = false;
+    }
+    return;
+  }
+
   if (!state.projectId || !api.getProjectHistoryPage) {
     return;
   }
@@ -1976,11 +2741,43 @@ function removePendingAttachment(attachmentId: string): void {
 }
 
 async function submitPrompt(): Promise<void> {
-  if (!state.projectId || !elements.composerInput) {
+  if (!elements.composerInput) {
     return;
   }
 
   const rawPrompt = elements.composerInput.value.replace(/\r\n/g, "\n");
+  if (state.workgroupId) {
+    if (!api.sendWorkgroupCollaborationMessage) {
+      return;
+    }
+    if (!rawPrompt.trim()) {
+      setHintMessage("terminal.hint.emptyPrompt", "Prompt cannot be empty.", undefined, true);
+      return;
+    }
+
+    const result = await api.sendWorkgroupCollaborationMessage({
+      workgroupId: state.workgroupId,
+      content: rawPrompt,
+    });
+    if (!result.success) {
+      setHintText(result.error ?? inlineText("Failed to send message.", "发送消息失败。"), true);
+      return;
+    }
+
+    elements.composerInput.value = "";
+    hideMentionSuggestions();
+    elements.composerInput.focus();
+    setHintText(
+      inlineText("Message sent to the collaboration group.", "消息已发送到协作组。"),
+      false,
+    );
+    return;
+  }
+
+  if (!state.projectId) {
+    return;
+  }
+
   const attachments = [...state.pendingAttachments];
   if (!rawPrompt.trim() && attachments.length === 0) {
     setHintMessage("terminal.hint.emptyPrompt", "Prompt cannot be empty.", undefined, true);
@@ -2009,6 +2806,7 @@ async function submitPrompt(): Promise<void> {
   elements.composerInput.value = "";
   state.pendingAttachments = [];
   renderPendingAttachments();
+  hideMentionSuggestions();
   elements.composerInput.focus();
 }
 
@@ -2043,11 +2841,165 @@ async function removeQueuedRun(runId: string): Promise<void> {
   });
 
   if (!result.success) {
-    setHintText(result.error ?? inlineText("Failed to remove queued prompt", "Failed to remove queued prompt"), true);
+    setHintText(result.error ?? inlineText("Failed to remove queued prompt.", "移除排队任务失败。"), true);
     return;
   }
 
-  setHintText(inlineText("Removed queued prompt.", "Removed queued prompt."), false);
+  setHintText(inlineText("Queued prompt removed.", "排队任务已移除。"), false);
+}
+
+function translateWorkgroupRole(role: WorkgroupMemberState["role"]): string {
+  if (role === "developer") {
+    return inlineText("Developer", "开发");
+  }
+  if (role === "qa") {
+    return inlineText("QA", "测试");
+  }
+  if (role === "project_manager") {
+    return inlineText("PM", "项目经理");
+  }
+  return inlineText("Custom", "自定义");
+}
+
+function hideMentionSuggestions(): void {
+  mentionState.query = "";
+  mentionState.rangeStart = -1;
+  mentionState.rangeEnd = -1;
+  mentionState.activeIndex = 0;
+  mentionState.items = [];
+  elements.mentionSuggestions?.classList.add("hidden");
+  if (elements.mentionSuggestions) {
+    elements.mentionSuggestions.innerHTML = "";
+  }
+}
+
+function getMentionableMembers(): Array<{ id: string; name: string; role: WorkgroupMemberState["role"] }> {
+  const session = getCurrentWorkgroupSession();
+  if (!session) {
+    return [];
+  }
+  return session.members
+    .filter((member) => member.name.trim())
+    .map((member) => ({
+      id: member.id,
+      name: member.name.trim(),
+      role: member.role,
+    }))
+    .sort((left, right) => left.name.localeCompare(right.name, getLocale(), { sensitivity: "base" }));
+}
+
+function renderMentionSuggestions(): void {
+  if (!elements.mentionSuggestions || mentionState.items.length === 0) {
+    hideMentionSuggestions();
+    return;
+  }
+
+  elements.mentionSuggestions.innerHTML = mentionState.items.map((item, index) => [
+    `<button class="mention-suggestion-item${index === mentionState.activeIndex ? " active" : ""}" type="button" data-mention-index="${index}">`,
+    '<div class="mention-suggestion-main">',
+    `<span class="mention-suggestion-name">@${escapeHtml(item.name)}</span>`,
+    `<span class="mention-suggestion-meta">${escapeHtml(translateWorkgroupRole(item.role))}</span>`,
+    "</div>",
+    `<span class="mention-suggestion-tag">${escapeHtml(inlineText("Member", "成员"))}</span>`,
+    "</button>",
+  ].join("")).join("");
+  elements.mentionSuggestions.classList.remove("hidden");
+}
+
+function refreshMentionSuggestions(): void {
+  const input = elements.composerInput;
+  if (!input || !state.workgroupId) {
+    hideMentionSuggestions();
+    return;
+  }
+
+  const caret = input.selectionStart ?? 0;
+  const beforeCaret = input.value.slice(0, caret);
+  const mentionMatch = /(^|\s)@([^\s@]*)$/.exec(beforeCaret);
+  if (!mentionMatch) {
+    hideMentionSuggestions();
+    return;
+  }
+
+  const rangeStart = caret - mentionMatch[2].length - 1;
+  if (rangeStart < 0) {
+    hideMentionSuggestions();
+    return;
+  }
+
+  const query = mentionMatch[2].trim().toLowerCase();
+  const items = getMentionableMembers().filter((member) => {
+    if (!query) {
+      return true;
+    }
+    return member.name.toLowerCase().includes(query);
+  });
+
+  if (items.length === 0) {
+    hideMentionSuggestions();
+    return;
+  }
+
+  mentionState.query = query;
+  mentionState.rangeStart = rangeStart;
+  mentionState.rangeEnd = caret;
+  mentionState.items = items;
+  mentionState.activeIndex = Math.min(mentionState.activeIndex, items.length - 1);
+  renderMentionSuggestions();
+}
+
+function applyMentionSuggestion(index: number): boolean {
+  const input = elements.composerInput;
+  const item = mentionState.items[index];
+  if (!input || !item || mentionState.rangeStart < 0 || mentionState.rangeEnd < mentionState.rangeStart) {
+    return false;
+  }
+
+  input.value = `${input.value.slice(0, mentionState.rangeStart)}@${item.name} ${input.value.slice(mentionState.rangeEnd)}`;
+  const caret = mentionState.rangeStart + item.name.length + 2;
+  input.setSelectionRange(caret, caret);
+  hideMentionSuggestions();
+  input.focus();
+  return true;
+}
+
+function getWorkgroupStatusMeta(workgroupId: string): { label: string; tone: string; detail: string } {
+  const workgroup = state.workgroups.find((entry) => entry.id === workgroupId) ?? null;
+  const session = state.sessionsByWorkgroupId.get(workgroupId) ?? null;
+  const memberCount = session?.members.length ?? workgroup?.memberCount ?? 0;
+  if (!workgroup) {
+    return {
+      label: inlineText("Idle", "空闲"),
+      tone: "idle",
+      detail: inlineText("Collaboration unavailable", "协作不可用"),
+    };
+  }
+
+  if (session?.isRunning || workgroup.isRunning) {
+    const runningMembers = (session?.members ?? []).filter((member) => member.isRunning).map((member) => member.name);
+    return {
+      label: inlineText("Running", "运行中"),
+      tone: "running",
+      detail: runningMembers.length > 0
+        ? runningMembers.join(", ")
+        : inlineText("Members are responding", "成员正在回复"),
+    };
+  }
+
+  const latestMessage = session?.messages[session.messages.length - 1] ?? null;
+  if (latestMessage?.content?.trim()) {
+    return {
+      label: inlineText("Ready", "就绪"),
+      tone: "ready",
+      detail: latestMessage.content.trim().replace(/\s+/g, " ").slice(0, 120),
+    };
+  }
+
+  return {
+    label: inlineText("Ready", "就绪"),
+    tone: "ready",
+    detail: inlineText(`${memberCount} members in collaboration`, `协作成员 ${memberCount} 个`),
+  };
 }
 
 async function promptForModel(): Promise<void> {
@@ -2122,10 +3074,56 @@ elements.composerInput?.addEventListener("keydown", (event) => {
     return;
   }
 
+  if (mentionState.items.length > 0) {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      mentionState.activeIndex = (mentionState.activeIndex + 1) % mentionState.items.length;
+      renderMentionSuggestions();
+      return;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      mentionState.activeIndex = (mentionState.activeIndex - 1 + mentionState.items.length) % mentionState.items.length;
+      renderMentionSuggestions();
+      return;
+    }
+    if ((event.key === "Enter" && !event.shiftKey) || event.key === "Tab") {
+      event.preventDefault();
+      if (applyMentionSuggestion(mentionState.activeIndex)) {
+        return;
+      }
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      hideMentionSuggestions();
+      return;
+    }
+  }
+
   if (event.key === "Enter" && !event.shiftKey) {
     event.preventDefault();
     void submitPrompt();
   }
+});
+
+elements.composerInput?.addEventListener("input", () => {
+  refreshMentionSuggestions();
+});
+
+elements.composerInput?.addEventListener("click", () => {
+  refreshMentionSuggestions();
+});
+
+elements.composerInput?.addEventListener("keyup", (event) => {
+  if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
+    refreshMentionSuggestions();
+  }
+});
+
+elements.composerInput?.addEventListener("blur", () => {
+  window.setTimeout(() => {
+    hideMentionSuggestions();
+  }, 120);
 });
 
 elements.composerInput?.addEventListener("paste", (event) => {
@@ -2138,12 +3136,46 @@ elements.composerInput?.addEventListener("paste", (event) => {
   void saveClipboardImageAttachment();
 });
 
+elements.mentionSuggestions?.addEventListener("mousedown", (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  const item = target?.closest("[data-mention-index]") as HTMLElement | null;
+  const index = Number(item?.dataset.mentionIndex ?? -1);
+  if (index < 0) {
+    return;
+  }
+  event.preventDefault();
+  applyMentionSuggestion(index);
+});
+
+elements.projectSearchInput?.addEventListener("input", (event) => {
+  const target = event.target as HTMLInputElement | null;
+  state.projectSearchQuery = target?.value ?? "";
+  renderProjectList();
+});
+
+elements.messageSearchInput?.addEventListener("input", (event) => {
+  const target = event.target as HTMLInputElement | null;
+  state.messageSearchQuery = target?.value ?? "";
+  if (!state.messageSearchQuery.trim()) {
+    clearMessageSearchResults();
+    render();
+    return;
+  }
+  scheduleMessageSearch();
+});
+
 elements.projectList?.addEventListener("click", (event) => {
   const target = event.target instanceof Element ? event.target : null;
   const header = target?.closest("[data-group-header]") as HTMLElement | null;
   const groupKey = header?.dataset.groupHeader;
   if (groupKey) {
     toggleGroupCollapsed(groupKey);
+    return;
+  }
+  const workgroupItem = target?.closest("[data-workgroup-id]") as HTMLElement | null;
+  const workgroupId = workgroupItem?.dataset.workgroupId;
+  if (workgroupId) {
+    void selectWorkgroup(workgroupId);
     return;
   }
   const item = target?.closest("[data-project-id]") as HTMLElement | null;
@@ -2362,12 +3394,31 @@ api.onProjectSessionSnapshot((snapshot) => {
   syncHistoryStateFromSnapshot(snapshot);
   if (snapshot.projectId === state.projectId) {
     syncActiveViewForCurrentProject();
+    if (state.messageSearchQuery.trim()) {
+      scheduleMessageSearch();
+    }
   }
   render();
 });
 
 api.onProjectsChanged?.((projects) => {
   void syncProjects(projects);
+});
+
+api.onWorkgroupCollaborationSummaries?.((workgroups) => {
+  void syncWorkgroups(workgroups);
+});
+
+api.onWorkgroupCollaborationSnapshot?.((snapshot) => {
+  state.sessionsByWorkgroupId.set(snapshot.workgroupId, snapshot);
+  syncWorkgroupHistoryStateFromSnapshot(snapshot);
+  if (snapshot.workgroupId === state.workgroupId && state.messageSearchQuery.trim()) {
+    scheduleMessageSearch();
+  }
+  if (snapshot.workgroupId === state.workgroupId) {
+    refreshMentionSuggestions();
+  }
+  render();
 });
 
 api.onLangChanged?.((payload) => {
@@ -2403,4 +3454,5 @@ document.addEventListener("keydown", (event) => {
 hydrateProjectGroupState();
 void loadI18n();
 void syncProjects();
+void syncWorkgroups();
 render();

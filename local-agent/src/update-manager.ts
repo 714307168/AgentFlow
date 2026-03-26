@@ -42,6 +42,8 @@ interface UpdateManagerOptions {
 }
 
 class UpdateManager extends EventEmitter {
+  private static readonly SILENT_RESTART_WAIT_STEPS = 1800;
+  private static readonly SILENT_RESTART_WAIT_INTERVAL_MS = 500;
   private readonly options: UpdateManagerOptions;
   private state: UpdateState = {
     status: "idle",
@@ -187,6 +189,7 @@ class UpdateManager extends EventEmitter {
           stdio: "ignore",
           windowsHide: true,
         });
+        this.scheduleRestartAfterSilentInstall(child.pid ?? null);
         child.unref();
         this.setState({
           message: this.text(
@@ -493,6 +496,66 @@ class UpdateManager extends EventEmitter {
     } finally {
       this.silentInstallInFlight = false;
     }
+  }
+
+  private scheduleRestartAfterSilentInstall(installerPid: number | null): void {
+    if (process.platform !== "win32") {
+      return;
+    }
+
+    const targetPath = process.execPath;
+    if (!targetPath) {
+      return;
+    }
+
+    const parentPid = process.pid;
+    const installerPidValue = Number.isFinite(installerPid) && installerPid && installerPid > 0
+      ? installerPid
+      : 0;
+    const encodedCommand = Buffer.from(
+      [
+        `$parentPid = ${parentPid}`,
+        `$installerPid = ${installerPidValue}`,
+        `$targetPath = ${JSON.stringify(targetPath)}`,
+        `$waitSteps = ${UpdateManager.SILENT_RESTART_WAIT_STEPS}`,
+        `$waitIntervalMs = ${UpdateManager.SILENT_RESTART_WAIT_INTERVAL_MS}`,
+        "for ($i = 0; $i -lt $waitSteps; $i++) {",
+        "  if (-not (Get-Process -Id $parentPid -ErrorAction SilentlyContinue)) { break }",
+        "  Start-Sleep -Milliseconds $waitIntervalMs",
+        "}",
+        "if ($installerPid -gt 0) {",
+        "  for ($i = 0; $i -lt $waitSteps; $i++) {",
+        "    if (-not (Get-Process -Id $installerPid -ErrorAction SilentlyContinue)) { break }",
+        "    Start-Sleep -Milliseconds $waitIntervalMs",
+        "  }",
+        "}",
+        "Start-Sleep -Seconds 2",
+        "if (Test-Path $targetPath) {",
+        "  Start-Process -FilePath $targetPath | Out-Null",
+        "}",
+      ].join("\n"),
+      "utf16le",
+    ).toString("base64");
+
+    const helper = spawn(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-WindowStyle",
+        "Hidden",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-EncodedCommand",
+        encodedCommand,
+      ],
+      {
+        detached: true,
+        stdio: "ignore",
+        windowsHide: true,
+      },
+    );
+    helper.unref();
   }
 }
 

@@ -43,7 +43,7 @@ What it does by default:
 3. copies both files into `artifacts/`
 4. deploys `relay-server`
 5. fixes production upload prerequisites
-6. uploads both packages
+6. uploads both packages directly to the server first, then posts them to the local relay admin API to reduce public egress
 7. verifies `/health`, `/api/update/check`, and download links
 
 If the release includes schema or access-control changes in `relay-server`, do not skip relay deployment.
@@ -182,6 +182,7 @@ Important for recent builds:
 - deploy `relay-server` before testing multi-desktop mobile sync
 - the server now migrates `agent_access_grants` automatically on startup
 - desktop silent update only starts when there are no running or queued local tasks
+- admin overview now includes per-event traffic statistics for quick release-day inspection
 
 ## Production Preconditions
 
@@ -367,6 +368,14 @@ After deploying the latest `relay-server`, also verify:
 2. call `GET /api/device/sync`
 3. confirm the `projects` array contains entries from multiple `agent_id` values
 4. confirm the Android app still loads the merged project list correctly
+
+### Admin Overview Verification
+
+After deployment, open `/admin` and verify:
+
+1. the overview summary cards load successfully
+2. the live connections table still renders
+3. the traffic-by-event table shows recent relay events with inbound and outbound bytes
 
 ## Common Failure Cases
 

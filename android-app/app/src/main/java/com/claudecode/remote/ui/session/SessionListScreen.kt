@@ -20,6 +20,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
@@ -55,6 +59,8 @@ import com.claudecode.remote.data.remote.RelayWebSocket
 import com.claudecode.remote.update.AppUpdateState
 import com.claudecode.remote.update.AppUpdateStatus
 
+private const val DEFAULT_GROUP_KEY = "__default__"
+
 @Composable
 fun SessionListScreen(
     viewModel: SessionViewModel,
@@ -66,11 +72,24 @@ fun SessionListScreen(
     onNavigateToChat: (session: Session) -> Unit,
     onRefreshSessions: () -> Unit,
     onToggleConnection: () -> Unit,
+    onNavigateToWorkgroups: () -> Unit,
     onNavigateToSettings: () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val connectionState by webSocket.connectionState.collectAsState()
     val connectionError by webSocket.errorMessage.collectAsState()
+    val totalWorkgroups = uiState.agentWorkgroups.sumOf { it.workgroups.size }
+    val workgroupPreview = uiState.agentWorkgroups
+        .flatMap { agentGroup -> agentGroup.workgroups }
+        .sortedByDescending { it.updatedAt }
+        .mapNotNull { workgroup ->
+            workgroup.lastMessagePreview?.trim()?.takeIf { it.isNotEmpty() }
+                ?: workgroup.name.trim().takeIf { it.isNotEmpty() }
+        }
+        .filter { it.isNotEmpty() }
+        .distinct()
+        .take(3)
+        .joinToString(separator = " · ")
 
     LaunchedEffect(Unit) {
         viewModel.initialize()
@@ -110,6 +129,12 @@ fun SessionListScreen(
                         onRefresh = onRefreshSessions,
                         onToggleConnection = onToggleConnection,
                         onOpenSettings = onNavigateToSettings
+                    )
+
+                    WorkgroupEntryCard(
+                        onClick = onNavigateToWorkgroups,
+                        workgroupCount = totalWorkgroups,
+                        previewText = workgroupPreview
                     )
 
                     if (updateState.status == AppUpdateStatus.AVAILABLE ||
@@ -164,10 +189,11 @@ fun SessionListScreen(
                         }
 
                         else -> {
+                            val defaultGroupName = stringResource(R.string.default_group)
                             val groupedSessions = uiState.sessions
                                 .groupBy { session ->
                                     session.groupName?.trim().takeUnless { it.isNullOrEmpty() }
-                                        ?: stringResource(R.string.default_group)
+                                        ?: DEFAULT_GROUP_KEY
                                 }
                                 .toSortedMap(compareBy(String.CASE_INSENSITIVE_ORDER) { it })
                             LazyColumn(
@@ -175,15 +201,28 @@ fun SessionListScreen(
                                 contentPadding = PaddingValues(bottom = 16.dp),
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                groupedSessions.forEach { (groupName, sessions) ->
-                                    item(key = "group-$groupName") {
-                                        GroupHeader(groupName = groupName, count = sessions.size)
+                                groupedSessions.forEach { (groupKey, sessions) ->
+                                    val groupName = if (groupKey == DEFAULT_GROUP_KEY) {
+                                        defaultGroupName
+                                    } else {
+                                        groupKey
                                     }
-                                    items(sessions, key = { it.id }) { session ->
-                                        SessionCard(
-                                            session = session,
-                                            onClick = { onNavigateToChat(session) }
+                                    val isCollapsed = uiState.collapsedGroupKeys.contains(groupKey)
+                                    item(key = "group-$groupKey") {
+                                        GroupHeader(
+                                            groupName = groupName,
+                                            count = sessions.size,
+                                            collapsed = isCollapsed,
+                                            onToggle = { viewModel.toggleGroupCollapsed(groupKey) }
                                         )
+                                    }
+                                    if (!isCollapsed) {
+                                        items(sessions, key = { it.id }) { session ->
+                                            SessionCard(
+                                                session = session,
+                                                onClick = { onNavigateToChat(session) }
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -255,7 +294,12 @@ fun SessionListScreen(
 }
 
 @Composable
-private fun GroupHeader(groupName: String, count: Int) {
+private fun GroupHeader(
+    groupName: String,
+    count: Int,
+    collapsed: Boolean,
+    onToggle: () -> Unit
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -263,23 +307,49 @@ private fun GroupHeader(groupName: String, count: Int) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Text(
-            text = groupName,
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onBackground,
-            fontWeight = FontWeight.SemiBold
-        )
+        Row(
+            modifier = Modifier.weight(1f),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                text = groupName,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onBackground,
+                fontWeight = FontWeight.SemiBold
+            )
+            Surface(
+                shape = RoundedCornerShape(999.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.14f))
+            ) {
+                Text(
+                    text = count.toString(),
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
         Surface(
             shape = RoundedCornerShape(999.dp),
             color = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f),
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.14f))
         ) {
-            Text(
-                text = count.toString(),
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            IconButton(
+                onClick = onToggle,
+                modifier = Modifier.size(30.dp)
+            ) {
+                Icon(
+                    imageVector = if (collapsed) Icons.Default.ExpandMore else Icons.Default.ExpandLess,
+                    contentDescription = if (collapsed) {
+                        stringResource(R.string.action_expand)
+                    } else {
+                        stringResource(R.string.action_collapse)
+                    },
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }
@@ -411,6 +481,79 @@ private fun SessionHeader(
                     onClick = onOpenSettings
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun WorkgroupEntryCard(
+    onClick: () -> Unit,
+    workgroupCount: Int,
+    previewText: String
+) {
+    Surface(
+        onClick = onClick,
+        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.9f),
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        shape = RoundedCornerShape(22.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
+        shadowElevation = 4.dp,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Surface(
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.size(40.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Default.Groups,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.workgroups_title),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = if (previewText.isNotBlank()) previewText else stringResource(R.string.workgroups_subtitle),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.76f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            if (workgroupCount > 0) {
+                Surface(
+                    shape = RoundedCornerShape(999.dp),
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
+                ) {
+                    Text(
+                        text = workgroupCount.toString(),
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+            )
         }
     }
 }

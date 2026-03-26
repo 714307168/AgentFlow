@@ -4,6 +4,17 @@ import { v4 as uuidv4 } from "uuid";
 import { ClientType, Envelope, Events } from "./types";
 import E2ECrypto, { EncryptedPayload } from "./crypto";
 
+interface RelayClientOptions {
+  clientType?: ClientType;
+  deviceId?: string;
+  resolveTargetAgentId?: (env: Envelope) => string | null;
+}
+
+interface RelayEncryptedEnvelopePayload extends EncryptedPayload {
+  sender_id?: string;
+  key_id?: string;
+}
+
 class RelayClient extends EventEmitter {
   private ws: WebSocket | null = null;
   private reconnectDelay: number = 1000;
@@ -18,13 +29,17 @@ class RelayClient extends EventEmitter {
   private intentionalDisconnect: boolean = false;
   private e2e: E2ECrypto;
   private e2eEnabled: boolean;
+  private readonly resolveTargetAgentId?: (env: Envelope) => string | null;
+  private readonly pendingRoomKeyOffers: Set<string> = new Set();
+  private readonly pendingEncryptedEnvelopes: Map<string, Envelope[]> = new Map();
+  private connectionGeneration = 0;
 
   constructor(
     serverUrl: string,
     agentId: string,
     token: string,
-    e2eEnabled: boolean = false,
-    options?: { clientType?: ClientType; deviceId?: string },
+    e2eEnabled: boolean = true,
+    options?: RelayClientOptions,
   ) {
     super();
     this.serverUrl = serverUrl;
@@ -34,6 +49,7 @@ class RelayClient extends EventEmitter {
     this.token = token;
     this.e2eEnabled = e2eEnabled;
     this.e2e = new E2ECrypto();
+    this.resolveTargetAgentId = options?.resolveTargetAgentId;
   }
 
   getE2E(): E2ECrypto {
@@ -63,11 +79,16 @@ class RelayClient extends EventEmitter {
 
   connect(): void {
     this.intentionalDisconnect = false;
-    this.ws = new WebSocket(this.serverUrl);
-    this.ws.on("open", () => this.onOpen());
-    this.ws.on("message", (data: WebSocket.RawData) => this.onMessage(data.toString()));
-    this.ws.on("close", () => this.onClose());
-    this.ws.on("error", (err: Error) => this.onError(err));
+    this.connectionGeneration += 1;
+    const generation = this.connectionGeneration;
+    this.ws?.removeAllListeners();
+    this.ws?.terminate();
+    const socket = new WebSocket(this.serverUrl);
+    this.ws = socket;
+    socket.on("open", () => this.onOpen(generation, socket));
+    socket.on("message", (data: WebSocket.RawData) => this.onMessage(generation, socket, data.toString()));
+    socket.on("close", () => this.onClose(generation, socket));
+    socket.on("error", (err: Error) => this.onError(generation, socket, err));
   }
 
   disconnect(): void {
@@ -77,6 +98,8 @@ class RelayClient extends EventEmitter {
       this.reconnectTimer = null;
     }
     if (this.ws) {
+      this.connectionGeneration += 1;
+      this.ws.removeAllListeners();
       this.ws.close();
       this.ws = null;
     }
@@ -87,10 +110,18 @@ class RelayClient extends EventEmitter {
       console.warn("[RelayClient] Cannot send - not connected");
       return;
     }
-    this.ws.send(JSON.stringify(env));
+    const outgoing = this.prepareOutgoingEnvelope(env);
+    if (!outgoing) {
+      return;
+    }
+    this.ws.send(JSON.stringify(outgoing));
   }
 
-  private onOpen(): void {
+  private onOpen(generation: number, socket: WebSocket): void {
+    if (!this.isCurrentSocket(generation, socket)) {
+      socket.terminate();
+      return;
+    }
     console.log("[RelayClient] Connected to relay server");
     this.resetBackoff();
     const event = this.lastSeq > 0 ? Events.AUTH_RESUME : Events.AUTH_LOGIN;
@@ -116,7 +147,10 @@ class RelayClient extends EventEmitter {
     this.emit("connected");
   }
 
-  private onMessage(data: string): void {
+  private onMessage(generation: number, socket: WebSocket, data: string): void {
+    if (!this.isCurrentSocket(generation, socket)) {
+      return;
+    }
     try {
       const env: Envelope = JSON.parse(data);
       if (env.seq !== undefined && env.seq > this.lastSeq) {
@@ -130,38 +164,102 @@ class RelayClient extends EventEmitter {
         this.send({ id: uuidv4(), event: Events.PONG, ts: Date.now() });
         return;
       }
+      if (env.event === Events.AUTH_OK && this.clientType === "device") {
+        const payload = env.payload as { agent_id?: string } | undefined;
+        const agentId = payload?.agent_id?.trim();
+        if (agentId) {
+          this.ensureRoomKey(agentId);
+        }
+      }
       // Handle E2E key exchange
       if (env.event === Events.E2E_OFFER) {
-        const payload = env.payload as { public_key?: string } | undefined;
-        const deviceId = (env.payload as any)?.device_id;
+        const payload = env.payload as { public_key?: string; device_id?: string; agent_id?: string } | undefined;
+        const deviceId = payload?.device_id?.trim();
         if (payload?.public_key && deviceId) {
           this.e2e.deriveSharedSecret(deviceId, payload.public_key);
-          // Send our public key back
+          const roomKey = this.e2e.getOrCreateRoomKey(this.agentId);
+          const encryptedRoomKey = this.e2e.encrypt(deviceId, JSON.stringify({
+            room_key: roomKey,
+            agent_id: this.agentId,
+          }));
+          if (!encryptedRoomKey) {
+            return;
+          }
           this.send({
             id: uuidv4(),
             event: Events.E2E_ANSWER,
             project_id: env.project_id,
             ts: Date.now(),
-            payload: { public_key: this.e2e.getPublicKey(), agent_id: this.agentId },
+            payload: {
+              public_key: this.e2e.getPublicKey(),
+              agent_id: this.agentId,
+              device_id: deviceId,
+              ciphertext: encryptedRoomKey.ciphertext,
+              nonce: encryptedRoomKey.nonce,
+              encrypted: true,
+            },
           });
         }
         return;
       }
       if (env.event === Events.E2E_ANSWER) {
-        const payload = env.payload as { public_key?: string; device_id?: string } | undefined;
-        if (payload?.public_key && payload?.device_id) {
-          this.e2e.deriveSharedSecret(payload.device_id, payload.public_key);
+        const payload = env.payload as {
+          public_key?: string;
+          device_id?: string;
+          agent_id?: string;
+          ciphertext?: string;
+          nonce?: string;
+          encrypted?: boolean;
+        } | undefined;
+        const agentId = payload?.agent_id?.trim();
+        if (payload?.public_key && agentId) {
+          this.e2e.deriveSharedSecret(agentId, payload.public_key);
+        }
+        if (agentId && payload?.encrypted && payload.ciphertext && payload.nonce) {
+          const decrypted = this.e2e.decrypt(agentId, {
+            encrypted: true,
+            ciphertext: payload.ciphertext,
+            nonce: payload.nonce,
+          });
+          if (decrypted) {
+            const roomPayload = JSON.parse(decrypted) as { room_key?: string; agent_id?: string };
+            const roomAgentId = roomPayload.agent_id?.trim() || agentId;
+            const roomKey = roomPayload.room_key?.trim();
+            if (roomAgentId && roomKey) {
+              this.e2e.setRoomKey(roomAgentId, roomKey);
+              this.pendingRoomKeyOffers.delete(roomAgentId);
+              this.flushPendingEncryptedEnvelopes(roomAgentId);
+            }
+          }
         }
         return;
       }
       // Decrypt E2E payload if needed
       if (this.e2eEnabled && env.payload && (env.payload as any)?.encrypted) {
-        const senderId = (env.payload as any)?.sender_id;
-        if (senderId && this.e2e.hasKey(senderId)) {
-          const decrypted = this.e2e.decrypt(senderId, env.payload as unknown as EncryptedPayload);
-          if (decrypted) {
-            env.payload = JSON.parse(decrypted);
+        const encryptedPayload = env.payload as RelayEncryptedEnvelopePayload;
+        const keyId = typeof encryptedPayload.key_id === "string" ? encryptedPayload.key_id.trim() : "";
+        let decrypted: string | null = null;
+        if (keyId.startsWith("agent:")) {
+          const roomId = keyId.slice("agent:".length).trim();
+          if (roomId) {
+            decrypted = this.e2e.decryptWithRoomKey(roomId, encryptedPayload);
           }
+        }
+        if (!decrypted) {
+          const senderId = typeof encryptedPayload.sender_id === "string" ? encryptedPayload.sender_id.trim() : "";
+          if (senderId && this.e2e.hasKey(senderId)) {
+            decrypted = this.e2e.decrypt(senderId, encryptedPayload);
+          }
+        }
+        if (decrypted) {
+          env.payload = JSON.parse(decrypted);
+        }
+      }
+      if (env.event === Events.PROJECT_LISTED && this.clientType === "device") {
+        const payload = env.payload as { agent_id?: string } | undefined;
+        const agentId = payload?.agent_id?.trim();
+        if (agentId) {
+          this.ensureRoomKey(agentId);
         }
       }
       this.emit("message", env);
@@ -170,7 +268,10 @@ class RelayClient extends EventEmitter {
     }
   }
 
-  private onClose(): void {
+  private onClose(generation: number, socket: WebSocket): void {
+    if (!this.isCurrentSocket(generation, socket)) {
+      return;
+    }
     console.log("[RelayClient] Connection closed");
     this.ws = null;
     this.emit("disconnected");
@@ -179,7 +280,10 @@ class RelayClient extends EventEmitter {
     }
   }
 
-  private onError(err: Error): void {
+  private onError(generation: number, socket: WebSocket, err: Error): void {
+    if (!this.isCurrentSocket(generation, socket)) {
+      return;
+    }
     console.error("[RelayClient] WebSocket error:", err.message);
     this.emit("error", err);
   }
@@ -196,6 +300,137 @@ class RelayClient extends EventEmitter {
 
   private resetBackoff(): void {
     this.reconnectDelay = 1000;
+  }
+
+  private prepareOutgoingEnvelope(env: Envelope): Envelope | null {
+    if (!this.e2eEnabled || !env.payload || !this.shouldEncryptEvent(env)) {
+      return env;
+    }
+
+    if (this.clientType === "agent") {
+      const encrypted = this.e2e.encryptWithRoomKey(this.agentId, JSON.stringify(env.payload));
+      if (!encrypted) {
+        return env;
+      }
+      return {
+        ...env,
+        payload: {
+          ...encrypted,
+          sender_id: this.agentId,
+          key_id: `agent:${this.agentId}`,
+        },
+      };
+    }
+
+    const targetAgentId = this.getTargetAgentId(env);
+    if (!targetAgentId) {
+      return env;
+    }
+
+    if (!this.e2e.hasRoomKey(targetAgentId)) {
+      this.ensureRoomKey(targetAgentId);
+      this.queuePendingEncryptedEnvelope(targetAgentId, env);
+      return null;
+    }
+
+    const encrypted = this.e2e.encryptWithRoomKey(targetAgentId, JSON.stringify(env.payload));
+    if (!encrypted) {
+      return env;
+    }
+    return {
+      ...env,
+      payload: {
+        ...encrypted,
+        sender_id: this.deviceId,
+        key_id: `agent:${targetAgentId}`,
+      },
+    };
+  }
+
+  private shouldEncryptEvent(env: Envelope): boolean {
+    if (!env.payload) {
+      return false;
+    }
+    const bypassEvents = new Set<string>([
+      Events.AUTH_LOGIN,
+      Events.AUTH_RESUME,
+      Events.AUTH_REFRESH,
+      Events.AUTH_OK,
+      Events.AUTH_ERROR,
+      Events.PING,
+      Events.PONG,
+      Events.PROJECT_BIND,
+      Events.PROJECT_BOUND,
+      Events.PROJECT_LIST,
+      Events.PROJECT_LIST_REQUEST,
+      Events.PROJECT_LISTED,
+      Events.AGENT_STATUS,
+      Events.E2E_OFFER,
+      Events.E2E_ANSWER,
+      Events.ERROR,
+    ]);
+    return !bypassEvents.has(env.event);
+  }
+
+  private getTargetAgentId(env: Envelope): string | null {
+    const resolvedByCallback = this.resolveTargetAgentId?.(env)?.trim();
+    if (resolvedByCallback) {
+      return resolvedByCallback;
+    }
+    const payload = env.payload as Record<string, unknown> | null;
+    const payloadAgentId = typeof payload?.agent_id === "string" ? payload.agent_id.trim() : "";
+    if (payloadAgentId) {
+      return payloadAgentId;
+    }
+    return null;
+  }
+
+  private ensureRoomKey(agentId: string): void {
+    const normalizedAgentId = agentId.trim();
+    if (
+      !this.e2eEnabled
+      || this.clientType !== "device"
+      || !normalizedAgentId
+      || !this.deviceId
+      || this.pendingRoomKeyOffers.has(normalizedAgentId)
+      || this.e2e.hasRoomKey(normalizedAgentId)
+    ) {
+      return;
+    }
+
+    this.pendingRoomKeyOffers.add(normalizedAgentId);
+    this.send({
+      id: uuidv4(),
+      event: Events.E2E_OFFER,
+      ts: Date.now(),
+      payload: {
+        public_key: this.e2e.getPublicKey(),
+        agent_id: normalizedAgentId,
+        device_id: this.deviceId,
+      },
+    });
+  }
+
+  private queuePendingEncryptedEnvelope(agentId: string, env: Envelope): void {
+    const queue = this.pendingEncryptedEnvelopes.get(agentId) ?? [];
+    queue.push(env);
+    this.pendingEncryptedEnvelopes.set(agentId, queue);
+  }
+
+  private flushPendingEncryptedEnvelopes(agentId: string): void {
+    const queue = this.pendingEncryptedEnvelopes.get(agentId);
+    if (!queue?.length) {
+      this.pendingEncryptedEnvelopes.delete(agentId);
+      return;
+    }
+    this.pendingEncryptedEnvelopes.delete(agentId);
+    for (const env of queue) {
+      this.send(env);
+    }
+  }
+
+  private isCurrentSocket(generation: number, socket: WebSocket): boolean {
+    return this.connectionGeneration === generation && this.ws === socket;
   }
 }
 

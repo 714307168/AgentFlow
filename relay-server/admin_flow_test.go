@@ -56,6 +56,13 @@ type adminOverviewResponse struct {
 		Agents  int `json:"agents"`
 		Devices int `json:"devices"`
 	} `json:"summary"`
+	Traffic []struct {
+		Event         string `json:"event"`
+		InboundCount  int64  `json:"inbound_count"`
+		InboundBytes  int64  `json:"inbound_bytes"`
+		OutboundCount int64  `json:"outbound_count"`
+		OutboundBytes int64  `json:"outbound_bytes"`
+	} `json:"traffic"`
 }
 
 type userLoginResponse struct {
@@ -202,6 +209,9 @@ func TestAdminFlow(t *testing.T) {
 	doJSON(t, client, http.MethodGet, server.URL+"/admin/api/overview", nil, http.StatusOK, &overview)
 	if overview.Summary.Users < 2 || overview.Summary.Agents < 1 || overview.Summary.Devices < 1 {
 		t.Fatalf("unexpected overview summary: %+v", overview.Summary)
+	}
+	if overview.Traffic == nil {
+		t.Fatal("expected overview traffic field")
 	}
 
 	doJSON(t, client, http.MethodPost, server.URL+"/admin/api/account/password", map[string]any{

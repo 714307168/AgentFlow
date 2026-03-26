@@ -41,7 +41,7 @@ class TokenStore(context: Context) {
         prefs.edit().putBoolean(KEY_E2E_ENABLED, enabled).apply()
     }
 
-    fun isE2EEnabled(): Boolean = prefs.getBoolean(KEY_E2E_ENABLED, false)
+    fun isE2EEnabled(): Boolean = prefs.getBoolean(KEY_E2E_ENABLED, true)
 
     fun saveE2EPrivateKey(key: String) {
         prefs.edit().putString(KEY_E2E_PRIVATE, key).apply()
@@ -122,6 +122,13 @@ class TokenStore(context: Context) {
         prefs.edit().remove(projectDraftKey(projectId)).apply()
     }
 
+    fun saveCollapsedSessionGroups(groupKeys: Set<String>) {
+        prefs.edit().putStringSet(KEY_COLLAPSED_SESSION_GROUPS, groupKeys.toSet()).apply()
+    }
+
+    fun getCollapsedSessionGroups(): Set<String> =
+        prefs.getStringSet(KEY_COLLAPSED_SESSION_GROUPS, emptySet())?.toSet() ?: emptySet()
+
     fun clear() {
         prefs.edit().clear().apply()
     }
@@ -140,6 +147,7 @@ class TokenStore(context: Context) {
         private const val KEY_AUTO_UPDATE_CHECK = "auto_update_check"
         private const val KEY_AUTO_UPDATE_DOWNLOAD = "auto_update_download"
         private const val KEY_CRASH_LOGS_ENABLED = "crash_logs_enabled"
+        private const val KEY_COLLAPSED_SESSION_GROUPS = "collapsed_session_groups"
 
         private fun projectDraftKey(projectId: String): String = "draft_$projectId"
     }

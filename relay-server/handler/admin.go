@@ -177,9 +177,18 @@ type adminLiveConnection struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+type adminEventTrafficItem struct {
+	Event         string `json:"event"`
+	InboundCount  int64  `json:"inbound_count"`
+	InboundBytes  int64  `json:"inbound_bytes"`
+	OutboundCount int64  `json:"outbound_count"`
+	OutboundBytes int64  `json:"outbound_bytes"`
+}
+
 type adminOverviewResponse struct {
-	Summary     adminOverviewSummary  `json:"summary"`
-	Connections []adminLiveConnection `json:"connections"`
+	Summary     adminOverviewSummary    `json:"summary"`
+	Connections []adminLiveConnection   `json:"connections"`
+	Traffic     []adminEventTrafficItem `json:"traffic"`
 }
 
 func resolveScopedUserID(session adminSession, requestedUserID int, database *db.DB) (int, error) {
@@ -547,10 +556,23 @@ func AdminOverviewHandler(cfg *config.Config, database *db.DB, h *hub.Hub) http.
 			})
 		}
 
+		trafficSnapshot := h.TrafficSnapshot()
+		traffic := make([]adminEventTrafficItem, 0, len(trafficSnapshot))
+		for _, item := range trafficSnapshot {
+			traffic = append(traffic, adminEventTrafficItem{
+				Event:         item.Event,
+				InboundCount:  item.InboundCount,
+				InboundBytes:  item.InboundBytes,
+				OutboundCount: item.OutboundCount,
+				OutboundBytes: item.OutboundBytes,
+			})
+		}
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(adminOverviewResponse{
 			Summary:     summary,
 			Connections: connections,
+			Traffic:     traffic,
 		})
 	})
 }

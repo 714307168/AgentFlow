@@ -20,7 +20,7 @@ The project contains three main parts:
 - Desktop execution through Claude Code CLI with sync back to mobile
 - Self-hosted relay architecture
 - Desktop and Android update checks
-- Admin UI for users, devices, and release publishing
+- Admin UI for users, devices, release publishing, and traffic-by-event visibility
 - Per-project local history with incremental sync
 
 ## Repository Layout
@@ -123,6 +123,12 @@ Supported behaviors:
 - optional automatic check
 - optional automatic download
 - install still requires user confirmation
+
+The admin overview also exposes:
+
+- live desktop and device connection visibility
+- release publishing management
+- aggregated inbound and outbound traffic grouped by relay event type
 
 Example endpoints:
 

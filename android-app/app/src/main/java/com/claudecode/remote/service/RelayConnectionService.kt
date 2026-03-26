@@ -118,6 +118,7 @@ class RelayConnectionService : Service() {
         try {
             container.sessionRepository.processEnvelope(envelope)
             container.messageRepository.processEnvelope(envelope)
+            container.workgroupRepository.processEnvelope(envelope)
             notificationHelper.handleEnvelope(
                 envelope = envelope,
                 uiPresenceTracker = container.uiPresenceTracker,
