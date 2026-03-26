@@ -44,6 +44,8 @@ interface UpdateManagerOptions {
 class UpdateManager extends EventEmitter {
   private static readonly SILENT_RESTART_WAIT_STEPS = 1800;
   private static readonly SILENT_RESTART_WAIT_INTERVAL_MS = 500;
+  private static readonly SILENT_RESTART_LAUNCH_RETRY_STEPS = 240;
+  private static readonly SILENT_RESTART_LAUNCH_RETRY_INTERVAL_MS = 1000;
   private readonly options: UpdateManagerOptions;
   private state: UpdateState = {
     status: "idle",
@@ -517,8 +519,11 @@ class UpdateManager extends EventEmitter {
         `$parentPid = ${parentPid}`,
         `$installerPid = ${installerPidValue}`,
         `$targetPath = ${JSON.stringify(targetPath)}`,
+        "$targetDir = Split-Path -Parent $targetPath",
         `$waitSteps = ${UpdateManager.SILENT_RESTART_WAIT_STEPS}`,
         `$waitIntervalMs = ${UpdateManager.SILENT_RESTART_WAIT_INTERVAL_MS}`,
+        `$launchRetrySteps = ${UpdateManager.SILENT_RESTART_LAUNCH_RETRY_STEPS}`,
+        `$launchRetryIntervalMs = ${UpdateManager.SILENT_RESTART_LAUNCH_RETRY_INTERVAL_MS}`,
         "for ($i = 0; $i -lt $waitSteps; $i++) {",
         "  if (-not (Get-Process -Id $parentPid -ErrorAction SilentlyContinue)) { break }",
         "  Start-Sleep -Milliseconds $waitIntervalMs",
@@ -529,9 +534,22 @@ class UpdateManager extends EventEmitter {
         "    Start-Sleep -Milliseconds $waitIntervalMs",
         "  }",
         "}",
-        "Start-Sleep -Seconds 2",
-        "if (Test-Path $targetPath) {",
-        "  Start-Process -FilePath $targetPath | Out-Null",
+        "for ($i = 0; $i -lt $launchRetrySteps; $i++) {",
+        "  if (-not (Test-Path $targetPath)) {",
+        "    Start-Sleep -Milliseconds $launchRetryIntervalMs",
+        "    continue",
+        "  }",
+        "  try {",
+        "    $existing = @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $targetPath })",
+        "    if ($existing.Count -gt 0) { break }",
+        "  } catch { }",
+        "  try {",
+        "    Start-Process -FilePath $targetPath -WorkingDirectory $targetDir | Out-Null",
+        "    Start-Sleep -Milliseconds 1500",
+        "    $started = @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $targetPath })",
+        "    if ($started.Count -gt 0) { break }",
+        "  } catch { }",
+        "  Start-Sleep -Milliseconds $launchRetryIntervalMs",
         "}",
       ].join("\n"),
       "utf16le",

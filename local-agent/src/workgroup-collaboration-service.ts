@@ -130,7 +130,7 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       description: normalizeText(workgroup.description),
       allowDirectMemberMessages: Boolean(workgroup.allowDirectMemberMessages),
       updatedAt,
-      isRunning: members.some((member) => member.isRunning),
+      isRunning: this.computeWorkgroupRunningState(workgroup.id),
       messageTotal: historyPage.total,
       members,
       messages: historyPage.items,
@@ -251,7 +251,7 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       name: workgroup.name,
       description: normalizeText(workgroup.description),
       updatedAt: Math.max(workgroup.updatedAt, session?.updatedAt ?? 0, latestMessage?.updatedAt ?? 0),
-      isRunning: members.some((member) => member.isRunning),
+      isRunning: this.computeWorkgroupRunningState(workgroup.id),
       lastMessagePreview: latestMessage?.content?.trim()
         ? latestMessage.content.trim().replace(/\s+/g, " ").slice(0, 120)
         : null,
@@ -281,6 +281,12 @@ export default class WorkgroupCollaborationService extends EventEmitter {
         };
       })
       .sort((left, right) => left.name.localeCompare(right.name, "zh-CN"));
+  }
+
+  private computeWorkgroupRunningState(workgroupId: string): boolean {
+    return workgroupCollaborationStore
+      .listMessages(workgroupId)
+      .some((message) => message.status === "streaming");
   }
 
   private reconcileStaleStreamingMessages(workgroup: Workgroup): void {
