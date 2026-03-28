@@ -23,6 +23,10 @@ import kotlinx.serialization.json.jsonPrimitive
 
 private const val MESSAGE_PAGE_SIZE = 30
 private const val MESSAGE_SYNC_PAGE_SIZE = 80
+private const val ACTIVE_SYNC_OVERLAP_COUNT = 12
+private const val ACTIVE_SYNC_POLL_MS = 900L
+private const val IDLE_SYNC_POLL_MS = 4_000L
+private const val ACTIVE_SYNC_BURST_MS = 12_000L
 
 data class ConversationItem(
     val id: String,
@@ -73,6 +77,8 @@ class ChatViewModel(
     private var allMessages: List<Message> = emptyList()
     private var visibleMessageCount: Int = MESSAGE_PAGE_SIZE
     private var isAutoLoadingConversationHistory = false
+    private var activeSyncJob: Job? = null
+    private var syncBurstUntilMillis: Long = 0L
 
     init {
         viewModelScope.launch {
@@ -84,7 +90,12 @@ class ChatViewModel(
 
                 if (isConnected) {
                     lastSyncedProjectId = null
-                    requestProjectSyncIfConnected(force = true)
+                    markSyncBurst()
+                    requestProjectSyncIfConnected(force = true, recentOverlapCount = ACTIVE_SYNC_OVERLAP_COUNT)
+                    startActiveSyncLoop()
+                } else {
+                    activeSyncJob?.cancel()
+                    activeSyncJob = null
                 }
             }
         }
@@ -114,6 +125,8 @@ class ChatViewModel(
             )
         }
         lastSyncedProjectId = null
+        markSyncBurst()
+        startActiveSyncLoop()
 
         sessionJob?.cancel()
         sessionJob = viewModelScope.launch {
@@ -140,6 +153,9 @@ class ChatViewModel(
                             isSwitchingConversation = false
                         )
                     }
+                    if ((session?.isRunning == true) || (session?.queuedCount ?: 0) > 0) {
+                        markSyncBurst()
+                    }
                 }
             } catch (e: Exception) {
                 CrashLogger.logError("ChatViewModel", "Error collecting session metadata", e)
@@ -159,10 +175,13 @@ class ChatViewModel(
             }
         }
 
-        requestProjectSyncIfConnected(force = true)
+        requestProjectSyncIfConnected(force = true, recentOverlapCount = ACTIVE_SYNC_OVERLAP_COUNT)
     }
 
-    private fun requestProjectSyncIfConnected(force: Boolean = false) {
+    private fun requestProjectSyncIfConnected(
+        force: Boolean = false,
+        recentOverlapCount: Int = ACTIVE_SYNC_OVERLAP_COUNT
+    ) {
         val state = _uiState.value
         if (state.projectId.isBlank()) {
             return
@@ -180,7 +199,8 @@ class ChatViewModel(
                 messageRepository.requestProjectSync(
                     projectId = state.projectId,
                     agentId = state.agentId,
-                    limit = MESSAGE_SYNC_PAGE_SIZE
+                    limit = MESSAGE_SYNC_PAGE_SIZE,
+                    recentOverlapCount = recentOverlapCount
                 )
             } catch (e: Exception) {
                 lastSyncedProjectId = null
@@ -314,6 +334,7 @@ class ChatViewModel(
         val optimisticStartedAt = System.currentTimeMillis()
 
         tokenStore.clearDraft(state.projectId)
+        markSyncBurst()
         _uiState.update {
             it.copy(
                 inputText = "",
@@ -375,6 +396,7 @@ class ChatViewModel(
     fun stopTask() {
         val state = _uiState.value
         if (state.projectId.isBlank() || !state.isRunning) return
+        markSyncBurst()
         viewModelScope.launch {
             try {
                 messageRepository.sendStopTask(state.projectId, state.agentId)
@@ -522,6 +544,51 @@ class ChatViewModel(
                 _uiState.update { it.copy(isLoadingOlder = false) }
             }
         }
+    }
+
+    private fun startActiveSyncLoop() {
+        val projectId = _uiState.value.projectId
+        if (projectId.isBlank()) {
+            return
+        }
+        activeSyncJob?.cancel()
+        activeSyncJob = viewModelScope.launch {
+            while (true) {
+                val state = _uiState.value
+                if (state.projectId.isBlank()) {
+                    break
+                }
+                if (webSocket.connectionState.value == RelayWebSocket.ConnectionState.CONNECTED) {
+                    val now = System.currentTimeMillis()
+                    val shouldAggressivelySync = state.isRunning ||
+                        state.isSending ||
+                        state.messages.lastOrNull()?.isStreaming == true ||
+                        now < syncBurstUntilMillis
+                    requestProjectSyncIfConnected(
+                        force = shouldAggressivelySync,
+                        recentOverlapCount = if (shouldAggressivelySync) {
+                            ACTIVE_SYNC_OVERLAP_COUNT
+                        } else {
+                            ACTIVE_SYNC_OVERLAP_COUNT / 2
+                        }
+                    )
+                    kotlinx.coroutines.delay(
+                        if (shouldAggressivelySync) ACTIVE_SYNC_POLL_MS else IDLE_SYNC_POLL_MS
+                    )
+                } else {
+                    kotlinx.coroutines.delay(IDLE_SYNC_POLL_MS)
+                }
+            }
+        }
+    }
+
+    private fun markSyncBurst(durationMs: Long = ACTIVE_SYNC_BURST_MS) {
+        syncBurstUntilMillis = System.currentTimeMillis() + durationMs
+    }
+
+    override fun onCleared() {
+        activeSyncJob?.cancel()
+        super.onCleared()
     }
 
     private fun parseConversationItems(

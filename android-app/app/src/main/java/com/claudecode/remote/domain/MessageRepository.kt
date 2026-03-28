@@ -66,7 +66,7 @@ class MessageRepository(
     companion object {
         private const val MAX_PROJECT_MESSAGES = 180
         private const val DEFAULT_SYNC_LIMIT = 30
-        private const val PROJECT_SYNC_DEDUPE_WINDOW_MS = 1_500L
+        private const val PROJECT_SYNC_DEDUPE_WINDOW_MS = 750L
         private const val WAKEUP_THROTTLE_WINDOW_MS = 10_000L
         private const val FILE_CHUNK_SIZE = 64 * 1024
         private const val FILE_UPLOAD_TIMEOUT_MS = 120_000L
@@ -76,6 +76,7 @@ class MessageRepository(
         private const val MAX_PREVIEW_EDGE = 480
         private const val MAX_PREVIEW_BYTES = 220 * 1024
         private const val SYNC_KNOWN_ITEM_LIMIT = 60
+        private const val RECENT_SYNC_OVERLAP_COUNT = 6
     }
 
     private data class UploadAck(
@@ -130,6 +131,7 @@ class MessageRepository(
         limit: Int? = null,
         action: String? = null,
         conversationId: String? = null,
+        recentOverlapCount: Int = RECENT_SYNC_OVERLAP_COUNT,
         shouldWakeAgent: Boolean = true
     ) {
         if (shouldWakeAgent) {
@@ -137,6 +139,9 @@ class MessageRepository(
         }
         val storedAfterSeq = sessionDao.getSessionByProjectId(projectId)?.lastSyncSeq ?: 0L
         var afterSeq = afterSeqOverride ?: storedAfterSeq
+        if (beforeSeq == null && afterSeqOverride == null && afterSeq > 0L && recentOverlapCount > 0) {
+            afterSeq = maxOf(0L, afterSeq - recentOverlapCount.toLong())
+        }
 
         if (beforeSeq == null && afterSeqOverride == null && storedAfterSeq > 0L) {
             val syncBounds = messageDao.getProjectSyncBounds(projectId)
@@ -501,6 +506,7 @@ class MessageRepository(
                         projectId = projectId,
                         agentId = sessionDao.getSessionByProjectId(projectId)?.agentId,
                         limit = DEFAULT_SYNC_LIMIT,
+                        recentOverlapCount = RECENT_SYNC_OVERLAP_COUNT * 2,
                         shouldWakeAgent = false
                     )
                 }
@@ -526,6 +532,7 @@ class MessageRepository(
                         projectId = projectId,
                         agentId = sessionDao.getSessionByProjectId(projectId)?.agentId,
                         limit = DEFAULT_SYNC_LIMIT,
+                        recentOverlapCount = RECENT_SYNC_OVERLAP_COUNT * 2,
                         shouldWakeAgent = false
                     )
                 }
