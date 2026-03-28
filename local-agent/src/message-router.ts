@@ -217,6 +217,7 @@ class MessageRouter {
       group_name?: string | null;
       cli_provider?: CliProvider;
       cli_model?: string | null;
+      project_prompt?: string | null;
     } | undefined;
     const projectId = payload?.project_id ?? payload?.id;
 
@@ -235,6 +236,7 @@ class MessageRouter {
         groupName: payload.group_name?.trim() || (existing.groupName ?? null),
         cliProvider,
         cliModel: payload.cli_model?.trim() ? payload.cli_model.trim() : existing.cliModel ?? null,
+        projectPrompt: payload.project_prompt?.trim() ? payload.project_prompt.trim() : existing.projectPrompt ?? null,
       });
     } else {
       projectStore.add({
@@ -245,6 +247,7 @@ class MessageRouter {
         groupName: payload.group_name?.trim() || null,
         cliProvider,
         cliModel: payload.cli_model?.trim() ? payload.cli_model.trim() : null,
+        projectPrompt: payload.project_prompt?.trim() ? payload.project_prompt.trim() : null,
         createdAt: Date.now(),
       });
     }
@@ -278,6 +281,7 @@ class MessageRouter {
     this.relayClient.send({
       id: uuidv4(),
       event: Events.WORKGROUP_LIST,
+      agent_id: payload.agent_id,
       ts: Date.now(),
       payload,
     });
@@ -320,6 +324,7 @@ class MessageRouter {
     this.relayClient.send({
       id: uuidv4(),
       event: Events.WORKGROUP_COMMAND_RESULT,
+      agent_id: nextPayload?.agent_id ?? "",
       ts: Date.now(),
       payload: {
         request_id: env.id,
@@ -339,6 +344,7 @@ class MessageRouter {
     this.relayClient.send({
       id: uuidv4(),
       event: Events.WORKGROUP_COLLABORATION_LIST,
+      agent_id: payload.agent_id,
       ts: Date.now(),
       payload,
     });
@@ -379,6 +385,8 @@ class MessageRouter {
     this.relayClient.send({
       id: uuidv4(),
       event: Events.WORKGROUP_COLLABORATION_SESSION,
+      agent_id: sessionPayload.agent_id,
+      workgroup_id: workgroupId,
       ts: Date.now(),
       payload: {
         request_id: env.id,
@@ -412,6 +420,8 @@ class MessageRouter {
     this.relayClient.send({
       id: uuidv4(),
       event: Events.WORKGROUP_COLLABORATION_MESSAGE_RESULT,
+      agent_id: relayPayload?.agent_id ?? "",
+      workgroup_id: workgroupId,
       ts: Date.now(),
       payload: {
         request_id: env.id,
@@ -437,6 +447,12 @@ class MessageRouter {
       action?: string;
       conversation_id?: string;
       run_id?: string;
+      project_updates?: {
+        group_name?: string | null;
+        cli_provider?: CliProvider;
+        cli_model?: string | null;
+        project_prompt?: string | null;
+      };
       known_items?: Array<{
         id?: string;
         content_md5?: string;
@@ -456,6 +472,23 @@ class MessageRouter {
       this.options.runtimeManager.activateConversation(projectId, requestedConversationId);
     } else if (action === SessionSyncActions.REMOVE_QUEUE && requestedRunId) {
       this.options.runtimeManager.removeQueuedRun(projectId, requestedRunId);
+    } else if (action === SessionSyncActions.UPDATE_PROJECT_CONFIG) {
+      const existing = projectStore.getById(projectId);
+      if (existing) {
+        const fallbackProvider = existing.cliProvider ?? (this.options.getDefaultCliProvider?.() ?? "claude");
+        projectStore.update(projectId, {
+          groupName: payloadObject?.project_updates?.group_name?.trim() || null,
+          cliProvider: this.normalizeCliProvider(payloadObject?.project_updates?.cli_provider, fallbackProvider),
+          cliModel: payloadObject?.project_updates?.cli_model?.trim()
+            ? payloadObject.project_updates.cli_model.trim()
+            : null,
+          projectPrompt: payloadObject?.project_updates?.project_prompt?.trim()
+            ? payloadObject.project_updates.project_prompt.trim()
+            : null,
+        });
+        this.options.syncProjectCatalog?.();
+        this.options.onProjectsChanged?.();
+      }
     }
 
     const snapshot = this.options.runtimeManager.getSnapshot(projectId);

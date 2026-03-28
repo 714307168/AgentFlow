@@ -3,6 +3,7 @@ package hub
 import (
 	"encoding/json"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -15,13 +16,14 @@ import (
 
 // ProjectInfo stores project metadata
 type ProjectInfo struct {
-	ID          string
-	Name        string
-	Path        string
-	GroupName   string
-	AgentID     string
-	CLIProvider string
-	CLIModel    string
+	ID            string
+	Name          string
+	Path          string
+	GroupName     string
+	AgentID       string
+	CLIProvider   string
+	CLIModel      string
+	ProjectPrompt string
 }
 
 var agentOfflineGracePeriod = 6 * time.Second
@@ -52,6 +54,25 @@ type EventTrafficCounter struct {
 	InboundBytes  int64  `json:"inbound_bytes"`
 	OutboundCount int64  `json:"outbound_count"`
 	OutboundBytes int64  `json:"outbound_bytes"`
+}
+
+func resolveEnvelopeAgentID(env *model.Envelope) string {
+	if env == nil {
+		return ""
+	}
+	if agentID := strings.TrimSpace(env.AgentID); agentID != "" {
+		return agentID
+	}
+	if len(env.Payload) == 0 {
+		return ""
+	}
+	var payload struct {
+		AgentID string `json:"agent_id"`
+	}
+	if err := json.Unmarshal(env.Payload, &payload); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(payload.AgentID)
 }
 
 // NewHub creates a Hub with the given configuration.
@@ -290,14 +311,7 @@ func (h *Hub) HandleMessage(from *Client, env *model.Envelope) {
 			h.sendError(from, env.ID, "forbidden", "only devices can request workgroup data")
 			return
 		}
-		var payload model.AgentScopedPayload
-		if len(env.Payload) > 0 {
-			if err := json.Unmarshal(env.Payload, &payload); err != nil {
-				h.sendError(from, env.ID, "bad_request", "invalid workgroup.list.request payload")
-				return
-			}
-		}
-		agentID := payload.AgentID
+		agentID := resolveEnvelopeAgentID(env)
 		if agentID == "" {
 			agentID = from.AgentID
 		}
@@ -313,14 +327,7 @@ func (h *Hub) HandleMessage(from *Client, env *model.Envelope) {
 			h.sendError(from, env.ID, "forbidden", "only devices can send workgroup commands")
 			return
 		}
-		var payload model.WorkgroupCommandPayload
-		if len(env.Payload) > 0 {
-			if err := json.Unmarshal(env.Payload, &payload); err != nil {
-				h.sendError(from, env.ID, "bad_request", "invalid workgroup.command payload")
-				return
-			}
-		}
-		agentID := payload.AgentID
+		agentID := resolveEnvelopeAgentID(env)
 		if agentID == "" {
 			agentID = from.AgentID
 		}
@@ -336,11 +343,7 @@ func (h *Hub) HandleMessage(from *Client, env *model.Envelope) {
 			h.sendError(from, env.ID, "forbidden", "only agents can publish workgroup updates")
 			return
 		}
-		var payload model.AgentScopedPayload
-		if len(env.Payload) > 0 {
-			_ = json.Unmarshal(env.Payload, &payload)
-		}
-		agentID := payload.AgentID
+		agentID := resolveEnvelopeAgentID(env)
 		if agentID == "" {
 			agentID = from.AgentID
 		}
@@ -354,18 +357,14 @@ func (h *Hub) HandleMessage(from *Client, env *model.Envelope) {
 			h.sendError(from, env.ID, "forbidden", "only devices can request workgroup collaboration data")
 			return
 		}
-		var payload model.AgentScopedPayload
-		if len(env.Payload) > 0 {
-			if err := json.Unmarshal(env.Payload, &payload); err != nil {
-				h.sendError(from, env.ID, "bad_request", "invalid workgroup.collaboration.list.request payload")
-				return
-			}
-		}
-		agentID := payload.AgentID
+		agentID := resolveEnvelopeAgentID(env)
 		if agentID == "" {
 			agentID = from.AgentID
 		}
 		if !h.authorizeAgentAccess(from, env.ID, agentID) {
+			return
+		}
+		if !h.authorizePublishedWorkgroupAccess(from, env.ID, agentID, env.WorkgroupID) {
 			return
 		}
 		if !h.SendToAgent(agentID, env) {
@@ -377,18 +376,14 @@ func (h *Hub) HandleMessage(from *Client, env *model.Envelope) {
 			h.sendError(from, env.ID, "forbidden", "only devices can request workgroup collaboration sessions")
 			return
 		}
-		var payload model.WorkgroupCollaborationSessionRequestPayload
-		if len(env.Payload) > 0 {
-			if err := json.Unmarshal(env.Payload, &payload); err != nil {
-				h.sendError(from, env.ID, "bad_request", "invalid workgroup.collaboration.session.request payload")
-				return
-			}
-		}
-		agentID := payload.AgentID
+		agentID := resolveEnvelopeAgentID(env)
 		if agentID == "" {
 			agentID = from.AgentID
 		}
 		if !h.authorizeAgentAccess(from, env.ID, agentID) {
+			return
+		}
+		if !h.authorizePublishedWorkgroupAccess(from, env.ID, agentID, env.WorkgroupID) {
 			return
 		}
 		if !h.SendToAgent(agentID, env) {
@@ -400,18 +395,14 @@ func (h *Hub) HandleMessage(from *Client, env *model.Envelope) {
 			h.sendError(from, env.ID, "forbidden", "only devices can send workgroup collaboration messages")
 			return
 		}
-		var payload model.WorkgroupCollaborationMessageSendPayload
-		if len(env.Payload) > 0 {
-			if err := json.Unmarshal(env.Payload, &payload); err != nil {
-				h.sendError(from, env.ID, "bad_request", "invalid workgroup.collaboration.message.send payload")
-				return
-			}
-		}
-		agentID := payload.AgentID
+		agentID := resolveEnvelopeAgentID(env)
 		if agentID == "" {
 			agentID = from.AgentID
 		}
 		if !h.authorizeAgentAccess(from, env.ID, agentID) {
+			return
+		}
+		if !h.authorizePublishedWorkgroupAccess(from, env.ID, agentID, env.WorkgroupID) {
 			return
 		}
 		if !h.SendToAgent(agentID, env) {
@@ -423,11 +414,7 @@ func (h *Hub) HandleMessage(from *Client, env *model.Envelope) {
 			h.sendError(from, env.ID, "forbidden", "only agents can publish workgroup collaboration updates")
 			return
 		}
-		var payload model.AgentScopedPayload
-		if len(env.Payload) > 0 {
-			_ = json.Unmarshal(env.Payload, &payload)
-		}
-		agentID := payload.AgentID
+		agentID := resolveEnvelopeAgentID(env)
 		if agentID == "" {
 			agentID = from.AgentID
 		}
@@ -523,13 +510,14 @@ func (h *Hub) HandleMessage(from *Client, env *model.Envelope) {
 		}
 		h.projects.Store(p.ProjectID, from.AgentID)
 		h.projectInfos.Store(p.ProjectID, &ProjectInfo{
-			ID:          p.ProjectID,
-			Name:        p.Name,
-			Path:        p.Path,
-			GroupName:   p.GroupName,
-			AgentID:     from.AgentID,
-			CLIProvider: p.CLIProvider,
-			CLIModel:    p.CLIModel,
+			ID:            p.ProjectID,
+			Name:          p.Name,
+			Path:          p.Path,
+			GroupName:     p.GroupName,
+			AgentID:       from.AgentID,
+			CLIProvider:   p.CLIProvider,
+			CLIModel:      p.CLIModel,
+			ProjectPrompt: p.ProjectPrompt,
 		})
 		from.ProjectIDs = h.GetProjectIDsByAgent(from.AgentID)
 		log.Info().Str("project_id", p.ProjectID).Str("agent_id", from.AgentID).Msg("project bound")
@@ -819,6 +807,26 @@ func (h *Hub) authorizeAgentAccess(from *Client, refID, agentID string) bool {
 	return true
 }
 
+func (h *Hub) authorizePublishedWorkgroupAccess(from *Client, refID, agentID, workgroupID string) bool {
+	if from == nil || from.Type != model.ClientTypeDevice {
+		return true
+	}
+	if strings.TrimSpace(agentID) == "" || strings.TrimSpace(workgroupID) == "" || h.store == nil || from.UserID <= 0 {
+		return true
+	}
+
+	exists, allowed := h.store.CheckCollaborationGroupAccess(from.UserID, agentID, workgroupID)
+	if !exists {
+		return true
+	}
+	if allowed {
+		return true
+	}
+
+	h.sendError(from, refID, "forbidden", "device is not authorized for workgroup")
+	return false
+}
+
 func (h *Hub) refreshDeviceAccess(from *Client, refID string) bool {
 	if from.Type != model.ClientTypeDevice || from.DeviceID == "" || h.store == nil {
 		return true
@@ -889,13 +897,14 @@ func (h *Hub) sendError(to *Client, refID, code, message string) {
 func (h *Hub) BindProject(projectID, agentID, name, path, groupName, cliProvider, cliModel string) {
 	h.projects.Store(projectID, agentID)
 	h.projectInfos.Store(projectID, &ProjectInfo{
-		ID:          projectID,
-		Name:        name,
-		Path:        path,
-		GroupName:   groupName,
-		AgentID:     agentID,
-		CLIProvider: cliProvider,
-		CLIModel:    cliModel,
+		ID:            projectID,
+		Name:          name,
+		Path:          path,
+		GroupName:     groupName,
+		AgentID:       agentID,
+		CLIProvider:   cliProvider,
+		CLIModel:      cliModel,
+		ProjectPrompt: "",
 	})
 	log.Info().Str("project_id", projectID).Str("agent_id", agentID).Msg("project bound via REST")
 	h.broadcastProjectList(agentID)
@@ -961,13 +970,14 @@ func (h *Hub) ReplaceAgentProjects(agentID string, projects []model.ProjectListI
 		}
 		h.projects.Store(project.ID, agentID)
 		h.projectInfos.Store(project.ID, &ProjectInfo{
-			ID:          project.ID,
-			Name:        project.Name,
-			Path:        project.Path,
-			GroupName:   project.GroupName,
-			AgentID:     agentID,
-			CLIProvider: project.CLIProvider,
-			CLIModel:    project.CLIModel,
+			ID:            project.ID,
+			Name:          project.Name,
+			Path:          project.Path,
+			GroupName:     project.GroupName,
+			AgentID:       agentID,
+			CLIProvider:   project.CLIProvider,
+			CLIModel:      project.CLIModel,
+			ProjectPrompt: project.ProjectPrompt,
 		})
 	}
 
@@ -1025,14 +1035,15 @@ func (h *Hub) getAgentProjectListItems(agentID string) []model.ProjectListItem {
 			return true
 		}
 		projects = append(projects, model.ProjectListItem{
-			ID:          info.ID,
-			AgentID:     info.AgentID,
-			Name:        info.Name,
-			Path:        info.Path,
-			GroupName:   info.GroupName,
-			CLIProvider: info.CLIProvider,
-			CLIModel:    info.CLIModel,
-			Online:      online,
+			ID:            info.ID,
+			AgentID:       info.AgentID,
+			Name:          info.Name,
+			Path:          info.Path,
+			GroupName:     info.GroupName,
+			CLIProvider:   info.CLIProvider,
+			CLIModel:      info.CLIModel,
+			ProjectPrompt: info.ProjectPrompt,
+			Online:        online,
 		})
 		return true
 	})

@@ -29,6 +29,7 @@ export interface RemoteProjectInfo {
   groupName?: string | null;
   cliProvider: CliProvider;
   cliModel?: string | null;
+  projectPrompt?: string | null;
   online?: boolean;
 }
 
@@ -398,6 +399,12 @@ export default class RemoteSessionStore extends EventEmitter {
     action?: string;
     conversationId?: string | null;
     runId?: string | null;
+    projectUpdates?: {
+      groupName?: string | null;
+      cliProvider?: CliProvider;
+      cliModel?: string | null;
+      projectPrompt?: string | null;
+    } | null;
   } = {}): void {
     this.relayClient.send({
       id: uuidv4(),
@@ -411,9 +418,68 @@ export default class RemoteSessionStore extends EventEmitter {
         action: options.action,
         conversation_id: options.conversationId ?? undefined,
         run_id: options.runId ?? undefined,
+        project_updates: options.projectUpdates ? {
+          group_name: options.projectUpdates.groupName ?? undefined,
+          cli_provider: options.projectUpdates.cliProvider ?? undefined,
+          cli_model: options.projectUpdates.cliModel ?? undefined,
+          project_prompt: options.projectUpdates.projectPrompt ?? undefined,
+        } : undefined,
         known_items: this.buildKnownSyncItems(projectId, options),
       },
     });
+  }
+
+  updateProjectConfig(projectId: string, updates: {
+    groupName?: string | null;
+    cliProvider?: CliProvider;
+    cliModel?: string | null;
+    projectPrompt?: string | null;
+  }): { success: boolean; error?: string } {
+    const state = this.states.get(projectId);
+    if (!state) {
+      return { success: false, error: "Remote project not found" };
+    }
+    if (state.project.online === false) {
+      return { success: false, error: "Remote project is offline" };
+    }
+    if (!this.relayClient.isConnected()) {
+      return { success: false, error: "Remote relay is disconnected" };
+    }
+
+    if (updates.groupName !== undefined) {
+      state.project.groupName = typeof updates.groupName === "string" && updates.groupName.trim()
+        ? updates.groupName.trim()
+        : null;
+    }
+    if (updates.cliProvider !== undefined) {
+      state.project.cliProvider = updates.cliProvider;
+      state.provider = updates.cliProvider;
+    }
+    if (updates.cliModel !== undefined) {
+      state.project.cliModel = typeof updates.cliModel === "string" && updates.cliModel.trim()
+        ? updates.cliModel.trim()
+        : null;
+      state.model = state.project.cliModel ?? null;
+    }
+    if (updates.projectPrompt !== undefined) {
+      state.project.projectPrompt = typeof updates.projectPrompt === "string" && updates.projectPrompt.trim()
+        ? updates.projectPrompt.trim()
+        : null;
+    }
+
+    this.emit("projects-changed", this.getProjects());
+    this.emitSnapshot(projectId);
+    this.requestSessionSync(projectId, {
+      action: SessionSyncActions.UPDATE_PROJECT_CONFIG,
+      limit: DEFAULT_PAGE_SIZE,
+      projectUpdates: {
+        groupName: state.project.groupName ?? null,
+        cliProvider: state.project.cliProvider,
+        cliModel: state.project.cliModel ?? null,
+        projectPrompt: state.project.projectPrompt ?? null,
+      },
+    });
+    return { success: true };
   }
 
   async sendPrompt(
@@ -593,6 +659,7 @@ export default class RemoteSessionStore extends EventEmitter {
         groupName: readString(item?.groupName ?? item?.group_name).trim() || null,
         cliProvider: readString(item?.cliProvider ?? item?.cli_provider) === "codex" ? "codex" : "claude",
         cliModel: readString(item?.cliModel ?? item?.cli_model).trim() || null,
+        projectPrompt: readString(item?.projectPrompt ?? item?.project_prompt).trim() || null,
         online: item?.online !== false,
         isRemote: true,
       };

@@ -163,6 +163,20 @@ func (db *DB) DeleteAgentAccessGrant(controllerUserID int, targetAgentID string)
 	return nil
 }
 
+func (db *DB) DeleteAgentAccessGrantByNote(controllerUserID int, targetAgentID string, note string) error {
+	res, err := db.Exec(`
+		DELETE FROM agent_access_grants
+		WHERE controller_user_id = ? AND target_agent_id = ? AND note = ?
+	`, controllerUserID, targetAgentID, note)
+	if err != nil {
+		return fmt.Errorf("failed to delete access grant by note: %w", err)
+	}
+	if _, err := res.RowsAffected(); err != nil {
+		return fmt.Errorf("failed to read delete result: %w", err)
+	}
+	return nil
+}
+
 func (db *DB) ListIncomingAgentAccessGrants(ownerUserID int) ([]AgentAccessGrant, error) {
 	rows, err := db.Query(`
 		SELECT

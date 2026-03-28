@@ -92,6 +92,153 @@ func TestAccessGrantsHandlerListsOwnedAndGrantedAgents(t *testing.T) {
 	}
 }
 
+func TestWorkgroupLeaveRevokesGrantedAccess(t *testing.T) {
+	dataDir := t.TempDir()
+	database, err := db.Open(dataDir)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer database.Close()
+
+	owner, err := database.CreateUser("owner", "Owner12345A", false)
+	if err != nil {
+		t.Fatalf("create owner: %v", err)
+	}
+	member, err := database.CreateUser("member", "Member12345A", false)
+	if err != nil {
+		t.Fatalf("create member: %v", err)
+	}
+	if err := database.RegisterAgent("owner-agent", owner.ID, "Owner desktop"); err != nil {
+		t.Fatalf("register owner agent: %v", err)
+	}
+	if err := database.RegisterAgent("member-agent", member.ID, "Member desktop"); err != nil {
+		t.Fatalf("register member agent: %v", err)
+	}
+
+	server := newAccessAndWorkgroupTestServer(t, database, dataDir)
+	defer server.Close()
+
+	ownerToken := mustLoginClientToken(t, server.URL, "owner", "Owner12345A", "agent", "owner-agent")
+	memberToken := mustLoginClientToken(t, server.URL, "member", "Member12345A", "agent", "member-agent")
+	groupNumber := mustPublishWorkgroupRegistry(t, server.URL, ownerToken, "wg-release", "Release Squad")
+
+	doJSONRequest(t, http.MethodPost, server.URL+"/api/workgroups/registry/join", map[string]any{
+		"group_number": groupNumber,
+	}, http.StatusOK, memberToken, &map[string]any{})
+
+	assertControllableAgent(t, server.URL, memberToken, "owner-agent", true)
+
+	doJSONRequest(t, http.MethodPost, server.URL+"/api/workgroups/registry/leave", map[string]any{
+		"group_number": groupNumber,
+	}, http.StatusOK, memberToken, &map[string]any{})
+
+	assertControllableAgent(t, server.URL, memberToken, "owner-agent", false)
+}
+
+func TestWorkgroupKickRevokesGrantedAccess(t *testing.T) {
+	dataDir := t.TempDir()
+	database, err := db.Open(dataDir)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer database.Close()
+
+	owner, err := database.CreateUser("owner", "Owner12345A", false)
+	if err != nil {
+		t.Fatalf("create owner: %v", err)
+	}
+	member, err := database.CreateUser("member", "Member12345A", false)
+	if err != nil {
+		t.Fatalf("create member: %v", err)
+	}
+	if err := database.RegisterAgent("owner-agent", owner.ID, "Owner desktop"); err != nil {
+		t.Fatalf("register owner agent: %v", err)
+	}
+	if err := database.RegisterAgent("member-agent", member.ID, "Member desktop"); err != nil {
+		t.Fatalf("register member agent: %v", err)
+	}
+
+	server := newAccessAndWorkgroupTestServer(t, database, dataDir)
+	defer server.Close()
+
+	ownerToken := mustLoginClientToken(t, server.URL, "owner", "Owner12345A", "agent", "owner-agent")
+	memberToken := mustLoginClientToken(t, server.URL, "member", "Member12345A", "agent", "member-agent")
+	groupNumber := mustPublishWorkgroupRegistry(t, server.URL, ownerToken, "wg-release", "Release Squad")
+
+	doJSONRequest(t, http.MethodPost, server.URL+"/api/workgroups/registry/join", map[string]any{
+		"group_number": groupNumber,
+	}, http.StatusOK, memberToken, &map[string]any{})
+
+	assertControllableAgent(t, server.URL, memberToken, "owner-agent", true)
+
+	doJSONRequest(t, http.MethodPost, server.URL+"/api/workgroups/registry/kick", map[string]any{
+		"group_number": groupNumber,
+		"user_id":      member.ID,
+	}, http.StatusOK, ownerToken, &map[string]any{})
+
+	assertControllableAgent(t, server.URL, memberToken, "owner-agent", false)
+}
+
+func newAccessAndWorkgroupTestServer(t *testing.T, database *db.DB, dataDir string) *httptest.Server {
+	t.Helper()
+
+	cfg := &config.Config{
+		JWTSecret:    "relay-test-secret-20260324",
+		PingInterval: 30,
+		QueueSize:    100,
+		CORSOrigins:  "*",
+		DataDir:      dataDir,
+		DatabasePath: dataDir,
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/auth/login", handler.LoginHandler(database, cfg))
+	mux.HandleFunc("/api/access/grants", handler.AccessGrantsHandler(cfg, database))
+	mux.HandleFunc("/api/workgroups/registry/publish", handler.WorkgroupRegistryHandler(cfg, database))
+	mux.HandleFunc("/api/workgroups/registry/join", handler.WorkgroupRegistryHandler(cfg, database))
+	mux.HandleFunc("/api/workgroups/registry/leave", handler.WorkgroupRegistryHandler(cfg, database))
+	mux.HandleFunc("/api/workgroups/registry/kick", handler.WorkgroupRegistryHandler(cfg, database))
+	mux.HandleFunc("/api/workgroups/registry", handler.WorkgroupRegistryHandler(cfg, database))
+	return httptest.NewServer(mux)
+}
+
+func mustPublishWorkgroupRegistry(t *testing.T, baseURL, bearerToken, workgroupID, name string) string {
+	t.Helper()
+
+	var response struct {
+		Record struct {
+			GroupNumber string `json:"groupNumber"`
+		} `json:"record"`
+	}
+	doJSONRequest(t, http.MethodPost, baseURL+"/api/workgroups/registry/publish", map[string]any{
+		"workgroup_id": workgroupID,
+		"name":         name,
+		"description":  "release verification",
+		"members":      []map[string]any{},
+	}, http.StatusOK, bearerToken, &response)
+	if response.Record.GroupNumber == "" {
+		t.Fatalf("expected published group number")
+	}
+	return response.Record.GroupNumber
+}
+
+func assertControllableAgent(t *testing.T, baseURL, bearerToken, agentID string, want bool) {
+	t.Helper()
+
+	var overview accessOverviewPayload
+	doBearerJSON(t, baseURL+"/api/access/grants", bearerToken, http.StatusOK, &overview)
+	got := false
+	for _, item := range overview.ControllableAgents {
+		if item.AgentID == agentID {
+			got = true
+			break
+		}
+	}
+	if got != want {
+		t.Fatalf("controllable agent %s presence=%v, want %v; payload=%+v", agentID, got, want, overview.ControllableAgents)
+	}
+}
+
 func mustLoginClientToken(t *testing.T, baseURL, username, password, clientType, clientID string) string {
 	t.Helper()
 

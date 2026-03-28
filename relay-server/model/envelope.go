@@ -12,24 +12,24 @@ const (
 	EventAuthError   = "auth.error"
 
 	// Project events
-	EventProjectBind            = "project.bind"
-	EventProjectBound           = "project.bound"
-	EventProjectListRequest     = "project.list.request"
-	EventProjectList            = "project.list"
-	EventProjectListed          = "project.listed"
-	EventSessionSyncRequest     = "session.sync.request"
-	EventSessionSync            = "session.sync"
-	EventWorkgroupListRequest   = "workgroup.list.request"
-	EventWorkgroupList          = "workgroup.list"
-	EventWorkgroupCommand       = "workgroup.command"
-	EventWorkgroupCommandResult = "workgroup.command.result"
-	EventWorkgroupCollabListRequest   = "workgroup.collaboration.list.request"
-	EventWorkgroupCollabList          = "workgroup.collaboration.list"
+	EventProjectBind                   = "project.bind"
+	EventProjectBound                  = "project.bound"
+	EventProjectListRequest            = "project.list.request"
+	EventProjectList                   = "project.list"
+	EventProjectListed                 = "project.listed"
+	EventSessionSyncRequest            = "session.sync.request"
+	EventSessionSync                   = "session.sync"
+	EventWorkgroupListRequest          = "workgroup.list.request"
+	EventWorkgroupList                 = "workgroup.list"
+	EventWorkgroupCommand              = "workgroup.command"
+	EventWorkgroupCommandResult        = "workgroup.command.result"
+	EventWorkgroupCollabListRequest    = "workgroup.collaboration.list.request"
+	EventWorkgroupCollabList           = "workgroup.collaboration.list"
 	EventWorkgroupCollabSessionRequest = "workgroup.collaboration.session.request"
-	EventWorkgroupCollabSession       = "workgroup.collaboration.session"
-	EventWorkgroupCollabMessageSend   = "workgroup.collaboration.message.send"
-	EventWorkgroupCollabMessageResult = "workgroup.collaboration.message.result"
-	EventWorkgroupCollabSnapshot      = "workgroup.collaboration.snapshot"
+	EventWorkgroupCollabSession        = "workgroup.collaboration.session"
+	EventWorkgroupCollabMessageSend    = "workgroup.collaboration.message.send"
+	EventWorkgroupCollabMessageResult  = "workgroup.collaboration.message.result"
+	EventWorkgroupCollabSnapshot       = "workgroup.collaboration.snapshot"
 
 	// Message events
 	EventMessageSend  = "message.send"
@@ -71,13 +71,15 @@ const (
 
 // Envelope is the universal message wrapper for all WS communication
 type Envelope struct {
-	ID        string          `json:"id"`
-	Event     string          `json:"event"`
-	ProjectID string          `json:"project_id,omitempty"`
-	StreamID  string          `json:"stream_id,omitempty"`
-	Seq       int64           `json:"seq,omitempty"`
-	Payload   json.RawMessage `json:"payload,omitempty"`
-	Timestamp int64           `json:"ts"`
+	ID          string          `json:"id"`
+	Event       string          `json:"event"`
+	AgentID     string          `json:"agent_id,omitempty"`
+	WorkgroupID string          `json:"workgroup_id,omitempty"`
+	ProjectID   string          `json:"project_id,omitempty"`
+	StreamID    string          `json:"stream_id,omitempty"`
+	Seq         int64           `json:"seq,omitempty"`
+	Payload     json.RawMessage `json:"payload,omitempty"`
+	Timestamp   int64           `json:"ts"`
 }
 
 // AuthLoginPayload is the payload for auth.login
@@ -105,23 +107,25 @@ type AuthOKPayload struct {
 
 // ProjectBindPayload is the payload for project.bind
 type ProjectBindPayload struct {
-	ProjectID   string `json:"project_id"`
-	Path        string `json:"path"`
-	Name        string `json:"name"`
-	GroupName   string `json:"group_name,omitempty"`
-	CLIProvider string `json:"cli_provider,omitempty"`
-	CLIModel    string `json:"cli_model,omitempty"`
+	ProjectID     string `json:"project_id"`
+	Path          string `json:"path"`
+	Name          string `json:"name"`
+	GroupName     string `json:"group_name,omitempty"`
+	CLIProvider   string `json:"cli_provider,omitempty"`
+	CLIModel      string `json:"cli_model,omitempty"`
+	ProjectPrompt string `json:"project_prompt,omitempty"`
 }
 
 type ProjectListItem struct {
-	ID          string `json:"id"`
-	AgentID     string `json:"agent_id,omitempty"`
-	Name        string `json:"name"`
-	Path        string `json:"path"`
-	GroupName   string `json:"group_name,omitempty"`
-	CLIProvider string `json:"cli_provider,omitempty"`
-	CLIModel    string `json:"cli_model,omitempty"`
-	Online      bool   `json:"online"`
+	ID            string `json:"id"`
+	AgentID       string `json:"agent_id,omitempty"`
+	Name          string `json:"name"`
+	Path          string `json:"path"`
+	GroupName     string `json:"group_name,omitempty"`
+	CLIProvider   string `json:"cli_provider,omitempty"`
+	CLIModel      string `json:"cli_model,omitempty"`
+	ProjectPrompt string `json:"project_prompt,omitempty"`
+	Online        bool   `json:"online"`
 }
 
 type ProjectListPayload struct {
@@ -141,16 +145,16 @@ type WorkgroupCommandPayload struct {
 }
 
 type WorkgroupCollaborationSessionRequestPayload struct {
-	AgentID   string `json:"agent_id"`
+	AgentID     string `json:"agent_id"`
 	WorkgroupID string `json:"workgroup_id"`
-	BeforeID  string `json:"before_id,omitempty"`
-	Limit     int    `json:"limit,omitempty"`
+	BeforeID    string `json:"before_id,omitempty"`
+	Limit       int    `json:"limit,omitempty"`
 }
 
 type WorkgroupCollaborationMessageSendPayload struct {
-	AgentID    string `json:"agent_id"`
+	AgentID     string `json:"agent_id"`
 	WorkgroupID string `json:"workgroup_id"`
-	Content    string `json:"content"`
+	Content     string `json:"content"`
 }
 
 // MessageSendPayload is the payload for message.send
@@ -192,16 +196,16 @@ type FileSyncPayload struct {
 
 // E2EOfferPayload is the payload for e2e.offer (public key exchange)
 type E2EOfferPayload struct {
-	PublicKey string `json:"public_key"`           // base64-encoded ECDH public key
-	AgentID   string `json:"agent_id,omitempty"`   // target agent
-	DeviceID  string `json:"device_id,omitempty"`  // sender device
+	PublicKey string `json:"public_key"`          // base64-encoded ECDH public key
+	AgentID   string `json:"agent_id,omitempty"`  // target agent
+	DeviceID  string `json:"device_id,omitempty"` // sender device
 }
 
 // E2EAnswerPayload is the payload for e2e.answer
 type E2EAnswerPayload struct {
-	PublicKey string `json:"public_key"`            // base64-encoded ECDH public key
-	AgentID   string `json:"agent_id,omitempty"`    // sender agent
-	DeviceID  string `json:"device_id,omitempty"`   // target device
+	PublicKey  string `json:"public_key"`           // base64-encoded ECDH public key
+	AgentID    string `json:"agent_id,omitempty"`   // sender agent
+	DeviceID   string `json:"device_id,omitempty"`  // target device
 	Ciphertext string `json:"ciphertext,omitempty"` // encrypted room key payload
 	Nonce      string `json:"nonce,omitempty"`      // base64-encoded nonce
 	Encrypted  bool   `json:"encrypted,omitempty"`

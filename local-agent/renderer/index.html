@@ -35,6 +35,14 @@
         <div class="sidebar-header">
           <div class="sidebar-heading-block">
             <h1 class="sidebar-title" id="projectsTitle">Projects</h1>
+            <div class="sidebar-mode-switch" id="sidebarModeSwitch" aria-label="Sidebar mode">
+              <button class="sidebar-mode-tab active" id="sidebarProjectsTab" type="button" data-sidebar-mode="projects">
+                <span id="sidebarProjectsTabLabel">Private</span>
+              </button>
+              <button class="sidebar-mode-tab" id="sidebarWorkgroupsTab" type="button" data-sidebar-mode="workgroups">
+                <span id="sidebarWorkgroupsTabLabel">Groups</span>
+              </button>
+            </div>
             <input class="search-input sidebar-search" id="projectSearchInput" type="search" placeholder="Search workspace" />
           </div>
         </div>
@@ -120,7 +128,7 @@
           <div class="attachment-tray" id="attachmentTray"></div>
           <textarea
             id="composerInput"
-            rows="4"
+            rows="3"
             placeholder="Ask Claude Code or OpenAI Codex to inspect, edit, review, or debug this project."
           ></textarea>
           <div class="mention-suggestions hidden" id="mentionSuggestions" aria-label="Mention suggestions"></div>

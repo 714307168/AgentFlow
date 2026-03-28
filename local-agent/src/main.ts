@@ -11,6 +11,7 @@ import MessageRouter from "./message-router";
 import projectStore, { normalizeProjectGroupName, Project } from "./project-store";
 import ptyManager from "./pty-manager";
 import RemoteSessionStore, { RemoteProjectRecord } from "./remote-session-store";
+import RemoteWorkgroupStore, { RemoteWorkgroupRegistryRecord, parseCompositeWorkgroupId } from "./remote-workgroup-store";
 import RuntimeManager, { CliProvider, ProjectSessionSnapshot, RunAttachment } from "./runtime-manager";
 import workgroupStore, { Workgroup, WorkgroupMember, WorkgroupRole, WorkgroupTask, WorkgroupTaskStatus } from "./workgroup-store";
 import WorkgroupCollaborationService, {
@@ -32,6 +33,14 @@ import {
   getUniqueAttachmentPath,
   isImageAttachment,
 } from "./attachment-utils";
+import {
+  getDefaultLocalDataRoot,
+  getPersistedLocalDataRoot,
+  localDataRootsEqual,
+  migrateLocalDataRoot,
+  persistLocalDataRoot,
+  resolveLocalDataRoot,
+} from "./user-data-bootstrap";
 
 interface AgentConfig {
   serverUrl: string;
@@ -67,6 +76,7 @@ interface AppSettings {
   autoUpdateDownload: boolean;
   silentUpdateInstall: boolean;
   historyRetentionDays: number;
+  localDataRoot: string;
 }
 
 type SettingsPane = "connection" | "project" | "system";
@@ -111,7 +121,23 @@ interface WorkgroupTaskView extends WorkgroupTask {
 interface WorkgroupView extends Workgroup {
   members: WorkgroupMemberView[];
   tasks: WorkgroupTaskView[];
+  selectedProjectIds: string[];
 }
+
+interface WorkgroupRegistryRecord {
+  groupNumber: string;
+  workgroupId: string;
+  hostAgentId: string;
+  name: string;
+  description: string | null;
+  ownerUsername: string;
+  memberCount?: number;
+  canManage?: boolean;
+  joined?: boolean;
+  updatedAt: number;
+}
+
+const WORKGROUP_PM_PROJECT_PREFIX = "__workgroup_pm__:";
 
 const configStore = new Store<AgentConfig>({
   defaults: {
@@ -150,6 +176,7 @@ const appSettingsStore = new Store<AppSettings>({
     autoUpdateDownload: false,
     silentUpdateInstall: false,
     historyRetentionDays: 30,
+    localDataRoot: "",
   },
 });
 
@@ -172,6 +199,15 @@ const windowStateStore = new Store<WindowStateSchema>({
 appLogger.setEnabled(appSettingsStore.get("saveLogs") as boolean);
 appLogger.installConsoleCapture();
 
+function syncLocalDataRootSetting(nextRoot: string = app.getPath("userData")): void {
+  const normalizedRoot = String(nextRoot ?? "").trim();
+  if ((appSettingsStore.get("localDataRoot") as string | undefined) !== normalizedRoot) {
+    appSettingsStore.set("localDataRoot", normalizedRoot);
+  }
+}
+
+syncLocalDataRootSetting();
+
 let tray: Tray | null = null;
 let mainWindow: BrowserWindow | null = null;
 let workspaceWindow: BrowserWindow | null = null;
@@ -180,6 +216,7 @@ let activeSettingsPane: SettingsPane = "system";
 let relayClient: RelayClient | null = null;
 let controllerRelayClient: RelayClient | null = null;
 let remoteSessionStore: RemoteSessionStore | null = null;
+let remoteWorkgroupStore: RemoteWorkgroupStore | null = null;
 const lastBroadcastSyncSeqByProject = new Map<string, number>();
 const updateManager = new UpdateManager({
   getServerUrl: () => loadConfig().serverUrl,
@@ -217,6 +254,11 @@ const pendingWorkgroupCollaborationRelaySnapshots = new Map<string, WorkgroupCol
 const lastBroadcastWorkgroupCollaborationSnapshotHashByWorkgroup = new Map<string, string>();
 const WORKGROUP_COLLABORATION_RELAY_DEBOUNCE_MS = 200;
 let lastWorkgroupCollaborationRelayPayloadHash = "";
+const REMOTE_PROJECT_CATALOG_REFRESH_MIN_INTERVAL_MS = 5_000;
+const REMOTE_WORKGROUP_CATALOG_REFRESH_MIN_INTERVAL_MS = 15_000;
+let lastRemoteProjectCatalogRefreshAt = 0;
+let remoteProjectCatalogRefreshTimer: NodeJS.Timeout | null = null;
+let lastRemoteWorkgroupCatalogRefreshAt = 0;
 
 function clampTimeoutDelayMs(delayMs: number): number {
   if (!Number.isFinite(delayMs)) {
@@ -363,6 +405,28 @@ function getProjectCliModel(projectId: string): string | null {
 }
 
 function getProjectPrompt(projectId: string): string | null {
+  if (isWorkgroupPmProjectId(projectId)) {
+    const workgroupId = getWorkgroupIdFromPmProjectId(projectId);
+    if (!workgroupId) {
+      return null;
+    }
+    const workgroup = workgroupStore.getWorkgroupById(workgroupId);
+    const planWorkspacePath = ensureWorkgroupPlanDirectory(
+      workgroup?.planWorkspacePath ?? getDefaultWorkgroupPlanPath(workgroupId),
+    );
+    const memberNames = workgroupStore
+      .listMembers(workgroupId)
+      .filter((member) => member.kind !== "pm")
+      .map((member) => member.name)
+      .join(", ");
+    return [
+      `This is the planning workspace for workgroup ${workgroup?.name || workgroupId}.`,
+      "Act as the PM Agent.",
+      "Break the goal into concrete subtasks, track owner handoffs, summarize blockers, and write plans in this workspace when useful.",
+      `Planning workspace: ${planWorkspacePath || "unknown"}`,
+      `Members: ${memberNames || "none yet"}`,
+    ].join("\n");
+  }
   const project = projectStore.getById(projectId);
   const prompt = project?.projectPrompt?.trim() ?? "";
   return prompt || null;
@@ -377,6 +441,7 @@ function buildProjectListPayload(agentId: string): {
     group_name: string;
     cli_provider: CliProvider;
     cli_model: string;
+    project_prompt: string;
   }>;
 } {
   return {
@@ -388,6 +453,7 @@ function buildProjectListPayload(agentId: string): {
       group_name: project.groupName ?? "",
       cli_provider: project.cliProvider,
       cli_model: project.cliModel ?? "",
+      project_prompt: project.projectPrompt ?? "",
     })),
   };
 }
@@ -416,6 +482,20 @@ runtimeManager.pruneHistoryCache(appSettingsStore.get("historyRetentionDays") as
 const workgroupCollaborationService = new WorkgroupCollaborationService({
   runtimeManager,
   getBoundProject: (projectId: string): CollaborationBoundProject | null => {
+    if (isWorkgroupPmProjectId(projectId)) {
+      const workgroupId = getWorkgroupIdFromPmProjectId(projectId);
+      if (!workgroupId) {
+        return null;
+      }
+      const binding = getWorkgroupPmBinding(workgroupId);
+      return {
+        id: binding.projectId ?? projectId,
+        name: binding.projectName ?? "PM Agent",
+        path: binding.projectPath ?? getDefaultWorkgroupPlanPath(workgroupId),
+        kind: "local",
+        online: true,
+      };
+    }
     const project = getProjectById(projectId);
     if (!project) {
       return null;
@@ -750,11 +830,18 @@ function getProjectSnapshot(projectId: string): ProjectSessionSnapshot | null {
   return runtimeManager.getSnapshot(projectId);
 }
 
+function getAllWorkgroupCollaborationSummaries(): WorkgroupCollaborationSummary[] {
+  return [
+    ...workgroupCollaborationService.listSummaries(),
+    ...(remoteWorkgroupStore?.listSummaries() ?? []),
+  ].sort((left, right) => right.updatedAt - left.updatedAt || left.name.localeCompare(right.name, "zh-CN"));
+}
+
 function broadcastWorkgroupCollaborationSummaries(): void {
   if (workspaceWindow && !workspaceWindow.isDestroyed()) {
     workspaceWindow.webContents.send(
       "workgroup-collaboration-summaries",
-      workgroupCollaborationService.listSummaries(),
+      getAllWorkgroupCollaborationSummaries(),
     );
   }
   broadcastWorkgroupCollaborationRelaySummaries();
@@ -873,13 +960,14 @@ function broadcastWorkgroupCollaborationRelaySummaries(): void {
   if (payloadHash === lastWorkgroupCollaborationRelayPayloadHash) {
     return;
   }
-  lastWorkgroupCollaborationRelayPayloadHash = payloadHash;
-  relayClient.send({
-    id: uuidv4(),
-    event: Events.WORKGROUP_COLLABORATION_LIST,
-    ts: Date.now(),
-    payload,
-  });
+    lastWorkgroupCollaborationRelayPayloadHash = payloadHash;
+    relayClient.send({
+      id: uuidv4(),
+      event: Events.WORKGROUP_COLLABORATION_LIST,
+      agent_id: payload.agent_id,
+      ts: Date.now(),
+      payload,
+    });
 }
 
 function broadcastWorkgroupCollaborationRelaySnapshot(
@@ -927,6 +1015,8 @@ function broadcastWorkgroupCollaborationRelaySnapshot(
     relayClient.send({
       id: uuidv4(),
       event: Events.WORKGROUP_COLLABORATION_SNAPSHOT,
+      agent_id: agentId,
+      workgroup_id: workgroupId,
       ts: Date.now(),
       payload,
     });
@@ -937,11 +1027,67 @@ function isRemoteProjectRecord(project: Project | RemoteProjectRecord): project 
   return Boolean((project as RemoteProjectRecord).isRemote);
 }
 
+function getWorkgroupPmProjectId(workgroupId: string): string {
+  return `${WORKGROUP_PM_PROJECT_PREFIX}${workgroupId.trim()}`;
+}
+
+function isWorkgroupPmProjectId(projectId: string | null | undefined): boolean {
+  return String(projectId ?? "").trim().startsWith(WORKGROUP_PM_PROJECT_PREFIX);
+}
+
+function getWorkgroupIdFromPmProjectId(projectId: string | null | undefined): string | null {
+  const normalized = String(projectId ?? "").trim();
+  if (!isWorkgroupPmProjectId(normalized)) {
+    return null;
+  }
+  return normalized.slice(WORKGROUP_PM_PROJECT_PREFIX.length).trim() || null;
+}
+
+function getDefaultWorkgroupPlanPath(workgroupId: string): string {
+  return path.join(app.getPath("userData"), "workgroup-plans", workgroupId);
+}
+
+function ensureWorkgroupPlanDirectory(planWorkspacePath: string | null | undefined): string | null {
+  const resolved = typeof planWorkspacePath === "string" ? planWorkspacePath.trim() : "";
+  if (!resolved) {
+    return null;
+  }
+  fs.mkdirSync(resolved, { recursive: true });
+  return resolved;
+}
+
+function getWorkgroupPmBinding(
+  workgroupId: string,
+  fallback?: Partial<Pick<Workgroup, "planWorkspacePath">> & Partial<Pick<WorkgroupMember, "projectName" | "projectPath">>,
+): ResolvedWorkgroupProjectBinding {
+  const workgroup = workgroupStore.getWorkgroupById(workgroupId);
+  const planWorkspacePath = ensureWorkgroupPlanDirectory(
+    workgroup?.planWorkspacePath
+    ?? fallback?.planWorkspacePath
+    ?? fallback?.projectPath
+    ?? getDefaultWorkgroupPlanPath(workgroupId),
+  );
+  return {
+    projectId: getWorkgroupPmProjectId(workgroupId),
+    projectName: fallback?.projectName?.trim() || "PM Agent",
+    projectPath: planWorkspacePath,
+    projectKind: "local",
+    projectExists: Boolean(planWorkspacePath),
+    projectOnline: true,
+  };
+}
+
 function resolveWorkgroupProjectBinding(
   projectId?: string | null,
-  fallback?: Partial<Pick<WorkgroupMember, "projectName" | "projectPath" | "projectKind">>,
+  fallback?: Partial<Pick<WorkgroupMember, "projectName" | "projectPath" | "projectKind" | "kind">> & Partial<Pick<Workgroup, "planWorkspacePath">>,
 ): ResolvedWorkgroupProjectBinding {
   const normalizedProjectId = typeof projectId === "string" && projectId.trim() ? projectId.trim() : null;
+  if ((fallback?.kind === "pm" || isWorkgroupPmProjectId(normalizedProjectId)) && normalizedProjectId) {
+    const workgroupId = getWorkgroupIdFromPmProjectId(normalizedProjectId);
+    if (workgroupId) {
+      return getWorkgroupPmBinding(workgroupId, fallback);
+    }
+  }
   if (normalizedProjectId) {
     const liveProject = getProjectById(normalizedProjectId);
     if (liveProject) {
@@ -970,6 +1116,10 @@ function resolveWorkgroupProjectBinding(
 function getWorkgroupProjectBindingLabel(binding: ResolvedWorkgroupProjectBinding): string {
   if (!binding.projectId) {
     return "Unbound";
+  }
+
+  if (isWorkgroupPmProjectId(binding.projectId)) {
+    return "PM Agent: planning workspace";
   }
 
   const kindLabel = binding.projectKind === "remote" ? "Remote" : "Local";
@@ -1029,6 +1179,7 @@ function listSerializedWorkgroups(): WorkgroupView[] {
     .listWorkgroups()
     .sort((left, right) => right.updatedAt - left.updatedAt)
     .map((workgroup) => {
+      ensurePmMember(workgroup);
       const members = workgroupStore
         .listMembers(workgroup.id)
         .map(serializeWorkgroupMember)
@@ -1042,12 +1193,187 @@ function listSerializedWorkgroups(): WorkgroupView[] {
         ...workgroup,
         members,
         tasks,
+        selectedProjectIds: members
+          .filter((member) => member.kind !== "pm" && member.projectId)
+          .map((member) => member.projectId as string),
       };
     });
 }
 
 function getSerializedWorkgroupById(workgroupId: string): WorkgroupView | null {
   return listSerializedWorkgroups().find((entry) => entry.id === workgroupId) ?? null;
+}
+
+function buildWorkgroupRegistryPayload(workgroupId: string): {
+  workgroup_id: string;
+  name: string;
+  description?: string;
+  group_number?: string;
+  members: Array<{
+    id: string;
+    name: string;
+    role: WorkgroupRole;
+    kind: string;
+    project_id: string | null;
+    project_name: string | null;
+    project_kind: "local" | "remote" | null;
+  }>;
+} | null {
+  const workgroup = workgroupStore.getWorkgroupById(workgroupId);
+  if (!workgroup) {
+    return null;
+  }
+  const members = workgroupStore.listMembers(workgroup.id).map((member) => ({
+    id: member.id,
+    name: member.name,
+    role: member.role,
+    kind: member.kind ?? "project",
+    project_id: member.projectId ?? null,
+    project_name: member.projectName ?? null,
+    project_kind: member.projectKind ?? null,
+  }));
+  return {
+    workgroup_id: workgroup.id,
+    name: workgroup.name,
+    description: workgroup.description ?? undefined,
+    group_number: workgroup.groupNumber ?? undefined,
+    members,
+  };
+}
+
+async function requestWorkgroupRegistry<T>(
+  endpoint: string,
+  options: {
+    method?: "GET" | "POST" | "DELETE";
+    body?: Record<string, unknown>;
+  } = {},
+): Promise<T> {
+  const config = loadConfig();
+  const baseUrl = toHttpBaseUrl(config.serverUrl);
+  const token = config.token?.trim() ?? "";
+  if (!token) {
+    throw new Error("Please log in first.");
+  }
+
+  const url = endpoint.startsWith("http") ? endpoint : `${baseUrl}${endpoint}`;
+  const response = await fetch(url, {
+    method: options.method ?? "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(options.body ? { "Content-Type": "application/json" } : {}),
+    },
+    body: options.body ? JSON.stringify(options.body) : undefined,
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text.trim() || `Request failed with status ${response.status}`);
+  }
+
+  return await response.json() as T;
+}
+
+function ensurePmMember(workgroup: Workgroup): WorkgroupMember {
+  const planWorkspacePath = ensureWorkgroupPlanDirectory(
+    workgroup.planWorkspacePath ?? getDefaultWorkgroupPlanPath(workgroup.id),
+  ) ?? getDefaultWorkgroupPlanPath(workgroup.id);
+  const pmProjectId = getWorkgroupPmProjectId(workgroup.id);
+  const existingPm = workgroupStore
+    .listMembers(workgroup.id)
+    .find((member) => member.kind === "pm" || member.projectId === pmProjectId);
+  return workgroupStore.saveMember({
+    id: existingPm?.id,
+    workgroupId: workgroup.id,
+    name: existingPm?.name?.trim() || "PM Agent",
+    role: "project_manager",
+    kind: "pm",
+    projectId: pmProjectId,
+    projectName: "PM Agent",
+    projectPath: planWorkspacePath,
+    projectKind: "local",
+    allowedPaths: existingPm?.allowedPaths?.length ? existingPm.allowedPaths : [planWorkspacePath],
+    systemPrompt: existingPm?.systemPrompt?.trim()
+      || "Coordinate the workgroup, keep plans in this workspace, break goals into clear subtasks, and summarize final outcomes.",
+  });
+}
+
+function syncWorkgroupMembersFromSelection(workgroup: Workgroup, selectedProjectIds: string[]): void {
+  const selectedIds = Array.from(
+    new Set(
+      selectedProjectIds
+        .map((entry) => String(entry ?? "").trim())
+        .filter((entry) => Boolean(entry) && !isWorkgroupPmProjectId(entry)),
+    ),
+  );
+  const existingMembers = workgroupStore.listMembers(workgroup.id);
+  const projectMembers = existingMembers.filter((member) => member.kind !== "pm");
+  const existingByProjectId = new Map(
+    projectMembers
+      .filter((member) => member.projectId)
+      .map((member) => [member.projectId as string, member] as const),
+  );
+
+  for (const member of projectMembers) {
+    if (!member.projectId || selectedIds.includes(member.projectId)) {
+      continue;
+    }
+    workgroupStore.removeMember(member.id);
+  }
+
+  for (const projectId of selectedIds) {
+    const binding = resolveWorkgroupProjectBinding(projectId);
+    if (!binding.projectExists || !binding.projectId) {
+      continue;
+    }
+    const existing = existingByProjectId.get(projectId);
+    workgroupStore.saveMember({
+      id: existing?.id,
+      workgroupId: workgroup.id,
+      name: existing?.name?.trim() || binding.projectName || projectId,
+      role: existing?.role || (binding.projectKind === "remote" ? "qa" : "developer"),
+      kind: "project",
+      projectId: binding.projectId,
+      projectName: binding.projectName,
+      projectPath: binding.projectPath,
+      projectKind: binding.projectKind,
+      allowedPaths: existing?.allowedPaths ?? [],
+      systemPrompt: existing?.systemPrompt ?? null,
+    });
+  }
+
+  ensurePmMember(workgroup);
+}
+
+async function publishWorkgroupRegistry(workgroupId: string): Promise<WorkgroupRegistryRecord> {
+  const payload = buildWorkgroupRegistryPayload(workgroupId);
+  if (!payload) {
+    throw new Error("Workgroup not found");
+  }
+  const response = await requestWorkgroupRegistry<{ record: WorkgroupRegistryRecord }>("/api/workgroups/registry/publish", {
+    method: "POST",
+    body: payload,
+  });
+  const current = workgroupStore.getWorkgroupById(workgroupId);
+  if (current) {
+    workgroupStore.saveWorkgroup({
+      ...current,
+      id: current.id,
+      name: current.name,
+      description: current.description ?? null,
+      allowDirectMemberMessages: current.allowDirectMemberMessages,
+      groupNumber: response.record.groupNumber,
+      planWorkspacePath: current.planWorkspacePath ?? getDefaultWorkgroupPlanPath(current.id),
+      registryUpdatedAt: response.record.updatedAt,
+    });
+  }
+  return response.record;
+}
+
+async function removeWorkgroupRegistry(workgroupId: string): Promise<void> {
+  await requestWorkgroupRegistry<{ success: boolean }>(
+    `/api/workgroups/registry?workgroup_id=${encodeURIComponent(workgroupId)}`,
+    { method: "DELETE" },
+  );
 }
 
 function buildWorkgroupRelayPayload(): { agent_id: string; workgroups: WorkgroupView[] } | null {
@@ -1083,6 +1409,7 @@ function broadcastWorkgroupsChanged(): void {
     relayClient.send({
       id: uuidv4(),
       event: Events.WORKGROUP_LIST,
+      agent_id: relayPayload.agent_id,
       ts: Date.now(),
       payload: relayPayload,
     });
@@ -1153,6 +1480,11 @@ function touchWorkgroup(workgroupId: string): void {
     name: workgroup.name,
     description: workgroup.description ?? null,
     allowDirectMemberMessages: workgroup.allowDirectMemberMessages,
+    groupNumber: workgroup.groupNumber ?? null,
+    planWorkspacePath: ensureWorkgroupPlanDirectory(
+      workgroup.planWorkspacePath ?? getDefaultWorkgroupPlanPath(workgroup.id),
+    ),
+    registryUpdatedAt: workgroup.registryUpdatedAt ?? null,
   });
 }
 
@@ -1482,20 +1814,92 @@ function updateControllerRelayClientAuthFromConfig(): void {
   );
 }
 
+function ensureRemoteRelayReady(configOverride?: AgentConfig): boolean {
+  const config = configOverride ?? loadConfig();
+  if (
+    !config.username?.trim()
+    || !config.password?.trim()
+    || !config.agentId?.trim()
+    || !config.controllerToken?.trim()
+  ) {
+    return false;
+  }
+
+  if (!controllerRelayClient || !remoteSessionStore) {
+    if (controllerRelayClient) {
+      controllerRelayClient.disconnect();
+      controllerRelayClient = null;
+    }
+    remoteSessionStore = null;
+    initRemoteRelay(config);
+    return true;
+  }
+
+  updateControllerRelayClientAuthFromConfig();
+  if (controllerRelayClient.isConnected()) {
+    requestRemoteProjectCatalogRefresh();
+    scheduleRemoteProjectCatalogRefresh(1_500);
+    return true;
+  }
+
+  controllerRelayClient.connect();
+  return true;
+}
+
 function requestRemoteProjectCatalogRefresh(): void {
   if (!remoteSessionStore || !controllerRelayClient) {
     return;
   }
 
-  if (controllerRelayClient.isConnected()) {
-    remoteSessionStore.requestProjectList();
+  if (!controllerRelayClient.isConnected()) {
+    return;
   }
+
+  const now = Date.now();
+  const delayMs = REMOTE_PROJECT_CATALOG_REFRESH_MIN_INTERVAL_MS - (now - lastRemoteProjectCatalogRefreshAt);
+  if (delayMs > 0) {
+    if (!remoteProjectCatalogRefreshTimer) {
+      remoteProjectCatalogRefreshTimer = setTimeout(() => {
+        remoteProjectCatalogRefreshTimer = null;
+        requestRemoteProjectCatalogRefresh();
+      }, delayMs);
+    }
+    return;
+  }
+
+  lastRemoteProjectCatalogRefreshAt = now;
+  remoteSessionStore.requestProjectList();
 }
 
 function scheduleRemoteProjectCatalogRefresh(delayMs: number): void {
   setTimeout(() => {
     requestRemoteProjectCatalogRefresh();
   }, Math.max(0, delayMs));
+}
+
+async function refreshRemoteWorkgroupCatalog(force: boolean = false): Promise<void> {
+  if (!remoteWorkgroupStore) {
+    return;
+  }
+  const now = Date.now();
+  if (!force && now - lastRemoteWorkgroupCatalogRefreshAt < REMOTE_WORKGROUP_CATALOG_REFRESH_MIN_INTERVAL_MS) {
+    return;
+  }
+  lastRemoteWorkgroupCatalogRefreshAt = now;
+
+  try {
+    const response = await requestWorkgroupRegistry<{ records: WorkgroupRegistryRecord[] }>("/api/workgroups/registry/mine");
+    remoteWorkgroupStore.setRegistryRecords((response.records ?? []) as RemoteWorkgroupRegistryRecord[]);
+    if (controllerRelayClient?.isConnected()) {
+      remoteWorkgroupStore.requestSummaries();
+    }
+    broadcastWorkgroupCollaborationSummaries();
+  } catch (error) {
+    lastRemoteWorkgroupCatalogRefreshAt = 0;
+    appLogger.warn("workgroup", "Failed to refresh remote workgroup catalog.", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 function scheduleTokenRefresh(delayOverrideMs?: number): void {
@@ -1631,6 +2035,7 @@ async function refreshControllerToken(force: boolean = false): Promise<boolean> 
     if (!force && config.controllerToken && !isTokenExpiringSoon(config.controllerTokenExpiresAt)) {
       scheduleControllerTokenRefresh();
       updateControllerRelayClientAuthFromConfig();
+      ensureRemoteRelayReady(config);
       return true;
     }
 
@@ -1658,6 +2063,7 @@ async function refreshControllerToken(force: boolean = false): Promise<boolean> 
         deviceId,
       });
       updateControllerRelayClientAuthFromConfig();
+      ensureRemoteRelayReady(loadConfig());
       scheduleControllerTokenRefresh();
       return true;
     } catch (_error) {
@@ -1776,6 +2182,11 @@ function createWorkspaceWindow(): BrowserWindow {
     revealWindow(win);
   });
 
+  win.on("focus", () => {
+    requestRemoteProjectCatalogRefresh();
+    void refreshRemoteWorkgroupCatalog(true);
+  });
+
   win.webContents.on("did-finish-load", () => {
     win.webContents.send("lang-changed", getLangPayload());
     win.webContents.send("update-state-changed", updateManager.getState());
@@ -1838,6 +2249,7 @@ function sendProjectBind(project: Project, agentId: string): void {
       group_name: project.groupName ?? "",
       cli_provider: project.cliProvider,
       cli_model: project.cliModel ?? "",
+      project_prompt: project.projectPrompt ?? "",
     },
   });
 }
@@ -1936,6 +2348,10 @@ function initRemoteRelay(config: AgentConfig): void {
       clientType: "device",
       deviceId: controllerDeviceId,
       resolveTargetAgentId: (env) => {
+        const envelopeAgentId = env.agent_id?.trim() ?? "";
+        if (envelopeAgentId) {
+          return envelopeAgentId;
+        }
         const payload = (env.payload ?? {}) as Record<string, unknown>;
         const payloadAgentId = typeof payload.agent_id === "string" ? payload.agent_id.trim() : "";
         if (payloadAgentId) {
@@ -1952,6 +2368,9 @@ function initRemoteRelay(config: AgentConfig): void {
   remoteSessionStore = new RemoteSessionStore(controllerRelayClient, {
     localAgentId: () => loadConfig().agentId,
   });
+  remoteWorkgroupStore = new RemoteWorkgroupStore(controllerRelayClient, {
+    localAgentId: () => loadConfig().agentId,
+  });
 
   remoteSessionStore.on("projects-changed", () => {
     broadcastProjectsChanged();
@@ -1963,12 +2382,21 @@ function initRemoteRelay(config: AgentConfig): void {
       workspaceWindow.webContents.send("project-session-snapshot", snapshot);
     }
   });
+  remoteWorkgroupStore.on("summaries", () => {
+    broadcastWorkgroupCollaborationSummaries();
+  });
+  remoteWorkgroupStore.on("snapshot", (_workgroupId: string, snapshot: WorkgroupCollaborationSessionSnapshot) => {
+    if (workspaceWindow && !workspaceWindow.isDestroyed()) {
+      workspaceWindow.webContents.send("workgroup-collaboration-snapshot", snapshot);
+    }
+  });
 
   controllerRelayClient.on("connected", () => {
     scheduleControllerTokenRefresh();
     requestRemoteProjectCatalogRefresh();
     scheduleRemoteProjectCatalogRefresh(1_500);
     scheduleRemoteProjectCatalogRefresh(5_000);
+    void refreshRemoteWorkgroupCatalog(true);
   });
   controllerRelayClient.on("disconnected", () => {
     void 0;
@@ -1978,6 +2406,7 @@ function initRemoteRelay(config: AgentConfig): void {
   });
   controllerRelayClient.on("message", (env: any) => {
     remoteSessionStore?.handleEnvelope(env);
+    remoteWorkgroupStore?.handleEnvelope(env);
   });
   controllerRelayClient.on("error", () => {
     void 0;
@@ -2130,8 +2559,10 @@ async function handleDispatchWorkgroupTaskRequest(taskId: string) {
 }
 
 // IPC handlers
-ipcMain.handle("get-projects", () => {
-  requestRemoteProjectCatalogRefresh();
+ipcMain.handle("get-projects", (_event, options?: { refreshRemote?: boolean } | null) => {
+  if (options?.refreshRemote) {
+    requestRemoteProjectCatalogRefresh();
+  }
   return getAllProjects();
 });
 
@@ -2173,8 +2604,8 @@ ipcMain.handle("add-project", async (_event, data: {
 ipcMain.handle(
   "update-project",
   (_event, data: { projectId: string; updates: Partial<Pick<Project, "name" | "path" | "groupName" | "cliProvider" | "cliModel" | "projectPrompt">> }) => {
-    const project = projectStore.getById(data.projectId);
-    if (!project) {
+    const liveProject = getProjectById(data.projectId);
+    if (!liveProject) {
       return { success: false, error: "Project not found" };
     }
 
@@ -2185,7 +2616,7 @@ ipcMain.handle(
     if (data.updates.cliProvider !== undefined) {
       nextUpdates.cliProvider = normalizeCliProvider(
         data.updates.cliProvider,
-        normalizeCliProvider(project.cliProvider, getDefaultCliProvider()),
+        normalizeCliProvider(liveProject.cliProvider, getDefaultCliProvider()),
       );
     }
     if (data.updates.cliModel !== undefined) {
@@ -2193,6 +2624,27 @@ ipcMain.handle(
     }
     if (data.updates.projectPrompt !== undefined) {
       nextUpdates.projectPrompt = data.updates.projectPrompt?.trim() ? data.updates.projectPrompt.trim() : null;
+    }
+
+    if (isRemoteProjectRecord(liveProject)) {
+      const result = remoteSessionStore?.updateProjectConfig(data.projectId, {
+        groupName: nextUpdates.groupName,
+        cliProvider: nextUpdates.cliProvider,
+        cliModel: nextUpdates.cliModel,
+        projectPrompt: nextUpdates.projectPrompt,
+      }) ?? { success: false, error: "Remote project sync is unavailable" };
+      if (!result.success) {
+        return result;
+      }
+      broadcastProjectsChanged();
+      if (workspaceWindow && !workspaceWindow.isDestroyed()) {
+        const snapshot = remoteSessionStore?.getSnapshot(data.projectId);
+        if (snapshot) {
+          workspaceWindow.webContents.send("project-session-snapshot", snapshot);
+        }
+      }
+      updateWindowTitles();
+      return { success: true };
     }
 
     projectStore.update(data.projectId, nextUpdates);
@@ -2395,6 +2847,12 @@ ipcMain.handle("get-e2e-status", () => {
 ipcMain.handle("set-e2e-enabled", (_event, enabled: boolean) => {
   appSettingsStore.set("e2eEnabled", enabled);
   if (relayClient) relayClient.setE2EEnabled(enabled);
+  if (controllerRelayClient) {
+    controllerRelayClient.setE2EEnabled(enabled);
+    if (enabled) {
+      requestRemoteProjectCatalogRefresh();
+    }
+  }
   return true;
 });
 
@@ -2411,7 +2869,7 @@ ipcMain.handle("reconnect-relay", async () => {
   remoteSessionStore = null;
   const config = loadConfig();
   initRelay(config);
-  initRemoteRelay(config);
+  ensureRemoteRelayReady(config);
   return true;
 });
 
@@ -2429,6 +2887,8 @@ ipcMain.handle("set-lang", (_event, lang: Lang) => {
 ipcMain.handle("get-i18n-messages", () => getAllMessages());
 
 ipcMain.handle("get-app-settings", () => {
+  const effectiveLocalDataRoot = getPersistedLocalDataRoot();
+  syncLocalDataRootSetting(effectiveLocalDataRoot);
   return {
     autoStart: appSettingsStore.get("autoStart") as boolean,
     silentLaunch: appSettingsStore.get("silentLaunch") as boolean,
@@ -2439,6 +2899,8 @@ ipcMain.handle("get-app-settings", () => {
     autoUpdateDownload: appSettingsStore.get("autoUpdateDownload") as boolean,
     silentUpdateInstall: appSettingsStore.get("silentUpdateInstall") as boolean,
     historyRetentionDays: appSettingsStore.get("historyRetentionDays") as number,
+    localDataRoot: effectiveLocalDataRoot,
+    defaultLocalDataRoot: getDefaultLocalDataRoot(),
     logDirectory: appLogger.getLogDirectory(),
   };
 });
@@ -2469,6 +2931,12 @@ ipcMain.handle("set-app-settings", (_event, settings: Partial<AppSettings>) => {
     if (relayClient) {
       relayClient.setE2EEnabled(settings.e2eEnabled);
     }
+    if (controllerRelayClient) {
+      controllerRelayClient.setE2EEnabled(settings.e2eEnabled);
+      if (settings.e2eEnabled) {
+        requestRemoteProjectCatalogRefresh();
+      }
+    }
   }
   if (settings.autoUpdateCheck !== undefined) {
     appSettingsStore.set("autoUpdateCheck", settings.autoUpdateCheck);
@@ -2489,6 +2957,88 @@ ipcMain.handle("set-app-settings", (_event, settings: Partial<AppSettings>) => {
     runtimeManager.pruneHistoryCache(normalizedRetentionDays);
   }
   return true;
+});
+
+ipcMain.handle("pick-local-data-root", async (event, rawPath?: string | null) => {
+  const senderWindow = BrowserWindow.fromWebContents(event.sender) ?? mainWindow ?? workspaceWindow ?? undefined;
+  const defaultPath = resolveLocalDataRoot(rawPath);
+  const dialogOptions: Electron.OpenDialogOptions = {
+    defaultPath,
+    properties: ["openDirectory", "createDirectory", "promptToCreate"],
+  };
+  const result = senderWindow
+    ? await dialog.showOpenDialog(senderWindow, dialogOptions)
+    : await dialog.showOpenDialog(dialogOptions);
+
+  return {
+    success: !result.canceled,
+    path: result.canceled ? null : (result.filePaths[0] ?? null),
+  };
+});
+
+ipcMain.handle("open-local-data-root", async (_event, rawPath?: string | null) => {
+  const targetPath = resolveLocalDataRoot(rawPath ?? app.getPath("userData"));
+  fs.mkdirSync(targetPath, { recursive: true });
+  const errorMessage = await shell.openPath(targetPath);
+  return {
+    success: !errorMessage,
+    error: errorMessage || undefined,
+  };
+});
+
+ipcMain.handle("change-local-data-root", async (_event, rawPath?: string | null) => {
+  if (runtimeManager.hasActiveOrQueuedRuns()) {
+    return {
+      success: false,
+      error: getLang() === "zh"
+        ? "请先等待运行中和排队中的任务完成，再切换本地文件目录。"
+        : "Finish running and queued tasks before changing the local data folder.",
+    };
+  }
+
+  const currentRoot = app.getPath("userData");
+  const nextRoot = resolveLocalDataRoot(rawPath);
+  if (localDataRootsEqual(currentRoot, nextRoot)) {
+    syncLocalDataRootSetting(currentRoot);
+    return {
+      success: true,
+      changed: false,
+      restartRequired: false,
+      localDataRoot: currentRoot,
+    };
+  }
+
+  try {
+    runtimeManager.flushPersistence();
+    migrateLocalDataRoot(currentRoot, nextRoot);
+    const persistedRoot = persistLocalDataRoot(nextRoot);
+    syncLocalDataRootSetting(persistedRoot);
+    appLogger.info("settings", "Local data root updated.", {
+      previousRoot: currentRoot,
+      nextRoot: persistedRoot,
+    });
+    setTimeout(() => {
+      app.relaunch();
+      app.exit(0);
+    }, 180);
+    return {
+      success: true,
+      changed: true,
+      restartRequired: true,
+      localDataRoot: persistedRoot,
+    };
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    appLogger.error("settings", "Failed to migrate local data root.", {
+      previousRoot: currentRoot,
+      nextRoot,
+      error: detail,
+    });
+    return {
+      success: false,
+      error: detail,
+    };
+  }
 });
 
 ipcMain.handle("get-update-state", () => updateManager.getState());
@@ -2821,13 +3371,25 @@ ipcMain.handle("search-project-messages", (_event, data: {
 });
 
 ipcMain.handle("list-workgroup-collaborations", () => {
+  void refreshRemoteWorkgroupCatalog();
   return {
     success: true,
-    workgroups: workgroupCollaborationService.listSummaries(),
+    workgroups: getAllWorkgroupCollaborationSummaries(),
   };
 });
 
-ipcMain.handle("get-workgroup-collaboration-session", (_event, workgroupId: string) => {
+ipcMain.handle("get-workgroup-collaboration-session", async (_event, workgroupId: string) => {
+  if (parseCompositeWorkgroupId(workgroupId)) {
+    const existingRemoteSession = remoteWorkgroupStore?.getSession(workgroupId);
+    if (existingRemoteSession) {
+      return { success: true, session: existingRemoteSession };
+    }
+    return await (remoteWorkgroupStore?.requestSession(workgroupId, { limit: 30 }) ?? Promise.resolve({
+      success: false,
+      error: "Remote workgroup collaboration not found",
+    }));
+  }
+
   const session = workgroupCollaborationService.getSession(workgroupId);
   if (!session) {
     return { success: false, error: "Workgroup collaboration not found" };
@@ -2838,11 +3400,38 @@ ipcMain.handle("get-workgroup-collaboration-session", (_event, workgroupId: stri
   };
 });
 
-ipcMain.handle("get-workgroup-collaboration-history-page", (_event, data: {
+ipcMain.handle("get-workgroup-collaboration-history-page", async (_event, data: {
   workgroupId: string;
   beforeId?: string | null;
   limit?: number;
 }) => {
+  if (parseCompositeWorkgroupId(data.workgroupId)) {
+    const existingPage = remoteWorkgroupStore?.getHistoryPage(data.workgroupId, {
+      beforeId: data.beforeId,
+      limit: data.limit,
+    });
+    if ((!existingPage || (existingPage.items.length === 0 && existingPage.hasMore && data.beforeId)) && remoteWorkgroupStore) {
+      const result = await remoteWorkgroupStore.requestSession(data.workgroupId, {
+        beforeId: data.beforeId,
+        limit: data.limit,
+      });
+      if (!result.success) {
+        return result;
+      }
+    }
+    const page = remoteWorkgroupStore?.getHistoryPage(data.workgroupId, {
+      beforeId: data.beforeId,
+      limit: data.limit,
+    });
+    if (!page) {
+      return { success: false, error: "Remote workgroup collaboration not found" };
+    }
+    return {
+      success: true,
+      page,
+    };
+  }
+
   const page = workgroupCollaborationService.getHistoryPage(data.workgroupId, {
     beforeId: data.beforeId,
     limit: data.limit,
@@ -2861,6 +3450,20 @@ ipcMain.handle("search-workgroup-collaboration-messages", (_event, data: {
   query: string;
   limit?: number;
 }) => {
+  if (parseCompositeWorkgroupId(data.workgroupId)) {
+    const items = remoteWorkgroupStore?.searchMessages(data.workgroupId, {
+      query: data.query,
+      limit: data.limit,
+    });
+    if (!items) {
+      return { success: false, error: "Remote workgroup collaboration not found" };
+    }
+    return {
+      success: true,
+      items,
+    };
+  }
+
   const items = workgroupCollaborationService.searchMessages(data.workgroupId, {
     query: data.query,
     limit: data.limit,
@@ -2875,6 +3478,12 @@ ipcMain.handle("search-workgroup-collaboration-messages", (_event, data: {
 });
 
 ipcMain.handle("send-workgroup-collaboration-message", async (_event, data: { workgroupId: string; content: string }) => {
+  if (parseCompositeWorkgroupId(data.workgroupId)) {
+    return await (remoteWorkgroupStore?.sendMessage(data.workgroupId, data.content) ?? Promise.resolve({
+      success: false,
+      error: "Remote workgroup collaboration not found",
+    }));
+  }
   return await workgroupCollaborationService.sendUserMessage(data.workgroupId, data.content);
 });
 
@@ -2883,18 +3492,30 @@ ipcMain.handle("save-workgroup", (_event, data: {
   name: string;
   description?: string | null;
   allowDirectMemberMessages?: boolean;
+  selectedProjectIds?: string[] | null;
 }) => {
   const name = String(data?.name ?? "").trim();
   if (!name) {
     return { success: false, error: "Workgroup name is required" };
   }
 
+  const existing = typeof data?.id === "string" ? workgroupStore.getWorkgroupById(data.id.trim()) : null;
+  const workgroupId = existing?.id || (typeof data?.id === "string" && data.id.trim() ? data.id.trim() : uuidv4());
+  const planWorkspacePath = ensureWorkgroupPlanDirectory(
+    existing?.planWorkspacePath
+    ?? getDefaultWorkgroupPlanPath(workgroupId),
+  );
+
   const workgroup = workgroupStore.saveWorkgroup({
-    id: typeof data?.id === "string" ? data.id.trim() : undefined,
+    id: workgroupId,
     name,
     description: data?.description ?? null,
     allowDirectMemberMessages: Boolean(data?.allowDirectMemberMessages),
+    groupNumber: existing?.groupNumber ?? null,
+    planWorkspacePath,
+    registryUpdatedAt: existing?.registryUpdatedAt ?? null,
   });
+  syncWorkgroupMembersFromSelection(workgroup, Array.isArray(data?.selectedProjectIds) ? data.selectedProjectIds : []);
   broadcastWorkgroupsChanged();
   return {
     success: true,
@@ -2908,10 +3529,161 @@ ipcMain.handle("delete-workgroup", (_event, workgroupId: string) => {
     return { success: false, error: "Workgroup not found" };
   }
 
+  if (workgroup.groupNumber?.trim()) {
+    void removeWorkgroupRegistry(workgroup.id).catch((error) => {
+      appLogger.warn("workgroup", "Failed to remove workgroup registry.", {
+        workgroupId: workgroup.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }
   workgroupStore.removeWorkgroup(workgroupId);
   workgroupCollaborationService.removeWorkgroup(workgroupId);
   broadcastWorkgroupsChanged();
   return { success: true };
+});
+
+ipcMain.handle("publish-workgroup-registry", async (_event, workgroupId: string) => {
+  try {
+    const record = await publishWorkgroupRegistry(String(workgroupId ?? "").trim());
+    broadcastWorkgroupsChanged();
+    return {
+      success: true,
+      record,
+      workgroup: getSerializedWorkgroupById(record.workgroupId),
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+});
+
+ipcMain.handle("search-workgroup-registry", async (_event, query: string) => {
+  try {
+    const normalizedQuery = String(query ?? "").trim();
+    const response = await requestWorkgroupRegistry<{ records: WorkgroupRegistryRecord[] }>(
+      `/api/workgroups/registry?q=${encodeURIComponent(normalizedQuery)}`,
+    );
+    return {
+      success: true,
+      records: response.records,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+});
+
+ipcMain.handle("join-workgroup-registry", async (_event, groupNumber: string) => {
+  try {
+    const response = await requestWorkgroupRegistry<{ success: boolean; record: WorkgroupRegistryRecord; granted_access: boolean }>("/api/workgroups/registry/join", {
+      method: "POST",
+      body: { group_number: String(groupNumber ?? "").trim() },
+    });
+    void refreshRemoteWorkgroupCatalog(true);
+    return {
+      ...response,
+      success: response.success !== false,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+});
+
+ipcMain.handle("get-workgroup-registry-members", async (_event, data: {
+  groupNumber?: string | null;
+  workgroupId?: string | null;
+  hostAgentId?: string | null;
+}) => {
+  try {
+    const params = new URLSearchParams();
+    const groupNumber = String(data?.groupNumber ?? "").trim();
+    const workgroupId = String(data?.workgroupId ?? "").trim();
+    const hostAgentId = String(data?.hostAgentId ?? "").trim();
+    if (groupNumber) {
+      params.set("group_number", groupNumber);
+    }
+    if (workgroupId) {
+      params.set("workgroup_id", workgroupId);
+    }
+    if (hostAgentId) {
+      params.set("host_agent_id", hostAgentId);
+    }
+    const response = await requestWorkgroupRegistry<{
+      record: WorkgroupRegistryRecord;
+      members: Array<{ userId: number; username: string; isOwner: boolean; joinedAt: number }>;
+    }>(`/api/workgroups/registry/members?${params.toString()}`);
+    return {
+      success: true,
+      ...response,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+});
+
+ipcMain.handle("leave-workgroup-registry", async (_event, data: {
+  groupNumber?: string | null;
+  workgroupId?: string | null;
+  hostAgentId?: string | null;
+}) => {
+  try {
+    const response = await requestWorkgroupRegistry<{ success: boolean }>("/api/workgroups/registry/leave", {
+      method: "POST",
+      body: {
+        group_number: String(data?.groupNumber ?? "").trim() || undefined,
+        workgroup_id: String(data?.workgroupId ?? "").trim() || undefined,
+        host_agent_id: String(data?.hostAgentId ?? "").trim() || undefined,
+      },
+    });
+    void refreshRemoteWorkgroupCatalog(true);
+    return {
+      success: response.success !== false,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+});
+
+ipcMain.handle("kick-workgroup-registry-member", async (_event, data: {
+  groupNumber?: string | null;
+  workgroupId?: string | null;
+  hostAgentId?: string | null;
+  userId: number;
+}) => {
+  try {
+    const response = await requestWorkgroupRegistry<{ success: boolean }>("/api/workgroups/registry/kick", {
+      method: "POST",
+      body: {
+        group_number: String(data?.groupNumber ?? "").trim() || undefined,
+        workgroup_id: String(data?.workgroupId ?? "").trim() || undefined,
+        host_agent_id: String(data?.hostAgentId ?? "").trim() || undefined,
+        user_id: Number(data?.userId) || 0,
+      },
+    });
+    void refreshRemoteWorkgroupCatalog();
+    return {
+      success: response.success !== false,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
 });
 
 ipcMain.handle("save-workgroup-member", (_event, data: {
@@ -3064,14 +3836,15 @@ app.whenReady().then(async () => {
   await refreshControllerToken(false);
   const config = loadConfig();
   initRelay(config);
-  initRemoteRelay(config);
+  ensureRemoteRelayReady(config);
   scheduleTokenRefresh();
   scheduleControllerTokenRefresh();
   updateManager.start();
 
   // Open workspace window unless silent launch is configured
   const silentLaunch = appSettingsStore.get("silentLaunch") as boolean;
-  if (!silentLaunch) {
+  const launchedFromUpdate = process.argv.some((entry) => entry === "--updated");
+  if (launchedFromUpdate || !silentLaunch) {
     showWorkspaceWindow(projectStore.getAll()[0]?.id);
   }
 });
