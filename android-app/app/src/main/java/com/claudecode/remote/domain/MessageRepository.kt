@@ -1777,14 +1777,15 @@ class MessageRepository(
         beforeSeq: Long?,
         limit: Int
     ): List<JsonObject> {
-        if (afterSeq > 0L && beforeSeq == null) {
-            return emptyList()
+        val digestLimit = if (afterSeq > 0L && beforeSeq == null) {
+            maxOf(limit, RECENT_SYNC_OVERLAP_COUNT * 4)
+        } else {
+            maxOf(SYNC_KNOWN_ITEM_LIMIT, limit * 2)
         }
-
         val candidates = messageDao.getSyncDigestMessages(
             projectId = projectId,
             beforeSeq = beforeSeq?.takeIf { it > 0L },
-            limit = maxOf(SYNC_KNOWN_ITEM_LIMIT, limit * 2)
+            limit = digestLimit
         )
         if (candidates.isEmpty()) {
             return emptyList()

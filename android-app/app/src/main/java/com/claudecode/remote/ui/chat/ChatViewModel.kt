@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.claudecode.remote.data.local.TokenStore
+import com.claudecode.remote.data.model.Events
 import com.claudecode.remote.data.model.Message
 import com.claudecode.remote.data.model.MessageAttachment
 import com.claudecode.remote.data.remote.RelayWebSocket
@@ -22,11 +23,13 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
 private const val MESSAGE_PAGE_SIZE = 30
-private const val MESSAGE_SYNC_PAGE_SIZE = 80
+private const val INITIAL_SYNC_PAGE_SIZE = 80
+private const val INCREMENTAL_SYNC_PAGE_SIZE = 32
 private const val ACTIVE_SYNC_OVERLAP_COUNT = 12
-private const val ACTIVE_SYNC_POLL_MS = 900L
-private const val IDLE_SYNC_POLL_MS = 4_000L
-private const val ACTIVE_SYNC_BURST_MS = 12_000L
+private const val ACTIVE_SYNC_POLL_MS = 5_000L
+private const val IDLE_SYNC_POLL_MS = 12_000L
+private const val ACTIVE_SYNC_BURST_MS = 8_000L
+private const val SYNC_TRIGGER_DEBOUNCE_MS = 250L
 
 data class ConversationItem(
     val id: String,
@@ -73,11 +76,11 @@ class ChatViewModel(
     private val json = Json { ignoreUnknownKeys = true }
     private var messagesJob: Job? = null
     private var sessionJob: Job? = null
-    private var lastSyncedProjectId: String? = null
     private var allMessages: List<Message> = emptyList()
     private var visibleMessageCount: Int = MESSAGE_PAGE_SIZE
     private var isAutoLoadingConversationHistory = false
     private var activeSyncJob: Job? = null
+    private var pendingSyncTriggerJob: Job? = null
     private var syncBurstUntilMillis: Long = 0L
 
     init {
@@ -89,13 +92,62 @@ class ChatViewModel(
                 }
 
                 if (isConnected) {
-                    lastSyncedProjectId = null
                     markSyncBurst()
-                    requestProjectSyncIfConnected(force = true, recentOverlapCount = ACTIVE_SYNC_OVERLAP_COUNT)
+                    triggerImmediateSync(
+                        debounceMs = 0L,
+                        recentOverlapCount = ACTIVE_SYNC_OVERLAP_COUNT,
+                        limit = INITIAL_SYNC_PAGE_SIZE
+                    )
                     startActiveSyncLoop()
                 } else {
                     activeSyncJob?.cancel()
                     activeSyncJob = null
+                    pendingSyncTriggerJob?.cancel()
+                    pendingSyncTriggerJob = null
+                }
+            }
+        }
+
+        viewModelScope.launch {
+            webSocket.incomingEnvelopes.collect { envelope ->
+                val state = _uiState.value
+                val activeProjectId = state.projectId.trim()
+                if (activeProjectId.isEmpty()) {
+                    return@collect
+                }
+
+                val envelopeProjectId = envelope.projectId?.trim().orEmpty()
+                if (envelopeProjectId == activeProjectId) {
+                    when (envelope.event) {
+                        Events.MESSAGE_DONE,
+                        Events.MESSAGE_ERROR,
+                        Events.AGENT_STATUS,
+                        Events.FILE_DONE,
+                        Events.FILE_ERROR -> {
+                            triggerImmediateSync(
+                                recentOverlapCount = ACTIVE_SYNC_OVERLAP_COUNT,
+                                limit = INCREMENTAL_SYNC_PAGE_SIZE
+                            )
+                        }
+                    }
+                    return@collect
+                }
+
+                if (envelope.event == Events.PROJECT_LISTED) {
+                    val payloadAgentId = runCatching {
+                        envelope.payload
+                            ?.jsonObject
+                            ?.get("agent_id")
+                            ?.jsonPrimitive
+                            ?.contentOrNull
+                            ?.trim()
+                    }.getOrNull().orEmpty()
+                    if (payloadAgentId.isNotEmpty() && payloadAgentId == state.agentId.trim()) {
+                        triggerImmediateSync(
+                            recentOverlapCount = ACTIVE_SYNC_OVERLAP_COUNT / 2,
+                            limit = INCREMENTAL_SYNC_PAGE_SIZE
+                        )
+                    }
                 }
             }
         }
@@ -124,7 +176,6 @@ class ChatViewModel(
                 messages = emptyList()
             )
         }
-        lastSyncedProjectId = null
         markSyncBurst()
         startActiveSyncLoop()
 
@@ -175,12 +226,16 @@ class ChatViewModel(
             }
         }
 
-        requestProjectSyncIfConnected(force = true, recentOverlapCount = ACTIVE_SYNC_OVERLAP_COUNT)
+        triggerImmediateSync(
+            debounceMs = 0L,
+            recentOverlapCount = ACTIVE_SYNC_OVERLAP_COUNT,
+            limit = INITIAL_SYNC_PAGE_SIZE
+        )
     }
 
     private fun requestProjectSyncIfConnected(
-        force: Boolean = false,
-        recentOverlapCount: Int = ACTIVE_SYNC_OVERLAP_COUNT
+        recentOverlapCount: Int = ACTIVE_SYNC_OVERLAP_COUNT,
+        limit: Int = INCREMENTAL_SYNC_PAGE_SIZE
     ) {
         val state = _uiState.value
         if (state.projectId.isBlank()) {
@@ -189,21 +244,16 @@ class ChatViewModel(
         if (webSocket.connectionState.value != RelayWebSocket.ConnectionState.CONNECTED) {
             return
         }
-        if (!force && lastSyncedProjectId == state.projectId) {
-            return
-        }
 
         viewModelScope.launch {
             try {
-                lastSyncedProjectId = state.projectId
                 messageRepository.requestProjectSync(
                     projectId = state.projectId,
                     agentId = state.agentId,
-                    limit = MESSAGE_SYNC_PAGE_SIZE,
+                    limit = limit,
                     recentOverlapCount = recentOverlapCount
                 )
             } catch (e: Exception) {
-                lastSyncedProjectId = null
                 CrashLogger.logError("ChatViewModel", "Error requesting desktop sync", e)
             }
         }
@@ -533,7 +583,7 @@ class ChatViewModel(
                     projectId = projectId,
                     agentId = agentId,
                     beforeSeq = beforeSeq,
-                    limit = MESSAGE_SYNC_PAGE_SIZE
+                    limit = INITIAL_SYNC_PAGE_SIZE
                 )
             } catch (e: Exception) {
                 CrashLogger.logError("ChatViewModel", "Error loading older messages", e)
@@ -565,11 +615,15 @@ class ChatViewModel(
                         state.messages.lastOrNull()?.isStreaming == true ||
                         now < syncBurstUntilMillis
                     requestProjectSyncIfConnected(
-                        force = shouldAggressivelySync,
                         recentOverlapCount = if (shouldAggressivelySync) {
                             ACTIVE_SYNC_OVERLAP_COUNT
                         } else {
                             ACTIVE_SYNC_OVERLAP_COUNT / 2
+                        },
+                        limit = if (shouldAggressivelySync) {
+                            INCREMENTAL_SYNC_PAGE_SIZE
+                        } else {
+                            MESSAGE_PAGE_SIZE
                         }
                     )
                     kotlinx.coroutines.delay(
@@ -586,8 +640,27 @@ class ChatViewModel(
         syncBurstUntilMillis = System.currentTimeMillis() + durationMs
     }
 
+    private fun triggerImmediateSync(
+        debounceMs: Long = SYNC_TRIGGER_DEBOUNCE_MS,
+        recentOverlapCount: Int = ACTIVE_SYNC_OVERLAP_COUNT,
+        limit: Int = INCREMENTAL_SYNC_PAGE_SIZE
+    ) {
+        markSyncBurst()
+        pendingSyncTriggerJob?.cancel()
+        pendingSyncTriggerJob = viewModelScope.launch {
+            if (debounceMs > 0L) {
+                kotlinx.coroutines.delay(debounceMs)
+            }
+            requestProjectSyncIfConnected(
+                recentOverlapCount = recentOverlapCount,
+                limit = limit
+            )
+        }
+    }
+
     override fun onCleared() {
         activeSyncJob?.cancel()
+        pendingSyncTriggerJob?.cancel()
         super.onCleared()
     }
 
