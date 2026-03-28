@@ -5,6 +5,7 @@ import com.claudecode.remote.R
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.claudecode.remote.data.local.TokenStore
+import com.claudecode.remote.data.model.Events
 import com.claudecode.remote.data.model.WorkgroupMember
 import com.claudecode.remote.data.model.WorkgroupMessage
 import com.claudecode.remote.data.remote.RelayWebSocket
@@ -19,7 +20,12 @@ import kotlinx.coroutines.launch
 
 private const val WORKGROUP_DRAFT_PREFIX = "workgroup:"
 private const val WORKGROUP_VISIBLE_PAGE_SIZE = 30
-private const val WORKGROUP_SYNC_PAGE_SIZE = 80
+private const val WORKGROUP_INITIAL_SYNC_PAGE_SIZE = 80
+private const val WORKGROUP_INCREMENTAL_SYNC_PAGE_SIZE = 32
+private const val WORKGROUP_ACTIVE_SYNC_POLL_MS = 5_000L
+private const val WORKGROUP_IDLE_SYNC_POLL_MS = 12_000L
+private const val WORKGROUP_ACTIVE_SYNC_BURST_MS = 8_000L
+private const val WORKGROUP_SYNC_TRIGGER_DEBOUNCE_MS = 250L
 
 data class WorkgroupMentionSuggestion(
     val token: String,
@@ -59,6 +65,9 @@ class WorkgroupChatViewModel(
     private var currentSessionKey: String? = null
     private var allMessages: List<WorkgroupMessage> = emptyList()
     private var visibleMessageCount: Int = WORKGROUP_VISIBLE_PAGE_SIZE
+    private var activeSyncJob: Job? = null
+    private var pendingSyncTriggerJob: Job? = null
+    private var syncBurstUntilMillis: Long = 0L
 
     private fun text(resId: Int, vararg args: Any): String = context.getString(resId, *args)
 
@@ -68,7 +77,45 @@ class WorkgroupChatViewModel(
                 val isConnected = state == RelayWebSocket.ConnectionState.CONNECTED
                 _uiState.update { it.copy(isConnected = isConnected) }
                 if (isConnected) {
-                    requestLatestSession(showLoading = false)
+                    triggerImmediateSync(
+                        debounceMs = 0L,
+                        recentLimit = WORKGROUP_INITIAL_SYNC_PAGE_SIZE
+                    )
+                    startActiveSyncLoop()
+                } else {
+                    activeSyncJob?.cancel()
+                    activeSyncJob = null
+                    pendingSyncTriggerJob?.cancel()
+                    pendingSyncTriggerJob = null
+                }
+            }
+        }
+
+        viewModelScope.launch {
+            webSocket.incomingEnvelopes.collect { envelope ->
+                val state = _uiState.value
+                val activeAgentId = state.agentId.trim()
+                val activeWorkgroupId = state.workgroupId.trim()
+                if (activeAgentId.isEmpty() || activeWorkgroupId.isEmpty()) {
+                    return@collect
+                }
+
+                val envelopeAgentId = envelope.agentId?.trim().orEmpty()
+                val envelopeWorkgroupId = envelope.workgroupId?.trim().orEmpty()
+                when (envelope.event) {
+                    Events.WORKGROUP_COLLABORATION_SNAPSHOT,
+                    Events.WORKGROUP_COLLABORATION_MESSAGE_RESULT,
+                    Events.WORKGROUP_COLLABORATION_SESSION -> {
+                        if (envelopeAgentId == activeAgentId && envelopeWorkgroupId == activeWorkgroupId) {
+                            triggerImmediateSync(recentLimit = WORKGROUP_INCREMENTAL_SYNC_PAGE_SIZE)
+                        }
+                    }
+
+                    Events.WORKGROUP_COLLABORATION_LIST -> {
+                        if (envelopeAgentId == activeAgentId) {
+                            triggerImmediateSync(recentLimit = WORKGROUP_INCREMENTAL_SYNC_PAGE_SIZE)
+                        }
+                    }
                 }
             }
         }
@@ -104,6 +151,10 @@ class WorkgroupChatViewModel(
         }
 
         sessionsJob?.cancel()
+        activeSyncJob?.cancel()
+        activeSyncJob = null
+        pendingSyncTriggerJob?.cancel()
+        pendingSyncTriggerJob = null
         sessionsJob = viewModelScope.launch {
             workgroupRepository.sessions.collect { sessions ->
                 val session = sessions[currentSessionKey] ?: return@collect
@@ -129,11 +180,20 @@ class WorkgroupChatViewModel(
             }
         }
 
-        requestLatestSession(showLoading = true)
+        triggerImmediateSync(
+            debounceMs = 0L,
+            showLoading = true,
+            recentLimit = WORKGROUP_INITIAL_SYNC_PAGE_SIZE
+        )
+        startActiveSyncLoop()
     }
 
     fun refresh() {
-        requestLatestSession(showLoading = true)
+        triggerImmediateSync(
+            debounceMs = 0L,
+            showLoading = true,
+            recentLimit = WORKGROUP_INITIAL_SYNC_PAGE_SIZE
+        )
     }
 
     fun loadOlderMessages() {
@@ -154,7 +214,7 @@ class WorkgroupChatViewModel(
                 agentId = state.agentId,
                 workgroupId = state.workgroupId,
                 beforeId = beforeId,
-                limit = WORKGROUP_SYNC_PAGE_SIZE
+                limit = WORKGROUP_INITIAL_SYNC_PAGE_SIZE
             )
             if (result.isFailure) {
                 _uiState.update {
@@ -231,6 +291,16 @@ class WorkgroupChatViewModel(
     }
 
     private fun requestLatestSession(showLoading: Boolean) {
+        requestLatestSession(
+            showLoading = showLoading,
+            limit = WORKGROUP_INCREMENTAL_SYNC_PAGE_SIZE
+        )
+    }
+
+    private fun requestLatestSession(
+        showLoading: Boolean,
+        limit: Int
+    ) {
         val state = _uiState.value
         if (state.agentId.isBlank() || state.workgroupId.isBlank()) {
             return
@@ -246,7 +316,7 @@ class WorkgroupChatViewModel(
             val result = workgroupRepository.requestSession(
                 agentId = state.agentId,
                 workgroupId = state.workgroupId,
-                limit = WORKGROUP_SYNC_PAGE_SIZE
+                limit = limit
             )
             if (result.isFailure) {
                 _uiState.update {
@@ -292,7 +362,7 @@ class WorkgroupChatViewModel(
                 agentId = state.agentId,
                 workgroupId = state.workgroupId,
                 beforeId = beforeId,
-                limit = WORKGROUP_SYNC_PAGE_SIZE
+                limit = WORKGROUP_INITIAL_SYNC_PAGE_SIZE
             )
             if (result.isFailure) {
                 _uiState.update {
@@ -302,6 +372,62 @@ class WorkgroupChatViewModel(
                     )
                 }
             }
+        }
+    }
+
+    private fun startActiveSyncLoop() {
+        activeSyncJob?.cancel()
+        activeSyncJob = viewModelScope.launch {
+            while (true) {
+                val state = _uiState.value
+                if (state.agentId.isBlank() || state.workgroupId.isBlank()) {
+                    kotlinx.coroutines.delay(WORKGROUP_IDLE_SYNC_POLL_MS)
+                    continue
+                }
+                val now = System.currentTimeMillis()
+                val shouldAggressivelySync =
+                    state.isSending ||
+                        state.isRunning ||
+                        state.messages.lastOrNull()?.status == "streaming" ||
+                        now < syncBurstUntilMillis
+                requestLatestSession(
+                    showLoading = false,
+                    limit = if (shouldAggressivelySync) {
+                        WORKGROUP_INCREMENTAL_SYNC_PAGE_SIZE
+                    } else {
+                        WORKGROUP_VISIBLE_PAGE_SIZE
+                    }
+                )
+                kotlinx.coroutines.delay(
+                    if (shouldAggressivelySync) {
+                        WORKGROUP_ACTIVE_SYNC_POLL_MS
+                    } else {
+                        WORKGROUP_IDLE_SYNC_POLL_MS
+                    }
+                )
+            }
+        }
+    }
+
+    private fun markSyncBurst(durationMs: Long = WORKGROUP_ACTIVE_SYNC_BURST_MS) {
+        syncBurstUntilMillis = System.currentTimeMillis() + durationMs
+    }
+
+    private fun triggerImmediateSync(
+        debounceMs: Long = WORKGROUP_SYNC_TRIGGER_DEBOUNCE_MS,
+        showLoading: Boolean = false,
+        recentLimit: Int = WORKGROUP_INCREMENTAL_SYNC_PAGE_SIZE
+    ) {
+        markSyncBurst()
+        pendingSyncTriggerJob?.cancel()
+        pendingSyncTriggerJob = viewModelScope.launch {
+            if (debounceMs > 0L) {
+                kotlinx.coroutines.delay(debounceMs)
+            }
+            requestLatestSession(
+                showLoading = showLoading,
+                limit = recentLimit
+            )
         }
     }
 
@@ -384,5 +510,12 @@ class WorkgroupChatViewModel(
             "project_manager", "pm" -> text(R.string.workgroups_mention_pm)
             else -> text(R.string.workgroups_mention_member)
         }
+    }
+
+    override fun onCleared() {
+        sessionsJob?.cancel()
+        activeSyncJob?.cancel()
+        pendingSyncTriggerJob?.cancel()
+        super.onCleared()
     }
 }

@@ -102,7 +102,19 @@ interface ResolveTargetOptions {
   excludeMemberIds?: string[];
 }
 
+interface ActiveDispatchRecord {
+  runId: string;
+  workgroupId: string;
+  memberId: string;
+  projectId: string;
+  messageId: string;
+  triggerMessageId: string;
+  startedAt: number;
+}
+
 export default class WorkgroupCollaborationService extends EventEmitter {
+  private readonly activeDispatchesByWorkgroup = new Map<string, Map<string, ActiveDispatchRecord>>();
+
   constructor(private readonly options: CollaborationServiceOptions) {
     super();
   }
@@ -204,6 +216,7 @@ export default class WorkgroupCollaborationService extends EventEmitter {
   }
 
   removeWorkgroup(workgroupId: string): void {
+    this.activeDispatchesByWorkgroup.delete(String(workgroupId ?? "").trim());
     workgroupCollaborationStore.removeSession(workgroupId);
     this.emitSummaries();
   }
@@ -309,9 +322,23 @@ export default class WorkgroupCollaborationService extends EventEmitter {
   }
 
   private computeWorkgroupRunningState(workgroupId: string): boolean {
+    const activeDispatches = this.activeDispatchesByWorkgroup.get(workgroupId);
+    if (activeDispatches && activeDispatches.size > 0) {
+      return true;
+    }
+
     return workgroupCollaborationStore
       .listMessages(workgroupId)
-      .some((message) => message.status === "streaming");
+      .some((message) => {
+        if (message.senderType !== "member" || message.status !== "streaming") {
+          return false;
+        }
+        const projectId = message.projectId?.trim() ?? "";
+        if (!projectId) {
+          return false;
+        }
+        return Boolean(this.options.getProjectSessionSnapshot(projectId)?.isRunning);
+      });
   }
 
   private reconcileStaleStreamingMessages(workgroup: Workgroup): void {
@@ -323,25 +350,29 @@ export default class WorkgroupCollaborationService extends EventEmitter {
         continue;
       }
 
+      const dispatchRunId = message.dispatchRunId?.trim() ?? "";
       const projectId = message.projectId?.trim() ?? "";
       if (!projectId) {
-        workgroupCollaborationStore.updateMessage(workgroup.id, message.id, {
-          status: "done",
-          content: message.content.trim() || `${message.senderName} stopped before replying.`,
-        });
+        this.clearActiveDispatch(workgroup.id, dispatchRunId);
+        this.finalizeStaleMemberMessage(workgroup.id, message.id, message.senderName, message.content);
         changed = true;
         continue;
       }
 
       const snapshot = this.options.getProjectSessionSnapshot(projectId);
+      if (dispatchRunId && this.hasActiveDispatch(workgroup.id, dispatchRunId)) {
+        continue;
+      }
       if (snapshot?.isRunning) {
         continue;
       }
 
-      workgroupCollaborationStore.updateMessage(workgroup.id, message.id, {
-        status: "done",
-        content: message.content.trim() || `${message.senderName} stopped before replying.`,
-      });
+      this.clearActiveDispatch(workgroup.id, dispatchRunId);
+      this.finalizeStaleMemberMessage(workgroup.id, message.id, message.senderName, message.content);
+      changed = true;
+    }
+
+    if (this.pruneDetachedActiveDispatches(workgroup.id)) {
       changed = true;
     }
 
@@ -535,6 +566,15 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       content: "",
       status: "streaming",
     });
+    this.registerActiveDispatch({
+      runId,
+      workgroupId: workgroup.id,
+      memberId: member.id,
+      projectId: project.id,
+      messageId: replyMessage.id,
+      triggerMessageId: userMessage.id,
+      startedAt: Date.now(),
+    });
     this.emitSnapshot(workgroup.id);
     this.emitSummaries();
 
@@ -545,6 +585,7 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       this.emitSummaries();
     };
     const handleDone = () => {
+      this.clearActiveDispatch(workgroup.id, runId);
       const current = workgroupCollaborationStore.getMessage(workgroup.id, replyMessage.id);
       const finalizedMessage = workgroupCollaborationStore.updateMessage(workgroup.id, replyMessage.id, {
         content: current?.content?.trim() ? current.content : queuePlaceholderText(member),
@@ -557,6 +598,7 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       }
     };
     const handleError = (error: string) => {
+      this.clearActiveDispatch(workgroup.id, runId);
       workgroupCollaborationStore.updateMessage(workgroup.id, replyMessage.id, {
         senderType: "error",
         content: error.trim() || `${member.name} failed to respond.`,
@@ -658,6 +700,85 @@ export default class WorkgroupCollaborationService extends EventEmitter {
     });
     this.emitSnapshot(workgroupId);
     this.emitSummaries();
+  }
+
+  private registerActiveDispatch(record: ActiveDispatchRecord): void {
+    const workgroupId = record.workgroupId.trim();
+    if (!workgroupId || !record.runId.trim()) {
+      return;
+    }
+    const activeDispatches = this.activeDispatchesByWorkgroup.get(workgroupId) ?? new Map<string, ActiveDispatchRecord>();
+    activeDispatches.set(record.runId, {
+      ...record,
+      workgroupId,
+      runId: record.runId.trim(),
+      memberId: record.memberId.trim(),
+      projectId: record.projectId.trim(),
+      messageId: record.messageId.trim(),
+      triggerMessageId: record.triggerMessageId.trim(),
+      startedAt: Number(record.startedAt) || Date.now(),
+    });
+    this.activeDispatchesByWorkgroup.set(workgroupId, activeDispatches);
+  }
+
+  private hasActiveDispatch(workgroupId: string, runId: string): boolean {
+    const normalizedWorkgroupId = workgroupId.trim();
+    const normalizedRunId = runId.trim();
+    if (!normalizedWorkgroupId || !normalizedRunId) {
+      return false;
+    }
+    return this.activeDispatchesByWorkgroup.get(normalizedWorkgroupId)?.has(normalizedRunId) ?? false;
+  }
+
+  private clearActiveDispatch(workgroupId: string, runId: string): boolean {
+    const normalizedWorkgroupId = workgroupId.trim();
+    const normalizedRunId = runId.trim();
+    if (!normalizedWorkgroupId || !normalizedRunId) {
+      return false;
+    }
+    const activeDispatches = this.activeDispatchesByWorkgroup.get(normalizedWorkgroupId);
+    if (!activeDispatches?.delete(normalizedRunId)) {
+      return false;
+    }
+    if (activeDispatches.size === 0) {
+      this.activeDispatchesByWorkgroup.delete(normalizedWorkgroupId);
+    }
+    return true;
+  }
+
+  private pruneDetachedActiveDispatches(workgroupId: string): boolean {
+    const normalizedWorkgroupId = workgroupId.trim();
+    const activeDispatches = this.activeDispatchesByWorkgroup.get(normalizedWorkgroupId);
+    if (!activeDispatches || activeDispatches.size === 0) {
+      return false;
+    }
+
+    let changed = false;
+    for (const [runId, record] of activeDispatches.entries()) {
+      const message = workgroupCollaborationStore.getMessage(normalizedWorkgroupId, record.messageId);
+      if (message?.status === "streaming") {
+        continue;
+      }
+      activeDispatches.delete(runId);
+      changed = true;
+    }
+
+    if (activeDispatches.size === 0) {
+      this.activeDispatchesByWorkgroup.delete(normalizedWorkgroupId);
+    }
+    return changed;
+  }
+
+  private finalizeStaleMemberMessage(
+    workgroupId: string,
+    messageId: string,
+    senderName: string,
+    content: string,
+  ): void {
+    workgroupCollaborationStore.updateMessage(workgroupId, messageId, {
+      status: "done",
+      content: content.trim() || `${senderName} stopped before replying.`,
+    });
   }
 
   private emitSummaries(): void {
