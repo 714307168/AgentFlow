@@ -8,7 +8,7 @@
 
   <key>ProgramArguments</key>
   <array>
-    <string>/Applications/Claude Code Agent.app/Contents/MacOS/Claude Code Agent</string>
+    <string>/Applications/AgentFlow.app/Contents/MacOS/AgentFlow</string>
     <string>--no-sandbox</string>
   </array>
 

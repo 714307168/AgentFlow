@@ -6,8 +6,14 @@ import com.claudecode.remote.data.model.Events
 import com.claudecode.remote.data.model.Workgroup
 import com.claudecode.remote.data.model.WorkgroupMember
 import com.claudecode.remote.data.model.WorkgroupMessage
+import com.claudecode.remote.data.model.WorkgroupRegistryEntry
 import com.claudecode.remote.data.model.WorkgroupSession
+import com.claudecode.remote.data.local.TokenStore
+import com.claudecode.remote.data.remote.AuthSessionManager
+import com.claudecode.remote.data.remote.JoinWorkgroupRegistryRequest
+import com.claudecode.remote.data.remote.RelayApi
 import com.claudecode.remote.data.remote.RelayWebSocket
+import com.claudecode.remote.data.remote.WakeupRequest
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -27,12 +33,18 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
 class WorkgroupRepository(
-    private val webSocket: RelayWebSocket
+    private val webSocket: RelayWebSocket,
+    private val relayApiProvider: () -> RelayApi,
+    private val authSessionManager: AuthSessionManager,
+    private val tokenStore: TokenStore
 ) {
     companion object {
         private const val REQUEST_TIMEOUT_MS = 15_000L
         private const val DEFAULT_PAGE_SIZE = 30
         private const val KNOWN_ITEM_LIMIT = 60
+        private const val LIST_REQUEST_DEDUPE_WINDOW_MS = 2_000L
+        private const val SESSION_REQUEST_DEDUPE_WINDOW_MS = 1_200L
+        private const val WAKEUP_THROTTLE_WINDOW_MS = 10_000L
     }
 
     private data class SessionResponse(
@@ -45,24 +57,40 @@ class WorkgroupRepository(
 
     private val _sessions = MutableStateFlow<Map<String, WorkgroupSession>>(emptyMap())
     val sessions: StateFlow<Map<String, WorkgroupSession>> = _sessions.asStateFlow()
+    private val _registryResults = MutableStateFlow<List<WorkgroupRegistryEntry>>(emptyList())
+    val registryResults: StateFlow<List<WorkgroupRegistryEntry>> = _registryResults.asStateFlow()
+    private var myRegistryEntries: List<WorkgroupRegistryEntry> = emptyList()
 
     private val pendingSessionRequests = ConcurrentHashMap<String, CompletableDeferred<Result<SessionResponse>>>()
     private val pendingSendRequests = ConcurrentHashMap<String, CompletableDeferred<Result<Unit>>>()
+    private val lastListRequestedAtByAgent = ConcurrentHashMap<String, Long>()
+    private val lastSessionRequestedAt = ConcurrentHashMap<String, Long>()
+    private val lastWakeupRequestedAt = ConcurrentHashMap<String, Long>()
 
-    suspend fun refresh(agentIds: List<String>) {
-        val normalizedAgentIds = normalizeAgentIds(agentIds)
+    suspend fun refresh(agentIds: List<String>, force: Boolean = false) {
+        refreshMyRegistry()
+        val normalizedAgentIds = resolveTrackedAgentIds(agentIds)
         retainAgentIds(normalizedAgentIds)
 
         normalizedAgentIds.forEach { agentId ->
+            val now = System.currentTimeMillis()
+            val lastRequestedAt = lastListRequestedAtByAgent[agentId]
+            if (!force && lastRequestedAt != null && now - lastRequestedAt < LIST_REQUEST_DEDUPE_WINDOW_MS) {
+                return@forEach
+            }
+            lastListRequestedAtByAgent[agentId] = now
+            wakeupAgent(agentId)
             webSocket.send(
                 Envelope(
                     id = UUID.randomUUID().toString(),
                     event = Events.WORKGROUP_COLLABORATION_LIST_REQUEST,
+                    agentId = agentId,
                     payload = JsonObject(
                         mapOf("agent_id" to JsonPrimitive(agentId))
                     ),
                     ts = System.currentTimeMillis()
-                )
+                ),
+                targetAgentId = agentId
             )
         }
     }
@@ -95,14 +123,33 @@ class WorkgroupRepository(
             return Result.failure(IllegalArgumentException("agentId and workgroupId are required"))
         }
 
+        val dedupeKey = sessionRequestKey(
+            agentId = normalizedAgentId,
+            workgroupId = normalizedWorkgroupId,
+            beforeId = beforeId,
+            limit = limit
+        )
+        val now = System.currentTimeMillis()
+        val lastRequestedAt = lastSessionRequestedAt[dedupeKey]
+        if (beforeId.isNullOrBlank() &&
+            lastRequestedAt != null &&
+            now - lastRequestedAt < SESSION_REQUEST_DEDUPE_WINDOW_MS &&
+            getSession(normalizedAgentId, normalizedWorkgroupId) != null
+        ) {
+            return Result.success(Unit)
+        }
+        lastSessionRequestedAt[dedupeKey] = now
+
         val requestId = UUID.randomUUID().toString()
         val deferred = CompletableDeferred<Result<SessionResponse>>()
         pendingSessionRequests[requestId] = deferred
 
+        wakeupAgent(normalizedAgentId)
         webSocket.send(
             Envelope(
                 id = requestId,
                 event = Events.WORKGROUP_COLLABORATION_SESSION_REQUEST,
+                agentId = normalizedAgentId,
                 payload = JsonObject(buildMap {
                     put("agent_id", JsonPrimitive(normalizedAgentId))
                     put("workgroup_id", JsonPrimitive(normalizedWorkgroupId))
@@ -121,7 +168,8 @@ class WorkgroupRepository(
                     }
                 }),
                 ts = System.currentTimeMillis()
-            )
+            ),
+            targetAgentId = normalizedAgentId
         )
 
         return try {
@@ -130,6 +178,7 @@ class WorkgroupRepository(
             }
         } catch (error: Exception) {
             pendingSessionRequests.remove(requestId)
+            lastSessionRequestedAt.remove(dedupeKey, now)
             Result.failure(error)
         }
     }
@@ -153,10 +202,12 @@ class WorkgroupRepository(
         val deferred = CompletableDeferred<Result<Unit>>()
         pendingSendRequests[requestId] = deferred
 
+        wakeupAgent(normalizedAgentId)
         webSocket.send(
             Envelope(
                 id = requestId,
                 event = Events.WORKGROUP_COLLABORATION_MESSAGE_SEND,
+                agentId = normalizedAgentId,
                 payload = JsonObject(
                     buildMap {
                         put("agent_id", JsonPrimitive(normalizedAgentId))
@@ -165,7 +216,8 @@ class WorkgroupRepository(
                     }
                 ),
                 ts = System.currentTimeMillis()
-            )
+            ),
+            targetAgentId = normalizedAgentId
         )
 
         return try {
@@ -179,8 +231,107 @@ class WorkgroupRepository(
     fun getSession(agentId: String, workgroupId: String): WorkgroupSession? =
         _sessions.value[sessionKey(agentId, workgroupId)]
 
+    fun resolveTrackedAgentIds(baseAgentIds: List<String>): List<String> =
+        normalizeAgentIds(
+            baseAgentIds +
+                myRegistryEntries.map { it.hostAgentId } +
+                tokenStore.getJoinedWorkgroupAgentIds().toList()
+        )
+
+    suspend fun searchRegistry(query: String): Result<List<WorkgroupRegistryEntry>> {
+        val normalizedQuery = query.trim()
+        if (normalizedQuery.isEmpty()) {
+            _registryResults.value = emptyList()
+            return Result.success(emptyList())
+        }
+        return runCatching {
+            val auth = buildAuthHeader()
+            val response = relayApiProvider().searchWorkgroupRegistry(auth, normalizedQuery)
+            response.records.map { record ->
+                WorkgroupRegistryEntry(
+                    groupNumber = record.groupNumber,
+                    workgroupId = record.workgroupId,
+                    hostAgentId = record.hostAgentId,
+                    name = record.name,
+                    description = record.description?.trim()?.takeUnless { it.isNullOrEmpty() },
+                    ownerUsername = record.ownerUsername?.trim()?.takeUnless { it.isNullOrEmpty() },
+                    memberCount = record.memberCount,
+                    canManage = record.canManage,
+                    joined = record.joined,
+                    updatedAt = record.updatedAt
+                )
+            }.also { entries ->
+                _registryResults.value = entries
+            }
+        }
+    }
+
+    suspend fun joinRegistry(groupNumber: String): Result<WorkgroupRegistryEntry> {
+        val normalizedGroupNumber = groupNumber.trim()
+        if (normalizedGroupNumber.isEmpty()) {
+            return Result.failure(IllegalArgumentException("group number is required"))
+        }
+        return runCatching {
+            val auth = buildAuthHeader()
+            val response = relayApiProvider().joinWorkgroupRegistry(
+                auth = auth,
+                request = JoinWorkgroupRegistryRequest(groupNumber = normalizedGroupNumber)
+            )
+            val entry = WorkgroupRegistryEntry(
+                groupNumber = response.record.groupNumber,
+                workgroupId = response.record.workgroupId,
+                hostAgentId = response.record.hostAgentId,
+                name = response.record.name,
+                description = response.record.description?.trim()?.takeUnless { it.isNullOrEmpty() },
+                ownerUsername = response.record.ownerUsername?.trim()?.takeUnless { it.isNullOrEmpty() },
+                memberCount = response.record.memberCount,
+                canManage = response.record.canManage,
+                joined = response.record.joined,
+                updatedAt = response.record.updatedAt
+            )
+            val nextJoinedAgentIds = tokenStore.getJoinedWorkgroupAgentIds().toMutableSet().apply {
+                add(entry.hostAgentId)
+            }
+            tokenStore.saveJoinedWorkgroupAgentIds(nextJoinedAgentIds)
+            refreshMyRegistry()
+            entry
+        }
+    }
+
+    private suspend fun refreshMyRegistry(): Result<List<WorkgroupRegistryEntry>> {
+        return runCatching {
+            val auth = buildAuthHeader()
+            relayApiProvider().listMyWorkgroupRegistry(auth).records.map { record ->
+                WorkgroupRegistryEntry(
+                    groupNumber = record.groupNumber,
+                    workgroupId = record.workgroupId,
+                    hostAgentId = record.hostAgentId,
+                    name = record.name,
+                    description = record.description?.trim()?.takeUnless { it.isNullOrEmpty() },
+                    ownerUsername = record.ownerUsername?.trim()?.takeUnless { it.isNullOrEmpty() },
+                    memberCount = record.memberCount,
+                    canManage = record.canManage,
+                    joined = record.joined,
+                    updatedAt = record.updatedAt
+                )
+            }.also { entries ->
+                myRegistryEntries = entries
+                tokenStore.saveJoinedWorkgroupAgentIds(entries.map { it.hostAgentId }.toSet())
+            }
+        }
+    }
+
     suspend fun processEnvelope(envelope: Envelope) {
         when (envelope.event) {
+            Events.ERROR -> {
+                val payload = envelope.payload?.jsonObject
+                val message = payload?.get("message")?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+                val code = payload?.get("code")?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+                failPendingRequests(
+                    if (message.isNotBlank()) message else if (code.isNotBlank()) code else "Workgroup request failed"
+                )
+            }
+
             Events.WORKGROUP_COLLABORATION_LIST -> {
                 val payload = envelope.payload?.jsonObject ?: return
                 applyAgentWorkgroups(payload)
@@ -313,6 +464,7 @@ class WorkgroupRepository(
         return Workgroup(
             id = id,
             name = obj["name"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty().ifEmpty { id },
+            groupNumber = obj["groupNumber"]?.jsonPrimitive?.contentOrNull?.trim().takeUnless { it.isNullOrEmpty() },
             description = obj["description"]?.jsonPrimitive?.contentOrNull?.trim().takeUnless { it.isNullOrEmpty() },
             updatedAt = obj["updatedAt"]?.jsonPrimitive?.longOrNull ?: 0L,
             isRunning = obj["isRunning"]?.jsonPrimitive?.booleanOrNull == true,
@@ -422,6 +574,13 @@ class WorkgroupRepository(
     private fun normalizeAgentIds(agentIds: List<String>): List<String> =
         agentIds.map { it.trim() }.filter { it.isNotEmpty() }.distinct().sorted()
 
+    private suspend fun buildAuthHeader(): String {
+        val deviceId = tokenStore.getDeviceId()?.trim().orEmpty()
+        require(deviceId.isNotEmpty()) { "Device ID is missing" }
+        val token = authSessionManager.ensureValidToken(deviceId).getOrThrow()
+        return "Bearer $token"
+    }
+
     private fun buildKnownItems(
         agentId: String,
         workgroupId: String,
@@ -451,8 +610,58 @@ class WorkgroupRepository(
         return bytes.joinToString(separator = "") { byte -> "%02x".format(byte) }
     }
 
+    private suspend fun wakeupAgent(agentId: String) {
+        val normalizedAgentId = agentId.trim()
+        if (normalizedAgentId.isEmpty()) {
+            return
+        }
+
+        val now = System.currentTimeMillis()
+        val lastRequestedAt = lastWakeupRequestedAt[normalizedAgentId]
+        if (lastRequestedAt != null && now - lastRequestedAt < WAKEUP_THROTTLE_WINDOW_MS) {
+            return
+        }
+
+        runCatching {
+            val deviceId = tokenStore.getDeviceId()?.trim().orEmpty()
+            require(deviceId.isNotEmpty()) { "Device ID is missing" }
+            val auth = "Bearer ${authSessionManager.ensureValidToken(deviceId).getOrThrow()}"
+            lastWakeupRequestedAt[normalizedAgentId] = now
+            relayApiProvider().wakeupAgent(
+                auth = auth,
+                request = WakeupRequest(normalizedAgentId)
+            )
+        }.onFailure {
+            lastWakeupRequestedAt.remove(normalizedAgentId, now)
+        }
+    }
+
+    private fun failPendingRequests(message: String) {
+        val error = IllegalStateException(message)
+        pendingSessionRequests.entries.toList().forEach { (requestId, deferred) ->
+            pendingSessionRequests.remove(requestId)
+            deferred.complete(Result.failure(error))
+        }
+        pendingSendRequests.entries.toList().forEach { (requestId, deferred) ->
+            pendingSendRequests.remove(requestId)
+            deferred.complete(Result.failure(error))
+        }
+    }
+
     private fun sessionKey(agentId: String, workgroupId: String): String =
         "${agentId.trim()}::${workgroupId.trim()}"
+
+    private fun sessionRequestKey(
+        agentId: String,
+        workgroupId: String,
+        beforeId: String?,
+        limit: Int
+    ): String = listOf(
+        agentId.trim(),
+        workgroupId.trim(),
+        beforeId?.trim().orEmpty(),
+        limit.toString()
+    ).joinToString(separator = "::")
 
     private fun sessionKeyAgentId(key: String): String =
         key.substringBefore("::", "")

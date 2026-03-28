@@ -50,7 +50,7 @@ class RelayNotificationHelper(private val context: Context) {
     fun buildServiceNotification(state: RelayWebSocket.ConnectionState) =
         NotificationCompat.Builder(context, SERVICE_CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_notify_sync)
-            .setContentTitle("Claude Code Remote")
+            .setContentTitle("AgentFlow")
             .setContentText(
                 when (state) {
                     RelayWebSocket.ConnectionState.CONNECTED -> "Connected"
@@ -114,7 +114,7 @@ class RelayNotificationHelper(private val context: Context) {
             projectId.hashCode(),
             NotificationCompat.Builder(context, MESSAGE_CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.stat_notify_chat)
-                .setContentTitle(session?.name?.ifBlank { "Claude Code Remote" } ?: "Claude Code Remote")
+                .setContentTitle(session?.name?.ifBlank { "AgentFlow" } ?: "AgentFlow")
                 .setContentText(preview)
                 .setStyle(NotificationCompat.BigTextStyle().bigText(preview))
                 .setContentIntent(pendingIntent)

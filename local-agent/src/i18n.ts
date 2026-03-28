@@ -13,7 +13,7 @@ const i18nStore = new Store<I18nSchema>({
 
 const messages: Record<Lang, Record<string, string>> = {
   en: {
-    "app.name": "Claude Code Agent",
+    "app.name": "AgentFlow",
     "common.minimize": "Minimize",
     "common.maximize": "Maximize",
     "common.close": "Close",
@@ -22,8 +22,8 @@ const messages: Record<Lang, Record<string, string>> = {
     "tray.settings": "Settings",
     "tray.showMain": "Show Main Window",
     "tray.quit": "Quit",
-    "tray.connected": "Claude Code Agent (connected)",
-    "tray.disconnected": "Claude Code Agent (disconnected)",
+    "tray.connected": "AgentFlow (connected)",
+    "tray.disconnected": "AgentFlow (disconnected)",
     "settings.titlebarTitle": "Settings",
     "settings.title": "Agent Settings",
     "settings.language": "Language",
@@ -140,7 +140,7 @@ const messages: Record<Lang, Record<string, string>> = {
     "terminal.state.error": "Error",
   },
   zh: {
-    "app.name": "Claude Code 代理",
+    "app.name": "AgentFlow",
     "common.minimize": "最小化",
     "common.maximize": "最大化",
     "common.close": "关闭",
@@ -149,8 +149,8 @@ const messages: Record<Lang, Record<string, string>> = {
     "tray.settings": "设置",
     "tray.showMain": "显示主窗口",
     "tray.quit": "退出",
-    "tray.connected": "Claude Code 代理（已连接）",
-    "tray.disconnected": "Claude Code 代理（未连接）",
+    "tray.connected": "AgentFlow（已连接）",
+    "tray.disconnected": "AgentFlow（未连接）",
     "settings.titlebarTitle": "设置",
     "settings.title": "代理设置",
     "settings.language": "语言",

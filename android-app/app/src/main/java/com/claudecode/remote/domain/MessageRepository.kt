@@ -66,6 +66,8 @@ class MessageRepository(
     companion object {
         private const val MAX_PROJECT_MESSAGES = 180
         private const val DEFAULT_SYNC_LIMIT = 30
+        private const val PROJECT_SYNC_DEDUPE_WINDOW_MS = 1_500L
+        private const val WAKEUP_THROTTLE_WINDOW_MS = 10_000L
         private const val FILE_CHUNK_SIZE = 64 * 1024
         private const val FILE_UPLOAD_TIMEOUT_MS = 120_000L
         private const val FILE_DOWNLOAD_TIMEOUT_MS = 10 * 60_000L
@@ -116,6 +118,8 @@ class MessageRepository(
     private val pendingUploadAcks = ConcurrentHashMap<String, CompletableDeferred<UploadAck>>()
     private val pendingDownloadRequests = ConcurrentHashMap<String, PendingDownloadRequest>()
     private val pendingDownloadTransfers = ConcurrentHashMap<String, PendingDownloadTransfer>()
+    private val lastProjectSyncRequestedAt = ConcurrentHashMap<String, Long>()
+    private val lastWakeupRequestedAt = ConcurrentHashMap<String, Long>()
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
     suspend fun requestProjectSync(
@@ -150,6 +154,21 @@ class MessageRepository(
                 )
                 afterSeq = 0L
             }
+        }
+
+        val requestKey = buildProjectSyncRequestKey(
+            projectId = projectId,
+            agentId = agentId,
+            afterSeq = afterSeq,
+            beforeSeq = beforeSeq,
+            limit = limit ?: DEFAULT_SYNC_LIMIT,
+            action = action,
+            conversationId = conversationId
+        )
+        val now = System.currentTimeMillis()
+        val previousRequestedAt = lastProjectSyncRequestedAt.put(requestKey, now)
+        if (previousRequestedAt != null && now - previousRequestedAt < PROJECT_SYNC_DEDUPE_WINDOW_MS) {
+            return
         }
 
         webSocket.send(
@@ -188,7 +207,9 @@ class MessageRepository(
     }
 
     suspend fun requestProjectSyncs(sessions: List<Session>) {
-        sessions.forEach { session ->
+        sessions
+            .distinctBy { "${it.agentId.trim()}::${it.projectId.trim()}" }
+            .forEach { session ->
             if (session.projectId.isNotBlank()) {
                 requestProjectSync(session.projectId, session.agentId, limit = DEFAULT_SYNC_LIMIT)
             }
@@ -272,54 +293,94 @@ class MessageRepository(
         attachments: List<MessageAttachment> = emptyList(),
         agentId: String? = null
     ) = withContext(Dispatchers.IO) {
-        wakeupAgent(agentId)
-
         val normalizedAttachments = attachments.map(::normalizeAttachment)
         val trimmedContent = content.trim()
         if (trimmedContent.isEmpty() && normalizedAttachments.isEmpty()) {
             return@withContext
         }
 
-        val uploadedAttachments = normalizedAttachments.map { attachment ->
-            uploadAttachment(projectId, attachment, agentId)
-        }
-        val messageContent = if (trimmedContent.isNotEmpty()) content else buildAttachmentOnlyPrompt(uploadedAttachments)
+        val previousSession = sessionDao.getSessionByProjectId(projectId)
+        val optimisticTimestamp = System.currentTimeMillis()
         val runId = UUID.randomUUID().toString()
         val streamId = "$runId:assistant"
-        val envelope = Envelope(
-            id = runId,
-            event = Events.MESSAGE_SEND,
-            projectId = projectId,
-            streamId = streamId,
-            payload = buildJsonObject {
-                put("content", JsonPrimitive(messageContent))
-                if (uploadedAttachments.isNotEmpty()) {
-                    put("attachments", JsonArray(uploadedAttachments.map(::attachmentToJson)))
-                }
-            },
-            ts = System.currentTimeMillis()
-        )
-
-        val optimisticAttachments = uploadedAttachments.map { uploaded ->
-            mergeAttachment(
-                existing = normalizedAttachments.firstOrNull { it.id == uploaded.id },
-                incoming = uploaded
-            )
+        val optimisticContent = if (trimmedContent.isNotEmpty()) {
+            content
+        } else {
+            buildAttachmentOnlyPrompt(normalizedAttachments)
         }
 
         addMessage(
             Message(
-                id = envelope.id,
+                id = runId,
                 projectId = projectId,
                 role = MessageRole.USER,
-                content = messageContent,
-                type = if (optimisticAttachments.isNotEmpty()) MessageType.FILE else MessageType.TEXT,
-                attachments = optimisticAttachments,
-                timestamp = envelope.ts
+                content = optimisticContent,
+                type = if (normalizedAttachments.isNotEmpty()) MessageType.FILE else MessageType.TEXT,
+                attachments = normalizedAttachments,
+                timestamp = optimisticTimestamp
             )
         )
+        applyOptimisticRuntimeState(
+            projectId = projectId,
+            previewPrompt = optimisticContent,
+            previousSession = previousSession,
+            now = optimisticTimestamp
+        )
 
-        webSocket.send(envelope, targetAgentId = agentId)
+        try {
+            wakeupAgent(agentId)
+
+            val uploadedAttachments = normalizedAttachments.map { attachment ->
+                uploadAttachment(projectId, attachment, agentId)
+            }
+            val messageContent = if (trimmedContent.isNotEmpty()) content else buildAttachmentOnlyPrompt(uploadedAttachments)
+            val envelope = Envelope(
+                id = runId,
+                event = Events.MESSAGE_SEND,
+                projectId = projectId,
+                streamId = streamId,
+                payload = buildJsonObject {
+                    put("content", JsonPrimitive(messageContent))
+                    if (uploadedAttachments.isNotEmpty()) {
+                        put("attachments", JsonArray(uploadedAttachments.map(::attachmentToJson)))
+                    }
+                },
+                ts = optimisticTimestamp
+            )
+
+            val optimisticAttachments = uploadedAttachments.map { uploaded ->
+                mergeAttachment(
+                    existing = normalizedAttachments.firstOrNull { it.id == uploaded.id },
+                    incoming = uploaded
+                )
+            }
+
+            addMessage(
+                Message(
+                    id = envelope.id,
+                    projectId = projectId,
+                    role = MessageRole.USER,
+                    content = messageContent,
+                    type = if (optimisticAttachments.isNotEmpty()) MessageType.FILE else MessageType.TEXT,
+                    attachments = optimisticAttachments,
+                    timestamp = envelope.ts
+                )
+            )
+
+            webSocket.send(envelope, targetAgentId = agentId)
+            runCatching {
+                requestProjectSync(
+                    projectId = projectId,
+                    agentId = agentId,
+                    limit = DEFAULT_SYNC_LIMIT,
+                    shouldWakeAgent = false
+                )
+            }
+        } catch (error: Exception) {
+            messageDao.deleteMessageById(runId)
+            previousSession?.let { sessionDao.insertSession(it) }
+            throw error
+        }
     }
 
     suspend fun downloadAttachment(
@@ -411,6 +472,7 @@ class MessageRepository(
 
                 val assembled = buffer.assembledContent()
                 upsertStreamingMessage(projectId, streamId, assembled, isStreaming = true, timestamp = buffer.startedAt)
+                sessionDao.markStreamingActive(projectId, envelope.ts)
             }
 
             Events.MESSAGE_DONE -> {
@@ -434,6 +496,14 @@ class MessageRepository(
                     }
                 }
                 sessionDao.resetRunningState(projectId)
+                runCatching {
+                    requestProjectSync(
+                        projectId = projectId,
+                        agentId = sessionDao.getSessionByProjectId(projectId)?.agentId,
+                        limit = DEFAULT_SYNC_LIMIT,
+                        shouldWakeAgent = false
+                    )
+                }
             }
 
             Events.MESSAGE_ERROR -> {
@@ -451,6 +521,14 @@ class MessageRepository(
                     )
                 }
                 sessionDao.resetRunningState(projectId)
+                runCatching {
+                    requestProjectSync(
+                        projectId = projectId,
+                        agentId = sessionDao.getSessionByProjectId(projectId)?.agentId,
+                        limit = DEFAULT_SYNC_LIMIT,
+                        shouldWakeAgent = false
+                    )
+                }
             }
 
             Events.FILE_UPLOAD -> {
@@ -665,6 +743,11 @@ class MessageRepository(
             entities.map { it.toMessage() }
         }
 
+    fun getConversationMessagesForProject(projectId: String): Flow<List<Message>> =
+        messageDao.getConversationMessagesByProject(projectId).map { entities ->
+            entities.map { it.toMessage() }
+        }
+
     fun getSessionForProject(projectId: String): Flow<Session?> =
         sessionDao.observeSessionByProjectId(projectId).map { entity ->
             entity?.toSession()
@@ -864,21 +947,48 @@ class MessageRepository(
             return
         }
 
+        val normalizedAgentId = agentId.trim()
+        val now = System.currentTimeMillis()
+        val lastRequestedAt = lastWakeupRequestedAt[normalizedAgentId]
+        if (lastRequestedAt != null && now - lastRequestedAt < WAKEUP_THROTTLE_WINDOW_MS) {
+            return
+        }
+
         val deviceId = tokenStore.getDeviceId().orEmpty()
         val token = authSessionManager.ensureValidToken(deviceId).getOrElse {
             return
         }
 
         try {
+            lastWakeupRequestedAt[normalizedAgentId] = now
             relayApiProvider().wakeupAgent(
                 auth = "Bearer $token",
-                request = WakeupRequest(agentId)
+                request = WakeupRequest(normalizedAgentId)
             )
-            CrashLogger.logInfo("MessageRepository", "Wakeup requested for agentId=$agentId")
+            CrashLogger.logInfo("MessageRepository", "Wakeup requested for agentId=$normalizedAgentId")
         } catch (e: Exception) {
-            CrashLogger.logError("MessageRepository", "Wakeup request failed for agentId=$agentId", e)
+            lastWakeupRequestedAt.remove(normalizedAgentId, now)
+            CrashLogger.logError("MessageRepository", "Wakeup request failed for agentId=$normalizedAgentId", e)
         }
     }
+
+    private fun buildProjectSyncRequestKey(
+        projectId: String,
+        agentId: String?,
+        afterSeq: Long,
+        beforeSeq: Long?,
+        limit: Int,
+        action: String?,
+        conversationId: String?
+    ): String = listOf(
+        projectId.trim(),
+        agentId?.trim().orEmpty(),
+        afterSeq.toString(),
+        beforeSeq?.toString().orEmpty(),
+        limit.toString(),
+        action?.trim().orEmpty(),
+        conversationId?.trim().orEmpty()
+    ).joinToString(separator = "::")
 
     private fun normalizeAttachment(attachment: MessageAttachment): MessageAttachment {
         val inferredKind = when {
@@ -894,6 +1004,31 @@ class MessageRepository(
             mimeType = attachment.mimeType.ifBlank {
                 if (inferredKind == "image") "image/*" else "application/octet-stream"
             }
+        )
+    }
+
+    private suspend fun applyOptimisticRuntimeState(
+        projectId: String,
+        previewPrompt: String,
+        previousSession: com.claudecode.remote.data.local.SessionEntity?,
+        now: Long
+    ) {
+        val session = previousSession ?: return
+        val wasBusy = session.isRunning || session.queuedCount > 0
+        val nextQueuedCount = if (wasBusy) session.queuedCount + 1 else 0
+        sessionDao.updateSessionRuntime(
+            projectId = projectId,
+            cliProvider = session.cliProvider,
+            cliModel = session.cliModel,
+            isRunning = if (wasBusy) session.isRunning else true,
+            queuedCount = nextQueuedCount,
+            currentPrompt = if (wasBusy) session.currentPrompt else previewPrompt,
+            queuePreview = if (wasBusy) previewPrompt else null,
+            currentStartedAt = if (wasBusy) session.currentStartedAt else now,
+            activeConversationId = session.activeConversationId,
+            activeConversationTitle = session.activeConversationTitle,
+            conversationsJson = session.conversationsJson,
+            lastActiveAt = now
         )
     }
 

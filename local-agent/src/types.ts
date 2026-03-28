@@ -3,6 +3,8 @@ export type ClientType = "agent" | "device";
 export interface Envelope {
   id: string;
   event: string;
+  agent_id?: string;
+  workgroup_id?: string;
   project_id?: string;
   stream_id?: string;
   seq?: number;

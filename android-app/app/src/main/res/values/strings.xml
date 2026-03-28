@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Claude Code Remote</string>
+    <string name="app_name">AgentFlow</string>
     <string name="no_sessions">No projects yet. Connect your desktop agent to load them here.</string>
     <string name="send_message">Send</string>
     <string name="message_hint">Send a message</string>
@@ -117,6 +117,14 @@
     <string name="workgroups_title">Workgroups</string>
     <string name="workgroups_subtitle">Desktop-local workgroups synced live from connected agents.</string>
     <string name="workgroups_chat_subtitle">Open a workgroup to chat with the whole group like desktop.</string>
+    <string name="workgroups_join_title">Join by group number</string>
+    <string name="workgroups_group_number_hint">Enter group number</string>
+    <string name="workgroups_group_number_label">Group %1$s</string>
+    <string name="workgroups_search">Search</string>
+    <string name="workgroups_searching">Searching...</string>
+    <string name="workgroups_join_action">Join</string>
+    <string name="workgroups_joining">Joining...</string>
+    <string name="workgroups_owner_unknown">Unknown owner</string>
     <string name="workgroups_empty">No workgroups are available yet. Create and manage them on the desktop app first.</string>
     <string name="workgroups_agent_empty">This agent has no workgroups yet.</string>
     <string name="workgroups_short">WG</string>
@@ -134,4 +142,27 @@
     <string name="workgroups_done">Done</string>
     <string name="workgroups_blocked">Block</string>
     <string name="workgroups_agent_label">Agent: %1$s</string>
+    <string name="update_message_checking_manual">Checking for updates...</string>
+    <string name="update_message_available">Version %1$s is available.</string>
+    <string name="update_error_check_failed">Update check failed.</string>
+    <string name="update_error_no_download">No update is ready to download.</string>
+    <string name="update_message_downloading">Downloading version %1$s...</string>
+    <string name="update_error_download_status">Download failed with status %1$d.</string>
+    <string name="update_error_empty_body">Update package response was empty.</string>
+    <string name="update_error_sha_mismatch">Downloaded APK failed SHA-256 verification.</string>
+    <string name="update_message_ready_install">Version %1$s is ready to install.</string>
+    <string name="update_error_download_failed">Update download failed.</string>
+    <string name="update_error_missing_apk">Downloaded APK is missing.</string>
+    <string name="update_message_enable_unknown_apps">Enable "Install unknown apps" for this app, then tap install again.</string>
+    <string name="update_message_installer_opened">Installer opened.</string>
+    <string name="workgroups_error_search">Failed to search workgroups.</string>
+    <string name="workgroups_error_join">Failed to join workgroup.</string>
+    <string name="workgroups_error_load_older">Failed to load older messages.</string>
+    <string name="workgroups_error_send_message">Failed to send message.</string>
+    <string name="workgroups_error_load">Failed to load workgroup.</string>
+    <string name="workgroups_mention_all">All members</string>
+    <string name="workgroups_mention_developer">Developer role</string>
+    <string name="workgroups_mention_qa">QA role</string>
+    <string name="workgroups_mention_pm">Project manager</string>
+    <string name="workgroups_mention_member">Member</string>
 </resources>

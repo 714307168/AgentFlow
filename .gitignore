@@ -20,6 +20,7 @@ relay-server/vendor/
 local-agent/node_modules/
 local-agent/dist/
 local-agent/out/
+local-agent/build/
 local-agent/.env
 local-agent/*.log
 local-agent/*token*.txt
@@ -53,6 +54,7 @@ deploy-relay-server.local.ps1
 publish-release.local.ps1
 
 # === Generated release artifacts ===
+artifacts/
 artifacts/**/*.apk
 artifacts/**/*.aab
 artifacts/**/*.blockmap

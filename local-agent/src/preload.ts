@@ -4,7 +4,7 @@ contextBridge.exposeInMainWorld('claudeAgent', {
   onProjectSessionSnapshot: (callback: (snapshot: unknown) => void) => {
     ipcRenderer.on('project-session-snapshot', (_event, snapshot: unknown) => callback(snapshot));
   },
-  getProjects: () => ipcRenderer.invoke('get-projects'),
+  getProjects: (options?: { refreshRemote?: boolean }) => ipcRenderer.invoke('get-projects', options ?? null),
   onProjectsChanged: (callback: (projects: unknown[]) => void) => {
     ipcRenderer.on('projects-changed', (_event, projects: unknown[]) => callback(projects));
   },
@@ -51,8 +51,15 @@ contextBridge.exposeInMainWorld('claudeAgent', {
     name: string;
     description?: string | null;
     allowDirectMemberMessages?: boolean;
+    selectedProjectIds?: string[] | null;
   }) => ipcRenderer.invoke('save-workgroup', data),
   deleteWorkgroup: (workgroupId: string) => ipcRenderer.invoke('delete-workgroup', workgroupId),
+  publishWorkgroupRegistry: (workgroupId: string) => ipcRenderer.invoke('publish-workgroup-registry', workgroupId),
+  searchWorkgroupRegistry: (query: string) => ipcRenderer.invoke('search-workgroup-registry', query),
+  joinWorkgroupRegistry: (groupNumber: string) => ipcRenderer.invoke('join-workgroup-registry', groupNumber),
+  getWorkgroupRegistryMembers: (data: { groupNumber?: string | null; workgroupId?: string | null; hostAgentId?: string | null }) => ipcRenderer.invoke('get-workgroup-registry-members', data),
+  leaveWorkgroupRegistry: (data: { groupNumber?: string | null; workgroupId?: string | null; hostAgentId?: string | null }) => ipcRenderer.invoke('leave-workgroup-registry', data),
+  kickWorkgroupRegistryMember: (data: { groupNumber?: string | null; workgroupId?: string | null; hostAgentId?: string | null; userId: number }) => ipcRenderer.invoke('kick-workgroup-registry-member', data),
   saveWorkgroupMember: (data: {
     id?: string;
     workgroupId: string;
@@ -115,6 +122,9 @@ contextBridge.exposeInMainWorld('claudeAgent', {
   },
   getAppSettings: () => ipcRenderer.invoke('get-app-settings'),
   setAppSettings: (settings: Record<string, boolean | number>) => ipcRenderer.invoke('set-app-settings', settings),
+  pickLocalDataRoot: (currentPath?: string | null) => ipcRenderer.invoke('pick-local-data-root', currentPath),
+  openLocalDataRoot: (currentPath?: string | null) => ipcRenderer.invoke('open-local-data-root', currentPath),
+  changeLocalDataRoot: (nextPath?: string | null) => ipcRenderer.invoke('change-local-data-root', nextPath),
   getUpdateState: () => ipcRenderer.invoke('get-update-state'),
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
   downloadAvailableUpdate: () => ipcRenderer.invoke('download-available-update'),

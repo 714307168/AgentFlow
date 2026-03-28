@@ -70,6 +70,13 @@ func main() {
 	mux.HandleFunc("/api/auth/register-client", rateLimitMiddleware("client-register", registerRateLimiter, handler.RegisterClientHandler(database, cfg)))
 	mux.HandleFunc("/api/auth/change-password", rateLimitMiddleware("password-change", changePasswordRateLimiter, handler.ChangePasswordHandler(database)))
 	mux.HandleFunc("/api/access/grants", handler.AccessGrantsHandler(cfg, database))
+	mux.HandleFunc("/api/workgroups/registry/publish", handler.WorkgroupRegistryHandler(cfg, database))
+	mux.HandleFunc("/api/workgroups/registry/join", handler.WorkgroupRegistryHandler(cfg, database))
+	mux.HandleFunc("/api/workgroups/registry/leave", handler.WorkgroupRegistryHandler(cfg, database))
+	mux.HandleFunc("/api/workgroups/registry/kick", handler.WorkgroupRegistryHandler(cfg, database))
+	mux.HandleFunc("/api/workgroups/registry/members", handler.WorkgroupRegistryHandler(cfg, database))
+	mux.HandleFunc("/api/workgroups/registry/mine", handler.WorkgroupRegistryHandler(cfg, database))
+	mux.HandleFunc("/api/workgroups/registry", handler.WorkgroupRegistryHandler(cfg, database))
 
 	// Legacy endpoints (kept for backward compatibility)
 	mux.HandleFunc("/api/session", handler.SessionHandler(cfg, st))

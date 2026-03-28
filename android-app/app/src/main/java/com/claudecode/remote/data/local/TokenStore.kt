@@ -129,6 +129,13 @@ class TokenStore(context: Context) {
     fun getCollapsedSessionGroups(): Set<String> =
         prefs.getStringSet(KEY_COLLAPSED_SESSION_GROUPS, emptySet())?.toSet() ?: emptySet()
 
+    fun saveJoinedWorkgroupAgentIds(agentIds: Set<String>) {
+        prefs.edit().putStringSet(KEY_JOINED_WORKGROUP_AGENT_IDS, agentIds.toSet()).apply()
+    }
+
+    fun getJoinedWorkgroupAgentIds(): Set<String> =
+        prefs.getStringSet(KEY_JOINED_WORKGROUP_AGENT_IDS, emptySet())?.toSet() ?: emptySet()
+
     fun clear() {
         prefs.edit().clear().apply()
     }
@@ -148,6 +155,7 @@ class TokenStore(context: Context) {
         private const val KEY_AUTO_UPDATE_DOWNLOAD = "auto_update_download"
         private const val KEY_CRASH_LOGS_ENABLED = "crash_logs_enabled"
         private const val KEY_COLLAPSED_SESSION_GROUPS = "collapsed_session_groups"
+        private const val KEY_JOINED_WORKGROUP_AGENT_IDS = "joined_workgroup_agent_ids"
 
         private fun projectDraftKey(projectId: String): String = "draft_$projectId"
     }

@@ -14,7 +14,7 @@ import java.security.KeyPair
 import java.security.SecureRandom
 
 /**
- * End-to-end encryption using X25519 key exchange + AES-256-GCM.
+ * End-to-end encryption using P-256 ECDH key exchange + AES-256-GCM.
  * The relay server never sees plaintext payloads.
  */
 class E2ECrypto {

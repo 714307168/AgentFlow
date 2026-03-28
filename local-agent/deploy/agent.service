@@ -1,5 +1,5 @@
 ﻿[Unit]
-Description=Claude Code Agent
+Description=AgentFlow
 After=network.target graphical-session.target
 Wants=graphical-session.target
 

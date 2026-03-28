@@ -1,5 +1,7 @@
 package com.claudecode.remote.ui.workgroup
 
+import android.content.Context
+import com.claudecode.remote.R
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.claudecode.remote.data.local.TokenStore
@@ -16,6 +18,15 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 private const val WORKGROUP_DRAFT_PREFIX = "workgroup:"
+private const val WORKGROUP_VISIBLE_PAGE_SIZE = 30
+private const val WORKGROUP_SYNC_PAGE_SIZE = 80
+
+data class WorkgroupMentionSuggestion(
+    val token: String,
+    val label: String,
+    val meta: String,
+    val kind: String
+)
 
 data class WorkgroupChatUiState(
     val agentId: String = "",
@@ -31,10 +42,12 @@ data class WorkgroupChatUiState(
     val isLoading: Boolean = false,
     val isLoadingOlder: Boolean = false,
     val hasMoreHistory: Boolean = false,
+    val mentionSuggestions: List<WorkgroupMentionSuggestion> = emptyList(),
     val error: String? = null
 )
 
 class WorkgroupChatViewModel(
+    private val context: Context,
     private val workgroupRepository: WorkgroupRepository,
     private val webSocket: RelayWebSocket,
     private val tokenStore: TokenStore
@@ -44,6 +57,10 @@ class WorkgroupChatViewModel(
 
     private var sessionsJob: Job? = null
     private var currentSessionKey: String? = null
+    private var allMessages: List<WorkgroupMessage> = emptyList()
+    private var visibleMessageCount: Int = WORKGROUP_VISIBLE_PAGE_SIZE
+
+    private fun text(resId: Int, vararg args: Any): String = context.getString(resId, *args)
 
     init {
         viewModelScope.launch {
@@ -62,6 +79,8 @@ class WorkgroupChatViewModel(
             return
         }
         currentSessionKey = sessionKey(agentId, workgroupId)
+        allMessages = emptyList()
+        visibleMessageCount = WORKGROUP_VISIBLE_PAGE_SIZE
         _uiState.update {
             it.copy(
                 agentId = agentId,
@@ -76,6 +95,10 @@ class WorkgroupChatViewModel(
                 isLoadingOlder = false,
                 hasMoreHistory = false,
                 isSending = false,
+                mentionSuggestions = buildMentionSuggestions(
+                    text = tokenStore.getDraft(draftKey(agentId, workgroupId)),
+                    members = emptyList()
+                ),
                 error = null
             )
         }
@@ -84,18 +107,25 @@ class WorkgroupChatViewModel(
         sessionsJob = viewModelScope.launch {
             workgroupRepository.sessions.collect { sessions ->
                 val session = sessions[currentSessionKey] ?: return@collect
+                allMessages = session.messages
                 _uiState.update { current ->
                     current.copy(
                         workgroupName = session.workgroupName.ifBlank { current.workgroupName },
                         description = session.description,
                         members = session.members,
-                        messages = session.messages,
                         isRunning = session.isRunning,
-                        hasMoreHistory = session.hasMoreHistory,
+                        mentionSuggestions = buildMentionSuggestions(
+                            text = current.inputText,
+                            members = session.members
+                        ),
                         isLoading = false,
                         isLoadingOlder = false
                     )
                 }
+                publishVisibleMessages(
+                    hasMoreRemoteHistory = session.hasMoreHistory
+                )
+                maybeLoadMoreHistory()
             }
         }
 
@@ -111,19 +141,26 @@ class WorkgroupChatViewModel(
         if (state.agentId.isBlank() || state.workgroupId.isBlank() || state.isLoadingOlder || !state.hasMoreHistory) {
             return
         }
+        if (visibleMessageCount < allMessages.size) {
+            visibleMessageCount += WORKGROUP_VISIBLE_PAGE_SIZE
+            publishVisibleMessages(hasMoreRemoteHistory = state.hasMoreHistory)
+            maybeLoadMoreHistory()
+            return
+        }
         val beforeId = state.messages.firstOrNull()?.id ?: return
         _uiState.update { it.copy(isLoadingOlder = true, error = null) }
         viewModelScope.launch {
             val result = workgroupRepository.requestSession(
                 agentId = state.agentId,
                 workgroupId = state.workgroupId,
-                beforeId = beforeId
+                beforeId = beforeId,
+                limit = WORKGROUP_SYNC_PAGE_SIZE
             )
             if (result.isFailure) {
                 _uiState.update {
                     it.copy(
                         isLoadingOlder = false,
-                        error = result.exceptionOrNull()?.message ?: "Failed to load older messages"
+                        error = result.exceptionOrNull()?.message ?: text(R.string.workgroups_error_load_older)
                     )
                 }
             }
@@ -135,7 +172,21 @@ class WorkgroupChatViewModel(
         if (state.agentId.isNotBlank() && state.workgroupId.isNotBlank()) {
             tokenStore.saveDraft(draftKey(state.agentId, state.workgroupId), text)
         }
-        _uiState.update { it.copy(inputText = text) }
+        _uiState.update {
+            it.copy(
+                inputText = text,
+                mentionSuggestions = buildMentionSuggestions(text, it.members)
+            )
+        }
+    }
+
+    fun applyMentionSuggestion(suggestion: WorkgroupMentionSuggestion) {
+        val state = _uiState.value
+        val text = state.inputText
+        val match = Regex("(^|\\s)@([^\\s@]*)$").find(text) ?: return
+        val replacement = "@${suggestion.token} "
+        val updated = text.replaceRange(match.range.first + match.value.indexOf('@'), match.range.last + 1, replacement)
+        updateInput(updated)
     }
 
     fun sendMessage() {
@@ -149,7 +200,7 @@ class WorkgroupChatViewModel(
         }
 
         tokenStore.clearDraft(draftKey(state.agentId, state.workgroupId))
-        _uiState.update { it.copy(inputText = "", isSending = true, error = null) }
+        _uiState.update { it.copy(inputText = "", isSending = true, mentionSuggestions = emptyList(), error = null) }
         viewModelScope.launch {
             val result = workgroupRepository.sendMessage(
                 agentId = state.agentId,
@@ -166,7 +217,8 @@ class WorkgroupChatViewModel(
                 _uiState.update {
                     it.copy(
                         inputText = textSnapshot,
-                        error = result.exceptionOrNull()?.message ?: "Failed to send message"
+                        mentionSuggestions = buildMentionSuggestions(textSnapshot, it.members),
+                        error = result.exceptionOrNull()?.message ?: text(R.string.workgroups_error_send_message)
                     )
                 }
             }
@@ -193,13 +245,60 @@ class WorkgroupChatViewModel(
         viewModelScope.launch {
             val result = workgroupRepository.requestSession(
                 agentId = state.agentId,
-                workgroupId = state.workgroupId
+                workgroupId = state.workgroupId,
+                limit = WORKGROUP_SYNC_PAGE_SIZE
             )
             if (result.isFailure) {
                 _uiState.update {
                     it.copy(
                         isLoading = false,
-                        error = result.exceptionOrNull()?.message ?: "Failed to load workgroup"
+                        error = result.exceptionOrNull()?.message ?: text(R.string.workgroups_error_load)
+                    )
+                }
+            }
+        }
+    }
+
+    private fun publishVisibleMessages(hasMoreRemoteHistory: Boolean) {
+        val startIndex = (allMessages.size - visibleMessageCount).coerceAtLeast(0)
+        val visibleMessages = allMessages.drop(startIndex)
+        _uiState.update {
+            it.copy(
+                messages = visibleMessages,
+                hasMoreHistory = hasMoreRemoteHistory || startIndex > 0
+            )
+        }
+    }
+
+    private fun maybeLoadMoreHistory() {
+        val state = _uiState.value
+        if (
+            state.agentId.isBlank() ||
+            state.workgroupId.isBlank() ||
+            state.isLoading ||
+            state.isLoadingOlder ||
+            !state.hasMoreHistory ||
+            !state.isConnected
+        ) {
+            return
+        }
+        if (allMessages.size >= visibleMessageCount) {
+            return
+        }
+        val beforeId = state.messages.firstOrNull()?.id ?: return
+        _uiState.update { it.copy(isLoadingOlder = true) }
+        viewModelScope.launch {
+            val result = workgroupRepository.requestSession(
+                agentId = state.agentId,
+                workgroupId = state.workgroupId,
+                beforeId = beforeId,
+                limit = WORKGROUP_SYNC_PAGE_SIZE
+            )
+            if (result.isFailure) {
+                _uiState.update {
+                    it.copy(
+                        isLoadingOlder = false,
+                        error = result.exceptionOrNull()?.message ?: text(R.string.workgroups_error_load_older)
                     )
                 }
             }
@@ -211,4 +310,79 @@ class WorkgroupChatViewModel(
 
     private fun sessionKey(agentId: String, workgroupId: String): String =
         "${agentId.trim()}::${workgroupId.trim()}"
+
+    private fun buildMentionSuggestions(
+        text: String,
+        members: List<WorkgroupMember>
+    ): List<WorkgroupMentionSuggestion> {
+        val match = Regex("(^|\\s)@([^\\s@]*)$").find(text) ?: return emptyList()
+        val query = match.groupValues.getOrNull(2)?.trim()?.lowercase().orEmpty()
+
+        val baseSuggestions = buildList {
+            add(
+                WorkgroupMentionSuggestion(
+                    token = "all",
+                    label = "@all",
+                    meta = text(R.string.workgroups_mention_all),
+                    kind = "all"
+                )
+            )
+            add(
+                WorkgroupMentionSuggestion(
+                    token = "developer",
+                    label = "@developer",
+                    meta = text(R.string.workgroups_mention_developer),
+                    kind = "role"
+                )
+            )
+            add(
+                WorkgroupMentionSuggestion(
+                    token = "qa",
+                    label = "@qa",
+                    meta = text(R.string.workgroups_mention_qa),
+                    kind = "role"
+                )
+            )
+            add(
+                WorkgroupMentionSuggestion(
+                    token = "pm",
+                    label = "@pm",
+                    meta = text(R.string.workgroups_mention_pm),
+                    kind = "role"
+                )
+            )
+            members
+                .filter { it.name.isNotBlank() }
+                .sortedBy { it.name.lowercase() }
+                .forEach { member ->
+                    add(
+                        WorkgroupMentionSuggestion(
+                            token = member.name.trim(),
+                            label = "@${member.name.trim()}",
+                            meta = translateMemberRole(member.role),
+                            kind = "member"
+                        )
+                    )
+                }
+        }
+
+        if (query.isBlank()) {
+            return baseSuggestions.take(6)
+        }
+
+        return baseSuggestions.filter { suggestion ->
+            suggestion.token.lowercase().contains(query)
+                || suggestion.label.lowercase().contains(query)
+                || suggestion.meta.lowercase().contains(query)
+        }.take(6)
+    }
+
+    private fun translateMemberRole(role: String): String {
+        return when (role.trim().lowercase()) {
+            "developer" -> text(R.string.workgroups_mention_developer)
+            "qa" -> text(R.string.workgroups_mention_qa)
+            "project_manager", "pm" -> text(R.string.workgroups_mention_pm)
+            else -> text(R.string.workgroups_mention_member)
+        }
+    }
 }

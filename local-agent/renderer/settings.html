@@ -436,6 +436,14 @@
       font-weight: 700;
       margin-bottom: 12px;
     }
+    .inline-field-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .inline-field-row > input {
+      flex: 1;
+    }
     .workgroup-inline-meta {
       display: flex;
       gap: 8px;
@@ -476,6 +484,20 @@
       text-align: center;
       color: var(--muted);
       background: var(--panel-2);
+    }
+    .workgroup-agent-picker-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--panel);
+    }
+    .workgroup-agent-picker-item input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      accent-color: var(--accent);
     }
     .add-project-form {
       display: none;
@@ -658,7 +680,7 @@
 
           <div class="section" id="workgroupSectionCard">
             <div class="section-title" id="workgroupSection">Workgroups</div>
-            <div class="section-subtitle" id="workgroupSectionHint">Bind local or remote projects into role-based members, then dispatch structured tasks to them.</div>
+            <div class="section-subtitle" id="workgroupSectionHint">Create a shared collaboration room with selected agents. PM Agent and planning space are created automatically.</div>
             <div class="workgroup-toolbar">
               <select id="workgroupSelect"></select>
               <button class="btn-secondary btn-small" id="newWorkgroupBtn">New Workgroup</button>
@@ -673,10 +695,25 @@
                   <input type="text" id="workgroupName" placeholder="Release Squad">
                 </div>
                 <div class="field">
-                  <label id="workgroupDescriptionLabel">Description</label>
-                  <textarea id="workgroupDescription" rows="4" placeholder="Desktop handles development, remote desktop handles deploy and verification."></textarea>
+                  <label id="workgroupGroupNumberLabel">Group Number</label>
+                  <div class="inline-field-row">
+                    <input type="text" id="workgroupGroupNumber" placeholder="Not published yet" readonly>
+                    <button class="btn-secondary btn-small" id="publishWorkgroupBtn">Publish</button>
+                  </div>
                 </div>
-                <div class="toggle-row">
+                <div class="field">
+                  <label id="workgroupPlanPathLabel">Planning Workspace</label>
+                  <input type="text" id="workgroupPlanPath" readonly>
+                </div>
+                <div class="field">
+                  <label id="workgroupAgentsLabel">Agents</label>
+                  <div class="project-list" id="workgroupProjectPicker" data-empty-message="No projects available."></div>
+                </div>
+                <div class="field" style="display:none;">
+                  <label id="workgroupDescriptionLabel">Description</label>
+                  <textarea id="workgroupDescription" rows="4"></textarea>
+                </div>
+                <div class="toggle-row" style="display:none;">
                   <div class="toggle-copy">
                     <label id="workgroupDirectMessageLabel" for="workgroupAllowDirectMessages">Allow member-to-member handoff notes</label>
                     <div class="toggle-help" id="workgroupDirectMessageHint">When disabled, tasks are isolated and members should only report back their own result.</div>
@@ -693,6 +730,7 @@
               </div>
               <div class="workgroup-card">
                 <div class="workgroup-card-title" id="workgroupMemberTitle">Members</div>
+                <div style="display:none;">
                 <div class="field">
                   <label id="memberNameLabel">Member Name</label>
                   <input type="text" id="workgroupMemberName" placeholder="Desktop Developer">
@@ -722,10 +760,22 @@
                   <button class="btn-primary btn-small" id="saveWorkgroupMemberBtn">Save Member</button>
                   <button class="btn-secondary btn-small" id="cancelWorkgroupMemberBtn">Reset</button>
                 </div>
+                </div>
                 <div class="project-list" id="workgroupMemberList" data-empty-message="No members yet."></div>
               </div>
             </div>
             <div class="workgroup-card" style="margin-top: 14px;">
+              <div class="workgroup-card-title" id="workgroupRegistryTitle">Join Workgroup</div>
+              <div class="field">
+                <label id="workgroupRegistryQueryLabel">Group Number</label>
+                <div class="inline-field-row">
+                  <input type="text" id="workgroupRegistryQuery" placeholder="Enter group number">
+                  <button class="btn-secondary btn-small" id="searchWorkgroupRegistryBtn">Search</button>
+                </div>
+              </div>
+              <div class="project-list" id="workgroupRegistryResultList" data-empty-message="No matching workgroup."></div>
+            </div>
+            <div class="workgroup-card" style="margin-top: 14px; display:none;">
               <div class="workgroup-card-title" id="workgroupTaskTitle">Tasks</div>
               <div class="split-grid">
                 <div>
@@ -807,7 +857,18 @@
           </div>
 
           <div class="section">
-            <div class="section-title" id="diagnosticsSection">Diagnostics</div>
+            <div class="section-title" id="diagnosticsSection">Local Files</div>
+            <div class="field">
+              <label id="localDataRootLabel">Data Folder</label>
+              <input type="text" id="localDataRoot" readonly>
+              <div class="field-help" id="localDataRootHint">Chat history, logs, attachments, update packages, and local cache are all stored under this folder.</div>
+            </div>
+            <div class="btn-row">
+              <button class="btn-secondary" id="pickLocalDataRootBtn">Choose Folder</button>
+              <button class="btn-secondary" id="openLocalDataRootBtn">Open Folder</button>
+              <button class="btn-secondary" id="resetLocalDataRootBtn">Use Default</button>
+              <button class="btn-primary" id="applyLocalDataRootBtn">Apply and Restart</button>
+            </div>
             <div class="toggle-row">
               <div class="toggle-copy">
                 <label id="saveLogsLabel" for="saveLogsToggle">Save local logs</label>
@@ -822,11 +883,7 @@
               <label id="logPathLabel">Log Directory</label>
               <div class="pubkey" id="logPath">—</div>
             </div>
-          </div>
-
-          <div class="section">
-            <div class="section-title" id="cacheSection">Cache</div>
-            <div class="field">
+            <div class="field" style="margin-top: 12px;">
               <label id="cacheRetentionLabel">Auto-clean history older than (days)</label>
               <input type="text" id="historyRetentionDays" inputmode="numeric" placeholder="30">
             </div>
@@ -867,6 +924,10 @@
                 <input type="checkbox" id="silentUpdateInstallToggle">
                 <span class="slider"></span>
               </div>
+            </div>
+            <div class="field" style="margin-top: 12px;">
+              <label id="currentVersionLabel">Current Version</label>
+              <div class="pubkey" id="currentVersionText">—</div>
             </div>
             <div class="field" style="margin-top: 12px;">
               <label id="updateStatusLabel">Update Status</label>
@@ -960,13 +1021,29 @@
     let latestAccessState = null;
     let latestProjectCatalog = [];
     let latestWorkgroups = [];
+    let latestWorkgroupRegistryResults = [];
+    const latestWorkgroupRegistryMembersById = new Map();
+    const renderSignatures = {
+      accessIncoming: "",
+      accessControllable: "",
+      projects: "",
+      workgroupProjectPicker: "",
+      workgroupProjectOptions: "",
+      workgroupTaskAssignees: "",
+      workgroupSelect: "",
+      workgroupMembers: "",
+      workgroupTasks: "",
+      workgroupRegistry: "",
+    };
     let currentWorkgroupId = "";
     let editingWorkgroupId = null;
     let editingMemberId = null;
     let editingTaskId = null;
     const CONNECTION_STATUS_POLL_MS = 15000;
+    const PROJECT_PANE_REFRESH_DEBOUNCE_MS = 300;
     let connectionStatusTimer = null;
     let connectionStatusInFlight = false;
+    let projectPaneRefreshTimer = null;
     const paneLoadState = {
       accessLoaded: false,
       accessDirty: true,
@@ -1043,6 +1120,26 @@
     async function refreshProjectPaneData(force = false) {
       await loadProjects({ force });
       await loadWorkgroups({ force });
+    }
+
+    function clearProjectPaneRefreshTimer() {
+      if (projectPaneRefreshTimer) {
+        clearTimeout(projectPaneRefreshTimer);
+        projectPaneRefreshTimer = null;
+      }
+    }
+
+    function scheduleProjectPaneRefresh(force = false) {
+      paneLoadState.projectsDirty = true;
+      paneLoadState.workgroupsDirty = true;
+      clearProjectPaneRefreshTimer();
+      if (activeSettingsPane !== "project") {
+        return;
+      }
+      projectPaneRefreshTimer = setTimeout(() => {
+        projectPaneRefreshTimer = null;
+        void refreshProjectPaneData(force);
+      }, PROJECT_PANE_REFRESH_DEBOUNCE_MS);
     }
 
     function setActiveSettingsPane(pane) {
@@ -1129,8 +1226,8 @@
       document.getElementById("cancelProjectBtn").textContent = msg("settings.cancel", "Cancel");
       document.getElementById("workgroupSection").textContent = inlineText("Workgroups", "工作组");
       document.getElementById("workgroupSectionHint").textContent = inlineText(
-        "Bind local or remote projects into role-based members, then dispatch structured tasks to them.",
-        "把本地或远程项目绑定为角色成员，再把结构化任务分发给他们。"
+        "Create a shared collaboration room with selected agents. PM Agent and planning space are created automatically.",
+        "创建协作组时只需要选成员，系统会自动补上 PM Agent 和独立规划空间。"
       );
       document.getElementById("newWorkgroupBtn").textContent = inlineText("New Workgroup", "新建工作组");
       document.getElementById("deleteWorkgroupBtn").textContent = inlineText("Delete", "删除");
@@ -1138,11 +1235,12 @@
       document.getElementById("workgroupFormTitle").textContent = inlineText("Workgroup Profile", "工作组信息");
       document.getElementById("workgroupNameLabel").textContent = inlineText("Workgroup Name", "工作组名称");
       document.getElementById("workgroupName").placeholder = inlineText("Release Squad", "发布小组");
-      document.getElementById("workgroupDescriptionLabel").textContent = inlineText("Description", "描述");
-      document.getElementById("workgroupDescription").placeholder = inlineText(
-        "Desktop handles development, remote desktop handles deploy and verification.",
-        "例如：本机负责开发，远程桌面负责部署和验收。"
-      );
+      document.getElementById("workgroupGroupNumberLabel").textContent = inlineText("Group Number", "群号");
+      document.getElementById("workgroupGroupNumber").placeholder = inlineText("Not published yet", "未发布");
+      document.getElementById("publishWorkgroupBtn").textContent = inlineText("Publish", "发布");
+      document.getElementById("workgroupPlanPathLabel").textContent = inlineText("Planning Workspace", "规划空间");
+      document.getElementById("workgroupAgentsLabel").textContent = inlineText("Agents", "成员 Agent");
+      document.getElementById("workgroupProjectPicker").setAttribute("data-empty-message", inlineText("No projects available.", "暂无可选项目。"));
       document.getElementById("workgroupDirectMessageLabel").textContent = inlineText("Allow member-to-member handoff notes", "允许成员间交接备注");
       document.getElementById("workgroupDirectMessageHint").textContent = inlineText(
         "When disabled, tasks are isolated and members should only report back their own result.",
@@ -1190,6 +1288,11 @@
       document.getElementById("saveWorkgroupTaskBtn").textContent = inlineText("Save Task", "保存任务");
       document.getElementById("cancelWorkgroupTaskBtn").textContent = inlineText("Reset", "重置");
       document.getElementById("workgroupTaskList").setAttribute("data-empty-message", inlineText("No tasks yet.", "还没有任务。"));
+      document.getElementById("workgroupRegistryTitle").textContent = inlineText("Join Workgroup", "加入协作组");
+      document.getElementById("workgroupRegistryQueryLabel").textContent = inlineText("Group Number", "群号");
+      document.getElementById("workgroupRegistryQuery").placeholder = inlineText("Enter group number", "输入群号");
+      document.getElementById("searchWorkgroupRegistryBtn").textContent = inlineText("Search", "搜索");
+      document.getElementById("workgroupRegistryResultList").setAttribute("data-empty-message", inlineText("No matching workgroup.", "没有匹配的协作组。"));
       document.getElementById("launchSection").textContent = msg("settings.launch", "Launch");
       document.getElementById("autoStartLabel").textContent = msg("settings.autoStart", "Start on Boot");
       document.getElementById("silentLaunchLabel").textContent = msg("settings.silentLaunch", "Silent Launch (minimize to tray)");
@@ -1198,14 +1301,22 @@
         "Play a desktop notification sound after a task completes successfully.",
         "当任务成功完成后，播放桌面提示音。"
       );
-      document.getElementById("diagnosticsSection").textContent = inlineText("Diagnostics", "诊断");
+      document.getElementById("diagnosticsSection").textContent = inlineText("Local Files", "本地文件");
+      document.getElementById("localDataRootLabel").textContent = inlineText("Data Folder", "数据目录");
+      document.getElementById("localDataRootHint").textContent = inlineText(
+        "Chat history, logs, attachments, update packages, and local cache are all stored under this folder.",
+        "聊天记录、日志、附件、更新包和本地缓存都会统一放在这个目录下。"
+      );
+      document.getElementById("pickLocalDataRootBtn").textContent = inlineText("Choose Folder", "选择目录");
+      document.getElementById("openLocalDataRootBtn").textContent = inlineText("Open Folder", "打开目录");
+      document.getElementById("resetLocalDataRootBtn").textContent = inlineText("Use Default", "恢复默认");
+      document.getElementById("applyLocalDataRootBtn").textContent = inlineText("Apply and Restart", "应用并重启");
       document.getElementById("saveLogsLabel").textContent = inlineText("Save local logs", "保存本地日志");
       document.getElementById("saveLogsHint").textContent = inlineText(
         "When enabled, the desktop app writes runtime logs locally for later review.",
         "开启后，桌面端会把运行日志保存在本地，便于后续回溯审查。"
       );
       document.getElementById("logPathLabel").textContent = inlineText("Log Directory", "日志目录");
-      document.getElementById("cacheSection").textContent = inlineText("Cache", "缓存");
       document.getElementById("cacheRetentionLabel").textContent = inlineText("Auto-clean history older than (days)", "自动清理多少天前的历史");
       document.getElementById("historyRetentionDays").placeholder = inlineText("30", "30");
       document.getElementById("saveCacheSettingsBtn").textContent = inlineText("Save Cache Policy", "保存缓存策略");
@@ -1226,6 +1337,7 @@
         "When no task is running or queued, the app can quit itself and launch the installer automatically.",
         "当没有运行中或排队中的任务时，桌面端可自行退出并自动拉起安装程序。"
       );
+      document.getElementById("currentVersionLabel").textContent = inlineText("Current Version", "当前版本");
       document.getElementById("updateStatusLabel").textContent = inlineText("Update Status", "更新状态");
       document.getElementById("updateNotesLabel").textContent = inlineText("Release Notes", "版本说明");
       document.getElementById("checkUpdatesBtn").textContent = inlineText("Check for Updates", "检查更新");
@@ -1379,6 +1491,7 @@
         downloadedPath: null,
         message: null,
       };
+      document.getElementById("currentVersionText").textContent = normalized.currentVersion || "—";
       document.getElementById("updateStatusText").textContent = localizeUpdateStatus(normalized);
       document.getElementById("updateNotes").textContent = normalized.notes || "—";
       document.getElementById("downloadUpdateBtn").disabled = !["available", "error"].includes(normalized.status);
@@ -1400,7 +1513,7 @@
       const incoming = latestAccessState?.incoming_grants || [];
       const controllable = latestAccessState?.controllable_agents || [];
 
-      incomingList.innerHTML = incoming.length === 0
+      const incomingMarkup = incoming.length === 0
         ? `<div class="empty-state">${escapeHtml(incomingList.dataset.emptyMessage || inlineText("No users have access yet.", "暂未授权给其他用户。"))}</div>`
         : incoming.map((grant) => `
             <div class="project-item">
@@ -1414,8 +1527,12 @@
               </div>
             </div>
           `).join("");
+      if (renderSignatures.accessIncoming !== incomingMarkup) {
+        renderSignatures.accessIncoming = incomingMarkup;
+        incomingList.innerHTML = incomingMarkup;
+      }
 
-      controllableList.innerHTML = controllable.length === 0
+      const controllableMarkup = controllable.length === 0
         ? `<div class="empty-state">${escapeHtml(controllableList.dataset.emptyMessage || inlineText("No remote desktops available.", "暂无可控制桌面。"))}</div>`
         : controllable.map((agent) => `
             <div class="project-item">
@@ -1426,16 +1543,23 @@
               </div>
             </div>
           `).join("");
+      if (renderSignatures.accessControllable !== controllableMarkup) {
+        renderSignatures.accessControllable = controllableMarkup;
+        controllableList.innerHTML = controllableMarkup;
+      }
     }
 
     function renderProjects() {
       const listEl = document.getElementById("projectList");
       if (!latestProjectCatalog.length) {
-        listEl.innerHTML = "";
+        if (renderSignatures.projects !== "") {
+          renderSignatures.projects = "";
+          listEl.innerHTML = "";
+        }
         return;
       }
       const providerLabel = (provider) => provider === "codex" ? "OpenAI Codex" : "Claude Code";
-      listEl.innerHTML = latestProjectCatalog.map((project) => `
+      const markup = latestProjectCatalog.map((project) => `
         <div class="project-item">
           <div class="project-info">
             <div class="project-name">${escapeHtml(project.name)}</div>
@@ -1478,6 +1602,10 @@
           </div>
         </div>
       `).join("");
+      if (renderSignatures.projects !== markup) {
+        renderSignatures.projects = markup;
+        listEl.innerHTML = markup;
+      }
     }
 
     async function loadAccessGrants(options = {}) {
@@ -1537,7 +1665,7 @@
       }
       try {
         paneLoadState.projectsPromise = (async () => {
-          const projects = await api.getProjects();
+          const projects = await api.getProjects({ refreshRemote: false });
           latestProjectCatalog = Array.isArray(projects) ? projects : [];
           paneLoadState.projectsLoaded = true;
           paneLoadState.projectsDirty = false;
@@ -1607,6 +1735,45 @@
       });
     }
 
+    function getSelectedWorkgroupProjectIds() {
+      return Array.from(document.querySelectorAll('#workgroupProjectPicker input[type="checkbox"]:checked'))
+        .map((input) => input.value)
+        .filter(Boolean);
+    }
+
+    function renderWorkgroupProjectPicker(selectedProjectIds = []) {
+      const listEl = document.getElementById("workgroupProjectPicker");
+      const selected = new Set((selectedProjectIds || []).map((entry) => String(entry || "")));
+      const projects = sortProjectsForWorkgroups(latestProjectCatalog);
+      if (!projects.length) {
+        const markup = `<div class="empty-state">${escapeHtml(listEl.dataset.emptyMessage || inlineText("No projects available.", "暂无可选项目。"))}</div>`;
+        if (renderSignatures.workgroupProjectPicker !== markup) {
+          renderSignatures.workgroupProjectPicker = markup;
+          listEl.innerHTML = markup;
+        }
+        return;
+      }
+      const markup = projects.map((project) => {
+        const checked = selected.has(project.id);
+        const typeLabel = project?.isRemote ? inlineText("Remote", "远程") : inlineText("Local", "本地");
+        const providerLabel = project?.cliProvider === "codex" ? "OpenAI Codex" : "Claude Code";
+        return `
+          <label class="workgroup-agent-picker-item">
+            <input type="checkbox" value="${escapeHtml(project.id)}" ${checked ? "checked" : ""}>
+            <div class="project-info">
+              <div class="project-name">${escapeHtml(project.name)}</div>
+              <div class="project-path">${escapeHtml(`${typeLabel} · ${providerLabel}`)}</div>
+              <div class="project-path">${escapeHtml(project.path || "")}</div>
+            </div>
+          </label>
+        `;
+      }).join("");
+      if (renderSignatures.workgroupProjectPicker !== markup) {
+        renderSignatures.workgroupProjectPicker = markup;
+        listEl.innerHTML = markup;
+      }
+    }
+
     function renderWorkgroupProjectOptions(selectedProjectId = "", fallbackLabel = "") {
       const selectEl = document.getElementById("workgroupMemberProject");
       const options = [
@@ -1623,7 +1790,11 @@
         const missingLabel = fallbackLabel || `${inlineText("Missing", "缺失")} · ${selectedId}`;
         options.push(`<option value="${escapeHtml(selectedId)}" selected>${escapeHtml(missingLabel)}</option>`);
       }
-      selectEl.innerHTML = options.join("");
+      const markup = options.join("");
+      if (renderSignatures.workgroupProjectOptions !== markup) {
+        renderSignatures.workgroupProjectOptions = markup;
+        selectEl.innerHTML = markup;
+      }
     }
 
     function renderTaskAssigneeOptions(selectedMemberId = "") {
@@ -1640,14 +1811,21 @@
       if (selectedMemberId && !(workgroup?.members || []).some((member) => member.id === selectedMemberId)) {
         options.push(`<option value="${escapeHtml(selectedMemberId)}" selected>${escapeHtml(selectedMemberId)}</option>`);
       }
-      selectEl.innerHTML = options.join("");
+      const markup = options.join("");
+      if (renderSignatures.workgroupTaskAssignees !== markup) {
+        renderSignatures.workgroupTaskAssignees = markup;
+        selectEl.innerHTML = markup;
+      }
     }
 
     function resetWorkgroupForm(workgroup) {
       editingWorkgroupId = workgroup?.id || null;
       document.getElementById("workgroupName").value = workgroup?.name || "";
+      document.getElementById("workgroupGroupNumber").value = workgroup?.groupNumber || "";
+      document.getElementById("workgroupPlanPath").value = workgroup?.planWorkspacePath || "";
       document.getElementById("workgroupDescription").value = workgroup?.description || "";
       document.getElementById("workgroupAllowDirectMessages").checked = Boolean(workgroup?.allowDirectMemberMessages);
+      renderWorkgroupProjectPicker(workgroup?.selectedProjectIds || []);
     }
 
     function resetMemberForm(member) {
@@ -1679,7 +1857,11 @@
       const selectEl = document.getElementById("workgroupSelect");
       if (!latestWorkgroups.length) {
         currentWorkgroupId = "";
-        selectEl.innerHTML = `<option value="">${escapeHtml(inlineText("No workgroups yet", "还没有工作组"))}</option>`;
+        const markup = `<option value="">${escapeHtml(inlineText("No workgroups yet", "还没有工作组"))}</option>`;
+        if (renderSignatures.workgroupSelect !== markup) {
+          renderSignatures.workgroupSelect = markup;
+          selectEl.innerHTML = markup;
+        }
         selectEl.disabled = true;
         document.getElementById("deleteWorkgroupBtn").disabled = true;
         return;
@@ -1690,52 +1872,101 @@
       }
 
       selectEl.disabled = false;
-      selectEl.innerHTML = latestWorkgroups.map((workgroup) => (
+      const markup = latestWorkgroups.map((workgroup) => (
         `<option value="${escapeHtml(workgroup.id)}"${workgroup.id === currentWorkgroupId ? " selected" : ""}>${escapeHtml(workgroup.name)}</option>`
       )).join("");
+      if (renderSignatures.workgroupSelect !== markup) {
+        renderSignatures.workgroupSelect = markup;
+        selectEl.innerHTML = markup;
+      }
       document.getElementById("deleteWorkgroupBtn").disabled = false;
     }
 
     function renderWorkgroupMembers(workgroup) {
       const listEl = document.getElementById("workgroupMemberList");
       if (!workgroup) {
-        listEl.innerHTML = `<div class="workgroup-empty">${escapeHtml(inlineText("Create or select a workgroup first.", "请先创建或选择工作组。"))}</div>`;
+        const markup = `<div class="workgroup-empty">${escapeHtml(inlineText("Create or select a workgroup first.", "请先创建或选择工作组。"))}</div>`;
+        if (renderSignatures.workgroupMembers !== markup) {
+          renderSignatures.workgroupMembers = markup;
+          listEl.innerHTML = markup;
+        }
         return;
       }
       if (!workgroup.members || workgroup.members.length === 0) {
-        listEl.innerHTML = "";
+        const registryState = latestWorkgroupRegistryMembersById.get(workgroup.id) || null;
+        const registryMarkup = Array.isArray(registryState?.members) && registryState.members.length > 0
+          ? `
+            <div class="project-item">
+              <div class="project-info">
+                <div class="project-name">${escapeHtml(inlineText("Joined Users", "已加入用户"))}</div>
+                <div class="project-path">${escapeHtml(registryState.members.map((member) => member.username).join(", "))}</div>
+              </div>
+            </div>
+          `
+          : "";
+        if (renderSignatures.workgroupMembers !== registryMarkup) {
+          renderSignatures.workgroupMembers = registryMarkup;
+          listEl.innerHTML = registryMarkup;
+        }
         return;
       }
-      listEl.innerHTML = workgroup.members.map((member) => `
+      const localMarkup = workgroup.members.map((member) => `
         <div class="project-item">
           <div class="project-info">
             <div class="project-name">${escapeHtml(member.name)}</div>
             <div class="workgroup-inline-meta">
               <span class="workgroup-pill">${escapeHtml(getRoleLabel(member.role))}</span>
+              ${member.kind === "pm" ? `<span class="workgroup-pill">${escapeHtml(inlineText("Virtual", "虚拟"))}</span>` : ""}
               <span class="workgroup-pill">${escapeHtml(member.projectBindingLabel || inlineText("Unbound", "未绑定"))}</span>
             </div>
             <div class="workgroup-subtext">${escapeHtml(member.allowedPaths?.length ? member.allowedPaths.join("\n") : inlineText("No path restriction", "未设置路径限制"))}</div>
             ${member.systemPrompt ? `<div class="workgroup-subtext" style="margin-top: 6px;">${escapeHtml(member.systemPrompt)}</div>` : ""}
           </div>
-          <div class="project-actions">
-            <button class="btn-secondary btn-small" onclick="editWorkgroupMember('${member.id}')">${escapeHtml(inlineText("Edit", "编辑"))}</button>
-            <button class="btn-danger btn-small" onclick="deleteWorkgroupMember('${member.id}')">${escapeHtml(inlineText("Delete", "删除"))}</button>
-          </div>
         </div>
       `).join("");
+      const registryState = latestWorkgroupRegistryMembersById.get(workgroup.id) || null;
+      const joinedUsersMarkup = Array.isArray(registryState?.members) && registryState.members.length > 0
+        ? registryState.members.map((member) => `
+          <div class="project-item">
+            <div class="project-info">
+              <div class="project-name">${escapeHtml(member.username)}</div>
+              <div class="workgroup-inline-meta">
+                <span class="workgroup-pill">${escapeHtml(member.isOwner ? inlineText("Owner", "所有者") : inlineText("Joined", "已加入"))}</span>
+              </div>
+            </div>
+            ${(registryState?.record?.canManage && !member.isOwner)
+              ? `<div class="project-actions"><button class="btn-danger btn-small" onclick="kickWorkgroupRegistryMember(${Number(member.userId || 0)})">${escapeHtml(inlineText("Kick", "踢出"))}</button></div>`
+              : ""}
+          </div>
+        `).join("")
+        : (workgroup.groupNumber
+          ? `<div class="project-item"><div class="project-info"><div class="project-name">${escapeHtml(inlineText("Joined Users", "已加入用户"))}</div><div class="project-path">${escapeHtml(inlineText("No external users have joined yet.", "暂时还没有外部用户加入。"))}</div></div></div>`
+          : "");
+      const markup = `${localMarkup}${joinedUsersMarkup}`;
+      if (renderSignatures.workgroupMembers !== markup) {
+        renderSignatures.workgroupMembers = markup;
+        listEl.innerHTML = markup;
+      }
     }
 
     function renderWorkgroupTasks(workgroup) {
       const listEl = document.getElementById("workgroupTaskList");
       if (!workgroup) {
-        listEl.innerHTML = `<div class="workgroup-empty">${escapeHtml(inlineText("Create or select a workgroup first.", "请先创建或选择工作组。"))}</div>`;
+        const markup = `<div class="workgroup-empty">${escapeHtml(inlineText("Create or select a workgroup first.", "请先创建或选择工作组。"))}</div>`;
+        if (renderSignatures.workgroupTasks !== markup) {
+          renderSignatures.workgroupTasks = markup;
+          listEl.innerHTML = markup;
+        }
         return;
       }
       if (!workgroup.tasks || workgroup.tasks.length === 0) {
-        listEl.innerHTML = "";
+        if (renderSignatures.workgroupTasks !== "") {
+          renderSignatures.workgroupTasks = "";
+          listEl.innerHTML = "";
+        }
         return;
       }
-      listEl.innerHTML = workgroup.tasks.map((task) => `
+      const markup = workgroup.tasks.map((task) => `
         <div class="project-item">
           <div class="project-info">
             <div class="project-name">${escapeHtml(task.title)}</div>
@@ -1760,6 +1991,10 @@
           </div>
         </div>
       `).join("");
+      if (renderSignatures.workgroupTasks !== markup) {
+        renderSignatures.workgroupTasks = markup;
+        listEl.innerHTML = markup;
+      }
     }
 
     function renderWorkgroups() {
@@ -1772,6 +2007,36 @@
       renderWorkgroupTasks(workgroup);
       document.getElementById("saveWorkgroupMemberBtn").disabled = !workgroup;
       document.getElementById("saveWorkgroupTaskBtn").disabled = !workgroup;
+      document.getElementById("publishWorkgroupBtn").disabled = !workgroup;
+    }
+
+    function renderWorkgroupRegistryResults(records = latestWorkgroupRegistryResults) {
+      latestWorkgroupRegistryResults = Array.isArray(records) ? records : [];
+      const listEl = document.getElementById("workgroupRegistryResultList");
+      if (!latestWorkgroupRegistryResults.length) {
+        const markup = `<div class="empty-state">${escapeHtml(listEl.dataset.emptyMessage || inlineText("No matching workgroup.", "没有匹配的协作组。"))}</div>`;
+        if (renderSignatures.workgroupRegistry !== markup) {
+          renderSignatures.workgroupRegistry = markup;
+          listEl.innerHTML = markup;
+        }
+        return;
+      }
+      const markup = latestWorkgroupRegistryResults.map((record) => `
+        <div class="project-item">
+          <div class="project-info">
+            <div class="project-name">${escapeHtml(record.name || record.groupNumber)}</div>
+            <div class="project-path">${escapeHtml(`${inlineText("Group", "群号")}: ${record.groupNumber}`)}</div>
+            <div class="project-path">${escapeHtml(`${inlineText("Owner", "所有者")}: ${record.ownerUsername || "-"}`)}</div>
+          </div>
+          <div class="project-actions">
+            <button class="btn-primary btn-small" onclick="joinWorkgroupRegistry('${record.groupNumber}')">${escapeHtml(inlineText("Join", "加入"))}</button>
+          </div>
+        </div>
+      `).join("");
+      if (renderSignatures.workgroupRegistry !== markup) {
+        renderSignatures.workgroupRegistry = markup;
+        listEl.innerHTML = markup;
+      }
     }
 
     async function loadWorkgroups(options = {}) {
@@ -1790,7 +2055,7 @@
       try {
         paneLoadState.workgroupsPromise = (async () => {
           if (force || !paneLoadState.projectsLoaded || paneLoadState.projectsDirty) {
-            const projects = await api.getProjects();
+            const projects = await api.getProjects({ refreshRemote: false });
             latestProjectCatalog = Array.isArray(projects) ? projects : [];
             paneLoadState.projectsLoaded = true;
             paneLoadState.projectsDirty = false;
@@ -1802,6 +2067,8 @@
         })();
         await paneLoadState.workgroupsPromise;
         renderWorkgroups();
+        renderWorkgroupRegistryResults();
+        void loadCurrentWorkgroupRegistryMembers();
       } catch (error) {
         console.error("Failed to load workgroups:", error);
       } finally {
@@ -1821,6 +2088,7 @@
           name,
           description: document.getElementById("workgroupDescription").value.trim() || null,
           allowDirectMemberMessages: document.getElementById("workgroupAllowDirectMessages").checked,
+          selectedProjectIds: getSelectedWorkgroupProjectIds(),
         });
         if (!result?.success) {
           showStatus(result?.error || inlineText("Failed to save workgroup.", "保存工作组失败。"), true);
@@ -1830,6 +2098,118 @@
         paneLoadState.workgroupsDirty = true;
         await loadWorkgroups({ force: true });
         flashSaved();
+      } catch (error) {
+        showStatus(getErrorMessage(error), true);
+      }
+    }
+
+    async function publishCurrentWorkgroup() {
+      const workgroup = getCurrentWorkgroup();
+      if (!workgroup) {
+        showStatus(inlineText("Create or select a workgroup first.", "请先创建或选择工作组。"), true);
+        return;
+      }
+      try {
+        const result = await api.publishWorkgroupRegistry(workgroup.id);
+        if (!result?.success) {
+          showStatus(result?.error || inlineText("Failed to publish workgroup.", "发布协作组失败。"), true);
+          return;
+        }
+        paneLoadState.workgroupsDirty = true;
+        await loadWorkgroups({ force: true });
+        await loadCurrentWorkgroupRegistryMembers();
+        showStatus(inlineText("Workgroup published.", "协作组已发布。"), false);
+      } catch (error) {
+        showStatus(getErrorMessage(error), true);
+      }
+    }
+
+    async function searchWorkgroupRegistry() {
+      const query = document.getElementById("workgroupRegistryQuery").value.trim();
+      if (!query) {
+        renderWorkgroupRegistryResults([]);
+        return;
+      }
+      try {
+        const result = await api.searchWorkgroupRegistry(query);
+        if (!result?.success) {
+          showStatus(result?.error || inlineText("Failed to search workgroups.", "搜索协作组失败。"), true);
+          return;
+        }
+        renderWorkgroupRegistryResults(result.records || []);
+      } catch (error) {
+        showStatus(getErrorMessage(error), true);
+      }
+    }
+
+    async function joinWorkgroupRegistry(groupNumber) {
+      try {
+        const result = await api.joinWorkgroupRegistry(groupNumber);
+        if (!result?.success) {
+          showStatus(result?.error || inlineText("Failed to join workgroup.", "加入协作组失败。"), true);
+          return;
+        }
+        paneLoadState.accessDirty = true;
+        await loadAccessGrants({ force: true });
+        showStatus(
+          result.granted_access
+            ? inlineText("Joined workgroup and granted remote access.", "已加入协作组，并已开通远程访问。")
+            : inlineText("Already joined this workgroup.", "你已经加入过这个协作组。"),
+          false,
+        );
+      } catch (error) {
+        showStatus(getErrorMessage(error), true);
+      }
+    }
+
+    async function loadCurrentWorkgroupRegistryMembers() {
+      const workgroup = getCurrentWorkgroup();
+      if (!workgroup?.id) {
+        return;
+      }
+      if (!workgroup.groupNumber) {
+        latestWorkgroupRegistryMembersById.delete(workgroup.id);
+        renderWorkgroupMembers(workgroup);
+        return;
+      }
+      try {
+        const result = await api.getWorkgroupRegistryMembers({
+          groupNumber: workgroup.groupNumber,
+          workgroupId: workgroup.id,
+        });
+        if (!result?.success) {
+          return;
+        }
+        latestWorkgroupRegistryMembersById.set(workgroup.id, {
+          record: result.record,
+          members: Array.isArray(result.members) ? result.members : [],
+        });
+        if (getCurrentWorkgroup()?.id === workgroup.id) {
+          renderWorkgroupMembers(workgroup);
+        }
+      } catch (error) {
+        console.error("Failed to load workgroup registry members:", error);
+      }
+    }
+
+    async function kickWorkgroupRegistryMember(userId) {
+      const workgroup = getCurrentWorkgroup();
+      if (!workgroup?.groupNumber) {
+        showStatus(inlineText("Publish this workgroup first.", "请先发布这个工作组。"), true);
+        return;
+      }
+      try {
+        const result = await api.kickWorkgroupRegistryMember({
+          groupNumber: workgroup.groupNumber,
+          workgroupId: workgroup.id,
+          userId,
+        });
+        if (!result?.success) {
+          showStatus(result?.error || inlineText("Failed to remove member.", "移除成员失败。"), true);
+          return;
+        }
+        await loadCurrentWorkgroupRegistryMembers();
+        showStatus(inlineText("Member removed.", "成员已移除。"), false);
       } catch (error) {
         showStatus(getErrorMessage(error), true);
       }
@@ -2031,6 +2411,8 @@
     }
 
     async function updateProjectConfig(projectId, updates) {
+      const projectIndex = latestProjectCatalog.findIndex((entry) => entry.id === projectId);
+      const previousProject = projectIndex >= 0 ? { ...latestProjectCatalog[projectIndex] } : null;
       try {
         const result = await api.updateProject({ projectId, updates });
         if (!result || result.success === false) {
@@ -2039,12 +2421,31 @@
           await loadProjects({ force: true });
           return false;
         }
-        paneLoadState.projectsDirty = true;
-        await loadProjects({ force: true });
+        if (projectIndex >= 0) {
+          latestProjectCatalog[projectIndex] = {
+            ...latestProjectCatalog[projectIndex],
+            ...updates,
+          };
+          paneLoadState.projectsLoaded = true;
+          paneLoadState.projectsDirty = false;
+          renderProjects();
+          if (paneLoadState.workgroupsLoaded) {
+            renderWorkgroups();
+          }
+        } else {
+          paneLoadState.projectsDirty = true;
+        }
         flashSaved();
         return true;
       } catch (error) {
         showStatus(msg("settings.saveFailed", "Failed: {error}", { error: getErrorMessage(error) }), true);
+        if (projectIndex >= 0 && previousProject) {
+          latestProjectCatalog[projectIndex] = previousProject;
+          renderProjects();
+          if (paneLoadState.workgroupsLoaded) {
+            renderWorkgroups();
+          }
+        }
         paneLoadState.projectsDirty = true;
         await loadProjects({ force: true });
         return false;
@@ -2140,6 +2541,8 @@
       document.getElementById("autoUpdateDownloadToggle").checked = appSettings.autoUpdateDownload || false;
       document.getElementById("silentUpdateInstallToggle").checked = appSettings.silentUpdateInstall || false;
       document.getElementById("historyRetentionDays").value = String(appSettings.historyRetentionDays || 30);
+      document.getElementById("localDataRoot").value = appSettings.localDataRoot || "";
+      document.getElementById("localDataRoot").dataset.defaultPath = appSettings.defaultLocalDataRoot || "";
       document.getElementById("logPath").textContent = appSettings.logDirectory || "—";
       renderUpdateState(updateState);
       await syncLanguage(lang || "en", i18nMessages || {});
@@ -2220,6 +2623,66 @@
     document.getElementById("saveLogsToggle").addEventListener("change", async (event) => {
       await api.setAppSettings({ saveLogs: event.target.checked });
       flashSaved();
+    });
+
+    document.getElementById("pickLocalDataRootBtn").addEventListener("click", async () => {
+      try {
+        const currentPath = document.getElementById("localDataRoot").value.trim();
+        const result = await api.pickLocalDataRoot(currentPath || null);
+        if (result?.success && result.path) {
+          document.getElementById("localDataRoot").value = result.path;
+        }
+      } catch (error) {
+        showStatus(getErrorMessage(error), true);
+      }
+    });
+
+    document.getElementById("openLocalDataRootBtn").addEventListener("click", async () => {
+      try {
+        const currentPath = document.getElementById("localDataRoot").value.trim();
+        const result = await api.openLocalDataRoot(currentPath || null);
+        if (!result?.success) {
+          showStatus(result?.error || inlineText("Failed to open the data folder.", "打开数据目录失败。"), true);
+        }
+      } catch (error) {
+        showStatus(getErrorMessage(error), true);
+      }
+    });
+
+    document.getElementById("resetLocalDataRootBtn").addEventListener("click", () => {
+      const input = document.getElementById("localDataRoot");
+      input.value = input.dataset.defaultPath || "";
+    });
+
+    document.getElementById("applyLocalDataRootBtn").addEventListener("click", async () => {
+      const nextPath = document.getElementById("localDataRoot").value.trim();
+      if (!nextPath) {
+        showStatus(inlineText("Choose a local data folder first.", "请先选择本地数据目录。"), true);
+        return;
+      }
+
+      try {
+        const result = await api.changeLocalDataRoot(nextPath);
+        if (!result?.success) {
+          showStatus(result?.error || inlineText("Failed to switch the data folder.", "切换数据目录失败。"), true);
+          return;
+        }
+        if (result.localDataRoot) {
+          document.getElementById("localDataRoot").value = result.localDataRoot;
+        }
+        if (!result.changed) {
+          flashSaved();
+          showStatus(inlineText("The current data folder is already in use.", "当前已经在使用这个数据目录。"), false);
+          return;
+        }
+        flashSaved();
+        showStatus(
+          inlineText("Migrating local files and restarting the desktop app...", "正在迁移本地文件并重启桌面端..."),
+          false
+        );
+      } catch (error) {
+        showStatus(getErrorMessage(error), true);
+      }
     });
 
     document.getElementById("saveCacheSettingsBtn").addEventListener("click", async () => {
@@ -2401,13 +2864,17 @@
     document.getElementById("workgroupSelect").addEventListener("change", (event) => {
       currentWorkgroupId = event.target.value || "";
       renderWorkgroups();
+      void loadCurrentWorkgroupRegistryMembers();
     });
 
     document.getElementById("newWorkgroupBtn").addEventListener("click", () => {
       editingWorkgroupId = null;
       document.getElementById("workgroupName").value = "";
+      document.getElementById("workgroupGroupNumber").value = "";
+      document.getElementById("workgroupPlanPath").value = "";
       document.getElementById("workgroupDescription").value = "";
       document.getElementById("workgroupAllowDirectMessages").checked = false;
+      renderWorkgroupProjectPicker([]);
       document.getElementById("workgroupName").focus();
     });
 
@@ -2418,9 +2885,11 @@
       flashSaved();
     });
     document.getElementById("saveWorkgroupBtn").addEventListener("click", () => { void saveWorkgroup(); });
+    document.getElementById("publishWorkgroupBtn").addEventListener("click", () => { void publishCurrentWorkgroup(); });
     document.getElementById("cancelWorkgroupBtn").addEventListener("click", () => {
       resetWorkgroupForm(getCurrentWorkgroup());
     });
+    document.getElementById("searchWorkgroupRegistryBtn").addEventListener("click", () => { void searchWorkgroupRegistry(); });
     document.getElementById("saveWorkgroupMemberBtn").addEventListener("click", () => { void saveWorkgroupMember(); });
     document.getElementById("cancelWorkgroupMemberBtn").addEventListener("click", () => { resetMemberForm(null); });
     document.getElementById("saveWorkgroupTaskBtn").addEventListener("click", () => { void saveWorkgroupTask(); });
@@ -2438,19 +2907,19 @@
 
     if (typeof api.onProjectsChanged === "function") {
       api.onProjectsChanged(() => {
-        paneLoadState.projectsDirty = true;
-        paneLoadState.workgroupsDirty = true;
-        if (activeSettingsPane === "project") {
-          void refreshProjectPaneData(true);
-        }
+        scheduleProjectPaneRefresh(true);
       });
     }
 
     if (typeof api.onWorkgroupsChanged === "function") {
       api.onWorkgroupsChanged(() => {
         paneLoadState.workgroupsDirty = true;
+        clearProjectPaneRefreshTimer();
         if (activeSettingsPane === "project") {
-          void loadWorkgroups({ force: true });
+          projectPaneRefreshTimer = setTimeout(() => {
+            projectPaneRefreshTimer = null;
+            void loadWorkgroups({ force: true });
+          }, PROJECT_PANE_REFRESH_DEBOUNCE_MS);
         }
       });
     }
@@ -2476,6 +2945,7 @@
 
     window.addEventListener("beforeunload", () => {
       clearConnectionStatusTimer();
+      clearProjectPaneRefreshTimer();
     });
 
     void initialize();

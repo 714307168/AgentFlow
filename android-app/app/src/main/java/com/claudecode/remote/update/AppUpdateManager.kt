@@ -8,6 +8,7 @@ import android.os.Environment
 import android.provider.Settings
 import androidx.core.content.FileProvider
 import com.claudecode.remote.BuildConfig
+import com.claudecode.remote.R
 import com.claudecode.remote.data.local.TokenStore
 import com.claudecode.remote.data.remote.RelayApi
 import kotlinx.coroutines.Dispatchers
@@ -59,6 +60,8 @@ class AppUpdateManager(
     private val _state = MutableStateFlow(AppUpdateState())
     val state: StateFlow<AppUpdateState> = _state.asStateFlow()
 
+    private fun text(resId: Int, vararg args: Any): String = context.getString(resId, *args)
+
     suspend fun maybeAutoCheck() {
         if (!tokenStore.isAutoUpdateCheckEnabled()) {
             return
@@ -71,7 +74,7 @@ class AppUpdateManager(
             it.copy(
                 status = AppUpdateStatus.CHECKING,
                 currentVersion = BuildConfig.VERSION_NAME,
-                message = if (manual) "Checking for updates..." else null
+                message = if (manual) text(R.string.update_message_checking_manual) else null
             )
         }
 
@@ -95,7 +98,7 @@ class AppUpdateManager(
                         sha256 = null,
                         filename = null,
                         downloadedApkPath = null,
-                        message = if (manual) "You already have the latest version." else null
+                        message = if (manual) text(R.string.settings_update_uptodate) else null
                     )
                 }
                 state.value
@@ -110,7 +113,10 @@ class AppUpdateManager(
                         sha256 = response.sha256,
                         filename = response.filename,
                         downloadedApkPath = null,
-                        message = "Version ${response.latestVersion} is available."
+                        message = text(
+                            R.string.update_message_available,
+                            response.latestVersion ?: BuildConfig.VERSION_NAME
+                        )
                     )
                 }
                 if (tokenStore.isAutoUpdateDownloadEnabled()) {
@@ -123,7 +129,7 @@ class AppUpdateManager(
             _state.update {
                 it.copy(
                     status = AppUpdateStatus.ERROR,
-                    message = error.message ?: "Update check failed."
+                    message = error.message ?: text(R.string.update_error_check_failed)
                 )
             }
             state.value
@@ -137,7 +143,7 @@ class AppUpdateManager(
             _state.update {
                 it.copy(
                     status = AppUpdateStatus.ERROR,
-                    message = "No update is ready to download."
+                    message = text(R.string.update_error_no_download)
                 )
             }
             return@withContext state.value
@@ -146,7 +152,10 @@ class AppUpdateManager(
         _state.update {
             it.copy(
                 status = AppUpdateStatus.DOWNLOADING,
-                message = "Downloading ${snapshot.latestVersion ?: "update"}..."
+                message = text(
+                    R.string.update_message_downloading,
+                    snapshot.latestVersion ?: BuildConfig.VERSION_NAME
+                )
             )
         }
 
@@ -156,16 +165,19 @@ class AppUpdateManager(
             if (!targetDir.exists()) {
                 targetDir.mkdirs()
             }
+            clearOldUpdatePackages(targetDir)
             val fileName = snapshot.filename?.takeIf { it.isNotBlank() }
-                ?: "ClaudeCodeRemote-${snapshot.latestVersion ?: BuildConfig.VERSION_NAME}.apk"
+                ?: "AgentFlow-${snapshot.latestVersion ?: BuildConfig.VERSION_NAME}.apk"
             val targetFile = File(targetDir, fileName)
 
             httpClient.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
-                    throw IllegalStateException("Download failed with status ${response.code}")
+                    throw IllegalStateException(
+                        text(R.string.update_error_download_status, response.code)
+                    )
                 }
 
-                val body = response.body ?: throw IllegalStateException("Empty update response body")
+                val body = response.body ?: throw IllegalStateException(text(R.string.update_error_empty_body))
                 val digest = MessageDigest.getInstance("SHA-256")
                 body.byteStream().use { input ->
                     FileOutputStream(targetFile).use { output ->
@@ -186,7 +198,7 @@ class AppUpdateManager(
                     val actualHash = digest.digest().joinToString("") { byte -> "%02x".format(byte) }
                     if (actualHash.lowercase() != expectedHash) {
                         targetFile.delete()
-                        throw IllegalStateException("Downloaded APK failed SHA-256 verification.")
+                        throw IllegalStateException(text(R.string.update_error_sha_mismatch))
                     }
                 }
             }
@@ -195,14 +207,17 @@ class AppUpdateManager(
                 it.copy(
                     status = AppUpdateStatus.DOWNLOADED,
                     downloadedApkPath = targetFile.absolutePath,
-                    message = "Version ${snapshot.latestVersion ?: ""} is ready to install."
+                    message = text(
+                        R.string.update_message_ready_install,
+                        snapshot.latestVersion ?: BuildConfig.VERSION_NAME
+                    )
                 )
             }
         } catch (error: Exception) {
             _state.update {
                 it.copy(
                     status = AppUpdateStatus.ERROR,
-                    message = error.message ?: "Update download failed."
+                    message = error.message ?: text(R.string.update_error_download_failed)
                 )
             }
         }
@@ -217,7 +232,7 @@ class AppUpdateManager(
             _state.update {
                 it.copy(
                     status = AppUpdateStatus.ERROR,
-                    message = "Downloaded APK is missing."
+                    message = text(R.string.update_error_missing_apk)
                 )
             }
             return false
@@ -233,7 +248,7 @@ class AppUpdateManager(
                 ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             )
             _state.update {
-                it.copy(message = "Enable \"Install unknown apps\" for this app, then tap install again.")
+                it.copy(message = text(R.string.update_message_enable_unknown_apps))
             }
             return false
         }
@@ -250,8 +265,23 @@ class AppUpdateManager(
             }
         )
         _state.update {
-            it.copy(message = "Installer opened.")
+            it.copy(message = text(R.string.update_message_installer_opened))
         }
         return true
+    }
+
+    private fun clearOldUpdatePackages(targetDir: File) {
+        val files = targetDir.listFiles() ?: return
+        files.forEach { file ->
+            try {
+                if (file.isDirectory) {
+                    file.deleteRecursively()
+                } else {
+                    file.delete()
+                }
+            } catch (_: Exception) {
+                // Best-effort cleanup. Old cached packages should not block a new download.
+            }
+        }
     }
 }

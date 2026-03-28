@@ -4,12 +4,16 @@ import { v4 as uuidv4 } from "uuid";
 export type WorkgroupRole = "developer" | "qa" | "project_manager" | "custom";
 export type WorkgroupTaskPriority = "low" | "normal" | "high";
 export type WorkgroupTaskStatus = "todo" | "assigned" | "running" | "blocked" | "done" | "error";
+export type WorkgroupMemberKind = "project" | "pm";
 
 export interface Workgroup {
   id: string;
   name: string;
   description?: string | null;
   allowDirectMemberMessages: boolean;
+  groupNumber?: string | null;
+  planWorkspacePath?: string | null;
+  registryUpdatedAt?: number | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -19,6 +23,7 @@ export interface WorkgroupMember {
   workgroupId: string;
   name: string;
   role: WorkgroupRole;
+  kind?: WorkgroupMemberKind | null;
   projectId?: string | null;
   projectName?: string | null;
   projectPath?: string | null;
@@ -77,6 +82,10 @@ function normalizeAllowedPaths(paths: Array<string | null | undefined> | null | 
   );
 }
 
+function normalizeMemberKind(value: string | null | undefined): WorkgroupMemberKind {
+  return value === "pm" ? "pm" : "project";
+}
+
 class WorkgroupStore {
   private readonly store = new Store<WorkgroupStoreSchema>({
     name: "workgroups",
@@ -91,6 +100,9 @@ class WorkgroupStore {
     return this.store.get("workgroups", []).map((workgroup) => ({
       ...workgroup,
       description: normalizeNullableText(workgroup.description),
+      groupNumber: normalizeNullableText(workgroup.groupNumber),
+      planWorkspacePath: normalizeNullableText(workgroup.planWorkspacePath),
+      registryUpdatedAt: workgroup.registryUpdatedAt ? Number(workgroup.registryUpdatedAt) : null,
     }));
   }
 
@@ -107,6 +119,15 @@ class WorkgroupStore {
       name: input.name.trim(),
       description: normalizeNullableText(input.description),
       allowDirectMemberMessages: Boolean(input.allowDirectMemberMessages),
+      groupNumber: input.groupNumber !== undefined
+        ? normalizeNullableText(input.groupNumber)
+        : (workgroups[existingIndex]?.groupNumber ?? null),
+      planWorkspacePath: input.planWorkspacePath !== undefined
+        ? normalizeNullableText(input.planWorkspacePath)
+        : (workgroups[existingIndex]?.planWorkspacePath ?? null),
+      registryUpdatedAt: input.registryUpdatedAt !== undefined
+        ? (input.registryUpdatedAt ? Number(input.registryUpdatedAt) : null)
+        : (workgroups[existingIndex]?.registryUpdatedAt ?? null),
       createdAt: existingIndex >= 0 ? workgroups[existingIndex].createdAt : now,
       updatedAt: now,
     };
@@ -129,6 +150,7 @@ class WorkgroupStore {
   listMembers(workgroupId?: string | null): WorkgroupMember[] {
     const members = this.store.get("members", []).map((member) => ({
       ...member,
+      kind: normalizeMemberKind(member.kind),
       projectId: normalizeNullableText(member.projectId),
       projectName: normalizeNullableText(member.projectName),
       projectPath: normalizeNullableText(member.projectPath),
@@ -156,6 +178,7 @@ class WorkgroupStore {
       workgroupId: input.workgroupId,
       name: input.name.trim(),
       role: input.role,
+      kind: normalizeMemberKind(input.kind ?? existing?.kind),
       projectId: normalizeNullableText(input.projectId),
       projectName: normalizeNullableText(input.projectName),
       projectPath: normalizeNullableText(input.projectPath),

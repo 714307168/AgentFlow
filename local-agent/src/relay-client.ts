@@ -377,6 +377,10 @@ class RelayClient extends EventEmitter {
     if (resolvedByCallback) {
       return resolvedByCallback;
     }
+    const envelopeAgentId = typeof env.agent_id === "string" ? env.agent_id.trim() : "";
+    if (envelopeAgentId) {
+      return envelopeAgentId;
+    }
     const payload = env.payload as Record<string, unknown> | null;
     const payloadAgentId = typeof payload?.agent_id === "string" ? payload.agent_id.trim() : "";
     if (payloadAgentId) {

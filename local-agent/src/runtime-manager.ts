@@ -398,6 +398,10 @@ class RuntimeManager extends EventEmitter {
     this.historyStore.flushAll();
   }
 
+  flushPersistence(): void {
+    this.historyStore.flushAll();
+  }
+
   clearProject(projectId: string): void {
     const state = this.states.get(projectId);
     if (state?.process && !state.process.killed) {

@@ -9,11 +9,26 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Icon
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import androidx.navigation.NavDestination.Companion.hierarchy
+import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -33,6 +48,12 @@ import com.claudecode.remote.ui.workgroup.WorkgroupViewModel
 import com.claudecode.remote.util.CrashLogger
 import kotlinx.coroutines.launch
 import java.util.Locale
+
+private data class BottomNavItem(
+    val route: String,
+    val labelResId: Int,
+    val icon: androidx.compose.ui.graphics.vector.ImageVector
+)
 
 class MainActivity : ComponentActivity() {
     private lateinit var appContainer: AppContainer
@@ -70,6 +91,16 @@ class MainActivity : ComponentActivity() {
                 val e2eCrypto = appContainer.e2eCrypto
                 val navigationTarget by appContainer.chatNavigationBus.target.collectAsState()
                 val updateState by appUpdateManager.state.collectAsState()
+                val backStackEntry by navController.currentBackStackEntryAsState()
+                val currentDestination = backStackEntry?.destination
+                val bottomNavItems = listOf(
+                    BottomNavItem("sessions", R.string.chat_conversations_title, Icons.AutoMirrored.Filled.Chat),
+                    BottomNavItem("workgroups", R.string.workgroups_title, Icons.Default.Groups),
+                    BottomNavItem("settings", R.string.settings_title, Icons.Default.Settings),
+                )
+                val showBottomBar = bottomNavItems.any { item ->
+                    currentDestination?.hierarchy?.any { destination -> destination.route == item.route } == true
+                }
 
                 LaunchedEffect(navigationTarget) {
                     val target = navigationTarget ?: return@LaunchedEffect
@@ -85,201 +116,232 @@ class MainActivity : ComponentActivity() {
                     appUpdateManager.maybeAutoCheck()
                 }
 
-                NavHost(navController = navController, startDestination = "sessions") {
-                    composable("sessions") {
-                        val viewModel = remember {
-                            SessionViewModel(
-                                repository = sessionRepository,
-                                messageRepository = messageRepository,
+                Scaffold(
+                    bottomBar = {
+                        if (showBottomBar) {
+                            NavigationBar {
+                                bottomNavItems.forEach { item ->
+                                    val selected = currentDestination?.hierarchy?.any { destination ->
+                                        destination.route == item.route
+                                    } == true
+                                    NavigationBarItem(
+                                        selected = selected,
+                                        onClick = {
+                                            navController.navigate(item.route) {
+                                                popUpTo(navController.graph.findStartDestination().id) {
+                                                    saveState = true
+                                                }
+                                                launchSingleTop = true
+                                                restoreState = true
+                                            }
+                                        },
+                                        icon = {
+                                            Icon(
+                                                imageVector = item.icon,
+                                                contentDescription = stringResource(item.labelResId)
+                                            )
+                                        },
+                                        label = { Text(stringResource(item.labelResId)) }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                ) { innerPadding ->
+                    NavHost(
+                        navController = navController,
+                        startDestination = "sessions",
+                        modifier = Modifier.padding(innerPadding)
+                    ) {
+                        composable("sessions") {
+                            val viewModel = remember {
+                                SessionViewModel(
+                                    repository = sessionRepository,
+                                    messageRepository = messageRepository,
+                                    webSocket = relayWebSocket,
+                                    tokenStore = tokenStore,
+                                    workgroupRepository = workgroupRepository
+                                )
+                            }
+
+                            SessionListScreen(
+                                viewModel = viewModel,
                                 webSocket = relayWebSocket,
-                                tokenStore = tokenStore,
-                                workgroupRepository = workgroupRepository
-                            )
-                        }
-
-                        SessionListScreen(
-                            viewModel = viewModel,
-                            webSocket = relayWebSocket,
-                            updateState = updateState,
-                            onCheckForUpdates = {
-                                coroutineScope.launch { appUpdateManager.checkForUpdates(manual = true) }
-                            },
-                            onDownloadUpdate = {
-                                coroutineScope.launch { appUpdateManager.downloadLatestUpdate() }
-                            },
-                            onInstallUpdate = { appUpdateManager.installDownloadedUpdate() },
-                            onNavigateToChat = { session ->
-                                val encodedName = android.net.Uri.encode(session.name.ifEmpty { "Project" })
-                                val encodedAgentId = android.net.Uri.encode(session.agentId)
-                                navController.navigate("chat/${session.projectId}/$encodedName/$encodedAgentId")
-                            },
-                            onRefreshSessions = {
-                                viewModel.syncFromDesktop()
-                            },
-                            onToggleConnection = {
-                                when (relayWebSocket.connectionState.value) {
-                                    com.claudecode.remote.data.remote.RelayWebSocket.ConnectionState.CONNECTED,
-                                    com.claudecode.remote.data.remote.RelayWebSocket.ConnectionState.CONNECTING,
-                                    com.claudecode.remote.data.remote.RelayWebSocket.ConnectionState.RECONNECTING ->
-                                        RelayConnectionService.stop(applicationContext)
-                                    com.claudecode.remote.data.remote.RelayWebSocket.ConnectionState.DISCONNECTED ->
-                                        RelayConnectionService.start(applicationContext)
-                                }
-                            },
-                            onNavigateToWorkgroups = {
-                                navController.navigate("workgroups")
-                            },
-                            onNavigateToSettings = {
-                                navController.navigate("settings")
-                            }
-                        )
-                    }
-                    composable("workgroups") {
-                        val viewModel = remember {
-                            WorkgroupViewModel(sessionRepository, workgroupRepository, relayWebSocket)
-                        }
-
-                        WorkgroupScreen(
-                            viewModel = viewModel,
-                            onNavigateBack = { navController.popBackStack() },
-                            onOpenWorkgroupChat = { agentId, workgroupId, groupName ->
-                                val encodedAgentId = android.net.Uri.encode(agentId)
-                                val encodedWorkgroupId = android.net.Uri.encode(workgroupId)
-                                val encodedGroupName = android.net.Uri.encode(groupName.ifEmpty { "Workgroup" })
-                                navController.navigate("workgroups/chat/$encodedAgentId/$encodedWorkgroupId/$encodedGroupName")
-                            }
-                        )
-                    }
-                    composable("workgroups/chat/{agentId}/{workgroupId}/{workgroupName}") { backStackEntry ->
-                        val agentId = android.net.Uri.decode(
-                            backStackEntry.arguments?.getString("agentId") ?: ""
-                        )
-                        val workgroupId = android.net.Uri.decode(
-                            backStackEntry.arguments?.getString("workgroupId") ?: ""
-                        )
-                        val workgroupName = android.net.Uri.decode(
-                            backStackEntry.arguments?.getString("workgroupName") ?: "Workgroup"
-                        )
-                        val viewModel = remember(agentId, workgroupId) {
-                            WorkgroupChatViewModel(workgroupRepository, relayWebSocket, tokenStore)
-                        }
-
-                        WorkgroupChatScreen(
-                            agentId = agentId,
-                            workgroupId = workgroupId,
-                            workgroupName = workgroupName,
-                            viewModel = viewModel,
-                            onNavigateBack = { navController.popBackStack() }
-                        )
-                    }
-                    composable("chat/{projectId}/{projectName}/{agentId}") { backStackEntry ->
-                        val projectId = backStackEntry.arguments?.getString("projectId") ?: ""
-                        val projectName = android.net.Uri.decode(
-                            backStackEntry.arguments?.getString("projectName") ?: "Project"
-                        )
-                        val agentId = android.net.Uri.decode(
-                            backStackEntry.arguments?.getString("agentId") ?: ""
-                        )
-
-                        CrashLogger.logInfo(
-                            "MainActivity",
-                            "Navigating to chat: projectId=$projectId, projectName=$projectName, agentId=$agentId"
-                        )
-
-                        if (projectId.isEmpty()) {
-                            CrashLogger.logError("MainActivity", "Empty projectId, navigating back")
-                            LaunchedEffect(Unit) {
-                                navController.popBackStack()
-                            }
-                            return@composable
-                        }
-
-                        val viewModel = remember(projectId) {
-                            ChatViewModel(messageRepository, relayWebSocket, tokenStore)
-                        }
-                        ChatScreen(
-                            projectId = projectId,
-                            projectName = projectName,
-                            agentId = agentId,
-                            viewModel = viewModel,
-                            uiPresenceTracker = appContainer.uiPresenceTracker,
-                            onNavigateBack = { navController.popBackStack() }
-                        )
-                    }
-                    composable("settings") {
-                        SettingsScreen(
-                            initialState = SettingsState(
-                                serverUrl = tokenStore.getServerUrl() ?: "",
-                                deviceId = tokenStore.getDeviceId() ?: "",
-                                token = tokenStore.getToken() ?: "",
-                                username = tokenStore.getUsername() ?: "",
-                                password = tokenStore.getPassword() ?: "",
-                                e2eEnabled = tokenStore.isE2EEnabled(),
-                                e2ePublicKey = e2eCrypto.getPublicKeyBase64(),
-                                language = tokenStore.getLanguage(),
-                                autoUpdateCheckEnabled = tokenStore.isAutoUpdateCheckEnabled(),
-                                autoUpdateDownloadEnabled = tokenStore.isAutoUpdateDownloadEnabled(),
-                                crashLogsEnabled = tokenStore.isCrashLogsEnabled(),
                                 updateState = updateState,
-                                isLoggedIn = tokenStore.hasSavedSession()
-                            ),
-                            onSaveConnection = { url, devId ->
-                                val normalizedUrl = normalizeHttpBaseUrl(url)
-                                appContainer.updateServerUrl(normalizedUrl)
-                                tokenStore.saveDeviceId(devId)
-                                if (tokenStore.hasSavedSession() && devId.isNotBlank()) {
-                                    relayWebSocket.disconnect()
-                                    RelayConnectionService.start(applicationContext)
-                                }
-                            },
-                            onE2EEnabledChange = { enabled ->
-                                tokenStore.saveE2EEnabled(enabled)
-                                relayWebSocket.setE2EEnabled(enabled)
-                            },
-                            onAutoUpdateCheckChange = { enabled ->
-                                tokenStore.saveAutoUpdateCheckEnabled(enabled)
-                            },
-                            onAutoUpdateDownloadChange = { enabled ->
-                                tokenStore.saveAutoUpdateDownloadEnabled(enabled)
-                            },
-                            onCrashLogsEnabledChange = { enabled ->
-                                tokenStore.saveCrashLogsEnabled(enabled)
-                            },
-                            onLogin = { url, username, password, deviceId ->
-                                val normalizedUrl = normalizeHttpBaseUrl(url)
-                                appContainer.updateServerUrl(normalizedUrl)
-                                tokenStore.saveDeviceId(deviceId)
-
-                                coroutineScope.launch {
-                                    try {
-                                        val response = appContainer.authSessionManager.login(
-                                            username = username,
-                                            password = password,
-                                            clientId = deviceId
-                                        ).getOrThrow()
-                                        CrashLogger.logInfo("MainActivity", "Login successful: ${response.user.username}")
-
-                                        relayWebSocket.disconnect()
-                                        RelayConnectionService.start(applicationContext)
-                                    } catch (e: Exception) {
-                                        CrashLogger.logError("MainActivity", "Login failed", e)
+                                onCheckForUpdates = {
+                                    coroutineScope.launch { appUpdateManager.checkForUpdates(manual = true) }
+                                },
+                                onDownloadUpdate = {
+                                    coroutineScope.launch { appUpdateManager.downloadLatestUpdate() }
+                                },
+                                onInstallUpdate = { appUpdateManager.installDownloadedUpdate() },
+                                onNavigateToChat = { session ->
+                                    val encodedName = android.net.Uri.encode(session.name.ifEmpty { "Project" })
+                                    val encodedAgentId = android.net.Uri.encode(session.agentId)
+                                    navController.navigate("chat/${session.projectId}/$encodedName/$encodedAgentId")
+                                },
+                                onRefreshSessions = {
+                                    viewModel.syncFromDesktop()
+                                },
+                                onToggleConnection = {
+                                    when (relayWebSocket.connectionState.value) {
+                                        com.claudecode.remote.data.remote.RelayWebSocket.ConnectionState.CONNECTED,
+                                        com.claudecode.remote.data.remote.RelayWebSocket.ConnectionState.CONNECTING,
+                                        com.claudecode.remote.data.remote.RelayWebSocket.ConnectionState.RECONNECTING ->
+                                            RelayConnectionService.stop(applicationContext)
+                                        com.claudecode.remote.data.remote.RelayWebSocket.ConnectionState.DISCONNECTED ->
+                                            RelayConnectionService.start(applicationContext)
                                     }
                                 }
-                            },
-                            onCheckForUpdates = {
-                                coroutineScope.launch { appUpdateManager.checkForUpdates(manual = true) }
-                            },
-                            onDownloadUpdate = {
-                                coroutineScope.launch { appUpdateManager.downloadLatestUpdate() }
-                            },
-                            onInstallUpdate = { appUpdateManager.installDownloadedUpdate() },
-                            onLanguageChange = { lang ->
-                                tokenStore.saveLanguage(lang)
-                                applyLanguage(lang)
-                                recreate()
-                            },
-                            onNavigateBack = { navController.popBackStack() }
-                        )
+                            )
+                        }
+                        composable("workgroups") {
+                            val viewModel = remember {
+                                WorkgroupViewModel(applicationContext, sessionRepository, workgroupRepository, relayWebSocket)
+                            }
+
+                            WorkgroupScreen(
+                                viewModel = viewModel,
+                                onNavigateBack = { navController.popBackStack() },
+                                onOpenWorkgroupChat = { agentId, workgroupId, groupName ->
+                                    val encodedAgentId = android.net.Uri.encode(agentId)
+                                    val encodedWorkgroupId = android.net.Uri.encode(workgroupId)
+                                    val encodedGroupName = android.net.Uri.encode(groupName.ifEmpty { "Workgroup" })
+                                    navController.navigate("workgroups/chat/$encodedAgentId/$encodedWorkgroupId/$encodedGroupName")
+                                }
+                            )
+                        }
+                        composable("workgroups/chat/{agentId}/{workgroupId}/{workgroupName}") { backStackEntry ->
+                            val agentId = android.net.Uri.decode(
+                                backStackEntry.arguments?.getString("agentId") ?: ""
+                            )
+                            val workgroupId = android.net.Uri.decode(
+                                backStackEntry.arguments?.getString("workgroupId") ?: ""
+                            )
+                            val workgroupName = android.net.Uri.decode(
+                                backStackEntry.arguments?.getString("workgroupName") ?: "Workgroup"
+                            )
+                            val viewModel = remember(agentId, workgroupId) {
+                                WorkgroupChatViewModel(applicationContext, workgroupRepository, relayWebSocket, tokenStore)
+                            }
+
+                            WorkgroupChatScreen(
+                                agentId = agentId,
+                                workgroupId = workgroupId,
+                                workgroupName = workgroupName,
+                                viewModel = viewModel,
+                                onNavigateBack = { navController.popBackStack() }
+                            )
+                        }
+                        composable("chat/{projectId}/{projectName}/{agentId}") { backStackEntry ->
+                            val projectId = backStackEntry.arguments?.getString("projectId") ?: ""
+                            val projectName = android.net.Uri.decode(
+                                backStackEntry.arguments?.getString("projectName") ?: "Project"
+                            )
+                            val agentId = android.net.Uri.decode(
+                                backStackEntry.arguments?.getString("agentId") ?: ""
+                            )
+
+                            CrashLogger.logInfo(
+                                "MainActivity",
+                                "Navigating to chat: projectId=$projectId, projectName=$projectName, agentId=$agentId"
+                            )
+
+                            if (projectId.isEmpty()) {
+                                CrashLogger.logError("MainActivity", "Empty projectId, navigating back")
+                                LaunchedEffect(Unit) {
+                                    navController.popBackStack()
+                                }
+                                return@composable
+                            }
+
+                            val viewModel = remember(projectId) {
+                                ChatViewModel(messageRepository, relayWebSocket, tokenStore)
+                            }
+                            ChatScreen(
+                                projectId = projectId,
+                                projectName = projectName,
+                                agentId = agentId,
+                                viewModel = viewModel,
+                                uiPresenceTracker = appContainer.uiPresenceTracker,
+                                onNavigateBack = { navController.popBackStack() }
+                            )
+                        }
+                        composable("settings") {
+                            SettingsScreen(
+                                initialState = SettingsState(
+                                    serverUrl = tokenStore.getServerUrl() ?: "",
+                                    deviceId = tokenStore.getDeviceId() ?: "",
+                                    token = tokenStore.getToken() ?: "",
+                                    username = tokenStore.getUsername() ?: "",
+                                    password = tokenStore.getPassword() ?: "",
+                                    e2eEnabled = tokenStore.isE2EEnabled(),
+                                    e2ePublicKey = e2eCrypto.getPublicKeyBase64(),
+                                    language = tokenStore.getLanguage(),
+                                    autoUpdateCheckEnabled = tokenStore.isAutoUpdateCheckEnabled(),
+                                    autoUpdateDownloadEnabled = tokenStore.isAutoUpdateDownloadEnabled(),
+                                    crashLogsEnabled = tokenStore.isCrashLogsEnabled(),
+                                    updateState = updateState,
+                                    isLoggedIn = tokenStore.hasSavedSession()
+                                ),
+                                onSaveConnection = { url, devId ->
+                                    val normalizedUrl = normalizeHttpBaseUrl(url)
+                                    appContainer.updateServerUrl(normalizedUrl)
+                                    tokenStore.saveDeviceId(devId)
+                                    if (tokenStore.hasSavedSession() && devId.isNotBlank()) {
+                                        relayWebSocket.disconnect()
+                                        RelayConnectionService.start(applicationContext)
+                                    }
+                                },
+                                onE2EEnabledChange = { enabled ->
+                                    tokenStore.saveE2EEnabled(enabled)
+                                    relayWebSocket.setE2EEnabled(enabled)
+                                },
+                                onAutoUpdateCheckChange = { enabled ->
+                                    tokenStore.saveAutoUpdateCheckEnabled(enabled)
+                                },
+                                onAutoUpdateDownloadChange = { enabled ->
+                                    tokenStore.saveAutoUpdateDownloadEnabled(enabled)
+                                },
+                                onCrashLogsEnabledChange = { enabled ->
+                                    tokenStore.saveCrashLogsEnabled(enabled)
+                                },
+                                onLogin = { url, username, password, deviceId ->
+                                    val normalizedUrl = normalizeHttpBaseUrl(url)
+                                    appContainer.updateServerUrl(normalizedUrl)
+                                    tokenStore.saveDeviceId(deviceId)
+
+                                    coroutineScope.launch {
+                                        try {
+                                            val response = appContainer.authSessionManager.login(
+                                                username = username,
+                                                password = password,
+                                                clientId = deviceId
+                                            ).getOrThrow()
+                                            CrashLogger.logInfo("MainActivity", "Login successful: ${response.user.username}")
+
+                                            relayWebSocket.disconnect()
+                                            RelayConnectionService.start(applicationContext)
+                                        } catch (e: Exception) {
+                                            CrashLogger.logError("MainActivity", "Login failed", e)
+                                        }
+                                    }
+                                },
+                                onCheckForUpdates = {
+                                    coroutineScope.launch { appUpdateManager.checkForUpdates(manual = true) }
+                                },
+                                onDownloadUpdate = {
+                                    coroutineScope.launch { appUpdateManager.downloadLatestUpdate() }
+                                },
+                                onInstallUpdate = { appUpdateManager.installDownloadedUpdate() },
+                                onLanguageChange = { lang ->
+                                    tokenStore.saveLanguage(lang)
+                                    applyLanguage(lang)
+                                    recreate()
+                                },
+                                onNavigateBack = { navController.popBackStack() }
+                            )
+                        }
                     }
                 }
             }

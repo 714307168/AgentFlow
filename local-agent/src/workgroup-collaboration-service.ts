@@ -92,6 +92,16 @@ function queuePlaceholderText(member: WorkgroupMember): string {
   return `${member.name} is preparing a response...`;
 }
 
+interface ResolvedTargetSelection {
+  targets: WorkgroupMember[];
+  mode: "broadcast" | "explicit";
+}
+
+interface ResolveTargetOptions {
+  requireExplicitMention?: boolean;
+  excludeMemberIds?: string[];
+}
+
 export default class WorkgroupCollaborationService extends EventEmitter {
   constructor(private readonly options: CollaborationServiceOptions) {
     super();
@@ -213,8 +223,8 @@ export default class WorkgroupCollaborationService extends EventEmitter {
     }
 
     const members = workgroupStore.listMembers(workgroup.id);
-    const targets = this.resolveTargets(workgroup, members, trimmedContent);
-    if (targets.length === 0) {
+    const selection = this.resolveTargets(workgroup, members, trimmedContent);
+    if (selection.targets.length === 0) {
       return { success: false, error: "No bound workgroup members available for this message" };
     }
 
@@ -224,6 +234,7 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       content: trimmedContent,
       status: "done",
     });
+    this.appendRoutingNote(workgroup.id, selection);
     this.emitSnapshot(workgroup.id);
     this.emitSummaries();
 
@@ -231,7 +242,7 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       .listMessages(workgroup.id)
       .slice(-DEFAULT_CONTEXT_MESSAGE_COUNT);
 
-    await Promise.all(targets.map(async (member) => {
+    await Promise.all(selection.targets.map(async (member) => {
       await this.dispatchToMember(workgroup, member, recentMessages, userMessage);
     }));
 
@@ -244,7 +255,7 @@ export default class WorkgroupCollaborationService extends EventEmitter {
 
   private buildSummary(workgroup: Workgroup): WorkgroupCollaborationSummary {
     const session = workgroupCollaborationStore.getSession(workgroup.id);
-    const latestMessage = session?.messages[session.messages.length - 1] ?? null;
+    const latestMessage = this.getLatestPreviewMessage(workgroup.id);
     const members = this.buildMemberSnapshots(workgroup);
     return {
       id: workgroup.id,
@@ -258,6 +269,20 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       messageCount: session?.messages.length ?? 0,
       memberCount: members.length,
     };
+  }
+
+  private getLatestPreviewMessage(workgroupId: string): WorkgroupCollaborationMessage | null {
+    const messages = workgroupCollaborationStore.listMessages(workgroupId);
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index];
+      if (!message.content.trim()) {
+        continue;
+      }
+      if (message.senderType !== "system") {
+        return message;
+      }
+    }
+    return messages[messages.length - 1] ?? null;
   }
 
   private buildMemberSnapshots(workgroup: Workgroup): WorkgroupCollaborationMemberSnapshot[] {
@@ -325,8 +350,17 @@ export default class WorkgroupCollaborationService extends EventEmitter {
     }
   }
 
-  private resolveTargets(workgroup: Workgroup, members: WorkgroupMember[], content: string): WorkgroupMember[] {
+  private resolveTargets(
+    workgroup: Workgroup,
+    members: WorkgroupMember[],
+    content: string,
+    options: ResolveTargetOptions = {},
+  ): ResolvedTargetSelection {
+    const excludedIds = new Set((options.excludeMemberIds ?? []).map((entry) => entry.trim()).filter(Boolean));
     const boundMembers = members.filter((member) => {
+      if (excludedIds.has(member.id)) {
+        return false;
+      }
       if (!member.projectId) {
         return false;
       }
@@ -334,12 +368,18 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       return Boolean(project);
     });
     if (boundMembers.length === 0) {
-      return [];
+      return {
+        targets: [],
+        mode: "broadcast",
+      };
     }
 
     const normalizedContent = content.toLowerCase();
     if (/@all\b/.test(normalizedContent) || /@全部/.test(normalizedContent)) {
-      return boundMembers;
+      return {
+        targets: boundMembers,
+        mode: "explicit",
+      };
     }
 
     const matchedMembers = new Map<string, WorkgroupMember>();
@@ -365,7 +405,40 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       }
     }
 
-    return matchedMembers.size > 0 ? Array.from(matchedMembers.values()) : boundMembers;
+    return matchedMembers.size > 0
+      ? {
+          targets: Array.from(matchedMembers.values()),
+          mode: "explicit",
+        }
+      : (options.requireExplicitMention
+        ? {
+            targets: [],
+            mode: "explicit",
+          }
+        : {
+            targets: boundMembers,
+            mode: "broadcast",
+          });
+  }
+
+  private appendRoutingNote(workgroupId: string, selection: ResolvedTargetSelection): void {
+    if (selection.targets.length === 0) {
+      return;
+    }
+
+    const memberMentions = selection.targets.map((member) => `@${member.name}`).join(", ");
+    const content = selection.mode === "explicit"
+      ? `Notified ${memberMentions}`
+      : selection.targets.length === 1
+        ? `Sent to ${memberMentions}`
+        : `Broadcast to ${memberMentions}`;
+
+    workgroupCollaborationStore.appendMessage(workgroupId, {
+      senderType: "system",
+      senderName: "System",
+      content,
+      status: "done",
+    });
   }
 
   private buildPrompt(
@@ -473,12 +546,15 @@ export default class WorkgroupCollaborationService extends EventEmitter {
     };
     const handleDone = () => {
       const current = workgroupCollaborationStore.getMessage(workgroup.id, replyMessage.id);
-      workgroupCollaborationStore.updateMessage(workgroup.id, replyMessage.id, {
+      const finalizedMessage = workgroupCollaborationStore.updateMessage(workgroup.id, replyMessage.id, {
         content: current?.content?.trim() ? current.content : queuePlaceholderText(member),
         status: "done",
       });
       this.emitSnapshot(workgroup.id);
       this.emitSummaries();
+      if (finalizedMessage && finalizedMessage.senderType === "member") {
+        void this.dispatchMemberHandoffs(workgroup, member, finalizedMessage);
+      }
     };
     const handleError = (error: string) => {
       workgroupCollaborationStore.updateMessage(workgroup.id, replyMessage.id, {
@@ -520,6 +596,53 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       onDone: handleDone,
       onError: handleError,
     });
+  }
+
+  private async dispatchMemberHandoffs(
+    workgroup: Workgroup,
+    sender: WorkgroupMember,
+    sourceMessage: WorkgroupCollaborationMessage,
+  ): Promise<void> {
+    const senderCanHandoff = workgroup.allowDirectMemberMessages || sender.role === "project_manager";
+    if (!senderCanHandoff) {
+      return;
+    }
+
+    const members = workgroupStore.listMembers(workgroup.id);
+    const selection = this.resolveTargets(workgroup, members, sourceMessage.content, {
+      requireExplicitMention: true,
+      excludeMemberIds: [sender.id],
+    });
+    if (selection.targets.length === 0) {
+      return;
+    }
+
+    const routedMessage = workgroupCollaborationStore.appendMessage(workgroup.id, {
+      senderType: "system",
+      senderName: "System",
+      triggerMessageId: sourceMessage.id,
+      content: `Handoff from @${sender.name} to ${selection.targets.map((member) => `@${member.name}`).join(", ")}`,
+      status: "done",
+    });
+    this.emitSnapshot(workgroup.id);
+    this.emitSummaries();
+
+    const recentMessages = workgroupCollaborationStore
+      .listMessages(workgroup.id)
+      .slice(-DEFAULT_CONTEXT_MESSAGE_COUNT);
+
+    await Promise.all(selection.targets.map(async (member) => {
+      await this.dispatchToMember(workgroup, member, recentMessages, sourceMessage);
+    }));
+
+    const latestSystemMessage = workgroupCollaborationStore.getMessage(workgroup.id, routedMessage.id);
+    if (latestSystemMessage?.status !== "done") {
+      workgroupCollaborationStore.updateMessage(workgroup.id, routedMessage.id, {
+        status: "done",
+      });
+    }
+    this.emitSnapshot(workgroup.id);
+    this.emitSummaries();
   }
 
   private appendDispatchError(workgroupId: string, member: WorkgroupMember, error: string): void {

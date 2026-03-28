@@ -1,9 +1,17 @@
-import { createECDH, randomBytes, createCipheriv, createDecipheriv } from "crypto";
+import {
+  createCipheriv,
+  createDecipheriv,
+  createPublicKey,
+  diffieHellman,
+  generateKeyPairSync,
+  randomBytes,
+  type KeyObject,
+} from "crypto";
 import { EventEmitter } from "events";
 
 const ALGORITHM = "aes-256-gcm";
 const NONCE_LENGTH = 12;
-const CURVE = "prime256v1"; // Also known as secp256r1 or P-256, widely supported
+const CURVE = "prime256v1"; // secp256r1 / P-256
 
 export interface EncryptedPayload {
   encrypted: true;
@@ -12,15 +20,18 @@ export interface EncryptedPayload {
 }
 
 class E2ECrypto extends EventEmitter {
-  private ecdh = createECDH(CURVE);
+  private privateKey: KeyObject;
+  private publicKeyObject: KeyObject;
   private sharedSecrets: Map<string, Buffer> = new Map(); // deviceId -> sharedSecret
   private roomKeys: Map<string, Buffer> = new Map();
   private publicKey: string; // base64
 
   constructor() {
     super();
-    this.ecdh.generateKeys();
-    this.publicKey = this.ecdh.getPublicKey("base64");
+    const keyPair = this.generateKeyPair();
+    this.privateKey = keyPair.privateKey;
+    this.publicKeyObject = keyPair.publicKey;
+    this.publicKey = this.exportPublicKeyBase64(this.publicKeyObject);
   }
 
   getPublicKey(): string {
@@ -28,8 +39,15 @@ class E2ECrypto extends EventEmitter {
   }
 
   deriveSharedSecret(peerId: string, peerPublicKey: string): void {
-    const peerKey = Buffer.from(peerPublicKey, "base64");
-    const shared = this.ecdh.computeSecret(peerKey);
+    const peerKey = createPublicKey({
+      key: Buffer.from(peerPublicKey, "base64"),
+      format: "der",
+      type: "spki",
+    });
+    const shared = diffieHellman({
+      privateKey: this.privateKey,
+      publicKey: peerKey,
+    });
     this.sharedSecrets.set(peerId, shared);
     this.emit("key-established", peerId);
   }
@@ -129,8 +147,23 @@ class E2ECrypto extends EventEmitter {
   reset(): void {
     this.sharedSecrets.clear();
     this.roomKeys.clear();
-    this.ecdh.generateKeys();
-    this.publicKey = this.ecdh.getPublicKey("base64");
+    const keyPair = this.generateKeyPair();
+    this.privateKey = keyPair.privateKey;
+    this.publicKeyObject = keyPair.publicKey;
+    this.publicKey = this.exportPublicKeyBase64(this.publicKeyObject);
+  }
+
+  private generateKeyPair(): { privateKey: KeyObject; publicKey: KeyObject } {
+    return generateKeyPairSync("ec", {
+      namedCurve: CURVE,
+    });
+  }
+
+  private exportPublicKeyBase64(publicKey: KeyObject): string {
+    return publicKey.export({
+      format: "der",
+      type: "spki",
+    }).toString("base64");
   }
 }
 

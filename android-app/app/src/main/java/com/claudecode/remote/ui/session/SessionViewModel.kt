@@ -110,7 +110,7 @@ class SessionViewModel(
                 )
                 delay(400)
             }
-            repository.syncFromServer().fold(
+            repository.syncFromServer(force = true).fold(
                 onSuccess = {
                     if (webSocket.connectionState.value == RelayWebSocket.ConnectionState.CONNECTED) {
                         messageRepository.requestProjectSyncs(repository.getSessions())

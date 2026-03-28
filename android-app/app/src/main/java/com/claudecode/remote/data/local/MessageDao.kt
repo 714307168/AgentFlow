@@ -17,6 +17,16 @@ interface MessageDao {
     @Query("SELECT * FROM messages WHERE projectId = :projectId ORDER BY timestamp ASC")
     fun getMessagesByProject(projectId: String): Flow<List<MessageEntity>>
 
+    @Query(
+        """
+        SELECT * FROM messages
+        WHERE projectId = :projectId
+          AND type IN ('TEXT', 'FILE')
+        ORDER BY timestamp ASC
+        """
+    )
+    fun getConversationMessagesByProject(projectId: String): Flow<List<MessageEntity>>
+
     @Query("SELECT * FROM messages WHERE id = :messageId LIMIT 1")
     suspend fun getMessageById(messageId: String): MessageEntity?
 
@@ -52,6 +62,9 @@ interface MessageDao {
 
     @Query("DELETE FROM messages WHERE projectId = :projectId")
     suspend fun deleteMessagesByProject(projectId: String)
+
+    @Query("DELETE FROM messages WHERE id = :messageId")
+    suspend fun deleteMessageById(messageId: String)
 
     @Query(
         """

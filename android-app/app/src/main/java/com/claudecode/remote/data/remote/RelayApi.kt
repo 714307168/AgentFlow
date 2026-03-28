@@ -42,6 +42,43 @@ interface RelayApi {
         @Query("version") version: String,
         @Query("build") build: Int
     ): UpdateCheckResponse
+
+    @GET("api/workgroups/registry")
+    suspend fun searchWorkgroupRegistry(
+        @Header("Authorization") auth: String,
+        @Query("q") query: String
+    ): WorkgroupRegistrySearchResponse
+
+    @GET("api/workgroups/registry/mine")
+    suspend fun listMyWorkgroupRegistry(
+        @Header("Authorization") auth: String
+    ): WorkgroupRegistrySearchResponse
+
+    @GET("api/workgroups/registry/members")
+    suspend fun getWorkgroupRegistryMembers(
+        @Header("Authorization") auth: String,
+        @Query("group_number") groupNumber: String? = null,
+        @Query("host_agent_id") hostAgentId: String? = null,
+        @Query("workgroup_id") workgroupId: String? = null
+    ): WorkgroupRegistryMembersResponse
+
+    @POST("api/workgroups/registry/join")
+    suspend fun joinWorkgroupRegistry(
+        @Header("Authorization") auth: String,
+        @Body request: JoinWorkgroupRegistryRequest
+    ): JoinWorkgroupRegistryResponse
+
+    @POST("api/workgroups/registry/leave")
+    suspend fun leaveWorkgroupRegistry(
+        @Header("Authorization") auth: String,
+        @Body request: ResolveWorkgroupRegistryRequest
+    ): SuccessResponse
+
+    @POST("api/workgroups/registry/kick")
+    suspend fun kickWorkgroupRegistryMember(
+        @Header("Authorization") auth: String,
+        @Body request: KickWorkgroupRegistryMemberRequest
+    ): SuccessResponse
 }
 
 @Serializable
@@ -117,4 +154,70 @@ data class UpdateCheckResponse(
     val notes: String? = null,
     val mandatory: Boolean? = null,
     val filename: String? = null
+)
+
+@Serializable
+data class WorkgroupRegistrySearchResponse(
+    val records: List<WorkgroupRegistryRecord> = emptyList()
+)
+
+@Serializable
+data class WorkgroupRegistryMembersResponse(
+    val record: WorkgroupRegistryRecord,
+    val members: List<WorkgroupRegistryMember> = emptyList()
+)
+
+@Serializable
+data class JoinWorkgroupRegistryRequest(
+    @SerialName("group_number") val groupNumber: String
+)
+
+@Serializable
+data class JoinWorkgroupRegistryResponse(
+    val success: Boolean = false,
+    val joined: Boolean = false,
+    @SerialName("granted_access") val grantedAccess: Boolean = false,
+    val record: WorkgroupRegistryRecord
+)
+
+@Serializable
+data class ResolveWorkgroupRegistryRequest(
+    @SerialName("group_number") val groupNumber: String? = null,
+    @SerialName("host_agent_id") val hostAgentId: String? = null,
+    @SerialName("workgroup_id") val workgroupId: String? = null
+)
+
+@Serializable
+data class KickWorkgroupRegistryMemberRequest(
+    @SerialName("group_number") val groupNumber: String? = null,
+    @SerialName("host_agent_id") val hostAgentId: String? = null,
+    @SerialName("workgroup_id") val workgroupId: String? = null,
+    @SerialName("user_id") val userId: Int
+)
+
+@Serializable
+data class SuccessResponse(
+    val success: Boolean = false
+)
+
+@Serializable
+data class WorkgroupRegistryRecord(
+    @SerialName("groupNumber") val groupNumber: String,
+    @SerialName("workgroupId") val workgroupId: String,
+    @SerialName("hostAgentId") val hostAgentId: String,
+    val name: String,
+    val description: String? = null,
+    @SerialName("ownerUsername") val ownerUsername: String? = null,
+    @SerialName("memberCount") val memberCount: Int = 0,
+    @SerialName("canManage") val canManage: Boolean = false,
+    val joined: Boolean = false,
+    @SerialName("updatedAt") val updatedAt: Long = 0L
+)
+
+@Serializable
+data class WorkgroupRegistryMember(
+    @SerialName("userId") val userId: Int,
+    val username: String,
+    @SerialName("isOwner") val isOwner: Boolean = false,
+    @SerialName("joinedAt") val joinedAt: Long = 0L
 )

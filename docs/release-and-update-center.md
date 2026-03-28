@@ -153,7 +153,7 @@ npm run dist:win
 
 Output:
 
-- `local-agent/release/Claude Code Agent-<version>-x64-setup.exe`
+- `local-agent/release/AgentFlow-<version>-x64-setup.exe`
 
 ### Android
 

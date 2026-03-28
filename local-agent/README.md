@@ -1,4 +1,4 @@
-# Local Agent
+# AgentFlow Desktop
 
 ## Run Modes
 
@@ -12,6 +12,8 @@
 Desktop data is stored under one stable directory:
 
 - `%APPDATA%\claude-code-agent`
+
+This path stays unchanged for upgrade compatibility with older builds.
 
 The app does not persist user data inside the install directory.
 
@@ -103,9 +105,9 @@ npm run dist:win
 
 Expected outputs:
 
-- `release/Claude Code Agent-<version>-x64-setup.exe`
-- `release/Claude Code Agent-<version>-x64-setup.exe.blockmap`
-- `release/win-unpacked/Claude Code Agent.exe`
+- `release/AgentFlow-<version>-x64-setup.exe`
+- `release/AgentFlow-<version>-x64-setup.exe.blockmap`
+- `release/win-unpacked/AgentFlow.exe`
 
 ## Related Docs
 

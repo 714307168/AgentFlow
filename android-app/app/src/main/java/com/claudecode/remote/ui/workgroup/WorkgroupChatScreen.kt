@@ -12,8 +12,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -42,10 +44,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.res.stringResource
 import com.claudecode.remote.R
 import com.claudecode.remote.data.model.WorkgroupMember
 import com.claudecode.remote.data.model.WorkgroupMessage
@@ -109,8 +111,10 @@ fun WorkgroupChatScreen(
             bottomBar = {
                 WorkgroupInputBar(
                     text = uiState.inputText,
+                    mentionSuggestions = uiState.mentionSuggestions,
                     enabled = uiState.isConnected && !uiState.isSending,
                     onTextChange = viewModel::updateInput,
+                    onApplyMention = viewModel::applyMentionSuggestion,
                     onSend = viewModel::sendMessage
                 )
             }
@@ -125,7 +129,7 @@ fun WorkgroupChatScreen(
                         .fillMaxSize()
                         .statusBarsPadding()
                         .padding(horizontal = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     WorkgroupChatHeader(
                         uiState = uiState,
@@ -135,7 +139,7 @@ fun WorkgroupChatScreen(
 
                     Surface(
                         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
-                        shape = RoundedCornerShape(24.dp),
+                        shape = RoundedCornerShape(20.dp),
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.12f)),
                         modifier = Modifier.fillMaxSize()
                     ) {
@@ -163,8 +167,8 @@ fun WorkgroupChatScreen(
                             LazyColumn(
                                 state = listState,
                                 modifier = Modifier.fillMaxSize(),
-                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 14.dp),
-                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 item(key = "history-header") {
                                     if (uiState.hasMoreHistory) {
@@ -216,7 +220,7 @@ private fun WorkgroupChatHeader(
     onNavigateBack: () -> Unit,
     onRefresh: () -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -233,15 +237,14 @@ private fun WorkgroupChatHeader(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = uiState.workgroupName,
-                    style = MaterialTheme.typography.titleLarge,
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = uiState.description?.takeIf { it.isNotBlank() }
-                        ?: stringResource(R.string.workgroups_agent_label, uiState.agentId),
-                    style = MaterialTheme.typography.bodySmall,
+                    text = stringResource(R.string.workgroups_agent_label, uiState.agentId),
+                    style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -255,43 +258,46 @@ private fun WorkgroupChatHeader(
             }
         }
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(horizontal = 2.dp)
         ) {
-            HeaderChip(
-                text = if (uiState.isRunning) stringResource(R.string.status_running) else stringResource(R.string.status_ready),
-                containerColor = if (uiState.isRunning) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.secondaryContainer,
-                contentColor = if (uiState.isRunning) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onSecondaryContainer
-            )
-            HeaderChip(
-                text = stringResource(R.string.workgroups_members_count, uiState.members.size),
-                containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                contentColor = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            HeaderChip(
-                text = if (uiState.isConnected) stringResource(R.string.status_connected) else stringResource(R.string.status_offline),
-                containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                contentColor = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-
-        if (uiState.members.isNotEmpty()) {
-            Surface(
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f),
-                shape = RoundedCornerShape(18.dp),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
-            ) {
-                Text(
-                    text = uiState.members.joinToString(separator = "  ·  ") { member ->
-                        member.name + roleSuffix(member)
-                    },
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
+            item("status") {
+                HeaderChip(
+                    text = if (uiState.isRunning) stringResource(R.string.status_running) else stringResource(R.string.status_ready),
+                    containerColor = if (uiState.isRunning) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = if (uiState.isRunning) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onSecondaryContainer
                 )
+            }
+            item("members") {
+                HeaderChip(
+                    text = stringResource(R.string.workgroups_members_count, uiState.members.size),
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            item("connection") {
+                HeaderChip(
+                    text = if (uiState.isConnected) stringResource(R.string.status_connected) else stringResource(R.string.status_offline),
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            items(uiState.members, key = { it.id }) { member ->
+                Surface(
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f),
+                    shape = RoundedCornerShape(999.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
+                ) {
+                    Text(
+                        text = member.name + roleSuffix(member),
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
         }
     }
@@ -310,7 +316,7 @@ private fun HeaderChip(
     ) {
         Text(
             text = text,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
             style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.SemiBold
         )
@@ -350,16 +356,16 @@ private fun WorkgroupMessageBubble(message: WorkgroupMessage) {
                 bottomEnd = if (isUser) 6.dp else 18.dp
             ),
             tonalElevation = if (message.status == "streaming") 3.dp else 0.dp,
-            modifier = Modifier.fillMaxWidth(0.86f)
+            modifier = Modifier.fillMaxWidth(0.9f)
         ) {
             Column(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                verticalArrangement = Arrangement.spacedBy(3.dp)
             ) {
                 if (!isUser) {
                     Text(
                         text = buildSenderLabel(message),
-                        style = MaterialTheme.typography.labelMedium,
+                        style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -382,8 +388,10 @@ private fun WorkgroupMessageBubble(message: WorkgroupMessage) {
 @Composable
 private fun WorkgroupInputBar(
     text: String,
+    mentionSuggestions: List<WorkgroupMentionSuggestion>,
     enabled: Boolean,
     onTextChange: (String) -> Unit,
+    onApplyMention: (WorkgroupMentionSuggestion) -> Unit,
     onSend: () -> Unit
 ) {
     Surface(
@@ -395,43 +403,65 @@ private fun WorkgroupInputBar(
             .navigationBarsPadding()
             .imePadding()
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.Bottom,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            OutlinedTextField(
-                value = text,
-                onValueChange = onTextChange,
-                modifier = Modifier.weight(1f),
-                placeholder = { Text(stringResource(R.string.workgroups_message_hint)) },
-                enabled = enabled,
-                maxLines = 5,
-                shape = RoundedCornerShape(22.dp)
-            )
-            FilledIconButton(
-                onClick = onSend,
-                enabled = enabled && text.trim().isNotEmpty()
+            if (mentionSuggestions.isNotEmpty()) {
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(horizontal = 2.dp)
+                ) {
+                    items(mentionSuggestions, key = { it.label }) { suggestion ->
+                        TextButton(
+                            onClick = { onApplyMention(suggestion) },
+                            enabled = enabled
+                        ) {
+                            Text("${suggestion.label} ${suggestion.meta}", maxLines = 1)
+                        }
+                    }
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.Bottom,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.Send,
-                    contentDescription = stringResource(R.string.send_message)
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = onTextChange,
+                    modifier = Modifier.weight(1f),
+                    placeholder = { Text(stringResource(R.string.workgroups_message_hint)) },
+                    enabled = enabled,
+                    maxLines = 5,
+                    shape = RoundedCornerShape(22.dp)
                 )
+                FilledIconButton(
+                    onClick = onSend,
+                    enabled = enabled && text.trim().isNotEmpty(),
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.Send,
+                        contentDescription = stringResource(R.string.send_message)
+                    )
+                }
             }
         }
     }
 }
 
 private fun roleSuffix(member: WorkgroupMember): String =
-    member.role.trim().takeIf { it.isNotEmpty() }?.let { " · $it" } ?: ""
+    member.role.trim().takeIf { it.isNotEmpty() }?.let { " / $it" } ?: ""
 
 private fun buildSenderLabel(message: WorkgroupMessage): String =
     listOfNotNull(
         message.senderName.takeIf { it.isNotBlank() },
         message.memberRole?.takeIf { it.isNotBlank() }
-    ).joinToString(separator = " · ")
+    ).joinToString(separator = " / ")
 
 private fun formatTimestamp(timestamp: Long): String {
     if (timestamp <= 0L) {

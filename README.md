@@ -1,8 +1,8 @@
-# Claude Code Remote
+# AgentFlow
 
 [English](./README.en.md)
 
-`Claude Code Remote` 是一个自托管的远程协作方案，用来通过手机控制桌面端 Claude Code。
+`AgentFlow` 是一个自托管的远程协作方案，用来通过手机控制桌面端 Agent 和本地 CLI 工作流。
 
 ```text
 Android App  <-->  Relay Server  <-->  Local Agent  <-->  Claude Code CLI
@@ -95,7 +95,7 @@ cd android-app
 
 桌面端默认数据目录：
 
-- `%APPDATA%\\claude-code-agent`
+- `%APPDATA%\\claude-code-agent`（为兼容历史版本暂时保留）
 
 常见文件：
 
@@ -142,6 +142,7 @@ Android 端使用 Room 和 Preferences 保存：
 - [English README](./README.en.md)
 - [更新中心与发布说明](./docs/release-and-update-center.md)
 - [发布上传 Runbook](./docs/release-upload-runbook.md)
+- [GitHub Releases 发布](./docs/github-releases.md)
 - [桌面端说明](./local-agent/README.md)
 - [协作说明](./CLAUDE.md)
 

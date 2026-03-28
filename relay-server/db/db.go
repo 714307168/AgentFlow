@@ -136,6 +136,33 @@ func (db *DB) initSchema() error {
 		published_at DATETIME
 	);
 
+	-- Collaboration group registry metadata only. Chat content stays on agents/devices.
+	CREATE TABLE IF NOT EXISTS collaboration_groups (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		group_number TEXT NOT NULL UNIQUE,
+		workgroup_id TEXT NOT NULL,
+		host_agent_id TEXT NOT NULL,
+		owner_user_id INTEGER NOT NULL,
+		name TEXT NOT NULL,
+		description TEXT NOT NULL DEFAULT '',
+		member_snapshot TEXT NOT NULL DEFAULT '[]',
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE(owner_user_id, host_agent_id, workgroup_id),
+		FOREIGN KEY (host_agent_id) REFERENCES agents(id) ON DELETE CASCADE,
+		FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE
+	);
+
+	CREATE TABLE IF NOT EXISTS collaboration_group_memberships (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		group_id INTEGER NOT NULL,
+		user_id INTEGER NOT NULL,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE(group_id, user_id),
+		FOREIGN KEY (group_id) REFERENCES collaboration_groups(id) ON DELETE CASCADE,
+		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+	);
+
 	-- Indexes
 	CREATE INDEX IF NOT EXISTS idx_agents_user_id ON agents(user_id);
 	CREATE INDEX IF NOT EXISTS idx_devices_user_id ON devices(user_id);
@@ -145,6 +172,9 @@ func (db *DB) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_login_sessions_user_id ON login_sessions(user_id);
 	CREATE INDEX IF NOT EXISTS idx_login_sessions_token_hash ON login_sessions(token_hash);
 	CREATE INDEX IF NOT EXISTS idx_releases_lookup ON releases(platform, channel, arch, published, created_at);
+	CREATE INDEX IF NOT EXISTS idx_collaboration_groups_owner ON collaboration_groups(owner_user_id, updated_at);
+	CREATE INDEX IF NOT EXISTS idx_collaboration_groups_host_agent ON collaboration_groups(host_agent_id, updated_at);
+	CREATE INDEX IF NOT EXISTS idx_collaboration_group_memberships_user ON collaboration_group_memberships(user_id, created_at);
 	`
 
 	if _, err := db.Exec(schema); err != nil {

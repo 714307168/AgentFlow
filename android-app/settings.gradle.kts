@@ -11,5 +11,5 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = "ClaudeCodeRemote"
+rootProject.name = "AgentFlow"
 include(":app")

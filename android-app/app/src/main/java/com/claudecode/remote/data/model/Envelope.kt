@@ -8,6 +8,8 @@ import kotlinx.serialization.json.JsonElement
 data class Envelope(
     val id: String,
     val event: String,
+    @SerialName("agent_id") val agentId: String? = null,
+    @SerialName("workgroup_id") val workgroupId: String? = null,
     @SerialName("project_id") val projectId: String? = null,
     @SerialName("stream_id") val streamId: String? = null,
     val seq: Long? = null,
@@ -51,6 +53,7 @@ object Events {
     const val FILE_CHUNK = "file.chunk"
     const val FILE_DONE = "file.done"
     const val FILE_ERROR = "file.error"
+    const val ERROR = "error"
     const val PING = "ping"
     const val PONG = "pong"
 }

@@ -172,7 +172,7 @@ class RelayWebSocket(
                 if (envelope.event == Events.AUTH_OK) {
                     _errorMessage.value = null
                     Log.d(tag, "Authentication successful generation=$generation")
-                    extractAgentId(envelope.payload)?.let(::ensureRoomKey)
+                    extractAgentId(envelope)?.let(::ensureRoomKey)
                 }
 
                 if (envelope.event == Events.E2E_ANSWER) {
@@ -182,7 +182,7 @@ class RelayWebSocket(
 
                 val decryptedEnvelope = decryptIncomingEnvelope(envelope)
                 if (decryptedEnvelope.event == Events.PROJECT_LISTED) {
-                    extractAgentId(decryptedEnvelope.payload)?.let(::ensureRoomKey)
+                    extractAgentId(decryptedEnvelope)?.let(::ensureRoomKey)
                 }
 
                 scope.launch { _incomingEnvelopes.emit(decryptedEnvelope) }
@@ -312,12 +312,53 @@ class RelayWebSocket(
         }
     }
 
+    private fun shouldEncryptEvent(event: String): Boolean = event !in setOf(
+        Events.AUTH_LOGIN,
+        Events.AUTH_RESUME,
+        Events.AUTH_OK,
+        Events.AUTH_ERROR,
+        Events.PING,
+        Events.PONG,
+        Events.PROJECT_BIND,
+        Events.PROJECT_BOUND,
+        Events.PROJECT_LIST,
+        Events.PROJECT_LIST_REQUEST,
+        Events.PROJECT_LISTED,
+        Events.AGENT_STATUS,
+        Events.E2E_OFFER,
+        Events.E2E_ANSWER
+    )
+
+    private fun resolveTargetAgentId(envelope: Envelope, explicitAgentId: String?): String {
+        val direct = explicitAgentId?.trim().orEmpty()
+        if (direct.isNotEmpty()) {
+            return direct
+        }
+        val envelopeAgentId = envelope.agentId?.trim().orEmpty()
+        if (envelopeAgentId.isNotEmpty()) {
+            return envelopeAgentId
+        }
+        val payload = envelope.payload
+        val payloadObject = payload as? JsonObject ?: return ""
+        return payloadObject["agent_id"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+    }
+
+    private fun extractAgentId(envelope: Envelope): String? {
+        envelope.agentId?.trim()?.takeIf { it.isNotEmpty() }?.let { return it }
+        return extractAgentId(envelope.payload)
+    }
+
+    private fun extractAgentId(payload: JsonElement?): String? {
+        val payloadObject = payload as? JsonObject ?: return null
+        return payloadObject["agent_id"]?.jsonPrimitive?.contentOrNull?.trim()?.takeIf { it.isNotEmpty() }
+    }
+
     private fun prepareOutgoingEnvelope(envelope: Envelope, targetAgentId: String?): Envelope? {
         if (!e2eEnabled || envelope.payload == null || !shouldEncryptEvent(envelope.event)) {
             return envelope
         }
 
-        val normalizedAgentId = resolveTargetAgentId(envelope.payload, targetAgentId)
+        val normalizedAgentId = resolveTargetAgentId(envelope, targetAgentId)
         if (normalizedAgentId.isBlank()) {
             return envelope
         }
@@ -345,38 +386,7 @@ class RelayWebSocket(
             }
         )
     }
-
-    private fun shouldEncryptEvent(event: String): Boolean = event !in setOf(
-        Events.AUTH_LOGIN,
-        Events.AUTH_RESUME,
-        Events.AUTH_OK,
-        Events.AUTH_ERROR,
-        Events.PING,
-        Events.PONG,
-        Events.PROJECT_BIND,
-        Events.PROJECT_BOUND,
-        Events.PROJECT_LIST,
-        Events.PROJECT_LIST_REQUEST,
-        Events.PROJECT_LISTED,
-        Events.AGENT_STATUS,
-        Events.E2E_OFFER,
-        Events.E2E_ANSWER
-    )
-
-    private fun resolveTargetAgentId(payload: JsonElement?, explicitAgentId: String?): String {
-        val direct = explicitAgentId?.trim().orEmpty()
-        if (direct.isNotEmpty()) {
-            return direct
-        }
-        val payloadObject = payload as? JsonObject ?: return ""
-        return payloadObject["agent_id"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
-    }
-
-    private fun extractAgentId(payload: JsonElement?): String? {
-        val payloadObject = payload as? JsonObject ?: return null
-        return payloadObject["agent_id"]?.jsonPrimitive?.contentOrNull?.trim()?.takeIf { it.isNotEmpty() }
-    }
-
+    
     private fun decryptIncomingEnvelope(envelope: Envelope): Envelope {
         if (!e2eEnabled) {
             return envelope

@@ -12,6 +12,7 @@ import com.claudecode.remote.data.remote.AuthSessionManager
 import com.claudecode.remote.data.remote.ProjectInfo
 import com.claudecode.remote.data.remote.RelayApi
 import com.claudecode.remote.util.CrashLogger
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -21,6 +22,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
@@ -40,9 +43,14 @@ class SessionRepository(
     private val sessionDao = db.sessionDao()
     private val messageDao = db.messageDao()
     private val pendingOfflineJobs = ConcurrentHashMap<String, Job>()
+    private val syncMutex = Mutex()
+    private var inFlightSync = CompletableDeferred<Result<Unit>>()
+    private var hasInFlightSync = false
+    private var lastSuccessfulSyncAt = 0L
 
     companion object {
         private const val OFFLINE_STATUS_DEBOUNCE_MS = 8_000L
+        private const val MIN_SYNC_INTERVAL_MS = 3_000L
     }
 
     val sessions: Flow<List<Session>> = sessionDao.getAllSessions().map { entities ->
@@ -87,8 +95,25 @@ class SessionRepository(
         }
     }
 
-    suspend fun syncFromServer(): Result<Unit> {
-        return try {
+    suspend fun syncFromServer(force: Boolean = false): Result<Unit> {
+        val deferred = syncMutex.withLock {
+            if (hasInFlightSync) {
+                return@withLock inFlightSync
+            }
+            val now = System.currentTimeMillis()
+            if (!force && lastSuccessfulSyncAt > 0L && now - lastSuccessfulSyncAt < MIN_SYNC_INTERVAL_MS) {
+                return@withLock null
+            }
+            inFlightSync = CompletableDeferred()
+            hasInFlightSync = true
+            inFlightSync
+        }
+
+        if (deferred == null) {
+            return Result.success(Unit)
+        }
+
+        val result = try {
             CrashLogger.logInfo("SessionRepository", "Starting syncFromServer")
 
             val deviceId = tokenStore.getDeviceId().orEmpty()
@@ -114,6 +139,18 @@ class SessionRepository(
             CrashLogger.logError("SessionRepository", "syncFromServer failed", e)
             Result.failure(e)
         }
+
+        syncMutex.withLock {
+            if (result.isSuccess) {
+                lastSuccessfulSyncAt = System.currentTimeMillis()
+            }
+            if (hasInFlightSync) {
+                inFlightSync.complete(result)
+                hasInFlightSync = false
+            }
+        }
+
+        return deferred.await()
     }
 
     suspend fun getSessions(): List<Session> {

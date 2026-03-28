@@ -22,6 +22,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
 private const val MESSAGE_PAGE_SIZE = 30
+private const val MESSAGE_SYNC_PAGE_SIZE = 80
 
 data class ConversationItem(
     val id: String,
@@ -148,7 +149,7 @@ class ChatViewModel(
         messagesJob?.cancel()
         messagesJob = viewModelScope.launch {
             try {
-                messageRepository.getMessagesForProject(projectId).collect { messages ->
+                messageRepository.getConversationMessagesForProject(projectId).collect { messages ->
                     allMessages = messages
                     publishVisibleMessages()
                     maybeLoadMoreConversationHistory()
@@ -179,7 +180,7 @@ class ChatViewModel(
                 messageRepository.requestProjectSync(
                     projectId = state.projectId,
                     agentId = state.agentId,
-                    limit = MESSAGE_PAGE_SIZE
+                    limit = MESSAGE_SYNC_PAGE_SIZE
                 )
             } catch (e: Exception) {
                 lastSyncedProjectId = null
@@ -194,8 +195,7 @@ class ChatViewModel(
             return
         }
 
-        val conversationMessages = allMessages.filter(::isConversationMessage)
-        if (visibleMessageCount < conversationMessages.size) {
+        if (visibleMessageCount < allMessages.size) {
             visibleMessageCount += MESSAGE_PAGE_SIZE
             publishVisibleMessages()
             maybeLoadMoreConversationHistory()
@@ -310,13 +310,20 @@ class ChatViewModel(
         if (textSnapshot.trim().isEmpty() && attachmentSnapshot.isEmpty()) {
             return
         }
+        val optimisticPrompt = buildOptimisticPromptPreview(textSnapshot, attachmentSnapshot)
+        val optimisticStartedAt = System.currentTimeMillis()
 
         tokenStore.clearDraft(state.projectId)
         _uiState.update {
             it.copy(
                 inputText = "",
                 pendingAttachments = emptyList(),
-                isSending = true
+                isSending = true,
+                isRunning = if (state.isRunning || state.queuedCount > 0) state.isRunning else true,
+                queuedCount = if (state.isRunning || state.queuedCount > 0) state.queuedCount + 1 else 0,
+                currentPrompt = if (state.isRunning || state.queuedCount > 0) state.currentPrompt else optimisticPrompt,
+                queuePreview = if (state.isRunning || state.queuedCount > 0) optimisticPrompt else null,
+                currentStartedAt = if (state.isRunning || state.queuedCount > 0) state.currentStartedAt else optimisticStartedAt
             )
         }
 
@@ -334,13 +341,35 @@ class ChatViewModel(
                 _uiState.update {
                     it.copy(
                         inputText = textSnapshot,
-                        pendingAttachments = attachmentSnapshot
+                        pendingAttachments = attachmentSnapshot,
+                        isRunning = state.isRunning,
+                        queuedCount = state.queuedCount,
+                        currentPrompt = state.currentPrompt,
+                        queuePreview = state.queuePreview,
+                        currentStartedAt = state.currentStartedAt
                     )
                 }
             } finally {
                 _uiState.update { it.copy(isSending = false) }
             }
         }
+    }
+
+    private fun buildOptimisticPromptPreview(
+        content: String,
+        attachments: List<MessageAttachment>
+    ): String {
+        val trimmed = content.trim()
+        if (trimmed.isNotEmpty()) {
+            return content
+        }
+        if (attachments.size == 1) {
+            return attachments.first().name.ifBlank { "Attachment" }
+        }
+        if (attachments.isNotEmpty()) {
+            return "${attachments.size} attachments"
+        }
+        return ""
     }
 
     fun stopTask() {
@@ -419,9 +448,8 @@ class ChatViewModel(
     }
 
     private fun publishVisibleMessages() {
-        val conversationMessages = allMessages.filter(::isConversationMessage)
-        val startIndex = (conversationMessages.size - visibleMessageCount).coerceAtLeast(0)
-        val visibleMessages = conversationMessages.drop(startIndex)
+        val startIndex = (allMessages.size - visibleMessageCount).coerceAtLeast(0)
+        val visibleMessages = allMessages.drop(startIndex)
         val earliestSyncSeq = allMessages
             .mapNotNull { message -> message.syncSeq.takeIf { it > 0L } }
             .minOrNull()
@@ -447,8 +475,7 @@ class ChatViewModel(
             return
         }
 
-        val conversationCount = allMessages.count(::isConversationMessage)
-        if (conversationCount >= visibleMessageCount) {
+        if (allMessages.size >= visibleMessageCount) {
             return
         }
 
@@ -484,7 +511,7 @@ class ChatViewModel(
                     projectId = projectId,
                     agentId = agentId,
                     beforeSeq = beforeSeq,
-                    limit = MESSAGE_PAGE_SIZE
+                    limit = MESSAGE_SYNC_PAGE_SIZE
                 )
             } catch (e: Exception) {
                 CrashLogger.logError("ChatViewModel", "Error loading older messages", e)
@@ -496,10 +523,6 @@ class ChatViewModel(
             }
         }
     }
-
-    private fun isConversationMessage(message: Message): Boolean =
-        message.type == com.claudecode.remote.data.model.MessageType.TEXT
-            || message.type == com.claudecode.remote.data.model.MessageType.FILE
 
     private fun parseConversationItems(
         rawJson: String?,

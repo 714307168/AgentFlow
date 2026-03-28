@@ -68,7 +68,10 @@ class AppContainer(private val appContext: Context) {
     )
 
     val workgroupRepository = WorkgroupRepository(
-        webSocket = relayWebSocket
+        webSocket = relayWebSocket,
+        relayApiProvider = { relayApi },
+        authSessionManager = authSessionManager,
+        tokenStore = tokenStore
     )
 
     val appUpdateManager = AppUpdateManager(

@@ -1,7 +1,7 @@
 {
-  "name": "claude-code-agent",
-  "version": "1.1.26",
-  "description": "Local agent for Claude Code remote control",
+  "name": "agentflow-desktop",
+  "version": "1.1.37",
+  "description": "Desktop agent for AgentFlow remote control",
   "main": "dist/src/main.js",
   "scripts": {
     "build": "tsc && node -e \"const fs=require('fs');fs.copyFileSync('dist/renderer/terminal.js','renderer/terminal.js');fs.copyFileSync('dist/renderer/terminal.js.map','renderer/terminal.js.map');\"",
@@ -9,8 +9,8 @@
     "dev": "tsc --watch",
     "rebuild": "electron-rebuild",
     "generate-icons": "powershell -ExecutionPolicy Bypass -File .\\scripts\\generate-icons.ps1",
-    "dist": "npm run generate-icons && electron-builder",
-    "dist:win": "npm run generate-icons && electron-builder --win nsis"
+    "dist": "npm run generate-icons && electron-builder --publish never",
+    "dist:win": "npm run generate-icons && electron-builder --win nsis --publish never"
   },
   "dependencies": {
     "electron-store": "^8.1.0",

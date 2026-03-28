@@ -115,7 +115,7 @@ Android currently uses:
 Set a local repo root first:
 
 ```powershell
-$RepoRoot = 'D:\path\to\claude-code-remote-app-spec'
+$RepoRoot = 'D:\path\to\AgentFlow'
 ```
 
 ### Desktop Installer
@@ -129,7 +129,7 @@ npm run dist:win
 
 Expected output:
 
-- `local-agent/release/Claude Code Agent-<version>-x64-setup.exe`
+- `local-agent/release/AgentFlow-<version>-x64-setup.exe`
 
 ### Android APK
 
@@ -146,15 +146,15 @@ Expected output:
 
 ```powershell
 cd $RepoRoot
-Copy-Item .\local-agent\release\Claude*setup.exe .\artifacts\ -Force
-Copy-Item .\android-app\app\build\outputs\apk\release\app-release.apk ".\artifacts\ClaudeCodeRemote-<version>-release.apk" -Force
+Copy-Item .\local-agent\release\AgentFlow-*-setup.exe .\artifacts\ -Force
+Copy-Item .\android-app\app\build\outputs\apk\release\app-release.apk ".\artifacts\AgentFlow-<version>-release.apk" -Force
 ```
 
 ### Optional: Record SHA256
 
 ```powershell
-Get-FileHash "$RepoRoot\artifacts\ClaudeCodeAgent-<version>-x64-setup.exe" -Algorithm SHA256
-Get-FileHash "$RepoRoot\artifacts\ClaudeCodeRemote-<version>-release.apk" -Algorithm SHA256
+Get-FileHash "$RepoRoot\artifacts\AgentFlow-<version>-x64-setup.exe" -Algorithm SHA256
+Get-FileHash "$RepoRoot\artifacts\AgentFlow-<version>-release.apk" -Algorithm SHA256
 ```
 
 ## Deploy Relay Server
@@ -256,7 +256,7 @@ if (-not $cookie) { throw 'admin_session cookie missing' }
 ### Step 2. Upload The Desktop Installer
 
 ```powershell
-$desktopPkg = "$RepoRoot\artifacts\ClaudeCodeAgent-1.1.2-x64-setup.exe"
+$desktopPkg = "$RepoRoot\artifacts\AgentFlow-1.1.2-x64-setup.exe"
 
 curl.exe -fsS -X POST `
   -H "Cookie: admin_session=$cookie" `
@@ -267,7 +267,7 @@ curl.exe -fsS -X POST `
   -F 'build=0' `
   -F 'published=true' `
   -F 'notes=Token auto-refresh, desktop session credential cache, and CLI trace cleanup.' `
-  -F "package=@$desktopPkg;filename=ClaudeCodeAgent-1.1.2-x64-setup.exe" `
+  -F "package=@$desktopPkg;filename=AgentFlow-1.1.2-x64-setup.exe" `
   https://relay.example.com/admin/api/releases
 ```
 
@@ -281,7 +281,7 @@ Expected result:
 ### Step 3. Upload The Android APK
 
 ```powershell
-$androidPkg = "$RepoRoot\artifacts\ClaudeCodeRemote-1.1.2-release.apk"
+$androidPkg = "$RepoRoot\artifacts\AgentFlow-1.1.2-release.apk"
 
 curl.exe -fsS -X POST `
   -H "Cookie: admin_session=$cookie" `
@@ -292,7 +292,7 @@ curl.exe -fsS -X POST `
   -F 'build=4' `
   -F 'published=true' `
   -F 'notes=Token auto-refresh, draft persistence, queue while running, and crash-log management improvements.' `
-  -F "package=@$androidPkg;filename=ClaudeCodeRemote-1.1.2-release.apk" `
+  -F "package=@$androidPkg;filename=AgentFlow-1.1.2-release.apk" `
   https://relay.example.com/admin/api/releases
 ```
 

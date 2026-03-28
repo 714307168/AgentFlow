@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -25,6 +26,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.Surface
@@ -99,18 +101,12 @@ fun WorkgroupScreen(
                                 contentDescription = stringResource(R.string.back)
                             )
                         }
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = stringResource(R.string.workgroups_title),
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Text(
-                                text = stringResource(R.string.workgroups_chat_subtitle),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
+                        Text(
+                            text = stringResource(R.string.workgroups_title),
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.weight(1f)
+                        )
                         IconButton(
                             onClick = { viewModel.refresh() },
                             enabled = !uiState.isLoading && viewModel.isConnected()
@@ -119,6 +115,61 @@ fun WorkgroupScreen(
                                 imageVector = Icons.Default.Refresh,
                                 contentDescription = stringResource(R.string.action_refresh)
                             )
+                        }
+                    }
+
+                    Surface(
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+                        shape = RoundedCornerShape(18.dp),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.12f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = stringResource(R.string.workgroups_join_title),
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                OutlinedTextField(
+                                    value = uiState.registryQuery,
+                                    onValueChange = viewModel::updateRegistryQuery,
+                                    modifier = Modifier.weight(1f),
+                                    singleLine = true,
+                                    placeholder = { Text(stringResource(R.string.workgroups_group_number_hint)) }
+                                )
+                                TextButton(
+                                    onClick = viewModel::searchRegistry,
+                                    enabled = viewModel.isConnected() && !uiState.isSearchingRegistry,
+                                    modifier = Modifier.heightIn(min = 52.dp)
+                                ) {
+                                    Text(
+                                        text = if (uiState.isSearchingRegistry) {
+                                            stringResource(R.string.workgroups_searching)
+                                        } else {
+                                            stringResource(R.string.workgroups_search)
+                                        }
+                                    )
+                                }
+                            }
+                            if (uiState.registryResults.isNotEmpty()) {
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    uiState.registryResults.forEach { entry ->
+                                        WorkgroupRegistryCard(
+                                            entry = entry,
+                                            isJoining = uiState.joiningGroupNumber == entry.groupNumber,
+                                            onJoin = { viewModel.joinWorkgroup(entry.groupNumber) }
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
 
@@ -186,15 +237,15 @@ private fun AgentWorkgroupCard(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(22.dp),
+        shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.97f)
         ),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.14f))
     ) {
         Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Text(
                 text = stringResource(R.string.workgroups_agent_label, agentGroup.agentId),
@@ -237,16 +288,16 @@ private fun WorkgroupCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 12.dp),
+                .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Surface(
                 color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
                 shape = RoundedCornerShape(16.dp)
             ) {
                 Box(
-                    modifier = Modifier.padding(10.dp),
+                    modifier = Modifier.padding(9.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
@@ -264,11 +315,11 @@ private fun WorkgroupCard(
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Text(
                         text = workgroup.name,
-                        style = MaterialTheme.typography.titleSmall,
+                        style = MaterialTheme.typography.bodyLarge,
                         fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.weight(1f),
                         maxLines = 1,
@@ -276,11 +327,18 @@ private fun WorkgroupCard(
                     )
                     WorkgroupStatusChip(isRunning = workgroup.isRunning)
                 }
+                workgroup.groupNumber?.takeIf { it.isNotBlank() }?.let { groupNumber ->
+                    Text(
+                        text = stringResource(R.string.workgroups_group_number_label, groupNumber),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
                 Text(
                     text = workgroup.lastMessagePreview?.takeIf { it.isNotBlank() }
                         ?: workgroup.description?.takeIf { it.isNotBlank() }
                         ?: stringResource(R.string.workgroups_open_chat_hint),
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
@@ -301,6 +359,62 @@ private fun WorkgroupCard(
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
+        }
+    }
+}
+
+@Composable
+private fun WorkgroupRegistryCard(
+    entry: com.claudecode.remote.data.model.WorkgroupRegistryEntry,
+    isJoining: Boolean,
+    onJoin: () -> Unit
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.28f),
+        shape = RoundedCornerShape(18.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    text = entry.name,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = stringResource(R.string.workgroups_group_number_label, entry.groupNumber),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    text = entry.ownerUsername?.takeIf { it.isNotBlank() }
+                        ?: stringResource(R.string.workgroups_owner_unknown),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            TextButton(onClick = onJoin, enabled = !isJoining) {
+                Text(
+                    text = if (isJoining) {
+                        stringResource(R.string.workgroups_joining)
+                    } else {
+                        stringResource(R.string.workgroups_join_action)
+                    }
+                )
+            }
         }
     }
 }

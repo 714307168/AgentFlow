@@ -86,6 +86,18 @@ interface SessionDao {
     @Query("UPDATE sessions SET isRunning = 0, currentPrompt = NULL, currentStartedAt = NULL WHERE projectId = :projectId AND isRunning = 1")
     suspend fun resetRunningState(projectId: String)
 
+    @Query(
+        """
+        UPDATE sessions
+        SET isAgentOnline = 1,
+            isRunning = 1,
+            lastActiveAt = :lastActiveAt,
+            currentStartedAt = COALESCE(currentStartedAt, :lastActiveAt)
+        WHERE projectId = :projectId
+        """
+    )
+    suspend fun markStreamingActive(projectId: String, lastActiveAt: Long)
+
     @Query("DELETE FROM sessions WHERE id = :id")
     suspend fun deleteSession(id: String)
 

@@ -1,8 +1,8 @@
-# Claude Code Remote
+# AgentFlow
 
 [中文](./README.md)
 
-`Claude Code Remote` is a self-hosted remote workflow for controlling desktop Claude Code from an Android app.
+`AgentFlow` is a self-hosted remote workflow for controlling the desktop agent and local CLI workflows from an Android app.
 
 ```text
 Android App  <-->  Relay Server  <-->  Local Agent  <-->  Claude Code CLI
@@ -95,7 +95,7 @@ cd android-app
 
 Default desktop data directory:
 
-- `%APPDATA%\\claude-code-agent`
+- `%APPDATA%\\claude-code-agent` (kept for upgrade compatibility)
 
 Common files:
 
@@ -142,6 +142,7 @@ Example endpoints:
 - [Chinese README](./README.md)
 - [Release and Update Center](./docs/release-and-update-center.md)
 - [Release Upload Runbook](./docs/release-upload-runbook.md)
+- [GitHub Releases Publishing](./docs/github-releases.md)
 - [Local Agent README](./local-agent/README.md)
 - [CLAUDE.md](./CLAUDE.md)
 

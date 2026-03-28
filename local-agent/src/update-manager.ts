@@ -46,6 +46,7 @@ class UpdateManager extends EventEmitter {
   private static readonly SILENT_RESTART_WAIT_INTERVAL_MS = 500;
   private static readonly SILENT_RESTART_LAUNCH_RETRY_STEPS = 240;
   private static readonly SILENT_RESTART_LAUNCH_RETRY_INTERVAL_MS = 1000;
+  private static readonly SILENT_RESTART_PROCESS_SETTLE_MS = 3000;
   private readonly options: UpdateManagerOptions;
   private state: UpdateState = {
     status: "idle",
@@ -140,7 +141,8 @@ class UpdateManager extends EventEmitter {
 
       const downloadDir = path.join(app.getPath("userData"), "updates");
       fs.mkdirSync(downloadDir, { recursive: true });
-      const targetName = this.latestRelease.filename?.trim() || `claude-code-agent-${this.latestRelease.latestVersion}.exe`;
+      this.clearOldUpdatePackages(downloadDir);
+      const targetName = this.latestRelease.filename?.trim() || `agentflow-${this.latestRelease.latestVersion}.exe`;
       const targetPath = path.join(downloadDir, targetName);
       fs.writeFileSync(targetPath, buffer);
 
@@ -191,7 +193,10 @@ class UpdateManager extends EventEmitter {
           stdio: "ignore",
           windowsHide: true,
         });
-        this.scheduleRestartAfterSilentInstall(child.pid ?? null);
+        this.scheduleRestartAfterSilentInstall(
+          child.pid ?? null,
+          this.state.latestVersion ?? this.latestRelease?.latestVersion ?? app.getVersion(),
+        );
         child.unref();
         this.setState({
           message: this.text(
@@ -343,8 +348,8 @@ class UpdateManager extends EventEmitter {
         type: "info",
         title: this.text("Update Available", "发现新版本"),
         message: this.text(
-          `Claude Code Agent ${this.latestRelease.latestVersion} is available.`,
-          `发现 Claude Code Agent ${this.latestRelease.latestVersion} 新版本。`,
+          `AgentFlow ${this.latestRelease.latestVersion} is available.`,
+          `发现 AgentFlow ${this.latestRelease.latestVersion} 新版本。`,
         ),
         detail: this.latestRelease.notes || this.text(
           "A newer desktop build is ready to download.",
@@ -368,8 +373,8 @@ class UpdateManager extends EventEmitter {
       new Notification({
         title: this.text("Update Available", "发现新版本"),
         body: this.text(
-          `Claude Code Agent ${this.latestRelease.latestVersion} is ready to download.`,
-          `Claude Code Agent ${this.latestRelease.latestVersion} 已可下载。`,
+          `AgentFlow ${this.latestRelease.latestVersion} is ready to download.`,
+          `AgentFlow ${this.latestRelease.latestVersion} 已可下载。`,
         ),
       }).show();
     }
@@ -426,8 +431,8 @@ class UpdateManager extends EventEmitter {
       new Notification({
         title: this.text("Update Ready", "更新已就绪"),
         body: this.text(
-          `Claude Code Agent ${this.state.latestVersion} is ready to install.`,
-          `Claude Code Agent ${this.state.latestVersion} 已可安装。`,
+          `AgentFlow ${this.state.latestVersion} is ready to install.`,
+          `AgentFlow ${this.state.latestVersion} 已可安装。`,
         ),
       }).show();
     }
@@ -449,6 +454,25 @@ class UpdateManager extends EventEmitter {
       return trimmed.replace(/\/ws$/u, "");
     }
     return `http://${trimmed.replace(/\/ws$/u, "")}`;
+  }
+
+  private clearOldUpdatePackages(downloadDir: string): void {
+    if (!fs.existsSync(downloadDir)) {
+      return;
+    }
+
+    for (const entry of fs.readdirSync(downloadDir, { withFileTypes: true })) {
+      const entryPath = path.join(downloadDir, entry.name);
+      try {
+        if (entry.isDirectory()) {
+          fs.rmSync(entryPath, { recursive: true, force: true });
+        } else {
+          fs.unlinkSync(entryPath);
+        }
+      } catch {
+        // Best-effort cleanup. A locked old installer should not block a new download.
+      }
+    }
   }
 
   private setState(patch: Partial<UpdateState>): void {
@@ -500,7 +524,7 @@ class UpdateManager extends EventEmitter {
     }
   }
 
-  private scheduleRestartAfterSilentInstall(installerPid: number | null): void {
+  private scheduleRestartAfterSilentInstall(installerPid: number | null, expectedVersion: string): void {
     if (process.platform !== "win32") {
       return;
     }
@@ -514,16 +538,66 @@ class UpdateManager extends EventEmitter {
     const installerPidValue = Number.isFinite(installerPid) && installerPid && installerPid > 0
       ? installerPid
       : 0;
+    const productName = app.getName();
+    const normalizedExpectedVersion = expectedVersion.trim() || app.getVersion();
     const encodedCommand = Buffer.from(
       [
         `$parentPid = ${parentPid}`,
         `$installerPid = ${installerPidValue}`,
         `$targetPath = ${JSON.stringify(targetPath)}`,
-        "$targetDir = Split-Path -Parent $targetPath",
+        `$productName = ${JSON.stringify(productName)}`,
+        `$expectedVersion = ${JSON.stringify(normalizedExpectedVersion)}`,
         `$waitSteps = ${UpdateManager.SILENT_RESTART_WAIT_STEPS}`,
         `$waitIntervalMs = ${UpdateManager.SILENT_RESTART_WAIT_INTERVAL_MS}`,
         `$launchRetrySteps = ${UpdateManager.SILENT_RESTART_LAUNCH_RETRY_STEPS}`,
         `$launchRetryIntervalMs = ${UpdateManager.SILENT_RESTART_LAUNCH_RETRY_INTERVAL_MS}`,
+        `$processSettleMs = ${UpdateManager.SILENT_RESTART_PROCESS_SETTLE_MS}`,
+        "$candidatePaths = New-Object System.Collections.Generic.List[string]",
+        "if ($targetPath) { [void]$candidatePaths.Add($targetPath) }",
+        "$localAppCandidate = Join-Path $env:LOCALAPPDATA ('Programs\\' + $productName + '\\' + [System.IO.Path]::GetFileName($targetPath))",
+        "if ($localAppCandidate) { [void]$candidatePaths.Add($localAppCandidate) }",
+        "$programFilesCandidate = Join-Path $env:ProgramFiles ($productName + '\\' + [System.IO.Path]::GetFileName($targetPath))",
+        "if ($programFilesCandidate) { [void]$candidatePaths.Add($programFilesCandidate) }",
+        "if ($env:'ProgramFiles(x86)') {",
+        "  $programFilesX86Candidate = Join-Path $env:'ProgramFiles(x86)' ($productName + '\\' + [System.IO.Path]::GetFileName($targetPath))",
+        "  if ($programFilesX86Candidate) { [void]$candidatePaths.Add($programFilesX86Candidate) }",
+        "}",
+        "$uninstallRoots = @(",
+        "  'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*',",
+        "  'HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*',",
+        "  'HKLM:\\Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*'",
+        ")",
+        "foreach ($root in $uninstallRoots) {",
+        "  try {",
+        "    $matches = Get-ItemProperty -Path $root -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -eq $productName }",
+        "    foreach ($match in $matches) {",
+        "      if ($match.InstallLocation) {",
+        "        $candidate = Join-Path $match.InstallLocation ([System.IO.Path]::GetFileName($targetPath))",
+        "        if ($candidate) { [void]$candidatePaths.Add($candidate) }",
+        "      }",
+        "    }",
+        "  } catch { }",
+        "}",
+        "function Get-NormalizedVersion($filePath) {",
+        "  if (-not (Test-Path $filePath)) { return '' }",
+        "  try {",
+        "    $info = (Get-Item $filePath).VersionInfo",
+        "    $version = $info.ProductVersion",
+        "    if (-not $version) { $version = $info.FileVersion }",
+        "    if (-not $version) { return '' }",
+        "    $normalized = ($version -replace '[^0-9\\.]', '').Trim('.')",
+        "    return $normalized",
+        "  } catch {",
+        "    return ''",
+        "  }",
+        "}",
+        "function Test-VersionReady($filePath, $expectedVersion) {",
+        "  if (-not (Test-Path $filePath)) { return $false }",
+        "  if (-not $expectedVersion) { return $true }",
+        "  $version = Get-NormalizedVersion $filePath",
+        "  if (-not $version) { return $false }",
+        "  return $version -eq $expectedVersion -or $version.StartsWith($expectedVersion + '.')",
+        "}",
         "for ($i = 0; $i -lt $waitSteps; $i++) {",
         "  if (-not (Get-Process -Id $parentPid -ErrorAction SilentlyContinue)) { break }",
         "  Start-Sleep -Milliseconds $waitIntervalMs",
@@ -534,19 +608,29 @@ class UpdateManager extends EventEmitter {
         "    Start-Sleep -Milliseconds $waitIntervalMs",
         "  }",
         "}",
+        "Start-Sleep -Milliseconds $processSettleMs",
+        "$launchPath = $null",
         "for ($i = 0; $i -lt $launchRetrySteps; $i++) {",
-        "  if (-not (Test-Path $targetPath)) {",
+        "  $launchPath = $null",
+        "  foreach ($candidatePath in $candidatePaths | Select-Object -Unique) {",
+        "    if (Test-VersionReady $candidatePath $expectedVersion) {",
+        "      $launchPath = $candidatePath",
+        "      break",
+        "    }",
+        "  }",
+        "  if (-not $launchPath) {",
         "    Start-Sleep -Milliseconds $launchRetryIntervalMs",
         "    continue",
         "  }",
+        "  $launchDir = Split-Path -Parent $launchPath",
         "  try {",
-        "    $existing = @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $targetPath })",
+        "    $existing = @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $launchPath })",
         "    if ($existing.Count -gt 0) { break }",
         "  } catch { }",
         "  try {",
-        "    Start-Process -FilePath $targetPath -WorkingDirectory $targetDir | Out-Null",
-        "    Start-Sleep -Milliseconds 1500",
-        "    $started = @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $targetPath })",
+        "    Start-Process -FilePath $launchPath -WorkingDirectory $launchDir | Out-Null",
+        "    Start-Sleep -Milliseconds 2000",
+        "    $started = @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $launchPath })",
         "    if ($started.Count -gt 0) { break }",
         "  } catch { }",
         "  Start-Sleep -Milliseconds $launchRetryIntervalMs",

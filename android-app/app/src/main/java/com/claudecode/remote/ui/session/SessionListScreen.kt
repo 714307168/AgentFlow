@@ -20,13 +20,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -71,25 +68,11 @@ fun SessionListScreen(
     onInstallUpdate: () -> Unit,
     onNavigateToChat: (session: Session) -> Unit,
     onRefreshSessions: () -> Unit,
-    onToggleConnection: () -> Unit,
-    onNavigateToWorkgroups: () -> Unit,
-    onNavigateToSettings: () -> Unit = {}
+    onToggleConnection: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val connectionState by webSocket.connectionState.collectAsState()
     val connectionError by webSocket.errorMessage.collectAsState()
-    val totalWorkgroups = uiState.agentWorkgroups.sumOf { it.workgroups.size }
-    val workgroupPreview = uiState.agentWorkgroups
-        .flatMap { agentGroup -> agentGroup.workgroups }
-        .sortedByDescending { it.updatedAt }
-        .mapNotNull { workgroup ->
-            workgroup.lastMessagePreview?.trim()?.takeIf { it.isNotEmpty() }
-                ?: workgroup.name.trim().takeIf { it.isNotEmpty() }
-        }
-        .filter { it.isNotEmpty() }
-        .distinct()
-        .take(3)
-        .joinToString(separator = " · ")
 
     LaunchedEffect(Unit) {
         viewModel.initialize()
@@ -127,14 +110,7 @@ fun SessionListScreen(
                         connectionState = connectionState,
                         isRefreshing = uiState.isLoading,
                         onRefresh = onRefreshSessions,
-                        onToggleConnection = onToggleConnection,
-                        onOpenSettings = onNavigateToSettings
-                    )
-
-                    WorkgroupEntryCard(
-                        onClick = onNavigateToWorkgroups,
-                        workgroupCount = totalWorkgroups,
-                        previewText = workgroupPreview
+                        onToggleConnection = onToggleConnection
                     )
 
                     if (updateState.status == AppUpdateStatus.AVAILABLE ||
@@ -264,8 +240,8 @@ fun SessionListScreen(
                         containerColor = MaterialTheme.colorScheme.errorContainer,
                         contentColor = MaterialTheme.colorScheme.onErrorContainer,
                         action = {
-                            TextButton(onClick = onNavigateToSettings) {
-                                Text(stringResource(R.string.settings))
+                            TextButton(onClick = { viewModel.clearError() }) {
+                                Text(stringResource(R.string.dismiss))
                             }
                         }
                     ) {
@@ -419,8 +395,7 @@ private fun SessionHeader(
     connectionState: RelayWebSocket.ConnectionState,
     isRefreshing: Boolean,
     onRefresh: () -> Unit,
-    onToggleConnection: () -> Unit,
-    onOpenSettings: () -> Unit
+    onToggleConnection: () -> Unit
 ) {
     Row(
         modifier = Modifier
@@ -473,87 +448,7 @@ private fun SessionHeader(
                     },
                     onClick = onToggleConnection
                 )
-                HeaderActionButton(
-                    icon = Icons.Default.Settings,
-                    contentDescription = stringResource(R.string.settings),
-                    enabled = true,
-                    tint = MaterialTheme.colorScheme.onSurface,
-                    onClick = onOpenSettings
-                )
             }
-        }
-    }
-}
-
-@Composable
-private fun WorkgroupEntryCard(
-    onClick: () -> Unit,
-    workgroupCount: Int,
-    previewText: String
-) {
-    Surface(
-        onClick = onClick,
-        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.9f),
-        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-        shape = RoundedCornerShape(22.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
-        shadowElevation = 4.dp,
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Surface(
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.size(40.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Default.Groups,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                }
-            }
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = stringResource(R.string.workgroups_title),
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Text(
-                    text = if (previewText.isNotBlank()) previewText else stringResource(R.string.workgroups_subtitle),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.76f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            if (workgroupCount > 0) {
-                Surface(
-                    shape = RoundedCornerShape(999.dp),
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
-                ) {
-                    Text(
-                        text = workgroupCount.toString(),
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-            }
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
-            )
         }
     }
 }
