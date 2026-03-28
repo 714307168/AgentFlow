@@ -416,6 +416,30 @@ func (db *DB) CheckCollaborationGroupAccess(userID int, hostAgentID string, work
 	return true, count > 0, nil
 }
 
+func (db *DB) HasAnyCollaborationGroupAccess(userID int, hostAgentID string) (bool, error) {
+	if userID <= 0 || strings.TrimSpace(hostAgentID) == "" {
+		return false, fmt.Errorf("user_id and host_agent_id are required")
+	}
+
+	var count int
+	if err := db.QueryRow(`
+		SELECT COUNT(*)
+		FROM collaboration_groups g
+		WHERE g.host_agent_id = ?
+			AND (
+				g.owner_user_id = ?
+				OR EXISTS (
+					SELECT 1
+					FROM collaboration_group_memberships m
+					WHERE m.group_id = g.id AND m.user_id = ?
+				)
+			)
+	`, strings.TrimSpace(hostAgentID), userID, userID).Scan(&count); err != nil {
+		return false, fmt.Errorf("failed to check collaboration agent membership: %w", err)
+	}
+	return count > 0, nil
+}
+
 func (db *DB) ensureCollaborationGroupNumberAvailable(groupNumber string, existing *CollaborationGroupRecord) error {
 	current, err := db.GetCollaborationGroupByNumber(groupNumber)
 	if err == sql.ErrNoRows {

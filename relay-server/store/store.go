@@ -194,6 +194,11 @@ func (s *Store) CheckCollaborationGroupAccess(userID int, hostAgentID string, wo
 	return exists, allowed
 }
 
+func (s *Store) HasAnyCollaborationGroupAccess(userID int, hostAgentID string) bool {
+	ok, err := s.db.HasAnyCollaborationGroupAccess(userID, hostAgentID)
+	return err == nil && ok
+}
+
 func (s *Store) ListAccessibleAgentIDsForUser(userID int) []string {
 	items, err := s.db.ListAccessibleAgentsForUser(userID)
 	if err != nil {

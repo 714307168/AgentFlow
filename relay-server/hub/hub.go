@@ -361,10 +361,7 @@ func (h *Hub) HandleMessage(from *Client, env *model.Envelope) {
 		if agentID == "" {
 			agentID = from.AgentID
 		}
-		if !h.authorizeAgentAccess(from, env.ID, agentID) {
-			return
-		}
-		if !h.authorizePublishedWorkgroupAccess(from, env.ID, agentID, env.WorkgroupID) {
+		if !h.authorizeCollaborationAccess(from, env.ID, agentID, env.WorkgroupID, true) {
 			return
 		}
 		if !h.SendToAgent(agentID, env) {
@@ -380,10 +377,7 @@ func (h *Hub) HandleMessage(from *Client, env *model.Envelope) {
 		if agentID == "" {
 			agentID = from.AgentID
 		}
-		if !h.authorizeAgentAccess(from, env.ID, agentID) {
-			return
-		}
-		if !h.authorizePublishedWorkgroupAccess(from, env.ID, agentID, env.WorkgroupID) {
+		if !h.authorizeCollaborationAccess(from, env.ID, agentID, env.WorkgroupID, false) {
 			return
 		}
 		if !h.SendToAgent(agentID, env) {
@@ -399,10 +393,7 @@ func (h *Hub) HandleMessage(from *Client, env *model.Envelope) {
 		if agentID == "" {
 			agentID = from.AgentID
 		}
-		if !h.authorizeAgentAccess(from, env.ID, agentID) {
-			return
-		}
-		if !h.authorizePublishedWorkgroupAccess(from, env.ID, agentID, env.WorkgroupID) {
+		if !h.authorizeCollaborationAccess(from, env.ID, agentID, env.WorkgroupID, false) {
 			return
 		}
 		if !h.SendToAgent(agentID, env) {
@@ -421,7 +412,7 @@ func (h *Hub) HandleMessage(from *Client, env *model.Envelope) {
 		if !h.authorizeAgentAccess(from, env.ID, agentID) {
 			return
 		}
-		h.broadcastToDevicesByAgent(agentID, env)
+		h.broadcastToCollaborationDevices(agentID, env.WorkgroupID, env)
 
 	case model.EventAgentStatus:
 		if from.Type != model.ClientTypeAgent {
@@ -719,6 +710,40 @@ func (h *Hub) broadcastToDevicesByAgent(agentID string, env *model.Envelope) {
 	})
 }
 
+func (h *Hub) broadcastToCollaborationDevices(agentID string, workgroupID string, env *model.Envelope) {
+	normalizedAgentID := strings.TrimSpace(agentID)
+	normalizedWorkgroupID := strings.TrimSpace(workgroupID)
+	h.devices.Range(func(_, v interface{}) bool {
+		device := v.(*Client)
+		if device.CanAccessAgent(normalizedAgentID) {
+			if err := device.Send(env); err != nil {
+				log.Warn().Err(err).Str("device_id", device.DeviceID).Msg("collaboration broadcast send failed")
+			}
+			return true
+		}
+
+		if h.store == nil || device.UserID <= 0 {
+			return true
+		}
+
+		allowed := false
+		if normalizedWorkgroupID != "" {
+			exists, canAccess := h.store.CheckCollaborationGroupAccess(device.UserID, normalizedAgentID, normalizedWorkgroupID)
+			allowed = exists && canAccess
+		} else {
+			allowed = h.store.HasAnyCollaborationGroupAccess(device.UserID, normalizedAgentID)
+		}
+		if !allowed {
+			return true
+		}
+
+		if err := device.Send(env); err != nil {
+			log.Warn().Err(err).Str("device_id", device.DeviceID).Msg("collaboration membership broadcast send failed")
+		}
+		return true
+	})
+}
+
 func (h *Hub) SendToDevice(deviceID string, env *model.Envelope, agentID string) bool {
 	if deviceID == "" {
 		return false
@@ -825,6 +850,42 @@ func (h *Hub) authorizePublishedWorkgroupAccess(from *Client, refID, agentID, wo
 
 	h.sendError(from, refID, "forbidden", "device is not authorized for workgroup")
 	return false
+}
+
+func (h *Hub) authorizeCollaborationAccess(from *Client, refID, agentID, workgroupID string, allowAgentWideMembership bool) bool {
+	if strings.TrimSpace(agentID) == "" {
+		h.sendError(from, refID, "bad_request", "agent_id is required")
+		return false
+	}
+
+	switch from.Type {
+	case model.ClientTypeAgent:
+		if from.AgentID == "" || from.AgentID != agentID {
+			h.sendError(from, refID, "forbidden", "agent is not authorized for collaboration scope")
+			return false
+		}
+		return true
+
+	case model.ClientTypeDevice:
+		if !h.refreshDeviceAccess(from, refID) {
+			return false
+		}
+		if from.CanAccessAgent(agentID) {
+			return true
+		}
+		if strings.TrimSpace(workgroupID) != "" {
+			return h.authorizePublishedWorkgroupAccess(from, refID, agentID, workgroupID)
+		}
+		if allowAgentWideMembership && h.store != nil && from.UserID > 0 && h.store.HasAnyCollaborationGroupAccess(from.UserID, agentID) {
+			return true
+		}
+		h.sendError(from, refID, "forbidden", "device is not authorized for collaboration")
+		return false
+
+	default:
+		h.sendError(from, refID, "forbidden", "unknown client type")
+		return false
+	}
 }
 
 func (h *Hub) refreshDeviceAccess(from *Client, refID string) bool {

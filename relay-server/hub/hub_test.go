@@ -6,7 +6,9 @@ import (
 	"time"
 
 	"github.com/claudecode/relay-server/config"
+	"github.com/claudecode/relay-server/db"
 	"github.com/claudecode/relay-server/model"
+	"github.com/claudecode/relay-server/store"
 )
 
 func TestRegisterAgentBroadcastsOnlineStatusForKnownProjects(t *testing.T) {
@@ -197,6 +199,137 @@ func TestRegisterAgentCancelsPendingOfflineStatus(t *testing.T) {
 	}
 }
 
+func TestWorkgroupCollabMessageSendAllowsJoinedMemberWithoutDirectAgentAccess(t *testing.T) {
+	h, database, owner, member := newCollaborationTestHub(t)
+
+	if err := database.RegisterDevice("member-device", member.ID, "", "Member phone"); err != nil {
+		t.Fatalf("register member device: %v", err)
+	}
+
+	group, err := database.UpsertCollaborationGroup(owner.ID, "owner-agent", "wg-1", "Release Squad", "", "[]", "")
+	if err != nil {
+		t.Fatalf("upsert collaboration group: %v", err)
+	}
+	if _, err := database.JoinCollaborationGroup(member.ID, group.ID); err != nil {
+		t.Fatalf("join collaboration group: %v", err)
+	}
+
+	ownerAgent := newTestClient(h, model.ClientTypeAgent, "owner-agent", "")
+	memberDevice := newTestClient(h, model.ClientTypeDevice, "", "member-device")
+
+	h.RegisterAgent(ownerAgent)
+	h.RegisterDevice(memberDevice)
+
+	payload, err := json.Marshal(model.WorkgroupCollaborationMessageSendPayload{
+		AgentID:     "owner-agent",
+		WorkgroupID: "wg-1",
+		Content:     "ship it",
+	})
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+
+	h.HandleMessage(memberDevice, &model.Envelope{
+		ID:          "msg-1",
+		Event:       model.EventWorkgroupCollabMessageSend,
+		AgentID:     "owner-agent",
+		WorkgroupID: "wg-1",
+		Payload:     payload,
+	})
+
+	env := readEnvelope(t, ownerAgent)
+	if env.Event != model.EventWorkgroupCollabMessageSend {
+		t.Fatalf("expected %q, got %q", model.EventWorkgroupCollabMessageSend, env.Event)
+	}
+	if env.AgentID != "owner-agent" {
+		t.Fatalf("expected agent owner-agent, got %q", env.AgentID)
+	}
+	if env.WorkgroupID != "wg-1" {
+		t.Fatalf("expected workgroup wg-1, got %q", env.WorkgroupID)
+	}
+
+	var sent model.WorkgroupCollaborationMessageSendPayload
+	if err := json.Unmarshal(env.Payload, &sent); err != nil {
+		t.Fatalf("unmarshal forwarded payload: %v", err)
+	}
+	if sent.Content != "ship it" {
+		t.Fatalf("expected content to be forwarded, got %q", sent.Content)
+	}
+
+	assertNoEnvelope(t, memberDevice)
+}
+
+func TestWorkgroupCollabSnapshotBroadcastsToJoinedMemberWithoutDirectAgentAccess(t *testing.T) {
+	h, database, owner, member := newCollaborationTestHub(t)
+
+	if err := database.RegisterDevice("member-device", member.ID, "", "Member phone"); err != nil {
+		t.Fatalf("register member device: %v", err)
+	}
+
+	group, err := database.UpsertCollaborationGroup(owner.ID, "owner-agent", "wg-1", "Release Squad", "", "[]", "")
+	if err != nil {
+		t.Fatalf("upsert collaboration group: %v", err)
+	}
+	if _, err := database.JoinCollaborationGroup(member.ID, group.ID); err != nil {
+		t.Fatalf("join collaboration group: %v", err)
+	}
+
+	ownerAgent := newTestClient(h, model.ClientTypeAgent, "owner-agent", "")
+	memberDevice := newTestClient(h, model.ClientTypeDevice, "", "member-device")
+
+	h.RegisterAgent(ownerAgent)
+	h.RegisterDevice(memberDevice)
+
+	h.HandleMessage(ownerAgent, &model.Envelope{
+		ID:          "snapshot-1",
+		Event:       model.EventWorkgroupCollabSnapshot,
+		AgentID:     "owner-agent",
+		WorkgroupID: "wg-1",
+		Payload:     json.RawMessage(`{"status":"running"}`),
+	})
+
+	env := readEnvelope(t, memberDevice)
+	if env.Event != model.EventWorkgroupCollabSnapshot {
+		t.Fatalf("expected %q, got %q", model.EventWorkgroupCollabSnapshot, env.Event)
+	}
+	if env.AgentID != "owner-agent" {
+		t.Fatalf("expected agent owner-agent, got %q", env.AgentID)
+	}
+	if env.WorkgroupID != "wg-1" {
+		t.Fatalf("expected workgroup wg-1, got %q", env.WorkgroupID)
+	}
+	if string(env.Payload) != `{"status":"running"}` {
+		t.Fatalf("unexpected snapshot payload: %s", string(env.Payload))
+	}
+}
+
+func newCollaborationTestHub(t *testing.T) (*Hub, *db.DB, *db.User, *db.User) {
+	t.Helper()
+
+	dataDir := t.TempDir()
+	database, err := db.Open(dataDir)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = database.Close()
+	})
+
+	owner, err := database.CreateUser("owner", "Owner12345A", false)
+	if err != nil {
+		t.Fatalf("create owner: %v", err)
+	}
+	member, err := database.CreateUser("member", "Member12345A", false)
+	if err != nil {
+		t.Fatalf("create member: %v", err)
+	}
+	if err := database.RegisterAgent("owner-agent", owner.ID, "Owner desktop"); err != nil {
+		t.Fatalf("register owner agent: %v", err)
+	}
+
+	return NewHub(&config.Config{}, store.NewStore(database)), database, owner, member
+}
+
 func newTestClient(h *Hub, clientType model.ClientType, agentID, deviceID string) *Client {
 	return &Client{
 		ID:       "test-client",
@@ -206,6 +339,20 @@ func newTestClient(h *Hub, clientType model.ClientType, agentID, deviceID string
 		send:     make(chan []byte, 8),
 		hub:      h,
 		closed:   make(chan struct{}),
+	}
+}
+
+func assertNoEnvelope(t *testing.T, client *Client) {
+	t.Helper()
+
+	select {
+	case raw := <-client.send:
+		var env model.Envelope
+		if err := json.Unmarshal(raw, &env); err != nil {
+			t.Fatalf("unmarshal unexpected envelope: %v", err)
+		}
+		t.Fatalf("expected no outbound envelope, got %q", env.Event)
+	default:
 	}
 }
 
