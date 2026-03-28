@@ -594,7 +594,7 @@ function providerLabel(provider: "claude" | "codex"): string {
 
 function modelLabel(model: string | null | undefined): string {
   const value = model?.trim() ?? "";
-  return value || inlineText("Auto", "鑷姩");
+  return value || inlineText("Auto", "自动");
 }
 
 function translateSource(source: "remote" | "desktop"): string {
@@ -626,7 +626,7 @@ function translateKind(kind: SessionActivity["kind"]): string {
 
 function translateCliStream(stream: CliTraceEntry["stream"]): string {
   const labels: Record<CliTraceEntry["stream"], string> = {
-    system: inlineText("System", "绯荤粺"),
+    system: inlineText("System", "系统"),
     stdout: "stdout",
     stderr: "stderr",
   };
@@ -643,10 +643,10 @@ function getProjectGroupKey(project: ProjectState): string {
 
 function getProjectGroupLabel(project: ProjectState): string {
   if (project.isRemote) {
-    return inlineText("Remote", "杩滅▼");
+    return inlineText("Remote", "远程");
   }
   const name = project.groupName?.trim();
-  return name && name.length > 0 ? name : inlineText("Default", "榛樿鍒嗙粍");
+  return name && name.length > 0 ? name : inlineText("Default", "默认分组");
 }
 
 function getOrderedGroupKeys(groupKeys: string[]): string[] {
@@ -767,25 +767,25 @@ function formatTime(timestamp: number): string {
 
 function formatRelativeTime(timestamp: number): string {
   if (!Number.isFinite(timestamp) || timestamp <= 0) {
-    return inlineText("Just now", "Just now");
+    return inlineText("Just now", "刚刚");
   }
   const diffMs = Math.max(0, Date.now() - timestamp);
   const minuteMs = 60_000;
   const hourMs = 60 * minuteMs;
   const dayMs = 24 * hourMs;
   if (diffMs < minuteMs) {
-    return inlineText("Just now", "Just now");
+    return inlineText("Just now", "刚刚");
   }
   if (diffMs < hourMs) {
     const minutes = Math.max(1, Math.floor(diffMs / minuteMs));
-    return inlineText(`${minutes}m ago`, `${minutes}m ago`);
+    return inlineText(`${minutes}m ago`, `${minutes}分钟前`);
   }
   if (diffMs < dayMs) {
     const hours = Math.max(1, Math.floor(diffMs / hourMs));
-    return inlineText(`${hours}h ago`, `${hours}h ago`);
+    return inlineText(`${hours}h ago`, `${hours}小时前`);
   }
   const days = Math.max(1, Math.floor(diffMs / dayMs));
-  return inlineText(`${days}d ago`, `${days}d ago`);
+  return inlineText(`${days}d ago`, `${days}天前`);
 }
 
 function formatEmptyState(title: string, detail: string): string {
@@ -838,11 +838,11 @@ function formatFileSize(bytes: number): string {
 function buildAttachmentOnlyPrompt(attachments: AttachmentRef[]): string {
   if (attachments.length === 1) {
     return attachments[0].kind === "image"
-      ? inlineText(`Please inspect the attached image: ${attachments[0].name}`, `璇锋煡鐪嬫垜闄勪笂鐨勫浘鐗囷細${attachments[0].name}`)
-      : inlineText(`Please inspect the attached file: ${attachments[0].name}`, `璇锋煡鐪嬫垜闄勪笂鐨勬枃浠讹細${attachments[0].name}`);
+      ? inlineText(`Please inspect the attached image: ${attachments[0].name}`, `请查看我附上的图片：${attachments[0].name}`)
+      : inlineText(`Please inspect the attached file: ${attachments[0].name}`, `请查看我附上的文件：${attachments[0].name}`);
   }
 
-  return inlineText("Please inspect the attached files.", "Please inspect the attached files.");
+  return inlineText("Please inspect the attached files.", "请查看我附上的文件。");
 }
 
 function renderDockBlank(): string {
@@ -922,7 +922,7 @@ function restoreWorkspaceDraft(workspaceKey: string | null): void {
 function renderAttachmentCard(attachment: AttachmentRef): string {
   return [
     '<div class="attachment-card">',
-    `<span class="attachment-kind ${escapeHtml(attachment.kind)}">${escapeHtml(attachment.kind === "image" ? inlineText("Image", "鍥剧墖") : inlineText("File", "鏂囦欢"))}</span>`,
+    `<span class="attachment-kind ${escapeHtml(attachment.kind)}">${escapeHtml(attachment.kind === "image" ? inlineText("Image", "图片") : inlineText("File", "文件"))}</span>`,
     `<div class="attachment-name">${escapeHtml(attachment.name)}</div>`,
     `<div class="attachment-meta">${escapeHtml(formatFileSize(attachment.size))}</div>`,
     `<div class="attachment-meta">${escapeHtml(attachment.path)}</div>`,
@@ -934,17 +934,17 @@ function renderAttachmentChip(attachment: AttachmentRef): string {
   return [
     `<div class="attachment-chip" data-attachment-id="${escapeHtml(attachment.id)}">`,
     '<div class="attachment-copy">',
-    `<span class="attachment-kind ${escapeHtml(attachment.kind)}">${escapeHtml(attachment.kind === "image" ? inlineText("Image", "鍥剧墖") : inlineText("File", "鏂囦欢"))}</span>`,
+    `<span class="attachment-kind ${escapeHtml(attachment.kind)}">${escapeHtml(attachment.kind === "image" ? inlineText("Image", "图片") : inlineText("File", "文件"))}</span>`,
     `<div class="attachment-name">${escapeHtml(attachment.name)}</div>`,
-    `<div class="attachment-meta">${escapeHtml(formatFileSize(attachment.size))} 路 ${escapeHtml(attachment.path)}</div>`,
+    `<div class="attachment-meta">${escapeHtml(formatFileSize(attachment.size))} · ${escapeHtml(attachment.path)}</div>`,
     "</div>",
-    `<button class="attachment-remove" type="button" data-remove-attachment="${escapeHtml(attachment.id)}">脳</button>`,
+    `<button class="attachment-remove" type="button" data-remove-attachment="${escapeHtml(attachment.id)}">×</button>`,
     "</div>",
   ].join("");
 }
 
 function attachmentKindLabel(kind: AttachmentKind): string {
-  return kind === "image" ? inlineText("Image", "鍥剧墖") : inlineText("File", "鏂囦欢");
+  return kind === "image" ? inlineText("Image", "图片") : inlineText("File", "文件");
 }
 
 function attachmentPreviewMarkup(attachment: AttachmentRef, className = "attachment-thumb"): string {
@@ -969,7 +969,7 @@ function renderAttachmentCardView(attachment: AttachmentRef): string {
     '<div class="attachment-copy">',
     `<span class="attachment-kind ${escapeHtml(attachment.kind)}">${escapeHtml(label)}</span>`,
     `<div class="attachment-name">${escapeHtml(attachment.name)}</div>`,
-    `<div class="attachment-meta">${escapeHtml(metaParts.join(" 路 "))}</div>`,
+    `<div class="attachment-meta">${escapeHtml(metaParts.join(" · "))}</div>`,
     `<div class="attachment-meta">${escapeHtml(attachment.path)}</div>`,
     "</div>",
   ].join("");
@@ -999,9 +999,9 @@ function renderAttachmentChipView(attachment: AttachmentRef): string {
     '<div class="attachment-copy">',
     `<span class="attachment-kind ${escapeHtml(attachment.kind)}">${escapeHtml(label)}</span>`,
     `<div class="attachment-name">${escapeHtml(attachment.name)}</div>`,
-    `<div class="attachment-meta">${escapeHtml(formatFileSize(attachment.size))} 路 ${escapeHtml(attachment.path)}</div>`,
+    `<div class="attachment-meta">${escapeHtml(formatFileSize(attachment.size))} · ${escapeHtml(attachment.path)}</div>`,
     "</div>",
-    `<button class="attachment-remove" type="button" data-remove-attachment="${escapeHtml(attachment.id)}">脳</button>`,
+    `<button class="attachment-remove" type="button" data-remove-attachment="${escapeHtml(attachment.id)}">×</button>`,
     "</div>",
   ].join("");
 }
@@ -1316,7 +1316,7 @@ function formatProjectSummary(
   model: string | null | undefined,
   detail: string,
 ): string {
-  return `${providerLabel(provider)} 路 ${modelLabel(model)} 路 ${detail}`;
+  return `${providerLabel(provider)} · ${modelLabel(model)} · ${detail}`;
 }
 
 function getProjectStatusMeta(projectId: string): { label: string; tone: string; detail: string } {
@@ -1326,12 +1326,12 @@ function getProjectStatusMeta(projectId: string): { label: string; tone: string;
   const configuredModel = getConfiguredModel(project, session);
   if (project?.isRemote && project.online === false) {
     return {
-      label: inlineText("Offline", "绂荤嚎"),
+      label: inlineText("Offline", "离线"),
       tone: "idle",
       detail: formatProjectSummary(
         configuredProvider,
         configuredModel,
-        inlineText("Remote desktop is offline", "Remote desktop is offline"),
+        inlineText("Remote desktop is offline", "远程桌面端离线"),
       ),
     };
   }
@@ -1489,7 +1489,7 @@ function syncActiveViewForCurrentProject(): void {
 function updateDocumentTitle(): void {
   const workgroup = getCurrentWorkgroup();
   if (workgroup) {
-    document.title = `${workgroup.name} - ${inlineText("Collaboration", "鍗忎綔")}`;
+    document.title = `${workgroup.name} - ${inlineText("Collaboration", "协作")}`;
     return;
   }
 
@@ -1656,7 +1656,7 @@ async function saveClipboardImageAttachment(): Promise<void> {
   setHintText(
     inlineText(
       `${state.pendingAttachments.length} attachment(s) ready to send.`,
-      `${state.pendingAttachments.length} attachment(s) ready to send.`, 
+      `已有 ${state.pendingAttachments.length} 个附件待发送。`,
     ),
     false,
   );
@@ -1666,19 +1666,19 @@ function applyStaticI18n(): void {
   document.documentElement.lang = state.lang;
 
   if (elements.projectsTitle) {
-    elements.projectsTitle.textContent = inlineText("Workspace", "Workspace");
+    elements.projectsTitle.textContent = inlineText("Workspace", "工作台");
   }
   if (elements.projectSearchInput) {
-    elements.projectSearchInput.placeholder = inlineText("Search workspace", "Search workspace");
+    elements.projectSearchInput.placeholder = inlineText("Search workspace", "搜索项目或群组");
   }
   if (elements.sidebarProjectsTabLabel) {
-    elements.sidebarProjectsTabLabel.textContent = inlineText("Private", "绉佽亰");
+    elements.sidebarProjectsTabLabel.textContent = inlineText("Private", "私聊");
   }
   if (elements.sidebarWorkgroupsTabLabel) {
-    elements.sidebarWorkgroupsTabLabel.textContent = inlineText("Groups", "缇ょ粍");
+    elements.sidebarWorkgroupsTabLabel.textContent = inlineText("Groups", "群组");
   }
   if (elements.messageSearchInput) {
-    elements.messageSearchInput.placeholder = inlineText("Search messages", "鎼滅储娑堟伅");
+    elements.messageSearchInput.placeholder = inlineText("Search messages", "搜索消息");
   }
   if (elements.messagesTabLabel) {
     elements.messagesTabLabel.textContent = inlineText("Conversation", "\u5bf9\u8bdd");
@@ -1702,7 +1702,7 @@ function applyStaticI18n(): void {
     elements.overviewSignalLabel.textContent = inlineText("Latest", "\u6700\u65b0");
   }
   if (elements.queueTitle) {
-    elements.queueTitle.textContent = inlineText("Queued prompts", "鎺掗槦鎻愮ず");
+    elements.queueTitle.textContent = inlineText("Queued prompts", "排队提示");
   }
   if (elements.cliTitle) {
     elements.cliTitle.textContent = inlineText("CLI stream", "CLI \u6267\u884c\u6d41");
@@ -1711,12 +1711,12 @@ function applyStaticI18n(): void {
     elements.composerLabel.textContent = msg("terminal.promptLabel", "Prompt");
   }
   if (elements.attachImageBtn) {
-    const label = inlineText("Image", "鍥剧墖");
+    const label = inlineText("Image", "图片");
     elements.attachImageBtn.textContent = label;
     elements.attachImageBtn.title = label;
   }
   if (elements.attachFileBtn) {
-    const label = inlineText("File", "鏂囦欢");
+    const label = inlineText("File", "文件");
     elements.attachFileBtn.textContent = label;
     elements.attachFileBtn.title = label;
   }
@@ -1730,7 +1730,7 @@ function applyStaticI18n(): void {
     elements.sendBtn.textContent = msg("terminal.action.send", "Send");
   }
   if (elements.stopBtn) {
-    const stopLabel = inlineText("Terminate", "缁堟");
+    const stopLabel = inlineText("Terminate", "终止");
     elements.stopBtn.textContent = stopLabel;
     elements.stopBtn.title = stopLabel;
   }
@@ -1741,19 +1741,19 @@ function applyStaticI18n(): void {
     elements.maximizeBtn.title = msg("common.maximize", "Maximize");
   }
   if (elements.settingsBtn) {
-    const settingsLabel = inlineText("System", "绯荤粺");
+    const settingsLabel = inlineText("System", "系统");
     elements.settingsBtn.textContent = settingsLabel;
     elements.settingsBtn.title = settingsLabel;
   }
   if (elements.serverSettingsBtn) {
-    const serverLabel = inlineText("Server", "Server");
+    const serverLabel = inlineText("Server", "服务器");
     elements.serverSettingsBtn.textContent = serverLabel;
-    elements.serverSettingsBtn.title = inlineText("Server Connection", "Server Connection");
+    elements.serverSettingsBtn.title = inlineText("Server Connection", "服务器连接");
   }
   if (elements.projectSettingsBtn) {
-    const projectLabel = inlineText("Projects", "椤圭洰");
+    const projectLabel = inlineText("Projects", "项目");
     elements.projectSettingsBtn.textContent = projectLabel;
-    elements.projectSettingsBtn.title = inlineText("Project Settings", "椤圭洰璁剧疆");
+    elements.projectSettingsBtn.title = inlineText("Project Settings", "项目设置");
   }
   if (elements.closeBtn) {
     elements.closeBtn.title = msg("common.close", "Close");
@@ -1763,13 +1763,13 @@ function applyStaticI18n(): void {
 function renderSidebarModeControls(): void {
   if (elements.projectsTitle) {
     elements.projectsTitle.textContent = state.sidebarMode === "workgroups"
-      ? inlineText("Groups", "缇ょ粍")
-      : inlineText("Private Chats", "绉佽亰");
+      ? inlineText("Groups", "群组")
+      : inlineText("Private Chats", "私聊");
   }
   if (elements.projectSearchInput) {
     elements.projectSearchInput.placeholder = state.sidebarMode === "workgroups"
-      ? inlineText("Search groups", "鎼滅储缇ょ粍")
-      : inlineText("Search private chats", "鎼滅储绉佽亰");
+      ? inlineText("Search groups", "搜索群组")
+      : inlineText("Search private chats", "搜索私聊");
   }
   elements.sidebarProjectsTab?.classList.toggle("active", state.sidebarMode === "projects");
   elements.sidebarProjectsTab?.setAttribute("aria-pressed", String(state.sidebarMode === "projects"));
@@ -2058,7 +2058,7 @@ function renderQueue(): void {
       "</div>",
       `<div class="queue-text">${escapeHtml(queuePreview(item.prompt))}</div>`,
       "</div>",
-      `<button class="queue-remove" type="button" data-queue-remove="${escapeHtml(item.runId)}">${escapeHtml(inlineText("Remove", "绉婚櫎"))}</button>`,
+      `<button class="queue-remove" type="button" data-queue-remove="${escapeHtml(item.runId)}">${escapeHtml(inlineText("Remove", "移除"))}</button>`,
       "</article>",
     ].join(""))
     .join("");
@@ -2144,7 +2144,7 @@ function renderProjectList(): void {
         `<section class="project-group" data-group-key="__workgroups__">`,
         `<div class="project-group-header" aria-expanded="true">`,
         '<span class="project-group-toggle" aria-hidden="true"></span>',
-        `<span class="project-group-title">${escapeHtml(inlineText("Collaborations", "Collaborations"))}</span>`,
+        `<span class="project-group-title">${escapeHtml(inlineText("Collaborations", "协作组"))}</span>`,
         `<span class="project-group-count">${state.workgroups.length}</span>`,
         "</div>",
         ...[...state.workgroups]
@@ -2175,16 +2175,16 @@ function renderProjectList(): void {
             const status = getWorkgroupStatusMeta(workgroup.id);
             const isSelected = workgroup.id === state.workgroupId;
             const lastActivityAt = getWorkgroupActivity(workgroup.id);
-            const subtitle = workgroup.lastMessagePreview?.trim() || inlineText(`${workgroup.memberCount} members`, `${workgroup.memberCount} members`);
+            const subtitle = workgroup.lastMessagePreview?.trim() || inlineText(`${workgroup.memberCount} members`, `${workgroup.memberCount} 名成员`);
             const summaryText = previewText(status.detail, 78) || status.detail;
             return [
               `<button class="project-list-item${isSelected ? " selected" : ""}" type="button" data-workgroup-id="${escapeHtml(workgroup.id)}">`,
               '<div class="project-list-top">',
-              `<div class="project-list-name-row"><span class="project-list-name">${highlightText(workgroup.name, searchQuery)}</span><span class="project-origin-pill group">${escapeHtml(inlineText("Group", "Group"))}</span></div>`,
+              `<div class="project-list-name-row"><span class="project-list-name">${highlightText(workgroup.name, searchQuery)}</span><span class="project-origin-pill group">${escapeHtml(inlineText("Group", "群组"))}</span></div>`,
               `<span class="project-status-pill ${escapeHtml(status.tone)}">${escapeHtml(status.label)}</span>`,
               "</div>",
               `<div class="project-list-detail" title="${escapeHtml(subtitle)}"><span class="project-list-summary">${highlightText(previewText(subtitle, 88) || subtitle, searchQuery)}</span><span class="project-list-time">${escapeHtml(formatRelativeTime(lastActivityAt || workgroup.updatedAt))}</span></div>`,
-              `<div class="project-list-meta"><span class="project-list-path" title="${escapeHtml(status.detail)}">${highlightText(summaryText, searchQuery)}</span><span class="project-meta-pill">${escapeHtml(inlineText(`${workgroup.memberCount} members`, `${workgroup.memberCount} members`))}</span></div>`,
+              `<div class="project-list-meta"><span class="project-list-path" title="${escapeHtml(status.detail)}">${highlightText(summaryText, searchQuery)}</span><span class="project-meta-pill">${escapeHtml(inlineText(`${workgroup.memberCount} members`, `${workgroup.memberCount} 名成员`))}</span></div>`,
               "</button>",
             ].join("");
           }),
@@ -2218,7 +2218,7 @@ function renderProjectList(): void {
             project.agentId ?? "",
             status.label,
             status.detail,
-            project.isRemote ? inlineText("Remote", "杩滅▼") : inlineText("Local", "鏈湴"),
+            project.isRemote ? inlineText("Remote", "远程") : inlineText("Local", "本地"),
             project.groupName ?? "",
           ]
             .join(" ")
@@ -2240,8 +2240,8 @@ function renderProjectList(): void {
           const isSelected = project.id === state.projectId;
           const lastActivityAt = getActivity(project.id);
           const originBadge = project.isRemote
-            ? `<span class="project-origin-pill remote">${escapeHtml(inlineText("Remote", "杩滅▼"))}</span>`
-            : `<span class="project-origin-pill local">${escapeHtml(inlineText("Local", "Local"))}</span>`;
+            ? `<span class="project-origin-pill remote">${escapeHtml(inlineText("Remote", "远程"))}</span>`
+            : `<span class="project-origin-pill local">${escapeHtml(inlineText("Local", "本地"))}</span>`;
           const summaryText = previewText(status.detail, 78) || status.detail;
           const pathText = previewText(project.path, 84) || project.path;
           return [
@@ -2263,18 +2263,18 @@ function renderProjectList(): void {
   const emptyMarkup = state.sidebarMode === "workgroups"
     ? formatEmptyState(
       hasSearchQuery
-        ? inlineText("No matching groups", "No matching groups")
-        : inlineText("No groups yet", "No groups yet"),
+        ? inlineText("No matching groups", "没有匹配的群组")
+        : inlineText("No groups yet", "还没有群组"),
       hasSearchQuery
-        ? inlineText("Try a different keyword.", "Try a different keyword.")
-        : inlineText("Create or join a workgroup to start group chat.", "Create or join a workgroup to start group chat."),
+        ? inlineText("Try a different keyword.", "试试其他关键词。")
+        : inlineText("Create or join a workgroup to start group chat.", "创建或加入一个协作组开始群聊。"),
     )
     : formatEmptyState(
       hasSearchQuery
-        ? inlineText("No matching private chats", "No matching private chats")
+        ? inlineText("No matching private chats", "没有匹配的私聊")
         : msg("terminal.empty.projectsTitle", "No projects yet"),
       hasSearchQuery
-        ? inlineText("Try a different keyword.", "Try a different keyword.")
+        ? inlineText("Try a different keyword.", "试试其他关键词。")
         : msg("terminal.empty.projectsDetail", "Add a project in settings, then return here."),
     );
   const markup = `${workgroupSection}${projectSections}` || emptyMarkup;
@@ -2322,14 +2322,14 @@ function renderCliTrace(): void {
   const session = getCurrentSession();
 
   elements.cliState.textContent = session?.isRunning
-    ? inlineText("Running", "Running")
-    : inlineText("Idle", "绌洪棽");
+    ? inlineText("Running", "运行中")
+    : inlineText("Idle", "空闲");
   elements.cliState.className = `project-status-pill ${session?.isRunning ? "running" : "idle"}`;
 
   if (!project) {
     const markup = formatEmptyState(
-      inlineText("No project selected", "鏈€夋嫨椤圭洰"),
-      inlineText("Select a project to inspect the live CLI execution stream.", "Select a project to inspect the live CLI execution stream."),
+      inlineText("No project selected", "未选择项目"),
+      inlineText("Select a project to inspect the live CLI execution stream.", "选择一个项目查看实时 CLI 执行流。"),
     );
     if (renderSignatures.cli !== markup) {
       renderSignatures.cli = markup;
@@ -2349,7 +2349,7 @@ function renderCliTrace(): void {
   const stickToBottom = forceScroll || shouldStickToBottom(elements.cliTrace);
 
   const markup = [
-    historyState?.hasMoreCli ? `<div class="history-loader">${escapeHtml(inlineText("Scroll up to load earlier CLI output", "鍚戜笂婊氬姩鍔犺浇鏇存棭 CLI 杈撳嚭"))}</div>` : "",
+    historyState?.hasMoreCli ? `<div class="history-loader">${escapeHtml(inlineText("Scroll up to load earlier CLI output", "向上滚动加载更早的 CLI 输出"))}</div>` : "",
     ...entries.map((entry) => [
       `<article class="cli-line ${escapeHtml(entry.stream)}">`,
       '<div class="cli-line-meta">',
@@ -2386,11 +2386,11 @@ function renderMessages(): void {
     if (!workgroupSession || messages.length === 0) {
       const markup = formatEmptyState(
         state.messageSearchQuery.trim()
-          ? inlineText("No matching messages", "No matching messages")
-          : inlineText("No collaboration yet", "No collaboration yet"),
+          ? inlineText("No matching messages", "没有匹配的消息")
+          : inlineText("No collaboration yet", "还没有协作消息"),
         state.messageSearchQuery.trim()
-          ? inlineText("Try a different keyword.", "Try a different keyword.")
-          : inlineText("Send a message to coordinate the group.", "Send a message to coordinate the group."),
+          ? inlineText("Try a different keyword.", "试试其他关键词。")
+          : inlineText("Send a message to coordinate the group.", "发送一条消息开始协作。"),
       );
       if (renderSignatures.messages !== markup) {
         renderSignatures.messages = markup;
@@ -2404,21 +2404,21 @@ function renderMessages(): void {
 
     const markup = [
       state.messageSearchQuery.trim()
-        ? `<div class="message-search-empty">${escapeHtml(inlineText(`${messages.length} matches`, `${messages.length} matches`))}<span>${escapeHtml(state.messageSearchLoading ? inlineText("Searching...", "Searching...") : inlineText("Search in current collaboration", "Search in current collaboration"))}</span></div>`
-        : (historyState?.hasMoreMessages ? `<div class="history-loader">${escapeHtml(inlineText("Scroll up to load earlier messages", "鍚戜笂婊氬姩鍔犺浇鏇存棭娑堟伅"))}</div>` : ""),
+        ? `<div class="message-search-empty">${escapeHtml(inlineText(`${messages.length} matches`, `${messages.length} 条结果`))}<span>${escapeHtml(state.messageSearchLoading ? inlineText("Searching...", "搜索中...") : inlineText("Search in current collaboration", "当前协作组内搜索"))}</span></div>`
+        : (historyState?.hasMoreMessages ? `<div class="history-loader">${escapeHtml(inlineText("Scroll up to load earlier messages", "向上滚动加载更早的消息"))}</div>` : ""),
       ...messages.map((message) => {
         const cardRole = message.senderType === "member"
           ? "assistant"
           : (message.senderType === "user" ? "user" : "error");
         const senderBadge = message.senderType === "member" && message.memberRole
-          ? `${message.senderName} 路 ${translateWorkgroupRole(message.memberRole)}`
+          ? `${message.senderName} · ${translateWorkgroupRole(message.memberRole)}`
           : message.senderName;
         const sourceBadge = message.senderType === "member"
-          ? (message.projectKind === "remote" ? inlineText("Remote", "杩滅▼") : inlineText("Local", "鏈湴"))
-          : (message.senderType === "user" ? inlineText("You", "You") : inlineText("System", "System"));
+          ? (message.projectKind === "remote" ? inlineText("Remote", "远程") : inlineText("Local", "本地"))
+          : (message.senderType === "user" ? inlineText("You", "你") : inlineText("System", "系统"));
         const content = message.content.trim() || (message.status === "streaming"
-          ? inlineText("Responding...", "姝ｅ湪鍥炲...")
-          : inlineText("No content", "No content"));
+          ? inlineText("Responding...", "正在回复...")
+          : inlineText("No content", "暂无内容"));
 
         return [
           `<article class="message-card ${escapeHtml(cardRole)}">`,
@@ -2465,10 +2465,10 @@ function renderMessages(): void {
   if (!session || messages.length === 0) {
     const markup = formatEmptyState(
       state.messageSearchQuery.trim()
-        ? inlineText("No matching messages", "No matching messages")
+        ? inlineText("No matching messages", "没有匹配的消息")
         : msg("terminal.empty.messagesTitle", "No conversation yet"),
       state.messageSearchQuery.trim()
-        ? inlineText("Try a different keyword.", "Try a different keyword.")
+        ? inlineText("Try a different keyword.", "试试其他关键词。")
         : msg(
           "terminal.empty.messagesDetail",
           "Incoming remote prompts and local desktop prompts will appear here as clean message cards.",
@@ -2486,8 +2486,8 @@ function renderMessages(): void {
 
   const markup = [
     state.messageSearchQuery.trim()
-      ? `<div class="message-search-empty">${escapeHtml(inlineText(`${messages.length} matches`, `${messages.length} matches`))}<span>${escapeHtml(state.messageSearchLoading ? inlineText("Searching...", "Searching...") : inlineText("Search in current conversation", "Search in current conversation"))}</span></div>`
-      : (historyState?.hasMoreMessages ? `<div class="history-loader">${escapeHtml(inlineText("Scroll up to load earlier messages", "鍚戜笂婊氬姩鍔犺浇鏇存棭娑堟伅"))}</div>` : ""),
+      ? `<div class="message-search-empty">${escapeHtml(inlineText(`${messages.length} matches`, `${messages.length} 条结果`))}<span>${escapeHtml(state.messageSearchLoading ? inlineText("Searching...", "搜索中...") : inlineText("Search in current conversation", "当前会话内搜索"))}</span></div>`
+      : (historyState?.hasMoreMessages ? `<div class="history-loader">${escapeHtml(inlineText("Scroll up to load earlier messages", "向上滚动加载更早的消息"))}</div>` : ""),
     ...messages.map((message) => {
       const sourceBadge = message.role === "user"
         ? translateSource(message.source)
@@ -2556,7 +2556,7 @@ function renderActivities(): void {
   const stickToBottom = forceScroll || shouldStickToBottom(elements.activityList);
 
   const markup = [
-    historyState?.hasMoreActivities ? `<div class="history-loader">${escapeHtml(inlineText("Scroll up to load earlier activity", "鍚戜笂婊氬姩鍔犺浇鏇存棭娲诲姩"))}</div>` : "",
+    historyState?.hasMoreActivities ? `<div class="history-loader">${escapeHtml(inlineText("Scroll up to load earlier activity", "向上滚动加载更早的活动"))}</div>` : "",
     ...activities
     .map((activity) => [
       '<article class="activity-card">',
@@ -2633,19 +2633,19 @@ function renderHeader(): void {
     }
     if (elements.projectMeta) {
       elements.projectMeta.textContent = workgroup.description?.trim()
-        || inlineText(`${workgroup.memberCount} members`, `${workgroup.memberCount} members`);
+        || inlineText(`${workgroup.memberCount} members`, `${workgroup.memberCount} 名成员`);
     }
     if (elements.providerBadge) {
-      elements.providerBadge.textContent = inlineText("Collab", "鍗忎綔");
+      elements.providerBadge.textContent = inlineText("Collab", "协作");
     }
     if (elements.modelBadge) {
-      elements.modelBadge.textContent = inlineText("Group", "缇ょ粍");
-      elements.modelBadge.title = inlineText("Shared collaboration", "鍏变韩鍗忎綔");
+      elements.modelBadge.textContent = inlineText("Group", "群组");
+      elements.modelBadge.title = inlineText("Shared collaboration", "共享协作");
       elements.modelBadge.disabled = true;
       elements.modelBadge.hidden = false;
     }
     if (elements.modeBadge) {
-      elements.modeBadge.textContent = inlineText("Shared", "鍏变韩");
+      elements.modeBadge.textContent = inlineText("Shared", "共享");
     }
     if (elements.sessionViewTitle) {
       elements.sessionViewTitle.textContent = workgroup.name;
@@ -2691,12 +2691,12 @@ function renderHeader(): void {
       elements.queueTab.disabled = true;
     }
     if (elements.composerLabel) {
-      elements.composerLabel.textContent = inlineText("Message", "娑堟伅");
+      elements.composerLabel.textContent = inlineText("Message", "消息");
     }
     if (elements.composerInput) {
       elements.composerInput.placeholder = inlineText(
         "Talk to the group with @all, @developer, @qa, @pm, or member names.",
-        "Talk to the group with @all, @developer, @qa, @pm, or member names.",
+        "可用 @all、@developer、@qa、@pm 或成员名称与群组协作。",
       );
     }
     syncDocumentTitleIfNeeded();
@@ -2708,12 +2708,12 @@ function renderHeader(): void {
     elements.newConversationBtn.hidden = false;
   }
   if (elements.composerLabel) {
-    elements.composerLabel.textContent = inlineText("Prompt", "Prompt");
+    elements.composerLabel.textContent = inlineText("Prompt", "提示词");
   }
   if (elements.composerInput) {
     elements.composerInput.placeholder = inlineText(
       "Ask Claude Code or OpenAI Codex to inspect, edit, review, or debug this project.",
-      "Ask Claude Code or OpenAI Codex to inspect, edit, review, or debug this project.",
+      "让 Claude Code 或 OpenAI Codex 检查、修改、评审或调试这个项目。",
     );
   }
 
@@ -2729,8 +2729,8 @@ function renderHeader(): void {
     elements.providerBadge.textContent = providerLabel(provider);
   }
   if (elements.modelBadge) {
-    elements.modelBadge.textContent = `${inlineText("Model", "妯″瀷")}: ${modelLabel(model)}`;
-    elements.modelBadge.title = inlineText("Switch model", "鍒囨崲妯″瀷");
+    elements.modelBadge.textContent = `${inlineText("Model", "模型")}: ${modelLabel(model)}`;
+    elements.modelBadge.title = inlineText("Switch model", "切换模型");
     elements.modelBadge.disabled = !project;
   }
   if (elements.modeBadge) {
@@ -2761,20 +2761,20 @@ function renderHeader(): void {
   }
   if (elements.newConversationBtn) {
     elements.newConversationBtn.disabled = !project || Boolean(session?.isRunning) || (session?.queuedCount ?? 0) > 0 || !api.createProjectConversation;
-    elements.newConversationBtn.textContent = inlineText("New", "鏂板缓");
+    elements.newConversationBtn.textContent = inlineText("New", "新建");
   }
   if (elements.headerSummary) {
     elements.headerSummary.textContent = statusMeta?.detail ?? msg("terminal.waitingProjectContext", "Waiting for project context...");
   }
   if (elements.runState) {
     if (!project) {
-      elements.runState.textContent = inlineText("Unselected", "鏈€夋嫨");
+      elements.runState.textContent = inlineText("Unselected", "未选择");
       elements.runState.className = "project-status-pill idle";
     } else if (!session) {
-      elements.runState.textContent = inlineText("Loading", "Loading");
+      elements.runState.textContent = inlineText("Loading", "加载中");
       elements.runState.className = "project-status-pill idle";
     } else {
-      elements.runState.textContent = statusMeta?.label ?? inlineText("Ready", "灏辩华");
+      elements.runState.textContent = statusMeta?.label ?? inlineText("Ready", "就绪");
       elements.runState.className = `project-status-pill ${statusMeta?.tone ?? "ready"}`;
     }
   }
@@ -3446,15 +3446,15 @@ async function removeQueuedRun(runId: string): Promise<void> {
 
 function translateWorkgroupRole(role: WorkgroupMemberState["role"]): string {
   if (role === "developer") {
-    return inlineText("Developer", "Developer");
+    return inlineText("Developer", "开发");
   }
   if (role === "qa") {
-    return inlineText("QA", "娴嬭瘯");
+    return inlineText("QA", "测试");
   }
   if (role === "project_manager") {
-    return inlineText("PM", "椤圭洰缁忕悊");
+    return inlineText("PM", "项目经理");
   }
-  return inlineText("Custom", "Custom");
+  return inlineText("Custom", "自定义");
 }
 
 function hideMentionSuggestions(): void {
@@ -3529,13 +3529,13 @@ function renderMentionSuggestions(): void {
 
   const markup = mentionState.items.map((item, index) => {
     const meta = item.kind === "member"
-      ? (item.role ? translateWorkgroupRole(item.role) : inlineText("Member", "鎴愬憳"))
+      ? (item.role ? translateWorkgroupRole(item.role) : inlineText("Member", "成员"))
       : (item.kind === "role"
-        ? (item.role ? translateWorkgroupRole(item.role) : inlineText("Role", "瑙掕壊"))
-        : inlineText("Everyone in the collaboration", "鍗忎綔缁勫唴鍏ㄩ儴鎴愬憳"));
+        ? (item.role ? translateWorkgroupRole(item.role) : inlineText("Role", "角色"))
+        : inlineText("Everyone in the collaboration", "协作组内全部成员"));
     const tag = item.kind === "member"
-      ? inlineText("Member", "鎴愬憳")
-      : (item.kind === "role" ? inlineText("Role", "瑙掕壊") : inlineText("All", "鍏ㄩ儴"));
+      ? inlineText("Member", "成员")
+      : (item.kind === "role" ? inlineText("Role", "角色") : inlineText("All", "全部"));
     return [
       `<button class="mention-suggestion-item${index === mentionState.activeIndex ? " active" : ""}" type="button" data-mention-index="${index}">`,
       '<div class="mention-suggestion-main">',
@@ -3616,36 +3616,36 @@ function getWorkgroupStatusMeta(workgroupId: string): { label: string; tone: str
   const memberCount = session?.members.length ?? workgroup?.memberCount ?? 0;
   if (!workgroup) {
     return {
-      label: inlineText("Idle", "绌洪棽"),
+      label: inlineText("Idle", "空闲"),
       tone: "idle",
-      detail: inlineText("Collaboration unavailable", "Collaboration unavailable"),
+      detail: inlineText("Collaboration unavailable", "协作不可用"),
     };
   }
 
   if (session?.isRunning || workgroup.isRunning) {
     const runningMembers = (session?.members ?? []).filter((member) => member.isRunning).map((member) => member.name);
     return {
-      label: inlineText("Running", "Running"),
+      label: inlineText("Running", "运行中"),
       tone: "running",
       detail: runningMembers.length > 0
         ? runningMembers.join(", ")
-        : inlineText("Members are responding", "鎴愬憳姝ｅ湪鍥炲"),
+        : inlineText("Members are responding", "成员正在回复"),
     };
   }
 
   const latestMessage = session?.messages[session.messages.length - 1] ?? null;
   if (latestMessage?.content?.trim()) {
     return {
-      label: inlineText("Ready", "灏辩华"),
+      label: inlineText("Ready", "就绪"),
       tone: "ready",
       detail: latestMessage.content.trim().replace(/\s+/g, " ").slice(0, 120),
     };
   }
 
   return {
-    label: inlineText("Ready", "灏辩华"),
+    label: inlineText("Ready", "就绪"),
     tone: "ready",
-    detail: inlineText(`${memberCount} members in collaboration`, `${memberCount} members in collaboration`),
+    detail: inlineText(`${memberCount} members in collaboration`, `协作组内有 ${memberCount} 名成员`),
   };
 }
 
@@ -3660,7 +3660,7 @@ async function promptForModel(): Promise<void> {
   const nextModel = window.prompt(
     inlineText(
       "Enter a model name. Leave blank or type auto to use the provider default.",
-      "Enter a model name. Leave blank or type auto to use the provider default.",
+      "输入模型名称。留空或输入 auto 将使用当前提供方默认模型。",
     ),
     currentModel,
   );
@@ -3676,11 +3676,11 @@ async function promptForModel(): Promise<void> {
   });
 
   if (!result.success) {
-    setHintText(result.error ?? inlineText("Failed to switch model", "妯″瀷鍒囨崲澶辫触"), true);
+    setHintText(result.error ?? inlineText("Failed to switch model", "切换模型失败"), true);
     return;
   }
 
-  setHintText(inlineText("Model update queued.", "Model update queued."), false);
+  setHintText(inlineText("Model update queued.", "模型切换已加入队列。"), false);
   elements.composerInput?.focus();
 }
 
