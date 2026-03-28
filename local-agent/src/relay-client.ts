@@ -81,8 +81,10 @@ class RelayClient extends EventEmitter {
     this.intentionalDisconnect = false;
     this.connectionGeneration += 1;
     const generation = this.connectionGeneration;
-    this.ws?.removeAllListeners();
-    this.ws?.terminate();
+    const previousSocket = this.ws;
+    if (previousSocket) {
+      this.disposeSocket(previousSocket);
+    }
     const socket = new WebSocket(this.serverUrl);
     this.ws = socket;
     socket.on("open", () => this.onOpen(generation, socket));
@@ -99,9 +101,9 @@ class RelayClient extends EventEmitter {
     }
     if (this.ws) {
       this.connectionGeneration += 1;
-      this.ws.removeAllListeners();
-      this.ws.close();
+      const socket = this.ws;
       this.ws = null;
+      this.disposeSocket(socket);
     }
   }
 
@@ -435,6 +437,28 @@ class RelayClient extends EventEmitter {
 
   private isCurrentSocket(generation: number, socket: WebSocket): boolean {
     return this.connectionGeneration === generation && this.ws === socket;
+  }
+
+  private disposeSocket(socket: WebSocket): void {
+    // Keep a temporary error listener while shutting down a connecting socket.
+    // Otherwise the ws library can emit an unhandled error such as
+    // "WebSocket was closed before the connection was established".
+    const swallowSocketError = (_error: Error): void => {
+      void _error;
+    };
+    socket.once("error", swallowSocketError);
+
+    try {
+      if (socket.readyState === WebSocket.CONNECTING) {
+        socket.terminate();
+        return;
+      }
+      if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CLOSING) {
+        socket.close();
+      }
+    } catch {
+      // Ignore shutdown errors for stale sockets during reconnect/disconnect.
+    }
   }
 }
 
