@@ -12,7 +12,7 @@ import type { ProjectSessionSnapshot } from "./runtime-types";
 const DEFAULT_HISTORY_PAGE_SIZE = 30;
 const DEFAULT_CONTEXT_MESSAGE_COUNT = 16;
 const LOCAL_MEMBER_RESPONSE_GRACE_MS = 15_000;
-const REMOTE_MEMBER_RESPONSE_GRACE_MS = 90_000;
+const REMOTE_MEMBER_RESPONSE_GRACE_MS = 10 * 60_000;
 
 export interface CollaborationBoundProject {
   id: string;
@@ -113,6 +113,11 @@ interface ActiveDispatchRecord {
   messageId: string;
   triggerMessageId: string;
   startedAt: number;
+}
+
+interface RemoteDispatchResolution {
+  status: "pending" | "streaming" | "done" | "error";
+  content?: string;
 }
 
 export default class WorkgroupCollaborationService extends EventEmitter {
@@ -346,7 +351,8 @@ export default class WorkgroupCollaborationService extends EventEmitter {
 
   private reconcileStaleStreamingMessages(workgroup: Workgroup): void {
     const messages = workgroupCollaborationStore.listMessages(workgroup.id);
-    let changed = this.pruneDuplicateStreamingMessages(workgroup.id);
+    let changed = this.repairRecoveredMemberMessages(workgroup.id);
+    changed = this.pruneDuplicateStreamingMessages(workgroup.id) || changed;
 
     for (const message of messages) {
       if (message.senderType !== "member" || message.status !== "streaming") {
@@ -363,6 +369,29 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       }
 
       const snapshot = this.options.getProjectSessionSnapshot(projectId);
+      const remoteResolution = this.resolveRemoteDispatchResolution(message, snapshot);
+      if (remoteResolution.status === "streaming" || remoteResolution.status === "done") {
+        if (remoteResolution.status === "done") {
+          this.clearActiveDispatch(workgroup.id, dispatchRunId);
+        }
+        workgroupCollaborationStore.updateMessage(workgroup.id, message.id, {
+          senderType: "member",
+          status: remoteResolution.status === "streaming" ? "streaming" : "done",
+          content: remoteResolution.content ?? message.content,
+        });
+        changed = true;
+        continue;
+      }
+      if (remoteResolution.status === "error") {
+        this.clearActiveDispatch(workgroup.id, dispatchRunId);
+        workgroupCollaborationStore.updateMessage(workgroup.id, message.id, {
+          senderType: "error",
+          status: "done",
+          content: remoteResolution.content?.trim() || `${message.senderName} failed to respond.`,
+        });
+        changed = true;
+        continue;
+      }
       if (dispatchRunId && this.hasActiveDispatch(workgroup.id, dispatchRunId)) {
         continue;
       }
@@ -588,7 +617,18 @@ export default class WorkgroupCollaborationService extends EventEmitter {
 
     const prompt = this.buildPrompt(workgroup, member, recentMessages, userMessage);
     const handleText = (chunk: string) => {
-      workgroupCollaborationStore.appendToMessage(workgroup.id, replyMessage.id, chunk);
+      const current = workgroupCollaborationStore.getMessage(workgroup.id, replyMessage.id);
+      const stalePrefix = `${member.name} stopped before replying.`;
+      if (current && current.content.startsWith(stalePrefix)) {
+        const recoveredContent = current.content.slice(stalePrefix.length).trimStart();
+        workgroupCollaborationStore.updateMessage(workgroup.id, replyMessage.id, {
+          senderType: "member",
+          status: "streaming",
+          content: `${recoveredContent}${chunk}`,
+        });
+      } else {
+        workgroupCollaborationStore.appendToMessage(workgroup.id, replyMessage.id, chunk);
+      }
       this.emitSnapshot(workgroup.id);
       this.emitSummaries();
     };
@@ -918,6 +958,35 @@ export default class WorkgroupCollaborationService extends EventEmitter {
     return changed;
   }
 
+  private repairRecoveredMemberMessages(workgroupId: string): boolean {
+    let changed = false;
+
+    for (const message of workgroupCollaborationStore.listMessages(workgroupId)) {
+      if (message.status !== "done") {
+        continue;
+      }
+
+      const stalePrefix = `${message.senderName} stopped before replying.`;
+      if (!message.content.startsWith(stalePrefix)) {
+        continue;
+      }
+
+      const recoveredContent = message.content.slice(stalePrefix.length).trimStart();
+      if (!recoveredContent) {
+        continue;
+      }
+
+      workgroupCollaborationStore.updateMessage(workgroupId, message.id, {
+        senderType: "member",
+        status: "done",
+        content: recoveredContent,
+      });
+      changed = true;
+    }
+
+    return changed;
+  }
+
   private finalizeStaleMemberMessage(
     workgroupId: string,
     messageId: string,
@@ -949,6 +1018,9 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       if (snapshot.messages.some((entry) => entry.id === runId || entry.id === `${runId}:assistant`)) {
         return true;
       }
+      if (snapshot.messages.some((entry) => entry.id === `${runId}:assistant:error`)) {
+        return false;
+      }
     }
 
     const referenceAt = Math.max(
@@ -959,6 +1031,50 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       ? REMOTE_MEMBER_RESPONSE_GRACE_MS
       : LOCAL_MEMBER_RESPONSE_GRACE_MS;
     return Date.now() - referenceAt < graceMs;
+  }
+
+  private resolveRemoteDispatchResolution(
+    message: WorkgroupCollaborationMessage,
+    snapshot: ProjectSessionSnapshot | null,
+  ): RemoteDispatchResolution {
+    if (message.projectKind !== "remote") {
+      return { status: "pending" };
+    }
+
+    const runId = message.dispatchRunId?.trim() ?? "";
+    if (!runId || !snapshot) {
+      return { status: "pending" };
+    }
+
+    const errorMessage = snapshot.messages.find((entry) => entry.id === `${runId}:assistant:error`);
+    if (errorMessage?.content.trim()) {
+      return {
+        status: "error",
+        content: errorMessage.content.trim(),
+      };
+    }
+
+    const assistantMessage = snapshot.messages.find((entry) => entry.id === `${runId}:assistant`);
+    if (assistantMessage?.content.trim()) {
+      return {
+        status: assistantMessage.status === "streaming" ? "streaming" : "done",
+        content: assistantMessage.content,
+      };
+    }
+
+    if (snapshot.queue.some((entry) => entry.runId === runId)) {
+      return { status: "pending" };
+    }
+
+    if (snapshot.messages.some((entry) => entry.id === runId)) {
+      return { status: "pending" };
+    }
+
+    if (snapshot.isRunning && snapshot.currentSource === "remote") {
+      return { status: "pending" };
+    }
+
+    return { status: "pending" };
   }
 
   private shouldCountAsHandledMemberMessage(message: WorkgroupCollaborationMessage): boolean {

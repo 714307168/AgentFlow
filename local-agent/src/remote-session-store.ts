@@ -114,6 +114,7 @@ interface RemoteRunObserver {
   lastActivityAt: number;
   sawResponse: boolean;
   timeout: NodeJS.Timeout | null;
+  syncNudgeTimers: NodeJS.Timeout[];
   onTextDelta?: (chunk: string) => void;
   onDone?: () => void;
   onError?: (error: string) => void;
@@ -575,11 +576,13 @@ export default class RemoteSessionStore extends EventEmitter {
         lastActivityAt: timestamp,
         sawResponse: false,
         timeout: null,
+        syncNudgeTimers: [],
         onTextDelta: options.onTextDelta,
         onDone: options.onDone,
         onError: options.onError,
       });
       this.scheduleRunObserverTimeout(runObserverKey);
+      this.scheduleRunObserverSyncNudges(runObserverKey);
     }
     return { success: true, runId };
   }
@@ -859,6 +862,7 @@ export default class RemoteSessionStore extends EventEmitter {
     const runObserverKey = this.getRunObserverKey(projectId, runId);
     const runObserver = this.runObservers.get(runObserverKey);
     this.clearRunObserverTimeout(runObserver);
+    this.clearRunObserverSyncNudges(runObserver);
     if (env.event === Events.MESSAGE_ERROR) {
       const errorText = String(payload?.error ?? "").trim() || "Remote run failed.";
       const errorId = `${streamId}:error`;
@@ -976,6 +980,7 @@ export default class RemoteSessionStore extends EventEmitter {
     const assistantMessage = state.messages.find((entry) => entry.id === runObserver.streamId);
     if (assistantMessage?.status === "done") {
       this.clearRunObserverTimeout(runObserver);
+      this.clearRunObserverSyncNudges(runObserver);
       this.runObservers.delete(runObserverKey);
       runObserver.onDone?.();
       return;
@@ -1042,6 +1047,7 @@ export default class RemoteSessionStore extends EventEmitter {
       const assistantMessage = state.messages.find((entry) => entry.id === runObserver.streamId);
       if (assistantMessage?.status === "done") {
         this.clearRunObserverTimeout(runObserver);
+        this.clearRunObserverSyncNudges(runObserver);
         this.runObservers.delete(runObserverKey);
         runObserver.onDone?.();
         continue;
@@ -1078,6 +1084,7 @@ export default class RemoteSessionStore extends EventEmitter {
     }
 
     this.clearRunObserverTimeout(runObserver);
+    this.clearRunObserverSyncNudges(runObserver);
     this.runObservers.delete(runObserverKey);
 
     const state = this.states.get(projectId);
@@ -1120,6 +1127,40 @@ export default class RemoteSessionStore extends EventEmitter {
     }
     clearTimeout(runObserver.timeout);
     runObserver.timeout = null;
+  }
+
+  private scheduleRunObserverSyncNudges(runObserverKey: string): void {
+    const runObserver = this.runObservers.get(runObserverKey);
+    if (!runObserver) {
+      return;
+    }
+
+    this.clearRunObserverSyncNudges(runObserver);
+    for (const delayMs of [1_500, 5_000, 15_000]) {
+      const timer = setTimeout(() => {
+        const currentRunObserver = this.runObservers.get(runObserverKey);
+        if (!currentRunObserver) {
+          return;
+        }
+        if (currentRunObserver.sawResponse) {
+          return;
+        }
+        this.requestSessionSync(currentRunObserver.projectId, {
+          limit: DEFAULT_PAGE_SIZE,
+        });
+      }, delayMs);
+      runObserver.syncNudgeTimers.push(timer);
+    }
+  }
+
+  private clearRunObserverSyncNudges(runObserver: RemoteRunObserver | undefined): void {
+    if (!runObserver || runObserver.syncNudgeTimers.length === 0) {
+      return;
+    }
+    for (const timer of runObserver.syncNudgeTimers) {
+      clearTimeout(timer);
+    }
+    runObserver.syncNudgeTimers = [];
   }
 
   private handleFileError(env: Envelope): void {
