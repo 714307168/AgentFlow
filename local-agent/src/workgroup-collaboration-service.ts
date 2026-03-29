@@ -105,6 +105,7 @@ interface ResolveTargetOptions {
 interface ActiveDispatchRecord {
   runId: string;
   workgroupId: string;
+  rootTriggerMessageId: string;
   memberId: string;
   projectId: string;
   messageId: string;
@@ -343,7 +344,7 @@ export default class WorkgroupCollaborationService extends EventEmitter {
 
   private reconcileStaleStreamingMessages(workgroup: Workgroup): void {
     const messages = workgroupCollaborationStore.listMessages(workgroup.id);
-    let changed = false;
+    let changed = this.pruneDuplicateStreamingMessages(workgroup.id);
 
     for (const message of messages) {
       if (message.senderType !== "member" || message.status !== "streaming") {
@@ -554,6 +555,7 @@ export default class WorkgroupCollaborationService extends EventEmitter {
     }
 
     const runId = uuidv4();
+    const rootTriggerMessageId = this.resolveRootTriggerMessageId(workgroup.id, userMessage) ?? userMessage.id;
     const replyMessage = workgroupCollaborationStore.appendMessage(workgroup.id, {
       senderType: "member",
       senderName: member.name,
@@ -569,6 +571,7 @@ export default class WorkgroupCollaborationService extends EventEmitter {
     this.registerActiveDispatch({
       runId,
       workgroupId: workgroup.id,
+      rootTriggerMessageId,
       memberId: member.id,
       projectId: project.id,
       messageId: replyMessage.id,
@@ -659,11 +662,22 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       return;
     }
 
+    const rootTriggerMessageId = this.resolveRootTriggerMessageId(workgroup.id, sourceMessage);
+    const alreadyHandledMemberIds = rootTriggerMessageId
+      ? this.collectHandledMemberIdsForRoot(workgroup.id, rootTriggerMessageId)
+      : new Set<string>();
+    alreadyHandledMemberIds.delete(sender.id);
+
+    const filteredTargets = selection.targets.filter((member) => !alreadyHandledMemberIds.has(member.id));
+    if (filteredTargets.length === 0) {
+      return;
+    }
+
     const routedMessage = workgroupCollaborationStore.appendMessage(workgroup.id, {
       senderType: "system",
       senderName: "System",
       triggerMessageId: sourceMessage.id,
-      content: `Handoff from @${sender.name} to ${selection.targets.map((member) => `@${member.name}`).join(", ")}`,
+      content: `Handoff from @${sender.name} to ${filteredTargets.map((member) => `@${member.name}`).join(", ")}`,
       status: "done",
     });
     this.emitSnapshot(workgroup.id);
@@ -673,7 +687,7 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       .listMessages(workgroup.id)
       .slice(-DEFAULT_CONTEXT_MESSAGE_COUNT);
 
-    await Promise.all(selection.targets.map(async (member) => {
+    await Promise.all(filteredTargets.map(async (member) => {
       await this.dispatchToMember(workgroup, member, recentMessages, sourceMessage);
     }));
 
@@ -702,6 +716,75 @@ export default class WorkgroupCollaborationService extends EventEmitter {
     this.emitSummaries();
   }
 
+  private resolveRootTriggerMessageId(
+    workgroupId: string,
+    message: Pick<WorkgroupCollaborationMessage, "id" | "senderType" | "triggerMessageId">,
+  ): string | null {
+    const normalizedWorkgroupId = workgroupId.trim();
+    let currentId = message.id?.trim() || "";
+    let currentTriggerId = message.triggerMessageId?.trim() || "";
+    const visited = new Set<string>();
+
+    if (message.senderType === "user" && currentId) {
+      return currentId;
+    }
+
+    while (currentTriggerId) {
+      if (visited.has(currentTriggerId)) {
+        return currentTriggerId;
+      }
+      visited.add(currentTriggerId);
+
+      const parent = workgroupCollaborationStore.getMessage(normalizedWorkgroupId, currentTriggerId);
+      if (!parent) {
+        return currentTriggerId;
+      }
+      if (parent.senderType === "user") {
+        return parent.id;
+      }
+
+      currentId = parent.id?.trim() || currentId;
+      currentTriggerId = parent.triggerMessageId?.trim() || "";
+    }
+
+    return currentId || null;
+  }
+
+  private collectHandledMemberIdsForRoot(workgroupId: string, rootTriggerMessageId: string): Set<string> {
+    const normalizedRootTriggerMessageId = rootTriggerMessageId.trim();
+    const handled = new Set<string>();
+    if (!normalizedRootTriggerMessageId) {
+      return handled;
+    }
+
+    for (const message of workgroupCollaborationStore.listMessages(workgroupId)) {
+      const memberId = message.memberId?.trim() || "";
+      if (!memberId) {
+        continue;
+      }
+      if (this.resolveRootTriggerMessageId(workgroupId, message) !== normalizedRootTriggerMessageId) {
+        continue;
+      }
+      handled.add(memberId);
+    }
+
+    const activeDispatches = this.activeDispatchesByWorkgroup.get(workgroupId);
+    if (!activeDispatches) {
+      return handled;
+    }
+
+    for (const record of activeDispatches.values()) {
+      if (record.rootTriggerMessageId !== normalizedRootTriggerMessageId) {
+        continue;
+      }
+      if (record.memberId) {
+        handled.add(record.memberId);
+      }
+    }
+
+    return handled;
+  }
+
   private registerActiveDispatch(record: ActiveDispatchRecord): void {
     const workgroupId = record.workgroupId.trim();
     if (!workgroupId || !record.runId.trim()) {
@@ -712,6 +795,7 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       ...record,
       workgroupId,
       runId: record.runId.trim(),
+      rootTriggerMessageId: record.rootTriggerMessageId.trim(),
       memberId: record.memberId.trim(),
       projectId: record.projectId.trim(),
       messageId: record.messageId.trim(),
@@ -766,6 +850,63 @@ export default class WorkgroupCollaborationService extends EventEmitter {
     if (activeDispatches.size === 0) {
       this.activeDispatchesByWorkgroup.delete(normalizedWorkgroupId);
     }
+    return changed;
+  }
+
+  private pruneDuplicateStreamingMessages(workgroupId: string): boolean {
+    const groups = new Map<string, WorkgroupCollaborationMessage[]>();
+    for (const message of workgroupCollaborationStore.listMessages(workgroupId)) {
+      if (message.senderType !== "member" || message.status !== "streaming") {
+        continue;
+      }
+      const memberId = message.memberId?.trim() || "";
+      if (!memberId) {
+        continue;
+      }
+      const rootTriggerMessageId = this.resolveRootTriggerMessageId(workgroupId, message) ?? message.triggerMessageId ?? message.id;
+      const key = `${memberId}::${rootTriggerMessageId}`;
+      const items = groups.get(key) ?? [];
+      items.push(message);
+      groups.set(key, items);
+    }
+
+    let changed = false;
+    for (const messages of groups.values()) {
+      if (messages.length <= 1) {
+        continue;
+      }
+
+      const ordered = [...messages].sort((left, right) => (
+        right.updatedAt - left.updatedAt
+        || right.createdAt - left.createdAt
+        || right.id.localeCompare(left.id)
+      ));
+      const newest = ordered[0];
+      for (const duplicate of ordered.slice(1)) {
+        this.clearActiveDispatch(workgroupId, duplicate.dispatchRunId?.trim() ?? "");
+        workgroupCollaborationStore.updateMessage(workgroupId, duplicate.id, {
+          content: duplicate.content.trim() || `${duplicate.senderName} skipped a duplicate handoff.`,
+          status: "done",
+        });
+        changed = true;
+      }
+
+      const activeDispatches = this.activeDispatchesByWorkgroup.get(workgroupId);
+      if (!activeDispatches) {
+        continue;
+      }
+      for (const record of Array.from(activeDispatches.values())) {
+        if (
+          record.memberId === (newest.memberId?.trim() ?? "")
+          && record.rootTriggerMessageId === (this.resolveRootTriggerMessageId(workgroupId, newest) ?? newest.triggerMessageId ?? newest.id)
+          && record.runId !== (newest.dispatchRunId?.trim() ?? "")
+        ) {
+          this.clearActiveDispatch(workgroupId, record.runId);
+          changed = true;
+        }
+      }
+    }
+
     return changed;
   }
 

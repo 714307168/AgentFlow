@@ -1047,6 +1047,45 @@ function getDefaultWorkgroupPlanPath(workgroupId: string): string {
   return path.join(app.getPath("userData"), "workgroup-plans", workgroupId);
 }
 
+function resolveWorkgroupPlanPath(workgroupId: string, planWorkspacePath: string | null | undefined): string {
+  const fallbackPath = getDefaultWorkgroupPlanPath(workgroupId);
+  const trimmed = typeof planWorkspacePath === "string" ? planWorkspacePath.trim() : "";
+  if (!trimmed) {
+    fs.mkdirSync(fallbackPath, { recursive: true });
+    return fallbackPath;
+  }
+
+  const resolved = path.resolve(trimmed);
+  const fallbackResolved = path.resolve(fallbackPath);
+  const isManagedWorkgroupPath = (
+    path.basename(resolved).toLowerCase() === workgroupId.toLowerCase()
+    && path.basename(path.dirname(resolved)).toLowerCase() === "workgroup-plans"
+  );
+  const currentUserDataPath = path.resolve(app.getPath("userData"));
+  const shouldMigrateToCurrentDataRoot = (
+    isManagedWorkgroupPath
+    && resolved !== fallbackResolved
+    && !resolved.toLowerCase().startsWith(currentUserDataPath.toLowerCase())
+  );
+
+  if (shouldMigrateToCurrentDataRoot) {
+    if (fs.existsSync(resolved)) {
+      fs.mkdirSync(path.dirname(fallbackResolved), { recursive: true });
+      fs.cpSync(resolved, fallbackResolved, {
+        recursive: true,
+        force: true,
+        errorOnExist: false,
+      });
+    } else {
+      fs.mkdirSync(fallbackResolved, { recursive: true });
+    }
+    return fallbackResolved;
+  }
+
+  fs.mkdirSync(resolved, { recursive: true });
+  return resolved;
+}
+
 function ensureWorkgroupPlanDirectory(planWorkspacePath: string | null | undefined): string | null {
   const resolved = typeof planWorkspacePath === "string" ? planWorkspacePath.trim() : "";
   if (!resolved) {
@@ -1061,7 +1100,8 @@ function getWorkgroupPmBinding(
   fallback?: Partial<Pick<Workgroup, "planWorkspacePath">> & Partial<Pick<WorkgroupMember, "projectName" | "projectPath">>,
 ): ResolvedWorkgroupProjectBinding {
   const workgroup = workgroupStore.getWorkgroupById(workgroupId);
-  const planWorkspacePath = ensureWorkgroupPlanDirectory(
+  const planWorkspacePath = resolveWorkgroupPlanPath(
+    workgroupId,
     workgroup?.planWorkspacePath
     ?? fallback?.planWorkspacePath
     ?? fallback?.projectPath
@@ -1274,13 +1314,26 @@ async function requestWorkgroupRegistry<T>(
 }
 
 function ensurePmMember(workgroup: Workgroup): WorkgroupMember {
-  const planWorkspacePath = ensureWorkgroupPlanDirectory(
+  const planWorkspacePath = resolveWorkgroupPlanPath(
+    workgroup.id,
     workgroup.planWorkspacePath ?? getDefaultWorkgroupPlanPath(workgroup.id),
-  ) ?? getDefaultWorkgroupPlanPath(workgroup.id);
+  );
   const pmProjectId = getWorkgroupPmProjectId(workgroup.id);
   const existingPm = workgroupStore
     .listMembers(workgroup.id)
     .find((member) => member.kind === "pm" || member.projectId === pmProjectId);
+  if (workgroup.planWorkspacePath !== planWorkspacePath) {
+    workgroupStore.saveWorkgroup({
+      ...workgroup,
+      id: workgroup.id,
+      name: workgroup.name,
+      description: workgroup.description ?? null,
+      allowDirectMemberMessages: workgroup.allowDirectMemberMessages,
+      groupNumber: workgroup.groupNumber ?? null,
+      planWorkspacePath,
+      registryUpdatedAt: workgroup.registryUpdatedAt ?? null,
+    });
+  }
   return workgroupStore.saveMember({
     id: existingPm?.id,
     workgroupId: workgroup.id,
@@ -1291,7 +1344,7 @@ function ensurePmMember(workgroup: Workgroup): WorkgroupMember {
     projectName: "PM Agent",
     projectPath: planWorkspacePath,
     projectKind: "local",
-    allowedPaths: existingPm?.allowedPaths?.length ? existingPm.allowedPaths : [planWorkspacePath],
+    allowedPaths: [planWorkspacePath],
     systemPrompt: existingPm?.systemPrompt?.trim()
       || "Coordinate the workgroup, keep plans in this workspace, break goals into clear subtasks, and summarize final outcomes.",
   });
@@ -1474,6 +1527,10 @@ function touchWorkgroup(workgroupId: string): void {
   if (!workgroup) {
     return;
   }
+  const planWorkspacePath = resolveWorkgroupPlanPath(
+    workgroup.id,
+    workgroup.planWorkspacePath ?? getDefaultWorkgroupPlanPath(workgroup.id),
+  );
   workgroupStore.saveWorkgroup({
     ...workgroup,
     id: workgroup.id,
@@ -1481,9 +1538,7 @@ function touchWorkgroup(workgroupId: string): void {
     description: workgroup.description ?? null,
     allowDirectMemberMessages: workgroup.allowDirectMemberMessages,
     groupNumber: workgroup.groupNumber ?? null,
-    planWorkspacePath: ensureWorkgroupPlanDirectory(
-      workgroup.planWorkspacePath ?? getDefaultWorkgroupPlanPath(workgroup.id),
-    ),
+    planWorkspacePath,
     registryUpdatedAt: workgroup.registryUpdatedAt ?? null,
   });
 }
