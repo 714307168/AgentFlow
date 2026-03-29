@@ -1014,6 +1014,7 @@ private fun MessageBubble(
         else -> MaterialTheme.colorScheme.outline.copy(alpha = 0.14f)
     }
     val alignment = if (isUser) Alignment.End else Alignment.Start
+    val activityDisplay = if (isActivity) parseActivityDisplay(message.content) else null
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -1054,11 +1055,34 @@ private fun MessageBubble(
                         style = MaterialTheme.typography.labelSmall
                     )
                 } else if (isActivity) {
-                    Text(
-                        text = stringResource(R.string.chat_activity),
-                        color = textColor.copy(alpha = 0.82f),
-                        style = MaterialTheme.typography.labelSmall
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = stringResource(R.string.chat_activity),
+                                color = textColor.copy(alpha = 0.82f),
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                            activityDisplay?.meta?.takeIf { it.isNotBlank() }?.let { meta ->
+                                Text(
+                                    text = meta,
+                                    color = textColor.copy(alpha = 0.68f),
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            }
+                        }
+                        Text(
+                            text = formatTimestamp(message.timestamp),
+                            color = textColor.copy(alpha = 0.64f),
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
                 } else if (isCli) {
                     Text(
                         text = stringResource(R.string.chat_cli),
@@ -1067,7 +1091,24 @@ private fun MessageBubble(
                     )
                 }
 
-                if (message.content.isNotBlank()) {
+                if (isActivity && activityDisplay != null) {
+                    activityDisplay.title?.takeIf { it.isNotBlank() }?.let { title ->
+                        Text(
+                            text = title,
+                            color = textColor,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+
+                    activityDisplay.detail?.takeIf { it.isNotBlank() }?.let { detail ->
+                        Text(
+                            text = detail,
+                            color = textColor,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                } else if (message.content.isNotBlank()) {
                     Row(verticalAlignment = Alignment.Bottom) {
                         Text(
                             text = message.content,
@@ -1088,6 +1129,47 @@ private fun MessageBubble(
             }
         }
     }
+}
+
+private data class ActivityDisplay(
+    val meta: String?,
+    val title: String?,
+    val detail: String?
+)
+
+private fun parseActivityDisplay(rawContent: String): ActivityDisplay {
+    val normalized = rawContent.replace("\r\n", "\n").trim()
+    if (normalized.isEmpty()) {
+        return ActivityDisplay(meta = null, title = null, detail = null)
+    }
+
+    val lines = normalized
+        .split('\n')
+        .map { it.trim() }
+        .filter { it.isNotEmpty() }
+
+    if (lines.isEmpty()) {
+        return ActivityDisplay(meta = null, title = null, detail = null)
+    }
+
+    val firstLine = lines.first()
+    val hasMetaLine = firstLine.contains("路") || firstLine.contains("·")
+    val title = when {
+        hasMetaLine && lines.size >= 2 -> lines[1]
+        else -> firstLine
+    }
+    val detailLines = when {
+        hasMetaLine && lines.size >= 3 -> lines.drop(2)
+        hasMetaLine -> emptyList()
+        lines.size >= 2 -> lines.drop(1)
+        else -> emptyList()
+    }
+
+    return ActivityDisplay(
+        meta = firstLine.takeIf { hasMetaLine },
+        title = title.takeIf { it.isNotBlank() },
+        detail = detailLines.joinToString("\n").trim().takeIf { it.isNotBlank() }
+    )
 }
 
 @Composable
