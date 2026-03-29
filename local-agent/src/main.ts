@@ -3242,6 +3242,13 @@ ipcMain.handle("clear-history-cache", (_event, projectId?: string | null) => {
   };
 });
 
+ipcMain.handle("repair-chat-history", (_event, projectId?: string | null) => {
+  return {
+    success: true,
+    ...runtimeManager.repairChatHistory(projectId),
+  };
+});
+
 ipcMain.handle("pick-project-attachments", async (event, data: { projectId: string; kind: "image" | "file" }) => {
   const project = getProjectById(data.projectId);
   if (!project) {

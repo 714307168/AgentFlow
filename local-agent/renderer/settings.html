@@ -892,6 +892,7 @@
             </div>
             <div class="btn-row">
               <button class="btn-secondary" id="saveCacheSettingsBtn">Save Cache Policy</button>
+              <button class="btn-secondary" id="repairChatHistoryBtn">Repair Chat History</button>
               <button class="btn-danger" id="clearHistoryCacheBtn">Clear Local History Cache</button>
             </div>
           </div>
@@ -1323,6 +1324,7 @@
       document.getElementById("cacheRetentionLabel").textContent = inlineText("Auto-clean history older than (days)", "自动清理多少天前的历史");
       document.getElementById("historyRetentionDays").placeholder = inlineText("30", "30");
       document.getElementById("saveCacheSettingsBtn").textContent = inlineText("Save Cache Policy", "保存缓存策略");
+      document.getElementById("repairChatHistoryBtn").textContent = inlineText("Repair Chat History", "修复聊天记录");
       document.getElementById("clearHistoryCacheBtn").textContent = inlineText("Clear Local History Cache", "清理本地历史缓存");
       document.getElementById("updatesSection").textContent = inlineText("Updates", "更新");
       document.getElementById("autoUpdateCheckLabel").textContent = inlineText("Automatically check for updates", "自动检查更新");
@@ -2709,6 +2711,33 @@
         );
       } catch (error) {
         showStatus(getErrorMessage(error), true);
+      }
+    });
+
+    document.getElementById("repairChatHistoryBtn").addEventListener("click", async () => {
+      const button = document.getElementById("repairChatHistoryBtn");
+      button.disabled = true;
+      try {
+        const result = await api.repairChatHistory();
+        if (!result?.success) {
+          showStatus(result?.error || inlineText("Failed to repair chat history.", "修复聊天记录失败。"), true);
+          return;
+        }
+        flashSaved();
+        const repaired = Number(result.repaired || 0);
+        const reset = Number(result.reset || 0);
+        const scanned = Number(result.scanned || 0);
+        showStatus(
+          inlineText(
+            `Scanned ${scanned} project record(s), repaired ${repaired}, reset ${reset}.`,
+            `已扫描 ${scanned} 个项目记录，修复 ${repaired} 个，重置 ${reset} 个。`
+          ),
+          false
+        );
+      } catch (error) {
+        showStatus(getErrorMessage(error), true);
+      } finally {
+        button.disabled = false;
       }
     });
 

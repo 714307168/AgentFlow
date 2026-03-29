@@ -78,6 +78,22 @@ export interface ProjectSyncRequest {
   conversationId?: string | null;
 }
 
+export interface ChatHistoryRepairProjectResult {
+  projectId: string;
+  repaired: boolean;
+  reset: boolean;
+  backupPath: string | null;
+  conversationCount: number;
+  totalItems: number;
+}
+
+export interface ChatHistoryRepairSummary {
+  scanned: number;
+  repaired: number;
+  reset: number;
+  results: ChatHistoryRepairProjectResult[];
+}
+
 interface LegacyPersistedProjectState {
   queue?: PersistedQueuedRun[];
   messages?: SessionMessage[];
@@ -162,6 +178,26 @@ class SessionHistoryStore {
       this.cache.set(projectId, empty);
       return empty;
     }
+  }
+
+  repairProjects(projectIds?: string[] | string | null): ChatHistoryRepairSummary {
+    const normalizedProjectIds = Array.isArray(projectIds)
+      ? projectIds.map((entry) => entry.trim()).filter((entry) => entry.length > 0)
+      : (typeof projectIds === "string" && projectIds.trim().length > 0 ? [projectIds.trim()] : []);
+    const targetProjectIds = normalizedProjectIds.length > 0
+      ? Array.from(new Set(normalizedProjectIds))
+      : Array.from(new Set([
+          ...this.listProjectIds(),
+          ...this.cache.keys(),
+        ])).sort((left, right) => left.localeCompare(right));
+
+    const results = targetProjectIds.map((entry) => this.repairProject(entry));
+    return {
+      scanned: results.length,
+      repaired: results.filter((entry) => entry.repaired).length,
+      reset: results.filter((entry) => entry.reset).length,
+      results,
+    };
   }
 
   updateProjectMeta(projectId: string, meta: {
@@ -363,6 +399,48 @@ class SessionHistoryStore {
     }
   }
 
+  private repairProject(projectId: string): ChatHistoryRepairProjectResult {
+    const normalizedProjectId = projectId.trim();
+    const filePath = this.getProjectFilePath(normalizedProjectId);
+    const pendingWrite = this.writeTimers.get(normalizedProjectId);
+    if (pendingWrite) {
+      clearTimeout(pendingWrite);
+      this.writeTimers.delete(normalizedProjectId);
+    }
+
+    let rawText = "";
+    let reset = false;
+    let backupPath: string | null = null;
+    let parsedState: LegacyPersistedProjectState | PersistedProjectState | null = this.cache.get(normalizedProjectId) ?? null;
+
+    if (fs.existsSync(filePath)) {
+      rawText = fs.readFileSync(filePath, "utf8");
+      try {
+        parsedState = JSON.parse(rawText) as LegacyPersistedProjectState;
+      } catch (_error) {
+        backupPath = this.backupCorruptProjectFile(normalizedProjectId, filePath);
+        parsedState = this.createEmptyState();
+        reset = true;
+      }
+    }
+
+    const normalized = this.normalizeProjectState(parsedState ?? this.createEmptyState());
+    const nextPayload = JSON.stringify(normalized);
+    const repaired = reset || !fs.existsSync(filePath) || rawText !== nextPayload;
+
+    this.cache.set(normalizedProjectId, normalized);
+    fs.writeFileSync(filePath, nextPayload, "utf8");
+
+    return {
+      projectId: normalizedProjectId,
+      repaired,
+      reset,
+      backupPath,
+      conversationCount: normalized.conversations.length,
+      totalItems: this.countProjectItems(normalized),
+    };
+  }
+
   flushAll(): void {
     for (const projectId of this.cache.keys()) {
       this.flushProject(projectId);
@@ -455,22 +533,23 @@ class SessionHistoryStore {
   private normalizeProjectState(input: LegacyPersistedProjectState): PersistedProjectState {
     const state = this.createEmptyState();
     state.latestSeq = Math.max(0, Number((input as PersistedProjectState).latestSeq) || 0);
-    state.queue = Array.isArray(input.queue)
-      ? input.queue.map((entry) => ({
-          ...entry,
-          attachments: this.cloneAttachments(entry.attachments),
-        }))
-      : [];
+    state.queue = this.normalizeQueueEntries(input.queue);
 
     const hasConversationList = Array.isArray(input.conversations) && input.conversations.length > 0;
     if (hasConversationList) {
-      state.conversations = input.conversations!.map((conversation, index) =>
-        this.normalizeConversationState(
-          conversation,
-          conversation.id?.trim() || `conversation-${index + 1}`,
-        ),
-      );
-      state.activeConversationId = input.activeConversationId?.trim() || state.conversations[0]?.id || null;
+      const seenConversationIds = new Set<string>();
+      state.conversations = input.conversations!
+        .map((conversation, index) =>
+          this.normalizeConversationState(
+            conversation,
+            this.ensureUniqueId(
+              seenConversationIds,
+              this.readString(conversation?.id) || `conversation-${index + 1}`,
+              "conversation",
+            ),
+          ),
+        );
+      state.activeConversationId = this.readString(input.activeConversationId) || state.conversations[0]?.id || null;
     } else if ((input.messages?.length ?? 0) > 0 || (input.activities?.length ?? 0) > 0) {
       const legacyConversation = this.normalizeConversationState({
         id: "conversation-1",
@@ -487,7 +566,7 @@ class SessionHistoryStore {
     }
 
     if (state.conversations.length === 0 && input.activeConversationId) {
-      const conversation = this.createEmptyConversation(input.activeConversationId.trim());
+      const conversation = this.createEmptyConversation(this.readString(input.activeConversationId) || "conversation-1");
       state.conversations = [conversation];
       state.activeConversationId = conversation.id;
     }
@@ -532,6 +611,9 @@ class SessionHistoryStore {
     if (!state.activeConversationId && state.conversations.length > 0) {
       state.activeConversationId = state.conversations[0].id;
     }
+    if (state.activeConversationId && !state.conversations.some((entry) => entry.id === state.activeConversationId)) {
+      state.activeConversationId = state.conversations[0]?.id ?? null;
+    }
 
     return state;
   }
@@ -540,32 +622,37 @@ class SessionHistoryStore {
     input: LegacyConversationState | undefined,
     fallbackId: string,
   ): PersistedConversationState {
-    const createdAt = Number(input?.createdAt) || Date.now();
+    const createdAt = this.normalizeTimestamp(input?.createdAt, Date.now());
+    const seenMessageIds = new Set<string>();
+    const seenActivityIds = new Set<string>();
+    const seenCliIds = new Set<string>();
+    const messages = Array.isArray(input?.messages)
+      ? input.messages
+        .map((message, index) => this.normalizeMessageEntry(message as SessionMessage | PersistedSessionMessage, index, createdAt, seenMessageIds))
+        .filter((message): message is PersistedSessionMessage => message !== null)
+        .sort((left, right) => left.createdAt - right.createdAt || left.updatedAt - right.updatedAt || left.syncSeq - right.syncSeq)
+      : [];
+    const activities = Array.isArray(input?.activities)
+      ? input.activities
+        .map((activity, index) => this.normalizeActivityEntry(activity as SessionActivity | PersistedSessionActivity, index, createdAt, seenActivityIds))
+        .filter((activity): activity is PersistedSessionActivity => activity !== null)
+        .sort((left, right) => left.createdAt - right.createdAt || left.updatedAt - right.updatedAt || left.syncSeq - right.syncSeq)
+      : [];
+    const cliTrace = Array.isArray(input?.cliTrace)
+      ? input.cliTrace
+        .map((entry, index) => this.normalizeCliTraceEntry(entry as CliTraceEntry | PersistedCliTraceEntry, index, createdAt, seenCliIds))
+        .filter((entry): entry is PersistedCliTraceEntry => entry !== null)
+        .sort((left, right) => left.createdAt - right.createdAt || left.syncSeq - right.syncSeq)
+      : [];
+
     return {
-      id: input?.id?.trim() || fallbackId,
-      title: input?.title?.trim() || "",
+      id: this.readString(input?.id) || fallbackId,
+      title: this.readString(input?.title) || "",
       createdAt,
-      updatedAt: Number(input?.updatedAt) || createdAt,
-      messages: Array.isArray(input?.messages)
-        ? input.messages.map((message: SessionMessage | PersistedSessionMessage) => ({
-            ...(message as PersistedSessionMessage),
-            attachments: this.cloneAttachments(message.attachments),
-            syncSeq: Number((message as PersistedSessionMessage).syncSeq) || 0,
-          }))
-        : [],
-      activities: Array.isArray(input?.activities)
-        ? input.activities.map((activity: SessionActivity | PersistedSessionActivity) => ({
-            ...(activity as PersistedSessionActivity),
-            meta: activity.meta ? { ...activity.meta } : undefined,
-            syncSeq: Number((activity as PersistedSessionActivity).syncSeq) || 0,
-          }))
-        : [],
-      cliTrace: Array.isArray(input?.cliTrace)
-        ? input.cliTrace.map((entry: CliTraceEntry | PersistedCliTraceEntry) => ({
-            ...(entry as PersistedCliTraceEntry),
-            syncSeq: Number((entry as PersistedCliTraceEntry).syncSeq) || 0,
-          }))
-        : [],
+      updatedAt: this.normalizeTimestamp(input?.updatedAt, createdAt),
+      messages,
+      activities,
+      cliTrace,
       claudeSessionId: input?.claudeSessionId ?? null,
       codexThreadId: input?.codexThreadId ?? null,
     };
@@ -618,6 +705,224 @@ class SessionHistoryStore {
     }
 
     return attachments.map((attachment) => ({ ...attachment }));
+  }
+
+  private normalizeQueueEntries(input: unknown): PersistedQueuedRun[] {
+    if (!Array.isArray(input)) {
+      return [];
+    }
+
+    const normalized: PersistedQueuedRun[] = input
+      .map((entry, index) => {
+        if (!entry || typeof entry !== "object") {
+          return null;
+        }
+        const queueEntry = entry as Partial<PersistedQueuedRun>;
+        const runId = this.readString(queueEntry.runId) || `queued-${index + 1}`;
+        const prompt = this.readString(queueEntry.prompt);
+        if (!prompt) {
+          return null;
+        }
+        return {
+          runId,
+          cwd: this.readString(queueEntry.cwd) || "",
+          prompt,
+          attachments: this.normalizeAttachments(queueEntry.attachments),
+          source: queueEntry.source === "remote" ? "remote" : "desktop",
+          queuedAt: this.normalizeTimestamp(queueEntry.queuedAt, Date.now()),
+        } as PersistedQueuedRun;
+      })
+      .filter((entry): entry is PersistedQueuedRun => entry !== null);
+    normalized.sort((left, right) => left.queuedAt - right.queuedAt || left.runId.localeCompare(right.runId));
+    return normalized;
+  }
+
+  private normalizeMessageEntry(
+    input: SessionMessage | PersistedSessionMessage,
+    index: number,
+    fallbackTimestamp: number,
+    seenIds: Set<string>,
+  ): PersistedSessionMessage | null {
+    if (!input || typeof input !== "object") {
+      return null;
+    }
+    const id = this.ensureUniqueId(seenIds, this.readString((input as PersistedSessionMessage).id) || `message-${index + 1}`, "message");
+    const createdAt = this.normalizeTimestamp((input as PersistedSessionMessage).createdAt, fallbackTimestamp);
+    const updatedAt = this.normalizeTimestamp((input as PersistedSessionMessage).updatedAt, createdAt);
+    return {
+      ...(input as PersistedSessionMessage),
+      id,
+      role: this.normalizeMessageRole((input as PersistedSessionMessage).role),
+      content: String((input as PersistedSessionMessage).content ?? ""),
+      attachments: this.normalizeAttachments((input as PersistedSessionMessage).attachments),
+      provider: (input as PersistedSessionMessage).provider === "codex" ? "codex" : ((input as PersistedSessionMessage).provider === "claude" ? "claude" : null),
+      source: (input as PersistedSessionMessage).source === "remote" ? "remote" : "desktop",
+      createdAt,
+      updatedAt: Math.max(updatedAt, createdAt),
+      status: (input as PersistedSessionMessage).status === "streaming" ? "streaming" : "done",
+      syncSeq: Math.max(0, Number((input as PersistedSessionMessage).syncSeq) || 0),
+    };
+  }
+
+  private normalizeActivityEntry(
+    input: SessionActivity | PersistedSessionActivity,
+    index: number,
+    fallbackTimestamp: number,
+    seenIds: Set<string>,
+  ): PersistedSessionActivity | null {
+    if (!input || typeof input !== "object") {
+      return null;
+    }
+    const id = this.ensureUniqueId(seenIds, this.readString((input as PersistedSessionActivity).id) || `activity-${index + 1}`, "activity");
+    const createdAt = this.normalizeTimestamp((input as PersistedSessionActivity).createdAt, fallbackTimestamp);
+    const updatedAt = this.normalizeTimestamp((input as PersistedSessionActivity).updatedAt, createdAt);
+    return {
+      ...(input as PersistedSessionActivity),
+      id,
+      kind: this.normalizeActivityKind((input as PersistedSessionActivity).kind),
+      title: this.readString((input as PersistedSessionActivity).title) || "Activity",
+      detail: String((input as PersistedSessionActivity).detail ?? ""),
+      status: this.normalizeActivityStatus((input as PersistedSessionActivity).status),
+      createdAt,
+      updatedAt: Math.max(updatedAt, createdAt),
+      meta: this.normalizeMeta((input as PersistedSessionActivity).meta),
+      syncSeq: Math.max(0, Number((input as PersistedSessionActivity).syncSeq) || 0),
+    };
+  }
+
+  private normalizeCliTraceEntry(
+    input: CliTraceEntry | PersistedCliTraceEntry,
+    index: number,
+    fallbackTimestamp: number,
+    seenIds: Set<string>,
+  ): PersistedCliTraceEntry | null {
+    if (!input || typeof input !== "object") {
+      return null;
+    }
+    const id = this.ensureUniqueId(seenIds, this.readString((input as PersistedCliTraceEntry).id) || `cli-${index + 1}`, "cli");
+    return {
+      ...(input as PersistedCliTraceEntry),
+      id,
+      stream: this.normalizeCliStream((input as PersistedCliTraceEntry).stream),
+      text: String((input as PersistedCliTraceEntry).text ?? ""),
+      createdAt: this.normalizeTimestamp((input as PersistedCliTraceEntry).createdAt, fallbackTimestamp),
+      syncSeq: Math.max(0, Number((input as PersistedCliTraceEntry).syncSeq) || 0),
+    };
+  }
+
+  private normalizeAttachments(attachments?: RunAttachment[]): RunAttachment[] | undefined {
+    if (!Array.isArray(attachments) || attachments.length === 0) {
+      return undefined;
+    }
+
+    const normalized: RunAttachment[] = attachments
+      .map((attachment, index) => {
+        if (!attachment || typeof attachment !== "object") {
+          return null;
+        }
+        const name = this.readString(attachment.name) || `attachment-${index + 1}`;
+        const attachmentPath = this.readString(attachment.path) || "";
+        return {
+          id: this.readString(attachment.id) || `attachment-${index + 1}`,
+          name,
+          path: attachmentPath,
+          size: Math.max(0, Number(attachment.size) || 0),
+          kind: attachment.kind === "image" ? "image" : "file",
+          mimeType: this.readString(attachment.mimeType) || undefined,
+          previewDataUrl: this.readString(attachment.previewDataUrl) || undefined,
+        } as RunAttachment;
+      })
+      .filter((attachment): attachment is RunAttachment => attachment !== null);
+
+    return normalized.length > 0 ? normalized : undefined;
+  }
+
+  private normalizeMeta(meta: SessionActivity["meta"]): SessionActivity["meta"] {
+    if (!meta || typeof meta !== "object") {
+      return undefined;
+    }
+    const normalizedEntries = Object.entries(meta)
+      .filter(([, value]) => ["string", "number", "boolean"].includes(typeof value))
+      .map(([key, value]) => [key, value] as const);
+    return normalizedEntries.length > 0 ? Object.fromEntries(normalizedEntries) : undefined;
+  }
+
+  private normalizeTimestamp(value: unknown, fallback: number): number {
+    const normalized = Number(value);
+    return Number.isFinite(normalized) && normalized > 0 ? normalized : fallback;
+  }
+
+  private normalizeMessageRole(role: unknown): SessionMessage["role"] {
+    return role === "user" || role === "assistant" || role === "error" ? role : "assistant";
+  }
+
+  private normalizeActivityKind(kind: unknown): SessionActivity["kind"] {
+    switch (kind) {
+      case "status":
+      case "thinking":
+      case "tool":
+      case "command":
+      case "agent":
+      case "error":
+        return kind;
+      default:
+        return "status";
+    }
+  }
+
+  private normalizeActivityStatus(status: unknown): SessionActivity["status"] {
+    switch (status) {
+      case "pending":
+      case "running":
+      case "completed":
+      case "error":
+        return status;
+      default:
+        return "completed";
+    }
+  }
+
+  private normalizeCliStream(stream: unknown): CliTraceEntry["stream"] {
+    switch (stream) {
+      case "system":
+      case "stderr":
+      case "stdout":
+        return stream;
+      default:
+        return "stdout";
+    }
+  }
+
+  private ensureUniqueId(seenIds: Set<string>, candidate: string, prefix: string): string {
+    let normalized = candidate.trim() || `${prefix}-${Date.now()}`;
+    if (!seenIds.has(normalized)) {
+      seenIds.add(normalized);
+      return normalized;
+    }
+    let suffix = 2;
+    while (seenIds.has(`${normalized}-${suffix}`)) {
+      suffix += 1;
+    }
+    normalized = `${normalized}-${suffix}`;
+    seenIds.add(normalized);
+    return normalized;
+  }
+
+  private readString(value: unknown): string {
+    return typeof value === "string" ? value.trim() : "";
+  }
+
+  private backupCorruptProjectFile(projectId: string, filePath: string): string {
+    const backupPath = path.join(this.historyDir, `${encodeURIComponent(projectId)}.corrupt-${Date.now()}.json`);
+    fs.copyFileSync(filePath, backupPath);
+    return backupPath;
+  }
+
+  private countProjectItems(state: PersistedProjectState): number {
+    return state.conversations.reduce(
+      (total, conversation) => total + conversation.messages.length + conversation.activities.length + conversation.cliTrace.length,
+      0,
+    );
   }
 }
 

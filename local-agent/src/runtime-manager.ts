@@ -11,6 +11,7 @@ import {
   isImageAttachment,
 } from "./attachment-utils";
 import SessionHistoryStore, {
+  ChatHistoryRepairSummary,
   PersistedProjectState,
   PersistedQueuedRun,
   ProjectSyncRequest,
@@ -453,6 +454,58 @@ class RuntimeManager extends EventEmitter {
     }
 
     return { cleared, skipped };
+  }
+
+  repairChatHistory(projectId?: string | null): ChatHistoryRepairSummary {
+    const normalizedProjectId = projectId?.trim() || null;
+    const targetProjectIds = normalizedProjectId
+      ? [normalizedProjectId]
+      : Array.from(new Set([
+          ...this.historyStore.listProjectIds(),
+          ...this.states.keys(),
+        ])).sort((left, right) => left.localeCompare(right));
+
+    const repairedResults = new Map<string, ChatHistoryRepairSummary["results"][number]>();
+    for (const projectIdToRepair of targetProjectIds) {
+      const state = this.states.get(projectIdToRepair);
+      if (!state) {
+        continue;
+      }
+      this.syncActiveConversationMeta(state);
+      this.rebuildProjectHistoryStore(state);
+      repairedResults.set(projectIdToRepair, {
+        projectId: projectIdToRepair,
+        repaired: true,
+        reset: false,
+        backupPath: null,
+        conversationCount: state.conversations.length,
+        totalItems: state.conversations.reduce(
+          (total, conversation) => total + conversation.messages.length + conversation.activities.length + conversation.cliTrace.length,
+          0,
+        ),
+      });
+      this.emitSnapshot(projectIdToRepair);
+    }
+
+    const coldProjectIds = targetProjectIds.filter((projectIdToRepair) => !repairedResults.has(projectIdToRepair));
+    const coldSummary = coldProjectIds.length > 0
+      ? this.historyStore.repairProjects(coldProjectIds)
+      : { scanned: 0, repaired: 0, reset: 0, results: [] };
+
+    for (const result of coldSummary.results) {
+      repairedResults.set(result.projectId, result);
+    }
+
+    const results = targetProjectIds
+      .map((projectIdToRepair) => repairedResults.get(projectIdToRepair))
+      .filter((result): result is ChatHistoryRepairSummary["results"][number] => Boolean(result));
+
+    return {
+      scanned: results.length,
+      repaired: results.filter((result) => result.repaired).length,
+      reset: results.filter((result) => result.reset).length,
+      results,
+    };
   }
 
   hasActiveOrQueuedRuns(): boolean {
