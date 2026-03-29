@@ -64,7 +64,9 @@ class MessageRepository(
     private val context: Context
 ) {
     companion object {
-        private const val MAX_PROJECT_MESSAGES = 180
+        // Mobile still pages from desktop on demand, but the local window must be
+        // large enough to keep newly prepended history instead of pruning it immediately.
+        private const val MAX_PROJECT_MESSAGES = 1200
         private const val DEFAULT_SYNC_LIMIT = 30
         private const val PROJECT_SYNC_DEDUPE_WINDOW_MS = 750L
         private const val WAKEUP_THROTTLE_WINDOW_MS = 10_000L
