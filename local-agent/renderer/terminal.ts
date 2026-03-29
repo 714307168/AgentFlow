@@ -1555,13 +1555,17 @@ function getProjectStatusMeta(projectId: string): { label: string; tone: string;
 function setActiveProject(projectId: string | null): void {
   const previousWorkspaceKey = getCurrentWorkspaceKey();
   const nextWorkspaceKey = getProjectWorkspaceKey(projectId);
-  if (state.projectId !== projectId || state.workgroupId) {
+  const selectionChanged = state.projectId !== projectId || Boolean(state.workgroupId);
+  if (selectionChanged) {
     persistWorkspaceDraft(previousWorkspaceKey);
   }
   hideMentionSuggestions();
   state.sidebarMode = "projects";
   state.projectId = projectId;
   state.workgroupId = null;
+  if (selectionChanged) {
+    state.forceDockScroll = "messages";
+  }
   api.setActiveProject?.(projectId);
   restoreWorkspaceDraft(nextWorkspaceKey);
 }
@@ -1569,13 +1573,17 @@ function setActiveProject(projectId: string | null): void {
 function setActiveWorkgroup(workgroupId: string | null): void {
   const previousWorkspaceKey = getCurrentWorkspaceKey();
   const nextWorkspaceKey = getWorkgroupWorkspaceKey(workgroupId);
-  if (state.workgroupId !== workgroupId || state.projectId) {
+  const selectionChanged = state.workgroupId !== workgroupId || Boolean(state.projectId);
+  if (selectionChanged) {
     persistWorkspaceDraft(previousWorkspaceKey);
   }
   hideMentionSuggestions();
   state.sidebarMode = "workgroups";
   state.workgroupId = workgroupId;
   state.projectId = null;
+  if (selectionChanged) {
+    state.forceDockScroll = "messages";
+  }
   api.setActiveProject?.(null);
   restoreWorkspaceDraft(nextWorkspaceKey);
 }
@@ -1611,9 +1619,7 @@ function setSidebarMode(mode: SidebarListMode): void {
 
 function setActiveView(view: WorkspaceView, persistPreference = true): void {
   state.activeView = view;
-  if (view !== "messages") {
-    state.forceDockScroll = view;
-  }
+  state.forceDockScroll = view;
   if (!persistPreference) {
     return;
   }
@@ -2547,6 +2553,7 @@ function renderMessages(): void {
     return;
   }
 
+  const forceScroll = state.forceDockScroll === "messages";
   const workgroup = getCurrentWorkgroup();
   const workgroupSession = getCurrentWorkgroupSession();
   if (workgroup) {
@@ -2569,8 +2576,8 @@ function renderMessages(): void {
       return;
     }
 
-    const stickToBottom =
-      elements.messages.scrollHeight - elements.messages.scrollTop - elements.messages.clientHeight < 80;
+    const stickToBottom = forceScroll
+      || elements.messages.scrollHeight - elements.messages.scrollTop - elements.messages.clientHeight < 80;
 
     const markup = [
       state.messageSearchQuery.trim()
@@ -2611,6 +2618,9 @@ function renderMessages(): void {
 
     if (stickToBottom) {
       elements.messages.scrollTop = elements.messages.scrollHeight;
+    }
+    if (forceScroll) {
+      state.forceDockScroll = null;
     }
     if (!state.messageSearchQuery.trim() && historyState?.hasMoreMessages) {
       scheduleHistoryAutoload("messages");
@@ -2658,8 +2668,8 @@ function renderMessages(): void {
     return;
   }
 
-  const stickToBottom =
-    elements.messages.scrollHeight - elements.messages.scrollTop - elements.messages.clientHeight < 80;
+  const stickToBottom = forceScroll
+    || elements.messages.scrollHeight - elements.messages.scrollTop - elements.messages.clientHeight < 80;
 
   const markup = [
     state.messageSearchQuery.trim()
@@ -2696,6 +2706,9 @@ function renderMessages(): void {
 
   if (stickToBottom) {
     elements.messages.scrollTop = elements.messages.scrollHeight;
+  }
+  if (forceScroll) {
+    state.forceDockScroll = null;
   }
   if (!state.messageSearchQuery.trim() && historyState?.hasMoreMessages) {
     scheduleHistoryAutoload("messages");
