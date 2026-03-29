@@ -30,6 +30,7 @@ private const val ACTIVE_SYNC_POLL_MS = 5_000L
 private const val IDLE_SYNC_POLL_MS = 12_000L
 private const val ACTIVE_SYNC_BURST_MS = 8_000L
 private const val SYNC_TRIGGER_DEBOUNCE_MS = 250L
+private const val OLDER_HISTORY_REQUEST_TIMEOUT_MS = 6_000L
 
 data class ConversationItem(
     val id: String,
@@ -69,6 +70,13 @@ class ChatViewModel(
     private val webSocket: RelayWebSocket,
     private val tokenStore: TokenStore
 ) : ViewModel() {
+    private data class PendingOlderHistoryRequest(
+        val previousFirstMessageId: String?,
+        val previousSize: Int,
+        val previousEarliestSyncSeq: Long,
+        val visibleMessageCount: Int,
+        val autoTriggered: Boolean
+    )
 
     private val _uiState = MutableStateFlow(ChatUiState())
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
@@ -81,6 +89,8 @@ class ChatViewModel(
     private var isAutoLoadingConversationHistory = false
     private var activeSyncJob: Job? = null
     private var pendingSyncTriggerJob: Job? = null
+    private var olderHistoryTimeoutJob: Job? = null
+    private var pendingOlderHistoryRequest: PendingOlderHistoryRequest? = null
     private var syncBurstUntilMillis: Long = 0L
 
     init {
@@ -162,6 +172,9 @@ class ChatViewModel(
         visibleMessageCount = MESSAGE_PAGE_SIZE
         allMessages = emptyList()
         isAutoLoadingConversationHistory = false
+        olderHistoryTimeoutJob?.cancel()
+        olderHistoryTimeoutJob = null
+        pendingOlderHistoryRequest = null
         _uiState.update {
             it.copy(
                 projectId = projectId,
@@ -217,7 +230,9 @@ class ChatViewModel(
         messagesJob = viewModelScope.launch {
             try {
                 messageRepository.getConversationMessagesForProject(projectId).collect { messages ->
+                    val previousMessages = allMessages
                     allMessages = messages
+                    reconcilePendingOlderHistory(previousMessages, messages)
                     publishVisibleMessages()
                     maybeLoadMoreConversationHistory()
                 }
@@ -295,6 +310,9 @@ class ChatViewModel(
             try {
                 visibleMessageCount = MESSAGE_PAGE_SIZE
                 allMessages = emptyList()
+                pendingOlderHistoryRequest = null
+                olderHistoryTimeoutJob?.cancel()
+                olderHistoryTimeoutJob = null
                 messageRepository.clearProjectLocalMessages(state.projectId)
                 messageRepository.createNewConversation(state.projectId, state.agentId)
             } catch (e: Exception) {
@@ -321,6 +339,9 @@ class ChatViewModel(
             try {
                 visibleMessageCount = MESSAGE_PAGE_SIZE
                 allMessages = emptyList()
+                pendingOlderHistoryRequest = null
+                olderHistoryTimeoutJob?.cancel()
+                olderHistoryTimeoutJob = null
                 messageRepository.clearProjectLocalMessages(state.projectId)
                 messageRepository.switchConversation(state.projectId, state.agentId, conversationId)
             } catch (e: Exception) {
@@ -573,9 +594,23 @@ class ChatViewModel(
         agentId: String,
         autoTriggered: Boolean = false
     ) {
+        pendingOlderHistoryRequest = PendingOlderHistoryRequest(
+            previousFirstMessageId = allMessages.firstOrNull()?.id,
+            previousSize = allMessages.size,
+            previousEarliestSyncSeq = allMessages.earliestSyncSeq(),
+            visibleMessageCount = visibleMessageCount,
+            autoTriggered = autoTriggered
+        )
         _uiState.update { it.copy(isLoadingOlder = true) }
         if (autoTriggered) {
             isAutoLoadingConversationHistory = true
+        }
+        olderHistoryTimeoutJob?.cancel()
+        olderHistoryTimeoutJob = viewModelScope.launch {
+            kotlinx.coroutines.delay(OLDER_HISTORY_REQUEST_TIMEOUT_MS)
+            if (pendingOlderHistoryRequest?.previousEarliestSyncSeq == beforeSeq) {
+                clearPendingOlderHistory()
+            }
         }
         viewModelScope.launch {
             try {
@@ -587,14 +622,74 @@ class ChatViewModel(
                 )
             } catch (e: Exception) {
                 CrashLogger.logError("ChatViewModel", "Error loading older messages", e)
-            } finally {
-                if (autoTriggered) {
-                    isAutoLoadingConversationHistory = false
-                }
-                _uiState.update { it.copy(isLoadingOlder = false) }
+                clearPendingOlderHistory()
             }
         }
     }
+
+    private fun reconcilePendingOlderHistory(
+        previousMessages: List<Message>,
+        nextMessages: List<Message>
+    ) {
+        val pending = pendingOlderHistoryRequest ?: return
+        val prependedCount = calculatePrependedMessageCount(
+            previousFirstMessageId = pending.previousFirstMessageId,
+            previousMessages = previousMessages,
+            nextMessages = nextMessages
+        )
+        val nextEarliestSyncSeq = nextMessages.earliestSyncSeq()
+        val olderHistoryArrived = prependedCount > 0 ||
+            (
+                pending.previousEarliestSyncSeq > 0L &&
+                    nextEarliestSyncSeq > 0L &&
+                    nextEarliestSyncSeq < pending.previousEarliestSyncSeq
+                )
+        if (!olderHistoryArrived) {
+            return
+        }
+
+        visibleMessageCount = maxOf(
+            pending.visibleMessageCount + prependedCount,
+            visibleMessageCount + prependedCount
+        )
+        clearPendingOlderHistory()
+    }
+
+    private fun clearPendingOlderHistory() {
+        if (pendingOlderHistoryRequest?.autoTriggered == true) {
+            isAutoLoadingConversationHistory = false
+        }
+        pendingOlderHistoryRequest = null
+        olderHistoryTimeoutJob?.cancel()
+        olderHistoryTimeoutJob = null
+        _uiState.update { it.copy(isLoadingOlder = false) }
+    }
+
+    private fun calculatePrependedMessageCount(
+        previousFirstMessageId: String?,
+        previousMessages: List<Message>,
+        nextMessages: List<Message>
+    ): Int {
+        if (nextMessages.isEmpty()) {
+            return 0
+        }
+        if (previousMessages.isEmpty()) {
+            return nextMessages.size
+        }
+        val anchorId = previousFirstMessageId ?: previousMessages.firstOrNull()?.id ?: return 0
+        val anchorIndex = nextMessages.indexOfFirst { it.id == anchorId }
+        return when {
+            anchorIndex > 0 -> anchorIndex
+            anchorIndex == 0 -> 0
+            nextMessages.size > previousMessages.size -> nextMessages.size - previousMessages.size
+            else -> 0
+        }
+    }
+
+    private fun List<Message>.earliestSyncSeq(): Long =
+        mapNotNull { message -> message.syncSeq.takeIf { it > 0L } }
+            .minOrNull()
+            ?: 0L
 
     private fun startActiveSyncLoop() {
         val projectId = _uiState.value.projectId
@@ -661,6 +756,7 @@ class ChatViewModel(
     override fun onCleared() {
         activeSyncJob?.cancel()
         pendingSyncTriggerJob?.cancel()
+        olderHistoryTimeoutJob?.cancel()
         super.onCleared()
     }
 

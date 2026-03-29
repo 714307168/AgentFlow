@@ -58,6 +58,12 @@ class WorkgroupChatViewModel(
     private val webSocket: RelayWebSocket,
     private val tokenStore: TokenStore
 ) : ViewModel() {
+    private data class PendingOlderHistoryRequest(
+        val previousFirstMessageId: String?,
+        val previousSize: Int,
+        val visibleMessageCount: Int
+    )
+
     private val _uiState = MutableStateFlow(WorkgroupChatUiState())
     val uiState: StateFlow<WorkgroupChatUiState> = _uiState.asStateFlow()
 
@@ -67,6 +73,7 @@ class WorkgroupChatViewModel(
     private var visibleMessageCount: Int = WORKGROUP_VISIBLE_PAGE_SIZE
     private var activeSyncJob: Job? = null
     private var pendingSyncTriggerJob: Job? = null
+    private var pendingOlderHistoryRequest: PendingOlderHistoryRequest? = null
     private var syncBurstUntilMillis: Long = 0L
 
     private fun text(resId: Int, vararg args: Any): String = context.getString(resId, *args)
@@ -128,6 +135,7 @@ class WorkgroupChatViewModel(
         currentSessionKey = sessionKey(agentId, workgroupId)
         allMessages = emptyList()
         visibleMessageCount = WORKGROUP_VISIBLE_PAGE_SIZE
+        pendingOlderHistoryRequest = null
         _uiState.update {
             it.copy(
                 agentId = agentId,
@@ -158,7 +166,13 @@ class WorkgroupChatViewModel(
         sessionsJob = viewModelScope.launch {
             workgroupRepository.sessions.collect { sessions ->
                 val session = sessions[currentSessionKey] ?: return@collect
+                val previousMessages = allMessages
                 allMessages = session.messages
+                reconcilePendingOlderHistory(
+                    previousMessages = previousMessages,
+                    nextMessages = session.messages,
+                    hasMoreRemoteHistory = session.hasMoreHistory
+                )
                 _uiState.update { current ->
                     current.copy(
                         workgroupName = session.workgroupName.ifBlank { current.workgroupName },
@@ -170,7 +184,7 @@ class WorkgroupChatViewModel(
                             members = session.members
                         ),
                         isLoading = false,
-                        isLoadingOlder = false
+                        isLoadingOlder = pendingOlderHistoryRequest != null
                     )
                 }
                 publishVisibleMessages(
@@ -208,6 +222,11 @@ class WorkgroupChatViewModel(
             return
         }
         val beforeId = state.messages.firstOrNull()?.id ?: return
+        pendingOlderHistoryRequest = PendingOlderHistoryRequest(
+            previousFirstMessageId = allMessages.firstOrNull()?.id,
+            previousSize = allMessages.size,
+            visibleMessageCount = visibleMessageCount
+        )
         _uiState.update { it.copy(isLoadingOlder = true, error = null) }
         viewModelScope.launch {
             val result = workgroupRepository.requestSession(
@@ -217,6 +236,7 @@ class WorkgroupChatViewModel(
                 limit = WORKGROUP_INITIAL_SYNC_PAGE_SIZE
             )
             if (result.isFailure) {
+                pendingOlderHistoryRequest = null
                 _uiState.update {
                     it.copy(
                         isLoadingOlder = false,
@@ -340,6 +360,54 @@ class WorkgroupChatViewModel(
         }
     }
 
+    private fun reconcilePendingOlderHistory(
+        previousMessages: List<WorkgroupMessage>,
+        nextMessages: List<WorkgroupMessage>,
+        hasMoreRemoteHistory: Boolean
+    ) {
+        val pending = pendingOlderHistoryRequest ?: return
+        val prependedCount = calculatePrependedMessageCount(
+            previousFirstMessageId = pending.previousFirstMessageId,
+            previousMessages = previousMessages,
+            nextMessages = nextMessages
+        )
+        if (prependedCount > 0) {
+            visibleMessageCount = maxOf(
+                pending.visibleMessageCount + prependedCount,
+                visibleMessageCount + prependedCount
+            )
+            pendingOlderHistoryRequest = null
+            return
+        }
+        val requestSettledWithoutGrowth =
+            !hasMoreRemoteHistory &&
+                nextMessages.firstOrNull()?.id == pending.previousFirstMessageId
+        if (requestSettledWithoutGrowth) {
+            pendingOlderHistoryRequest = null
+        }
+    }
+
+    private fun calculatePrependedMessageCount(
+        previousFirstMessageId: String?,
+        previousMessages: List<WorkgroupMessage>,
+        nextMessages: List<WorkgroupMessage>
+    ): Int {
+        if (nextMessages.isEmpty()) {
+            return 0
+        }
+        if (previousMessages.isEmpty()) {
+            return nextMessages.size
+        }
+        val anchorId = previousFirstMessageId ?: previousMessages.firstOrNull()?.id ?: return 0
+        val anchorIndex = nextMessages.indexOfFirst { it.id == anchorId }
+        return when {
+            anchorIndex > 0 -> anchorIndex
+            anchorIndex == 0 -> 0
+            nextMessages.size > previousMessages.size -> nextMessages.size - previousMessages.size
+            else -> 0
+        }
+    }
+
     private fun maybeLoadMoreHistory() {
         val state = _uiState.value
         if (
@@ -356,6 +424,11 @@ class WorkgroupChatViewModel(
             return
         }
         val beforeId = state.messages.firstOrNull()?.id ?: return
+        pendingOlderHistoryRequest = PendingOlderHistoryRequest(
+            previousFirstMessageId = allMessages.firstOrNull()?.id,
+            previousSize = allMessages.size,
+            visibleMessageCount = visibleMessageCount
+        )
         _uiState.update { it.copy(isLoadingOlder = true) }
         viewModelScope.launch {
             val result = workgroupRepository.requestSession(
@@ -365,6 +438,7 @@ class WorkgroupChatViewModel(
                 limit = WORKGROUP_INITIAL_SYNC_PAGE_SIZE
             )
             if (result.isFailure) {
+                pendingOlderHistoryRequest = null
                 _uiState.update {
                     it.copy(
                         isLoadingOlder = false,
