@@ -11,6 +11,8 @@ import type { ProjectSessionSnapshot } from "./runtime-types";
 
 const DEFAULT_HISTORY_PAGE_SIZE = 30;
 const DEFAULT_CONTEXT_MESSAGE_COUNT = 16;
+const LOCAL_MEMBER_RESPONSE_GRACE_MS = 15_000;
+const REMOTE_MEMBER_RESPONSE_GRACE_MS = 90_000;
 
 export interface CollaborationBoundProject {
   id: string;
@@ -365,6 +367,9 @@ export default class WorkgroupCollaborationService extends EventEmitter {
         continue;
       }
       if (snapshot?.isRunning) {
+        continue;
+      }
+      if (this.shouldWaitForMemberResponse(message, snapshot)) {
         continue;
       }
 
@@ -762,6 +767,9 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       if (!memberId) {
         continue;
       }
+      if (!this.shouldCountAsHandledMemberMessage(message)) {
+        continue;
+      }
       if (this.resolveRootTriggerMessageId(workgroupId, message) !== normalizedRootTriggerMessageId) {
         continue;
       }
@@ -916,10 +924,55 @@ export default class WorkgroupCollaborationService extends EventEmitter {
     senderName: string,
     content: string,
   ): void {
+    const normalizedContent = content.trim();
     workgroupCollaborationStore.updateMessage(workgroupId, messageId, {
+      senderType: normalizedContent ? "member" : "error",
       status: "done",
-      content: content.trim() || `${senderName} stopped before replying.`,
+      content: normalizedContent || `${senderName} stopped before replying.`,
     });
+  }
+
+  private shouldWaitForMemberResponse(
+    message: WorkgroupCollaborationMessage,
+    snapshot: ProjectSessionSnapshot | null,
+  ): boolean {
+    const content = message.content.trim();
+    if (content) {
+      return false;
+    }
+
+    const runId = message.dispatchRunId?.trim() ?? "";
+    if (runId && snapshot) {
+      if (snapshot.queue.some((entry) => entry.runId === runId)) {
+        return true;
+      }
+      if (snapshot.messages.some((entry) => entry.id === runId || entry.id === `${runId}:assistant`)) {
+        return true;
+      }
+    }
+
+    const referenceAt = Math.max(
+      Number(message.updatedAt) || 0,
+      Number(message.createdAt) || 0,
+    );
+    const graceMs = message.projectKind === "remote"
+      ? REMOTE_MEMBER_RESPONSE_GRACE_MS
+      : LOCAL_MEMBER_RESPONSE_GRACE_MS;
+    return Date.now() - referenceAt < graceMs;
+  }
+
+  private shouldCountAsHandledMemberMessage(message: WorkgroupCollaborationMessage): boolean {
+    if (message.senderType !== "member") {
+      return false;
+    }
+
+    const normalizedContent = message.content.trim();
+    if (!normalizedContent) {
+      return false;
+    }
+
+    return normalizedContent !== `${message.senderName} stopped before replying.`
+      && normalizedContent !== `${message.senderName} skipped a duplicate handoff.`;
   }
 
   private emitSummaries(): void {
