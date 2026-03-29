@@ -113,7 +113,8 @@ private data class AttachmentPreviewTarget(
 
 private enum class ChatPane {
     CONVERSATION,
-    ACTIVITY
+    ACTIVITY,
+    QUEUE
 }
 
 @Composable
@@ -129,6 +130,7 @@ fun ChatScreen(
     val uiState by viewModel.uiState.collectAsState()
     val conversationListState = rememberLazyListState()
     val activityListState = rememberLazyListState()
+    val queueListState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
     val lifecycleOwner = context as? LifecycleOwner
     var selectedPane by rememberSaveable(projectId) { mutableStateOf(ChatPane.CONVERSATION) }
@@ -161,11 +163,15 @@ fun ChatScreen(
 
     LaunchedEffect(projectId, uiState.hasMoreHistory, uiState.isLoadingOlder) {
         snapshotFlow {
-            val activeListState = if (selectedPane == ChatPane.ACTIVITY) activityListState else conversationListState
-            activeListState.firstVisibleItemIndex to activeListState.firstVisibleItemScrollOffset
+            when (selectedPane) {
+                ChatPane.ACTIVITY -> activityListState.firstVisibleItemIndex to activityListState.firstVisibleItemScrollOffset
+                ChatPane.CONVERSATION -> conversationListState.firstVisibleItemIndex to conversationListState.firstVisibleItemScrollOffset
+                ChatPane.QUEUE -> null
+            }
         }
             .distinctUntilChanged()
-            .collect { (index, offset) ->
+            .collect { state ->
+                val (index, offset) = state ?: return@collect
                 if (index == 0 && offset <= 24 && uiState.hasMoreHistory && !uiState.isLoadingOlder) {
                     viewModel.loadOlderMessages()
                 }
@@ -492,6 +498,7 @@ fun ChatScreen(
                         ChatPaneTabs(
                             selectedPane = selectedPane,
                             activityCount = uiState.activityMessages.size,
+                            queueCount = maxOf(uiState.queueItems.size, uiState.queuedCount),
                             onSelectPane = { selectedPane = it }
                         )
 
@@ -525,9 +532,26 @@ fun ChatScreen(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
+                        } else if (selectedPane == ChatPane.QUEUE && uiState.queueItems.isEmpty()) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(horizontal = 18.dp, vertical = 14.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.chat_no_queue),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         } else {
                             LazyColumn(
-                                state = if (selectedPane == ChatPane.ACTIVITY) activityListState else conversationListState,
+                                state = when (selectedPane) {
+                                    ChatPane.ACTIVITY -> activityListState
+                                    ChatPane.CONVERSATION -> conversationListState
+                                    ChatPane.QUEUE -> queueListState
+                                },
                                 modifier = Modifier.fillMaxSize(),
                                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp),
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -544,26 +568,34 @@ fun ChatScreen(
                                         )
                                     }
                                 }
-                                val activeMessages = if (selectedPane == ChatPane.ACTIVITY) uiState.activityMessages else uiState.messages
-                                items(activeMessages, key = { it.id }) { message ->
-                                    MessageBubble(
-                                        message = message,
-                                        downloadingAttachmentIds = uiState.downloadingAttachmentIds,
-                                        onAttachmentAction = { attachment ->
-                                            handleAttachmentAction(
-                                                context = context,
-                                                viewModel = viewModel,
-                                                messageId = message.id,
-                                                attachment = attachment
-                                            )
-                                        },
-                                        onImageClick = { attachment ->
-                                            previewAttachment = AttachmentPreviewTarget(
-                                                messageId = message.id,
-                                                attachment = attachment
-                                            )
-                                        }
-                                    )
+                                if (selectedPane == ChatPane.QUEUE) {
+                                    items(uiState.queueItems, key = { item ->
+                                        item.runId.ifBlank { "${item.source}-${item.queuedAt}-${item.prompt}" }
+                                    }) { item ->
+                                        QueueItemCard(item = item)
+                                    }
+                                } else {
+                                    val activeMessages = if (selectedPane == ChatPane.ACTIVITY) uiState.activityMessages else uiState.messages
+                                    items(activeMessages, key = { it.id }) { message ->
+                                        MessageBubble(
+                                            message = message,
+                                            downloadingAttachmentIds = uiState.downloadingAttachmentIds,
+                                            onAttachmentAction = { attachment ->
+                                                handleAttachmentAction(
+                                                    context = context,
+                                                    viewModel = viewModel,
+                                                    messageId = message.id,
+                                                    attachment = attachment
+                                                )
+                                            },
+                                            onImageClick = { attachment ->
+                                                previewAttachment = AttachmentPreviewTarget(
+                                                    messageId = message.id,
+                                                    attachment = attachment
+                                                )
+                                            }
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -573,6 +605,53 @@ fun ChatScreen(
         }
     }
 }
+
+@Composable
+private fun QueueItemCard(item: QueueItem) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.28f),
+        shape = RoundedCornerShape(18.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                RuntimePill(
+                    text = queueSourceLabel(item.source),
+                    color = if (item.source == "remote") {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.secondary
+                    }
+                )
+                Text(
+                    text = formatTimestamp(item.queuedAt),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Text(
+                text = item.prompt,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+        }
+    }
+}
+
+@Composable
+private fun queueSourceLabel(source: String): String =
+    when (source.trim().lowercase()) {
+        "remote" -> stringResource(R.string.chat_queue_source_remote)
+        "desktop" -> stringResource(R.string.chat_queue_source_desktop)
+        else -> source.ifBlank { stringResource(R.string.chat_queue_source_unknown) }
+    }
 
 private fun providerLabel(provider: String): String =
     if (provider == "codex") "OpenAI Codex" else "Claude Code"
@@ -622,6 +701,7 @@ private fun runtimeBannerSummary(uiState: ChatUiState): String =
 private fun ChatPaneTabs(
     selectedPane: ChatPane,
     activityCount: Int,
+    queueCount: Int,
     onSelectPane: (ChatPane) -> Unit
 ) {
     Row(
@@ -639,6 +719,11 @@ private fun ChatPaneTabs(
             label = stringResource(R.string.chat_view_activity, activityCount),
             selected = selectedPane == ChatPane.ACTIVITY,
             onClick = { onSelectPane(ChatPane.ACTIVITY) }
+        )
+        ChatPaneTab(
+            label = stringResource(R.string.chat_view_queue, queueCount),
+            selected = selectedPane == ChatPane.QUEUE,
+            onClick = { onSelectPane(ChatPane.QUEUE) }
         )
     }
 }

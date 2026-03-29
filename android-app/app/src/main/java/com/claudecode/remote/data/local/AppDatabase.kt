@@ -9,7 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [MessageEntity::class, SessionEntity::class],
-    version = 6,
+    version = 7,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -27,7 +27,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "claude_remote_db"
                 )
-                    .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                    .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                     .build()
                 INSTANCE = instance
                 instance
@@ -53,6 +53,12 @@ abstract class AppDatabase : RoomDatabase() {
                 database.execSQL("ALTER TABLE sessions ADD COLUMN activeConversationId TEXT")
                 database.execSQL("ALTER TABLE sessions ADD COLUMN activeConversationTitle TEXT")
                 database.execSQL("ALTER TABLE sessions ADD COLUMN conversationsJson TEXT")
+            }
+        }
+
+        private val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE sessions ADD COLUMN queueJson TEXT")
             }
         }
     }

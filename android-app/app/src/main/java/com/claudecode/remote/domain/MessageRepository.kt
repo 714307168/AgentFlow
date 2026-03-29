@@ -673,6 +673,7 @@ class MessageRepository(
                     ?.contentOrNull
                     ?.trim()
                     .takeUnless { it.isNullOrBlank() }
+                val queueJson = payloadObj["queue"]?.jsonArray?.toString()
                 val activeConversationId = payloadObj["active_conversation_id"]?.jsonPrimitive?.contentOrNull?.trim()
                     .takeUnless { it.isNullOrBlank() }
                 val conversationsArray = payloadObj["conversations"]?.jsonArray
@@ -699,6 +700,7 @@ class MessageRepository(
                     queuedCount = queuedCount,
                     currentPrompt = currentPrompt,
                     queuePreview = queuePreview,
+                    queueJson = queueJson,
                     currentStartedAt = currentStartedAt,
                     activeConversationId = activeConversationId,
                     activeConversationTitle = activeConversationTitle,
@@ -1033,6 +1035,11 @@ class MessageRepository(
             queuedCount = nextQueuedCount,
             currentPrompt = if (wasBusy) session.currentPrompt else previewPrompt,
             queuePreview = if (wasBusy) previewPrompt else null,
+            queueJson = buildOptimisticQueueJson(
+                existingQueueJson = session.queueJson,
+                previewPrompt = previewPrompt,
+                queuedAt = now
+            ),
             currentStartedAt = if (wasBusy) session.currentStartedAt else now,
             activeConversationId = session.activeConversationId,
             activeConversationTitle = session.activeConversationTitle,
@@ -1053,6 +1060,24 @@ class MessageRepository(
                 put("previewDataUrl", JsonPrimitive(it))
             }
         }
+
+    private fun buildOptimisticQueueJson(
+        existingQueueJson: String?,
+        previewPrompt: String,
+        queuedAt: Long
+    ): String? {
+        val existingQueue = runCatching {
+            json.parseToJsonElement(existingQueueJson.orEmpty()).jsonArray.toMutableList()
+        }.getOrElse { mutableListOf() }
+
+        existingQueue += buildJsonObject {
+            put("runId", JsonPrimitive("optimistic-$queuedAt"))
+            put("prompt", JsonPrimitive(previewPrompt))
+            put("source", JsonPrimitive("remote"))
+            put("queuedAt", JsonPrimitive(queuedAt))
+        }
+        return existingQueue.takeLast(8).let { JsonArray(it) }.toString()
+    }
 
     private suspend fun uploadAttachment(
         projectId: String,

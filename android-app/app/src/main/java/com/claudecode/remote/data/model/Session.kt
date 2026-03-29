@@ -18,6 +18,7 @@ data class Session(
     val queuedCount: Int = 0,
     val currentPrompt: String? = null,
     val queuePreview: String? = null,
+    val queueJson: String? = null,
     val currentStartedAt: Long? = null,
     val activeConversationId: String? = null,
     val activeConversationTitle: String? = null,

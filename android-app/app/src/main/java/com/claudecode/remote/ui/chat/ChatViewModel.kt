@@ -39,9 +39,17 @@ data class ConversationItem(
     val isActive: Boolean
 )
 
+data class QueueItem(
+    val runId: String,
+    val prompt: String,
+    val source: String,
+    val queuedAt: Long
+)
+
 data class ChatUiState(
     val messages: List<Message> = emptyList(),
     val activityMessages: List<Message> = emptyList(),
+    val queueItems: List<QueueItem> = emptyList(),
     val inputText: String = "",
     val pendingAttachments: List<MessageAttachment> = emptyList(),
     val downloadingAttachmentIds: Set<String> = emptySet(),
@@ -189,7 +197,8 @@ class ChatViewModel(
                 hasMoreHistory = false,
                 isSwitchingConversation = false,
                 messages = emptyList(),
-                activityMessages = emptyList()
+                activityMessages = emptyList(),
+                queueItems = emptyList()
             )
         }
         markSyncBurst()
@@ -217,6 +226,7 @@ class ChatViewModel(
                                 session?.conversationsJson,
                                 session?.activeConversationId
                             ),
+                            queueItems = parseQueueItems(session?.queueJson),
                             isSwitchingConversation = false
                         )
                     }
@@ -810,6 +820,34 @@ class ChatViewModel(
                 .sortedByDescending { it.updatedAt }
         }.getOrElse { error ->
             CrashLogger.logError("ChatViewModel", "Failed to parse conversation list", error as? Exception ?: Exception(error))
+            emptyList()
+        }
+    }
+
+    private fun parseQueueItems(rawJson: String?): List<QueueItem> {
+        if (rawJson.isNullOrBlank()) {
+            return emptyList()
+        }
+
+        return runCatching {
+            json.parseToJsonElement(rawJson)
+                .jsonArray
+                .mapNotNull { item ->
+                    val itemObj = item.jsonObject
+                    val runId = itemObj["runId"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+                    val prompt = itemObj["prompt"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+                    if (prompt.isBlank()) {
+                        return@mapNotNull null
+                    }
+                    QueueItem(
+                        runId = runId,
+                        prompt = prompt,
+                        source = itemObj["source"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty(),
+                        queuedAt = itemObj["queuedAt"]?.jsonPrimitive?.contentOrNull?.toLongOrNull() ?: 0L
+                    )
+                }
+        }.getOrElse { error ->
+            CrashLogger.logError("ChatViewModel", "Failed to parse queue list", error as? Exception ?: Exception(error))
             emptyList()
         }
     }
