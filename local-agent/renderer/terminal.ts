@@ -1,6 +1,6 @@
 ﻿type Lang = "en" | "zh";
 type WorkspaceView = "messages" | "activity" | "cli" | "queue";
-type SidebarListMode = "projects" | "workgroups";
+type SidebarListMode = "messages" | "contacts";
 type AttachmentKind = "image" | "file";
 
 interface LangPayload {
@@ -436,7 +436,7 @@ const state: {
   lang: "en",
   messages: {},
   activeView: "messages",
-  sidebarMode: "projects",
+  sidebarMode: "messages",
   projectSearchQuery: "",
   messageSearchQuery: "",
   messageSearchWorkspaceKey: null,
@@ -789,6 +789,88 @@ function formatRelativeTime(timestamp: number): string {
   }
   const days = Math.max(1, Math.floor(diffMs / dayMs));
   return inlineText(`${days}d ago`, `${days}天前`);
+}
+
+function getProjectLatestPreview(projectId: string): string {
+  const session = state.sessionsByProjectId.get(projectId) ?? null;
+  if (!session) {
+    return getProjectStatusMeta(projectId).detail;
+  }
+
+  if (session.isRunning && session.currentPrompt?.trim()) {
+    return previewText(session.currentPrompt, 96) || getProjectStatusMeta(projectId).detail;
+  }
+
+  const latestMessage = getLatestMessage(session);
+  if (latestMessage?.content?.trim()) {
+    return previewText(latestMessage.content, 96) || getProjectStatusMeta(projectId).detail;
+  }
+
+  const latestActivity = getLatestActivity(session);
+  if (latestActivity?.detail?.trim() || latestActivity?.title?.trim()) {
+    return previewText(latestActivity.detail || latestActivity.title, 96) || getProjectStatusMeta(projectId).detail;
+  }
+
+  const nextQueuedItem = session.queue[0];
+  if (nextQueuedItem?.prompt?.trim()) {
+    return previewText(nextQueuedItem.prompt, 96) || getProjectStatusMeta(projectId).detail;
+  }
+
+  return getProjectStatusMeta(projectId).detail;
+}
+
+function getWorkgroupLatestPreview(workgroupId: string): string {
+  const session = state.sessionsByWorkgroupId.get(workgroupId) ?? null;
+  const summary = state.workgroups.find((entry) => entry.id === workgroupId) ?? null;
+  const latestMessage = session?.messages[session.messages.length - 1] ?? null;
+  if (latestMessage?.content?.trim()) {
+    return previewText(latestMessage.content, 96) || getWorkgroupStatusMeta(workgroupId).detail;
+  }
+  const summaryPreview = summary?.lastMessagePreview?.trim();
+  if (summaryPreview) {
+    return previewText(summaryPreview, 96) || getWorkgroupStatusMeta(workgroupId).detail;
+  }
+  return getWorkgroupStatusMeta(workgroupId).detail;
+}
+
+function getPreferredSidebarSelection(): { projectId: string | null; workgroupId: string | null } | null {
+  const entries: Array<{
+    projectId: string | null;
+    workgroupId: string | null;
+    lastActivityAt: number;
+    sortName: string;
+  }> = [
+    ...state.projects.map((project) => ({
+      projectId: project.id,
+      workgroupId: null,
+      lastActivityAt: getProjectLastActivityAt(project.id),
+      sortName: project.name,
+    })),
+    ...state.workgroups.map((workgroup) => ({
+      projectId: null,
+      workgroupId: workgroup.id,
+      lastActivityAt: getWorkgroupLastActivityAt(workgroup.id),
+      sortName: workgroup.name,
+    })),
+  ];
+
+  if (entries.length === 0) {
+    return null;
+  }
+
+  entries.sort((left, right) => {
+    const activityDiff = right.lastActivityAt - left.lastActivityAt;
+    if (activityDiff !== 0) {
+      return activityDiff;
+    }
+    return left.sortName.localeCompare(right.sortName, getLocale(), { sensitivity: "base" });
+  });
+
+  const preferred = entries[0];
+  return {
+    projectId: preferred.projectId,
+    workgroupId: preferred.workgroupId,
+  };
 }
 
 function formatEmptyState(title: string, detail: string): string {
@@ -1560,7 +1642,6 @@ function setActiveProject(projectId: string | null): void {
     persistWorkspaceDraft(previousWorkspaceKey);
   }
   hideMentionSuggestions();
-  state.sidebarMode = "projects";
   state.projectId = projectId;
   state.workgroupId = null;
   if (selectionChanged) {
@@ -1578,7 +1659,6 @@ function setActiveWorkgroup(workgroupId: string | null): void {
     persistWorkspaceDraft(previousWorkspaceKey);
   }
   hideMentionSuggestions();
-  state.sidebarMode = "workgroups";
   state.workgroupId = workgroupId;
   state.projectId = null;
   if (selectionChanged) {
@@ -1592,24 +1672,19 @@ function setSidebarMode(mode: SidebarListMode): void {
   if (state.sidebarMode === mode) {
     return;
   }
-  if (mode === "projects") {
-    if (state.projectId) {
-      setActiveProject(state.projectId);
-    } else if (state.projects.length > 0) {
-      setActiveProject(state.projects[0].id);
-    } else {
-      setActiveProject(null);
+  state.sidebarMode = mode;
+  if (!state.projectId && !state.workgroupId) {
+    const preferred = getPreferredSidebarSelection();
+    if (preferred?.workgroupId) {
+      setActiveWorkgroup(preferred.workgroupId);
+    } else if (preferred?.projectId) {
+      setActiveProject(preferred.projectId);
     }
-    syncActiveViewForCurrentProject();
-  } else {
-    if (state.workgroupId) {
-      setActiveWorkgroup(state.workgroupId);
-    } else if (state.workgroups.length > 0) {
-      setActiveWorkgroup(state.workgroups[0].id);
-    } else {
-      setActiveWorkgroup(null);
-    }
+  }
+  if (state.workgroupId) {
     state.activeView = "messages";
+  } else {
+    syncActiveViewForCurrentProject();
   }
   if (state.messageSearchQuery.trim()) {
     scheduleMessageSearch();
@@ -1826,10 +1901,10 @@ function applyStaticI18n(): void {
     elements.projectSearchInput.placeholder = inlineText("Search workspace", "搜索项目或群组");
   }
   if (elements.sidebarProjectsTabLabel) {
-    elements.sidebarProjectsTabLabel.textContent = inlineText("Private", "私聊");
+    elements.sidebarProjectsTabLabel.textContent = inlineText("Messages", "消息");
   }
   if (elements.sidebarWorkgroupsTabLabel) {
-    elements.sidebarWorkgroupsTabLabel.textContent = inlineText("Groups", "群组");
+    elements.sidebarWorkgroupsTabLabel.textContent = inlineText("Contacts", "通讯录");
   }
   if (elements.messageSearchInput) {
     elements.messageSearchInput.placeholder = inlineText("Search messages", "搜索消息");
@@ -1916,19 +1991,19 @@ function applyStaticI18n(): void {
 
 function renderSidebarModeControls(): void {
   if (elements.projectsTitle) {
-    elements.projectsTitle.textContent = state.sidebarMode === "workgroups"
-      ? inlineText("Groups", "群组")
-      : inlineText("Private Chats", "私聊");
+    elements.projectsTitle.textContent = state.sidebarMode === "contacts"
+      ? inlineText("Contacts", "通讯录")
+      : inlineText("Messages", "消息");
   }
   if (elements.projectSearchInput) {
-    elements.projectSearchInput.placeholder = state.sidebarMode === "workgroups"
-      ? inlineText("Search groups", "搜索群组")
-      : inlineText("Search private chats", "搜索私聊");
+    elements.projectSearchInput.placeholder = state.sidebarMode === "contacts"
+      ? inlineText("Search contacts", "搜索通讯录")
+      : inlineText("Search messages", "搜索消息");
   }
-  elements.sidebarProjectsTab?.classList.toggle("active", state.sidebarMode === "projects");
-  elements.sidebarProjectsTab?.setAttribute("aria-pressed", String(state.sidebarMode === "projects"));
-  elements.sidebarWorkgroupsTab?.classList.toggle("active", state.sidebarMode === "workgroups");
-  elements.sidebarWorkgroupsTab?.setAttribute("aria-pressed", String(state.sidebarMode === "workgroups"));
+  elements.sidebarProjectsTab?.classList.toggle("active", state.sidebarMode === "messages");
+  elements.sidebarProjectsTab?.setAttribute("aria-pressed", String(state.sidebarMode === "messages"));
+  elements.sidebarWorkgroupsTab?.classList.toggle("active", state.sidebarMode === "contacts");
+  elements.sidebarWorkgroupsTab?.setAttribute("aria-pressed", String(state.sidebarMode === "contacts"));
 }
 
 function buildOverviewState(
@@ -2250,6 +2325,119 @@ function renderProjectList(): void {
     return;
   }
 
+  if (state.sidebarMode === "messages") {
+    const recentItems = [
+      ...state.projects.map((project) => {
+        const status = getProjectStatusMeta(project.id);
+        const lastActivityAt = getProjectLastActivityAt(project.id);
+        const latestPreview = getProjectLatestPreview(project.id);
+        const searchHaystack = [
+          project.name,
+          project.path,
+          project.groupName ?? "",
+          project.agentId ?? "",
+          latestPreview,
+          status.label,
+          status.detail,
+          project.isRemote ? inlineText("Remote", "远程") : inlineText("Local", "本地"),
+        ]
+          .join(" ")
+          .toLowerCase();
+        return {
+          key: `project:${project.id}`,
+          type: "project" as const,
+          id: project.id,
+          name: project.name,
+          selected: project.id === state.projectId,
+          lastActivityAt,
+          preview: latestPreview,
+          meta: project.path,
+          status,
+          searchHaystack,
+          badge: project.isRemote
+            ? { className: "remote", label: inlineText("Remote", "远程") }
+            : { className: "local", label: inlineText("Project", "项目") },
+          extra: project.isRemote && project.agentId ? project.agentId : "",
+        };
+      }),
+      ...state.workgroups.map((workgroup) => {
+        const status = getWorkgroupStatusMeta(workgroup.id);
+        const lastActivityAt = getWorkgroupLastActivityAt(workgroup.id);
+        const latestPreview = getWorkgroupLatestPreview(workgroup.id);
+        const searchHaystack = [
+          workgroup.name,
+          workgroup.description ?? "",
+          workgroup.lastMessagePreview ?? "",
+          latestPreview,
+          status.label,
+          status.detail,
+          inlineText("Workgroup", "协作组"),
+        ]
+          .join(" ")
+          .toLowerCase();
+        return {
+          key: `workgroup:${workgroup.id}`,
+          type: "workgroup" as const,
+          id: workgroup.id,
+          name: workgroup.name,
+          selected: workgroup.id === state.workgroupId,
+          lastActivityAt,
+          preview: latestPreview,
+          meta: workgroup.description?.trim() || inlineText(`${workgroup.memberCount} members`, `${workgroup.memberCount} 名成员`),
+          status,
+          searchHaystack,
+          badge: { className: "group", label: inlineText("Group", "群组") },
+          extra: inlineText(`${workgroup.memberCount} members`, `${workgroup.memberCount} 名成员`),
+        };
+      }),
+    ]
+      .filter((item) => !hasSearchQuery || item.searchHaystack.includes(normalizedSearchQuery))
+      .sort((left, right) => {
+        const activityDiff = right.lastActivityAt - left.lastActivityAt;
+        if (activityDiff !== 0) {
+          return activityDiff;
+        }
+        return left.name.localeCompare(right.name, getLocale(), { sensitivity: "base" });
+      });
+
+    const emptyMarkup = formatEmptyState(
+      hasSearchQuery
+        ? inlineText("No matching conversations", "没有匹配的消息")
+        : inlineText("No messages yet", "还没有消息"),
+      hasSearchQuery
+        ? inlineText("Try a different keyword.", "试试其他关键词。")
+        : inlineText("Projects, remote agents, and workgroups will appear here after activity starts.", "本地项目、远程项目和协作组有消息后都会显示在这里。"),
+    );
+    const markup = recentItems.length === 0
+      ? emptyMarkup
+      : recentItems.map((item) => {
+        const extraMeta = item.type === "project" && item.extra
+          ? `<span class="project-meta-pill mono" title="${escapeHtml(item.extra)}">${escapeHtml(item.extra)}</span>`
+          : (item.type === "workgroup"
+            ? `<span class="project-meta-pill">${escapeHtml(item.extra)}</span>`
+            : "");
+        const buttonAttr = item.type === "project"
+          ? `data-project-id="${escapeHtml(item.id)}"`
+          : `data-workgroup-id="${escapeHtml(item.id)}"`;
+        return [
+          `<button class="project-list-item recent-chat-item${item.selected ? " selected" : ""}" type="button" ${buttonAttr}>`,
+          '<div class="project-list-top">',
+          `<div class="project-list-name-row"><span class="project-list-name">${highlightText(item.name, searchQuery)}</span><span class="project-origin-pill ${escapeHtml(item.badge.className)}">${escapeHtml(item.badge.label)}</span></div>`,
+          `<span class="project-status-pill ${escapeHtml(item.status.tone)}">${escapeHtml(item.status.label)}</span>`,
+          "</div>",
+          `<div class="project-list-detail"><span class="project-list-summary">${highlightText(item.preview, searchQuery)}</span><span class="project-list-time">${escapeHtml(formatRelativeTime(item.lastActivityAt || 0))}</span></div>`,
+          `<div class="project-list-meta"><span class="project-list-path" title="${escapeHtml(item.meta)}">${highlightText(previewText(item.meta, 84) || item.meta, searchQuery)}</span>${extraMeta}</div>`,
+          "</button>",
+        ].join("");
+      }).join("");
+
+    if (renderSignatures.projectList !== markup) {
+      renderSignatures.projectList = markup;
+      elements.projectList.innerHTML = markup;
+    }
+    return;
+  }
+
   const groups = new Map<string, { label: string; projects: ProjectState[] }>();
   for (const project of state.projects) {
     const groupKey = getProjectGroupKey(project);
@@ -2292,7 +2480,7 @@ function renderProjectList(): void {
     return value;
   };
 
-  const workgroupSection = state.sidebarMode !== "workgroups" || state.workgroups.length === 0
+  const workgroupSection = state.workgroups.length === 0
     ? ""
     : [
         `<section class="project-group" data-group-key="__workgroups__">`,
@@ -2345,9 +2533,7 @@ function renderProjectList(): void {
         "</section>",
       ].join("");
 
-  const projectSections = state.sidebarMode !== "projects"
-    ? ""
-    : groupKeys
+  const projectSections = groupKeys
     .map((groupKey) => {
       const group = groups.get(groupKey);
       if (!group) {
@@ -2414,23 +2600,14 @@ function renderProjectList(): void {
     })
     .join("");
 
-  const emptyMarkup = state.sidebarMode === "workgroups"
-    ? formatEmptyState(
-      hasSearchQuery
-        ? inlineText("No matching groups", "没有匹配的群组")
-        : inlineText("No groups yet", "还没有群组"),
-      hasSearchQuery
-        ? inlineText("Try a different keyword.", "试试其他关键词。")
-        : inlineText("Create or join a workgroup to start group chat.", "创建或加入一个协作组开始群聊。"),
-    )
-    : formatEmptyState(
-      hasSearchQuery
-        ? inlineText("No matching private chats", "没有匹配的私聊")
-        : msg("terminal.empty.projectsTitle", "No projects yet"),
-      hasSearchQuery
-        ? inlineText("Try a different keyword.", "试试其他关键词。")
-        : msg("terminal.empty.projectsDetail", "Add a project in settings, then return here."),
-    );
+  const emptyMarkup = formatEmptyState(
+    hasSearchQuery
+      ? inlineText("No matching contacts", "没有匹配的通讯录")
+      : inlineText("No contacts yet", "通讯录还是空的"),
+    hasSearchQuery
+      ? inlineText("Try a different keyword.", "试试其他关键词。")
+      : inlineText("Projects, remote agents, and workgroups will appear here together.", "本地项目、远程项目和协作组都会统一显示在这里。"),
+  );
   const markup = `${workgroupSection}${projectSections}` || emptyMarkup;
   if (renderSignatures.projectList !== markup) {
     renderSignatures.projectList = markup;
@@ -3178,12 +3355,22 @@ async function syncProjects(projects?: ProjectState[]): Promise<void> {
     if (state.workgroupId) {
       setActiveProject(null);
     } else {
-      setActiveProject(nextProjects[0]?.id ?? null);
+      const preferred = getPreferredSidebarSelection();
+      if (preferred?.workgroupId) {
+        setActiveWorkgroup(preferred.workgroupId);
+      } else {
+        setActiveProject(preferred?.projectId ?? null);
+      }
     }
   }
 
   if (!state.projectId && !state.workgroupId && nextProjects.length > 0) {
-    setActiveProject(nextProjects[0].id);
+    const preferred = getPreferredSidebarSelection();
+    if (preferred?.workgroupId) {
+      setActiveWorkgroup(preferred.workgroupId);
+    } else if (preferred?.projectId) {
+      setActiveProject(preferred.projectId);
+    }
   }
 
   syncActiveViewForCurrentProject();
@@ -3229,7 +3416,12 @@ async function syncWorkgroups(workgroups?: WorkgroupSummary[]): Promise<void> {
   }
 
   if (!state.projectId && !state.workgroupId && nextWorkgroups.length > 0 && state.projects.length === 0) {
-    setActiveWorkgroup(nextWorkgroups[0].id);
+    const preferred = getPreferredSidebarSelection();
+    if (preferred?.workgroupId) {
+      setActiveWorkgroup(preferred.workgroupId);
+    } else if (preferred?.projectId) {
+      setActiveProject(preferred.projectId);
+    }
   }
 
   if (state.messageSearchQuery.trim()) {
@@ -3992,11 +4184,11 @@ elements.projectSearchInput?.addEventListener("input", (event) => {
 });
 
 elements.sidebarProjectsTab?.addEventListener("click", () => {
-  setSidebarMode("projects");
+  setSidebarMode("messages");
 });
 
 elements.sidebarWorkgroupsTab?.addEventListener("click", () => {
-  setSidebarMode("workgroups");
+  setSidebarMode("contacts");
 });
 
 elements.messageSearchInput?.addEventListener("input", (event) => {
