@@ -255,10 +255,10 @@ func (h *Hub) HandleMessage(from *Client, env *model.Envelope) {
 	switch env.Event {
 	case model.EventMessageSend:
 		if from.Type != model.ClientTypeDevice {
-			h.sendError(from, env.ID, "forbidden", "only devices can send messages")
+			h.sendError(from, env, "forbidden", "only devices can send messages")
 			return
 		}
-		agentID, ok := h.authorizeProjectAccess(from, env.ID, env.ProjectID)
+		agentID, ok := h.authorizeProjectAccess(from, env)
 		if !ok {
 			return
 		}
@@ -266,20 +266,20 @@ func (h *Hub) HandleMessage(from *Client, env *model.Envelope) {
 
 	case model.EventMessageChunk, model.EventMessageDone, model.EventMessageError:
 		if from.Type != model.ClientTypeAgent {
-			h.sendError(from, env.ID, "forbidden", "only agents can stream message responses")
+			h.sendError(from, env, "forbidden", "only agents can stream message responses")
 			return
 		}
-		if _, ok := h.authorizeProjectAccess(from, env.ID, env.ProjectID); !ok {
+		if _, ok := h.authorizeProjectAccess(from, env); !ok {
 			return
 		}
 		h.BroadcastToDevices(env, env.ProjectID)
 
 	case model.EventTaskStop:
 		if from.Type != model.ClientTypeDevice {
-			h.sendError(from, env.ID, "forbidden", "only devices can stop tasks")
+			h.sendError(from, env, "forbidden", "only devices can stop tasks")
 			return
 		}
-		agentID, ok := h.authorizeProjectAccess(from, env.ID, env.ProjectID)
+		agentID, ok := h.authorizeProjectAccess(from, env)
 		if !ok {
 			return
 		}
@@ -287,10 +287,10 @@ func (h *Hub) HandleMessage(from *Client, env *model.Envelope) {
 
 	case model.EventSessionSyncRequest:
 		if from.Type != model.ClientTypeDevice {
-			h.sendError(from, env.ID, "forbidden", "only devices can request session sync")
+			h.sendError(from, env, "forbidden", "only devices can request session sync")
 			return
 		}
-		agentID, ok := h.authorizeProjectAccess(from, env.ID, env.ProjectID)
+		agentID, ok := h.authorizeProjectAccess(from, env)
 		if !ok {
 			return
 		}
@@ -298,125 +298,125 @@ func (h *Hub) HandleMessage(from *Client, env *model.Envelope) {
 
 	case model.EventSessionSync:
 		if from.Type != model.ClientTypeAgent {
-			h.sendError(from, env.ID, "forbidden", "only agents can publish session sync")
+			h.sendError(from, env, "forbidden", "only agents can publish session sync")
 			return
 		}
-		if _, ok := h.authorizeProjectAccess(from, env.ID, env.ProjectID); !ok {
+		if _, ok := h.authorizeProjectAccess(from, env); !ok {
 			return
 		}
 		h.BroadcastToDevices(env, env.ProjectID)
 
 	case model.EventWorkgroupListRequest:
 		if from.Type != model.ClientTypeDevice {
-			h.sendError(from, env.ID, "forbidden", "only devices can request workgroup data")
+			h.sendError(from, env, "forbidden", "only devices can request workgroup data")
 			return
 		}
 		agentID := resolveEnvelopeAgentID(env)
 		if agentID == "" {
 			agentID = from.AgentID
 		}
-		if !h.authorizeAgentAccess(from, env.ID, agentID) {
+		if !h.authorizeAgentAccess(from, env, agentID) {
 			return
 		}
 		if !h.SendToAgent(agentID, env) {
-			h.sendError(from, env.ID, "agent_offline", "agent is offline")
+			h.sendError(from, env, "agent_offline", "agent is offline")
 		}
 
 	case model.EventWorkgroupCommand:
 		if from.Type != model.ClientTypeDevice {
-			h.sendError(from, env.ID, "forbidden", "only devices can send workgroup commands")
+			h.sendError(from, env, "forbidden", "only devices can send workgroup commands")
 			return
 		}
 		agentID := resolveEnvelopeAgentID(env)
 		if agentID == "" {
 			agentID = from.AgentID
 		}
-		if !h.authorizeAgentAccess(from, env.ID, agentID) {
+		if !h.authorizeAgentAccess(from, env, agentID) {
 			return
 		}
 		if !h.SendToAgent(agentID, env) {
-			h.sendError(from, env.ID, "agent_offline", "agent is offline")
+			h.sendError(from, env, "agent_offline", "agent is offline")
 		}
 
 	case model.EventWorkgroupList, model.EventWorkgroupCommandResult:
 		if from.Type != model.ClientTypeAgent {
-			h.sendError(from, env.ID, "forbidden", "only agents can publish workgroup updates")
+			h.sendError(from, env, "forbidden", "only agents can publish workgroup updates")
 			return
 		}
 		agentID := resolveEnvelopeAgentID(env)
 		if agentID == "" {
 			agentID = from.AgentID
 		}
-		if !h.authorizeAgentAccess(from, env.ID, agentID) {
+		if !h.authorizeAgentAccess(from, env, agentID) {
 			return
 		}
 		h.broadcastToDevicesByAgent(agentID, env)
 
 	case model.EventWorkgroupCollabListRequest:
 		if from.Type != model.ClientTypeDevice {
-			h.sendError(from, env.ID, "forbidden", "only devices can request workgroup collaboration data")
+			h.sendError(from, env, "forbidden", "only devices can request workgroup collaboration data")
 			return
 		}
 		agentID := resolveEnvelopeAgentID(env)
 		if agentID == "" {
 			agentID = from.AgentID
 		}
-		if !h.authorizeCollaborationAccess(from, env.ID, agentID, env.WorkgroupID, true) {
+		if !h.authorizeCollaborationAccess(from, env, agentID, env.WorkgroupID, true) {
 			return
 		}
 		if !h.SendToAgent(agentID, env) {
-			h.sendError(from, env.ID, "agent_offline", "agent is offline")
+			h.sendError(from, env, "agent_offline", "agent is offline")
 		}
 
 	case model.EventWorkgroupCollabSessionRequest:
 		if from.Type != model.ClientTypeDevice {
-			h.sendError(from, env.ID, "forbidden", "only devices can request workgroup collaboration sessions")
+			h.sendError(from, env, "forbidden", "only devices can request workgroup collaboration sessions")
 			return
 		}
 		agentID := resolveEnvelopeAgentID(env)
 		if agentID == "" {
 			agentID = from.AgentID
 		}
-		if !h.authorizeCollaborationAccess(from, env.ID, agentID, env.WorkgroupID, false) {
+		if !h.authorizeCollaborationAccess(from, env, agentID, env.WorkgroupID, false) {
 			return
 		}
 		if !h.SendToAgent(agentID, env) {
-			h.sendError(from, env.ID, "agent_offline", "agent is offline")
+			h.sendError(from, env, "agent_offline", "agent is offline")
 		}
 
 	case model.EventWorkgroupCollabMessageSend:
 		if from.Type != model.ClientTypeDevice {
-			h.sendError(from, env.ID, "forbidden", "only devices can send workgroup collaboration messages")
+			h.sendError(from, env, "forbidden", "only devices can send workgroup collaboration messages")
 			return
 		}
 		agentID := resolveEnvelopeAgentID(env)
 		if agentID == "" {
 			agentID = from.AgentID
 		}
-		if !h.authorizeCollaborationAccess(from, env.ID, agentID, env.WorkgroupID, false) {
+		if !h.authorizeCollaborationAccess(from, env, agentID, env.WorkgroupID, false) {
 			return
 		}
 		if !h.SendToAgent(agentID, env) {
-			h.sendError(from, env.ID, "agent_offline", "agent is offline")
+			h.sendError(from, env, "agent_offline", "agent is offline")
 		}
 
 	case model.EventWorkgroupCollabList, model.EventWorkgroupCollabSession, model.EventWorkgroupCollabMessageResult, model.EventWorkgroupCollabSnapshot:
 		if from.Type != model.ClientTypeAgent {
-			h.sendError(from, env.ID, "forbidden", "only agents can publish workgroup collaboration updates")
+			h.sendError(from, env, "forbidden", "only agents can publish workgroup collaboration updates")
 			return
 		}
 		agentID := resolveEnvelopeAgentID(env)
 		if agentID == "" {
 			agentID = from.AgentID
 		}
-		if !h.authorizeAgentAccess(from, env.ID, agentID) {
+		if !h.authorizeAgentAccess(from, env, agentID) {
 			return
 		}
 		h.broadcastToCollaborationDevices(agentID, env.WorkgroupID, env)
 
 	case model.EventAgentStatus:
 		if from.Type != model.ClientTypeAgent {
-			h.sendError(from, env.ID, "forbidden", "only agents can publish agent status")
+			h.sendError(from, env, "forbidden", "only agents can publish agent status")
 			return
 		}
 
@@ -424,7 +424,7 @@ func (h *Hub) HandleMessage(from *Client, env *model.Envelope) {
 		if len(env.Payload) > 0 {
 			if err := json.Unmarshal(env.Payload, &p); err != nil {
 				log.Warn().Err(err).Msg("invalid agent.status payload")
-				h.sendError(from, env.ID, "bad_request", "invalid agent.status payload")
+				h.sendError(from, env, "bad_request", "invalid agent.status payload")
 				return
 			}
 		}
@@ -435,7 +435,9 @@ func (h *Hub) HandleMessage(from *Client, env *model.Envelope) {
 		}
 
 		if p.ProjectID != "" {
-			if _, ok := h.authorizeProjectAccess(from, env.ID, p.ProjectID); !ok {
+			projectEnv := *env
+			projectEnv.ProjectID = p.ProjectID
+			if _, ok := h.authorizeProjectAccess(from, &projectEnv); !ok {
 				return
 			}
 			if p.Online {
@@ -482,21 +484,21 @@ func (h *Hub) HandleMessage(from *Client, env *model.Envelope) {
 
 	case model.EventProjectBind:
 		if from.Type != model.ClientTypeAgent {
-			h.sendError(from, env.ID, "forbidden", "only agents can bind projects")
+			h.sendError(from, env, "forbidden", "only agents can bind projects")
 			return
 		}
 		var p model.ProjectBindPayload
 		if err := json.Unmarshal(env.Payload, &p); err != nil {
 			log.Warn().Err(err).Msg("invalid project.bind payload")
-			h.sendError(from, env.ID, "bad_request", "invalid project.bind payload")
+			h.sendError(from, env, "bad_request", "invalid project.bind payload")
 			return
 		}
 		if p.ProjectID == "" {
-			h.sendError(from, env.ID, "bad_request", "project_id is required")
+			h.sendError(from, env, "bad_request", "project_id is required")
 			return
 		}
 		if env.ProjectID != "" && env.ProjectID != p.ProjectID {
-			h.sendError(from, env.ID, "bad_request", "project_id mismatch")
+			h.sendError(from, env, "bad_request", "project_id mismatch")
 			return
 		}
 		h.projects.Store(p.ProjectID, from.AgentID)
@@ -526,19 +528,19 @@ func (h *Hub) HandleMessage(from *Client, env *model.Envelope) {
 
 	case model.EventProjectBound:
 		if from.Type != model.ClientTypeAgent {
-			h.sendError(from, env.ID, "forbidden", "only agents can acknowledge project bindings")
+			h.sendError(from, env, "forbidden", "only agents can acknowledge project bindings")
 		}
 
 	case model.EventE2EOffer:
 		if from.Type != model.ClientTypeDevice {
-			h.sendError(from, env.ID, "forbidden", "only devices can initiate e2e key exchange")
+			h.sendError(from, env, "forbidden", "only devices can initiate e2e key exchange")
 			return
 		}
 
 		var payload model.E2EOfferPayload
 		if len(env.Payload) > 0 {
 			if err := json.Unmarshal(env.Payload, &payload); err != nil {
-				h.sendError(from, env.ID, "bad_request", "invalid e2e.offer payload")
+				h.sendError(from, env, "bad_request", "invalid e2e.offer payload")
 				return
 			}
 		}
@@ -547,7 +549,7 @@ func (h *Hub) HandleMessage(from *Client, env *model.Envelope) {
 		if agentID == "" {
 			agentID = from.AgentID
 		}
-		if !h.authorizeAgentAccess(from, env.ID, agentID) {
+		if !h.authorizeAgentAccess(from, env, agentID) {
 			return
 		}
 
@@ -555,44 +557,44 @@ func (h *Hub) HandleMessage(from *Client, env *model.Envelope) {
 		payload.DeviceID = from.DeviceID
 		nextPayload, err := json.Marshal(payload)
 		if err != nil {
-			h.sendError(from, env.ID, "bad_request", "failed to marshal e2e.offer payload")
+			h.sendError(from, env, "bad_request", "failed to marshal e2e.offer payload")
 			return
 		}
 		env.Payload = nextPayload
 
 		if !h.SendToAgent(agentID, env) {
-			h.sendError(from, env.ID, "agent_offline", "agent is offline")
+			h.sendError(from, env, "agent_offline", "agent is offline")
 		}
 
 	case model.EventE2EAnswer:
 		if from.Type != model.ClientTypeAgent {
-			h.sendError(from, env.ID, "forbidden", "only agents can answer e2e key exchange")
+			h.sendError(from, env, "forbidden", "only agents can answer e2e key exchange")
 			return
 		}
 
 		var payload model.E2EAnswerPayload
 		if len(env.Payload) > 0 {
 			if err := json.Unmarshal(env.Payload, &payload); err != nil {
-				h.sendError(from, env.ID, "bad_request", "invalid e2e.answer payload")
+				h.sendError(from, env, "bad_request", "invalid e2e.answer payload")
 				return
 			}
 		}
 
 		if payload.DeviceID == "" {
-			h.sendError(from, env.ID, "bad_request", "device_id is required for e2e.answer")
+			h.sendError(from, env, "bad_request", "device_id is required for e2e.answer")
 			return
 		}
 
 		payload.AgentID = from.AgentID
 		nextPayload, err := json.Marshal(payload)
 		if err != nil {
-			h.sendError(from, env.ID, "bad_request", "failed to marshal e2e.answer payload")
+			h.sendError(from, env, "bad_request", "failed to marshal e2e.answer payload")
 			return
 		}
 		env.Payload = nextPayload
 
 		if !h.SendToDevice(payload.DeviceID, env, from.AgentID) {
-			h.sendError(from, env.ID, "device_offline", "device is offline or unauthorized")
+			h.sendError(from, env, "device_offline", "device is offline or unauthorized")
 		}
 
 	case model.EventProjectList:
@@ -609,7 +611,7 @@ func (h *Hub) HandleMessage(from *Client, env *model.Envelope) {
 
 		agentID := from.AgentID
 		if p.AgentID != "" && agentID != "" && p.AgentID != agentID {
-			h.sendError(from, env.ID, "forbidden", "agent mismatch")
+			h.sendError(from, env, "forbidden", "agent mismatch")
 			return
 		}
 		if agentID == "" {
@@ -634,34 +636,34 @@ func (h *Hub) HandleMessage(from *Client, env *model.Envelope) {
 
 	case model.EventFileSync:
 		if from.Type == model.ClientTypeAgent {
-			if _, ok := h.authorizeProjectAccess(from, env.ID, env.ProjectID); !ok {
+			if _, ok := h.authorizeProjectAccess(from, env); !ok {
 				return
 			}
 			h.BroadcastToDevices(env, env.ProjectID)
 		} else if from.Type == model.ClientTypeDevice {
-			agentID, ok := h.authorizeProjectAccess(from, env.ID, env.ProjectID)
+			agentID, ok := h.authorizeProjectAccess(from, env)
 			if !ok {
 				return
 			}
 			h.Route(env, agentID)
 		} else {
-			h.sendError(from, env.ID, "forbidden", "unknown client type")
+			h.sendError(from, env, "forbidden", "unknown client type")
 		}
 
 	case model.EventFileUpload, model.EventFileChunk, model.EventFileDone, model.EventFileError:
 		if from.Type == model.ClientTypeAgent {
-			if _, ok := h.authorizeProjectAccess(from, env.ID, env.ProjectID); !ok {
+			if _, ok := h.authorizeProjectAccess(from, env); !ok {
 				return
 			}
 			h.BroadcastToDevices(env, env.ProjectID)
 		} else if from.Type == model.ClientTypeDevice {
-			agentID, ok := h.authorizeProjectAccess(from, env.ID, env.ProjectID)
+			agentID, ok := h.authorizeProjectAccess(from, env)
 			if !ok {
 				return
 			}
 			h.Route(env, agentID)
 		} else {
-			h.sendError(from, env.ID, "forbidden", "unknown client type")
+			h.sendError(from, env, "forbidden", "unknown client type")
 		}
 
 	default:
@@ -769,70 +771,71 @@ func (h *Hub) SendToDevice(deviceID string, env *model.Envelope, agentID string)
 	return true
 }
 
-func (h *Hub) authorizeProjectAccess(from *Client, refID, projectID string) (string, bool) {
+func (h *Hub) authorizeProjectAccess(from *Client, env *model.Envelope) (string, bool) {
+	projectID := env.ProjectID
 	if projectID == "" {
-		h.sendError(from, refID, "bad_request", "project_id is required")
+		h.sendError(from, env, "bad_request", "project_id is required")
 		return "", false
 	}
 
 	agentID, ok := h.resolveAgent(projectID)
 	if !ok {
 		log.Warn().Str("project_id", projectID).Msg("no agent for project")
-		h.sendError(from, refID, "no_agent", "no agent registered for project")
+		h.sendError(from, env, "no_agent", "no agent registered for project")
 		return "", false
 	}
 
 	switch from.Type {
 	case model.ClientTypeAgent:
 		if from.AgentID == "" || from.AgentID != agentID {
-			h.sendError(from, refID, "forbidden", "agent is not authorized for project")
+			h.sendError(from, env, "forbidden", "agent is not authorized for project")
 			return "", false
 		}
 	case model.ClientTypeDevice:
-		if !h.refreshDeviceAccess(from, refID) {
+		if !h.refreshDeviceAccess(from, env.ID) {
 			return "", false
 		}
 		if !from.CanAccessAgent(agentID) {
-			h.sendError(from, refID, "forbidden", "device is not authorized for project")
+			h.sendError(from, env, "forbidden", "device is not authorized for project")
 			return "", false
 		}
 	default:
-		h.sendError(from, refID, "forbidden", "unknown client type")
+		h.sendError(from, env, "forbidden", "unknown client type")
 		return "", false
 	}
 
 	return agentID, true
 }
 
-func (h *Hub) authorizeAgentAccess(from *Client, refID, agentID string) bool {
+func (h *Hub) authorizeAgentAccess(from *Client, env *model.Envelope, agentID string) bool {
 	if agentID == "" {
-		h.sendError(from, refID, "bad_request", "agent_id is required")
+		h.sendError(from, env, "bad_request", "agent_id is required")
 		return false
 	}
 
 	switch from.Type {
 	case model.ClientTypeAgent:
 		if from.AgentID == "" || from.AgentID != agentID {
-			h.sendError(from, refID, "forbidden", "agent is not authorized for agent scope")
+			h.sendError(from, env, "forbidden", "agent is not authorized for agent scope")
 			return false
 		}
 	case model.ClientTypeDevice:
-		if !h.refreshDeviceAccess(from, refID) {
+		if !h.refreshDeviceAccess(from, env.ID) {
 			return false
 		}
 		if !from.CanAccessAgent(agentID) {
-			h.sendError(from, refID, "forbidden", "device is not authorized for agent")
+			h.sendError(from, env, "forbidden", "device is not authorized for agent")
 			return false
 		}
 	default:
-		h.sendError(from, refID, "forbidden", "unknown client type")
+		h.sendError(from, env, "forbidden", "unknown client type")
 		return false
 	}
 
 	return true
 }
 
-func (h *Hub) authorizePublishedWorkgroupAccess(from *Client, refID, agentID, workgroupID string) bool {
+func (h *Hub) authorizePublishedWorkgroupAccess(from *Client, env *model.Envelope, agentID, workgroupID string) bool {
 	if from == nil || from.Type != model.ClientTypeDevice {
 		return true
 	}
@@ -848,42 +851,42 @@ func (h *Hub) authorizePublishedWorkgroupAccess(from *Client, refID, agentID, wo
 		return true
 	}
 
-	h.sendError(from, refID, "forbidden", "device is not authorized for workgroup")
+	h.sendError(from, env, "forbidden", "device is not authorized for workgroup")
 	return false
 }
 
-func (h *Hub) authorizeCollaborationAccess(from *Client, refID, agentID, workgroupID string, allowAgentWideMembership bool) bool {
+func (h *Hub) authorizeCollaborationAccess(from *Client, env *model.Envelope, agentID, workgroupID string, allowAgentWideMembership bool) bool {
 	if strings.TrimSpace(agentID) == "" {
-		h.sendError(from, refID, "bad_request", "agent_id is required")
+		h.sendError(from, env, "bad_request", "agent_id is required")
 		return false
 	}
 
 	switch from.Type {
 	case model.ClientTypeAgent:
 		if from.AgentID == "" || from.AgentID != agentID {
-			h.sendError(from, refID, "forbidden", "agent is not authorized for collaboration scope")
+			h.sendError(from, env, "forbidden", "agent is not authorized for collaboration scope")
 			return false
 		}
 		return true
 
 	case model.ClientTypeDevice:
-		if !h.refreshDeviceAccess(from, refID) {
+		if !h.refreshDeviceAccess(from, env.ID) {
 			return false
 		}
 		if from.CanAccessAgent(agentID) {
 			return true
 		}
 		if strings.TrimSpace(workgroupID) != "" {
-			return h.authorizePublishedWorkgroupAccess(from, refID, agentID, workgroupID)
+			return h.authorizePublishedWorkgroupAccess(from, env, agentID, workgroupID)
 		}
 		if allowAgentWideMembership && h.store != nil && from.UserID > 0 && h.store.HasAnyCollaborationGroupAccess(from.UserID, agentID) {
 			return true
 		}
-		h.sendError(from, refID, "forbidden", "device is not authorized for collaboration")
+		h.sendError(from, env, "forbidden", "device is not authorized for collaboration")
 		return false
 
 	default:
-		h.sendError(from, refID, "forbidden", "unknown client type")
+		h.sendError(from, env, "forbidden", "unknown client type")
 		return false
 	}
 }
@@ -898,7 +901,7 @@ func (h *Hub) refreshDeviceAccess(from *Client, refID string) bool {
 		from.UserID = 0
 		from.AgentID = ""
 		from.AccessibleAgentIDs = nil
-		h.sendError(from, refID, "auth_failed", "device owner is unavailable")
+		h.sendError(from, &model.Envelope{ID: refID}, "auth_failed", "device owner is unavailable")
 		return false
 	}
 
@@ -941,15 +944,27 @@ func (h *Hub) resolveAgent(projectID string) (string, bool) {
 	return v.(string), true
 }
 
-// sendError sends an erope back to the originating client.
-func (h *Hub) sendError(to *Client, refID, code, message string) {
-	payload, _ := json.Marshal(model.ErrorPayload{Code: code, Message: message})
+// sendError sends an error back to the originating client.
+func (h *Hub) sendError(to *Client, source *model.Envelope, code, message string) {
+	payload, _ := json.Marshal(model.ErrorPayload{
+		Code:        code,
+		Message:     message,
+		RefID:       source.ID,
+		AgentID:     source.AgentID,
+		WorkgroupID: source.WorkgroupID,
+		ProjectID:   source.ProjectID,
+		StreamID:    source.StreamID,
+	})
 	env := &model.Envelope{
-		ID:        newID(),
-		Event:     model.EventError,
-		Seq:       h.NextSeq(),
-		Timestamp: time.Now().UnixMilli(),
-		Payload:   payload,
+		ID:          newID(),
+		Event:       model.EventError,
+		AgentID:     source.AgentID,
+		WorkgroupID: source.WorkgroupID,
+		ProjectID:   source.ProjectID,
+		StreamID:    source.StreamID,
+		Seq:         h.NextSeq(),
+		Timestamp:   time.Now().UnixMilli(),
+		Payload:     payload,
 	}
 	_ = to.Send(env)
 }

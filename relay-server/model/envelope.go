@@ -181,8 +181,13 @@ type AgentStatusPayload struct {
 
 // ErrorPayload is the payload for error events
 type ErrorPayload struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
+	Code        string `json:"code"`
+	Message     string `json:"message"`
+	RefID       string `json:"ref_id,omitempty"`
+	AgentID     string `json:"agent_id,omitempty"`
+	WorkgroupID string `json:"workgroup_id,omitempty"`
+	ProjectID   string `json:"project_id,omitempty"`
+	StreamID    string `json:"stream_id,omitempty"`
 }
 
 // FileSyncPayload is the payload for file.sync

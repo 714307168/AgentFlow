@@ -128,6 +128,9 @@ class MessageRouter {
       case Events.AUTH_ERROR:
         console.error("[MessageRouter] Auth error:", env.payload);
         break;
+      case Events.ERROR:
+        this.handleRelayError(env);
+        break;
       default:
         console.log("[MessageRouter] Unhandled event: " + env.event);
     }
@@ -535,6 +538,22 @@ class MessageRouter {
   private handleAgentWakeup(env: Envelope): void {
     console.log("[MessageRouter] Agent wakeup received", env.payload);
     this.options.revealWakeupWindow?.();
+  }
+
+  private handleRelayError(env: Envelope): void {
+    const payload = env.payload as Record<string, unknown> | undefined;
+    const code = typeof payload?.code === "string" ? payload.code.trim() : "";
+    const message = typeof payload?.message === "string" ? payload.message.trim() : "";
+    const refId = typeof payload?.ref_id === "string" ? payload.ref_id.trim() : "";
+    const projectId = env.project_id?.trim() || (typeof payload?.project_id === "string" ? payload.project_id.trim() : "");
+    const streamId = env.stream_id?.trim() || (typeof payload?.stream_id === "string" ? payload.stream_id.trim() : "");
+    console.error("[MessageRouter] Relay error:", JSON.stringify({
+      code,
+      message,
+      refId,
+      projectId,
+      streamId,
+    }));
   }
 
   private handleFileSync(env: Envelope): void {

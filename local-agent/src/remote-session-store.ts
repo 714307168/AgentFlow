@@ -107,6 +107,13 @@ interface PendingUploadAck {
 }
 
 interface RemoteRunObserver {
+  projectId: string;
+  runId: string;
+  streamId: string;
+  startedAt: number;
+  lastActivityAt: number;
+  sawResponse: boolean;
+  timeout: NodeJS.Timeout | null;
   onTextDelta?: (chunk: string) => void;
   onDone?: () => void;
   onError?: (error: string) => void;
@@ -118,6 +125,9 @@ const FILE_CHUNK_SIZE = 64 * 1024;
 const FILE_UPLOAD_TIMEOUT_MS = 120_000;
 const EMPTY_PROJECT_LIST_RETRY_DELAY_MS = 1_500;
 const MAX_CONSECUTIVE_EMPTY_PROJECT_LISTS = 2;
+const REMOTE_RUN_START_TIMEOUT_MS = 20_000;
+const REMOTE_RUN_IDLE_TIMEOUT_MS = 120_000;
+const REMOTE_RUN_MAX_LIFETIME_MS = 10 * 60_000;
 
 function cloneAttachments(attachments?: RunAttachment[]): RunAttachment[] | undefined {
   if (!attachments || attachments.length === 0) {
@@ -183,6 +193,9 @@ export default class RemoteSessionStore extends EventEmitter {
       case Events.MESSAGE_DONE:
       case Events.MESSAGE_ERROR:
         this.handleMessageCompleted(env);
+        return;
+      case Events.ERROR:
+        this.handleRelayError(env);
         return;
       case Events.FILE_DONE:
         this.handleFileDone(env);
@@ -497,6 +510,12 @@ export default class RemoteSessionStore extends EventEmitter {
     if (!state) {
       return { success: false, error: "Remote project not found" };
     }
+    if (state.project.online === false) {
+      return { success: false, error: "Remote project is offline" };
+    }
+    if (!this.relayClient.isConnected()) {
+      return { success: false, error: "Remote relay is disconnected" };
+    }
 
     const trimmedPrompt = prompt.trim();
     if (!trimmedPrompt) {
@@ -547,11 +566,20 @@ export default class RemoteSessionStore extends EventEmitter {
       },
     });
     if (options.onTextDelta || options.onDone || options.onError) {
-      this.runObservers.set(this.getRunObserverKey(projectId, runId), {
+      const runObserverKey = this.getRunObserverKey(projectId, runId);
+      this.runObservers.set(runObserverKey, {
+        projectId,
+        runId,
+        streamId,
+        startedAt: timestamp,
+        lastActivityAt: timestamp,
+        sawResponse: false,
+        timeout: null,
         onTextDelta: options.onTextDelta,
         onDone: options.onDone,
         onError: options.onError,
       });
+      this.scheduleRunObserverTimeout(runObserverKey);
     }
     return { success: true, runId };
   }
@@ -675,6 +703,7 @@ export default class RemoteSessionStore extends EventEmitter {
 
     for (const [projectId, state] of this.states.entries()) {
       if (state.project.agentId === agentID && !nextIDs.has(projectId)) {
+        this.failProjectRunObservers(projectId, "Remote project is no longer available.");
         this.pendingHistoryRequests.delete(projectId);
         this.states.delete(projectId);
       }
@@ -735,6 +764,7 @@ export default class RemoteSessionStore extends EventEmitter {
     }
     state.lastSyncSeq = Math.max(state.lastSyncSeq, latestSeq);
     this.resolvePendingHistoryRequests(projectId, readNumber(sync.before_seq ?? sync.beforeSeq));
+    this.refreshProjectRunObservers(projectId);
     this.emitSnapshot(projectId);
   }
 
@@ -746,6 +776,9 @@ export default class RemoteSessionStore extends EventEmitter {
       return;
     }
     state.project.online = Boolean(payload?.online);
+    if (state.project.online === false) {
+      this.failProjectRunObservers(projectId, "Remote project went offline.");
+    }
     this.emit("projects-changed", this.getProjects());
     this.emitSnapshot(projectId);
   }
@@ -785,6 +818,7 @@ export default class RemoteSessionStore extends EventEmitter {
 
     const runObserver = this.runObservers.get(this.getRunObserverKey(projectId, this.getRunIdFromStreamId(streamId)));
     runObserver?.onTextDelta?.(content);
+    this.markRunObserverActivity(projectId, this.getRunIdFromStreamId(streamId), { sawResponse: true });
 
     let message = state.messages.find((entry) => entry.id === streamId);
     if (!message) {
@@ -824,6 +858,7 @@ export default class RemoteSessionStore extends EventEmitter {
     const runId = this.getRunIdFromStreamId(streamId);
     const runObserverKey = this.getRunObserverKey(projectId, runId);
     const runObserver = this.runObservers.get(runObserverKey);
+    this.clearRunObserverTimeout(runObserver);
     if (env.event === Events.MESSAGE_ERROR) {
       const errorText = String(payload?.error ?? "").trim() || "Remote run failed.";
       const errorId = `${streamId}:error`;
@@ -851,6 +886,19 @@ export default class RemoteSessionStore extends EventEmitter {
     }
     this.runObservers.delete(runObserverKey);
     this.emitSnapshot(projectId);
+  }
+
+  private handleRelayError(env: Envelope): void {
+    const payload = (env.payload ?? {}) as LooseRecord;
+    const projectId = env.project_id?.trim() || readString(payload.project_id).trim();
+    const streamId = env.stream_id?.trim() || readString(payload.stream_id).trim();
+    const refId = readString(payload.ref_id).trim() || readString(env.id).trim();
+    const errorText = readString(payload.message ?? payload.error).trim() || "Remote relay rejected the request.";
+    const runId = streamId ? this.getRunIdFromStreamId(streamId) : refId;
+
+    if (projectId && runId) {
+      this.failRunObserver(projectId, runId, errorText, streamId || undefined);
+    }
   }
 
   private getRunObserverKey(projectId: string, runId: string): string {
@@ -889,6 +937,189 @@ export default class RemoteSessionStore extends EventEmitter {
         ? payload.preview_data_url.trim()
         : pending.attachment.previewDataUrl,
     });
+  }
+
+  private scheduleRunObserverTimeout(runObserverKey: string): void {
+    const runObserver = this.runObservers.get(runObserverKey);
+    if (!runObserver) {
+      return;
+    }
+
+    this.clearRunObserverTimeout(runObserver);
+
+    const state = this.states.get(runObserver.projectId);
+    const now = Date.now();
+    const hasQueuedRun = Boolean(state?.queue.some((entry) => entry.runId === runObserver.runId));
+    const isActiveRemoteRun = Boolean(state?.isRunning && state.currentSource === "remote");
+    const deadline = runObserver.sawResponse || hasQueuedRun || isActiveRemoteRun
+      ? Math.min(runObserver.lastActivityAt + REMOTE_RUN_IDLE_TIMEOUT_MS, runObserver.startedAt + REMOTE_RUN_MAX_LIFETIME_MS)
+      : runObserver.startedAt + REMOTE_RUN_START_TIMEOUT_MS;
+    const delayMs = Math.max(1_000, deadline - now);
+
+    runObserver.timeout = setTimeout(() => {
+      this.handleRunObserverTimeout(runObserverKey);
+    }, delayMs);
+  }
+
+  private handleRunObserverTimeout(runObserverKey: string): void {
+    const runObserver = this.runObservers.get(runObserverKey);
+    if (!runObserver) {
+      return;
+    }
+
+    const state = this.states.get(runObserver.projectId);
+    if (!state) {
+      this.failRunObserver(runObserver.projectId, runObserver.runId, "Remote project is no longer available.", runObserver.streamId);
+      return;
+    }
+
+    const assistantMessage = state.messages.find((entry) => entry.id === runObserver.streamId);
+    if (assistantMessage?.status === "done") {
+      this.clearRunObserverTimeout(runObserver);
+      this.runObservers.delete(runObserverKey);
+      runObserver.onDone?.();
+      return;
+    }
+
+    const now = Date.now();
+    const elapsedMs = now - runObserver.startedAt;
+    const idleMs = now - runObserver.lastActivityAt;
+    const hasQueuedRun = state.queue.some((entry) => entry.runId === runObserver.runId);
+    const isActiveRemoteRun = Boolean(state.isRunning && state.currentSource === "remote");
+
+    if (!runObserver.sawResponse && !hasQueuedRun && !isActiveRemoteRun) {
+      this.failRunObserver(
+        runObserver.projectId,
+        runObserver.runId,
+        "Remote run did not start. Check that the remote desktop is online and authorized.",
+        runObserver.streamId,
+      );
+      return;
+    }
+
+    if (elapsedMs >= REMOTE_RUN_MAX_LIFETIME_MS || idleMs >= REMOTE_RUN_IDLE_TIMEOUT_MS) {
+      this.failRunObserver(
+        runObserver.projectId,
+        runObserver.runId,
+        runObserver.sawResponse
+          ? "Remote run timed out before completion."
+          : "Remote run did not produce a response in time.",
+        runObserver.streamId,
+      );
+      return;
+    }
+
+    this.scheduleRunObserverTimeout(runObserverKey);
+  }
+
+  private markRunObserverActivity(
+    projectId: string,
+    runId: string,
+    options: { sawResponse?: boolean } = {},
+  ): void {
+    const runObserver = this.runObservers.get(this.getRunObserverKey(projectId, runId));
+    if (!runObserver) {
+      return;
+    }
+    runObserver.lastActivityAt = Date.now();
+    if (options.sawResponse) {
+      runObserver.sawResponse = true;
+    }
+    this.scheduleRunObserverTimeout(this.getRunObserverKey(projectId, runId));
+  }
+
+  private refreshProjectRunObservers(projectId: string): void {
+    const state = this.states.get(projectId);
+    if (!state) {
+      return;
+    }
+
+    for (const [runObserverKey, runObserver] of this.runObservers.entries()) {
+      if (runObserver.projectId !== projectId) {
+        continue;
+      }
+
+      const assistantMessage = state.messages.find((entry) => entry.id === runObserver.streamId);
+      if (assistantMessage?.status === "done") {
+        this.clearRunObserverTimeout(runObserver);
+        this.runObservers.delete(runObserverKey);
+        runObserver.onDone?.();
+        continue;
+      }
+
+      const hasQueuedRun = state.queue.some((entry) => entry.runId === runObserver.runId);
+      const isActiveRemoteRun = Boolean(state.isRunning && state.currentSource === "remote");
+      if (hasQueuedRun || isActiveRemoteRun) {
+        runObserver.lastActivityAt = Date.now();
+      }
+      this.scheduleRunObserverTimeout(runObserverKey);
+    }
+  }
+
+  private failProjectRunObservers(projectId: string, errorText: string): void {
+    for (const runObserver of Array.from(this.runObservers.values())) {
+      if (runObserver.projectId !== projectId) {
+        continue;
+      }
+      this.failRunObserver(projectId, runObserver.runId, errorText, runObserver.streamId);
+    }
+  }
+
+  private failRunObserver(
+    projectId: string,
+    runId: string,
+    errorText: string,
+    streamIdOverride?: string,
+  ): void {
+    const runObserverKey = this.getRunObserverKey(projectId, runId);
+    const runObserver = this.runObservers.get(runObserverKey);
+    if (!runObserver) {
+      return;
+    }
+
+    this.clearRunObserverTimeout(runObserver);
+    this.runObservers.delete(runObserverKey);
+
+    const state = this.states.get(projectId);
+    const streamId = streamIdOverride?.trim() || runObserver.streamId;
+    if (state) {
+      const assistantMessage = state.messages.find((entry) => entry.id === streamId);
+      if (assistantMessage) {
+        assistantMessage.status = "done";
+        assistantMessage.updatedAt = Date.now();
+      }
+
+      const errorId = `${streamId}:error`;
+      const existingError = state.messages.find((entry) => entry.id === errorId);
+      if (existingError) {
+        existingError.content = errorText;
+        existingError.status = "done";
+        existingError.updatedAt = Date.now();
+      } else {
+        state.messages.push({
+          id: errorId,
+          role: "error",
+          content: errorText,
+          source: "remote",
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          status: "done",
+          syncSeq: state.lastSyncSeq,
+        });
+        this.trimMessages(state);
+      }
+      this.emitSnapshot(projectId);
+    }
+
+    runObserver.onError?.(errorText);
+  }
+
+  private clearRunObserverTimeout(runObserver: RemoteRunObserver | undefined): void {
+    if (!runObserver?.timeout) {
+      return;
+    }
+    clearTimeout(runObserver.timeout);
+    runObserver.timeout = null;
   }
 
   private handleFileError(env: Envelope): void {
