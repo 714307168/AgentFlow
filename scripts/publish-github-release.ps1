@@ -173,7 +173,10 @@ function Get-ExistingRelease {
         return Invoke-GitHubApi -Method "GET" -Uri $uri -Headers $Headers -Body $null
     }
     catch {
-        $statusCode = $_.Exception.Response.StatusCode.value__
+        $statusCode = $null
+        if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
+            $statusCode = $_.Exception.Response.StatusCode.value__
+        }
         if ($statusCode -eq 404) {
             return $null
         }
