@@ -1324,7 +1324,20 @@ function getDisplayedActivities(): SessionActivity[] {
   if (!projectId) {
     return [];
   }
-  return getProjectHistoryState(projectId)?.activities ?? getCurrentSession()?.activities ?? [];
+  const activities = getProjectHistoryState(projectId)?.activities ?? getCurrentSession()?.activities ?? [];
+  return [...activities].sort((left, right) => {
+    const leftCreatedAt = left.createdAt || left.updatedAt || 0;
+    const rightCreatedAt = right.createdAt || right.updatedAt || 0;
+    if (leftCreatedAt !== rightCreatedAt) {
+      return leftCreatedAt - rightCreatedAt;
+    }
+    const leftUpdatedAt = left.updatedAt || left.createdAt || 0;
+    const rightUpdatedAt = right.updatedAt || right.createdAt || 0;
+    if (leftUpdatedAt !== rightUpdatedAt) {
+      return leftUpdatedAt - rightUpdatedAt;
+    }
+    return left.id.localeCompare(right.id, "en-US");
+  });
 }
 
 function getDisplayedCliTrace(): CliTraceEntry[] {
@@ -2735,7 +2748,7 @@ function renderActivities(): void {
       '<div class="activity-meta">',
       `<span class="kind-badge ${escapeHtml(activity.kind)}">${escapeHtml(translateKind(activity.kind))}</span>`,
       `<span class="status-badge ${escapeHtml(activity.status)}">${escapeHtml(translateActivityStatus(activity.status))}</span>`,
-      `<span class="activity-time">${escapeHtml(formatTime(activity.updatedAt || activity.createdAt))}</span>`,
+      `<span class="activity-time">${escapeHtml(formatTime(activity.createdAt || activity.updatedAt))}</span>`,
       "</div>",
       `<div class="activity-title">${escapeHtml(activity.title || msg("terminal.activity.fallbackTitle", "Activity"))}</div>`,
       `<div class="activity-detail">${escapeHtml(activity.detail)}</div>`,
