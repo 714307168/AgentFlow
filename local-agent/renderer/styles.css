@@ -1101,17 +1101,21 @@ body {
 }
 
 .project-list-top {
-  align-items: center;
+  align-items: flex-start;
   display: flex;
   gap: 8px;
   justify-content: space-between;
+  flex-wrap: wrap;
 }
 
 .project-list-name-row {
   align-items: center;
   display: flex;
+  flex: 1 1 0;
+  flex-wrap: wrap;
   gap: 8px;
   min-width: 0;
+  overflow: hidden;
 }
 
 .project-list-name {
@@ -1248,6 +1252,8 @@ body {
 .project-status-pill {
   border: 1px solid transparent;
   flex: 0 0 auto;
+  margin-left: auto;
+  max-width: 100%;
 }
 
 .project-status-pill.idle {

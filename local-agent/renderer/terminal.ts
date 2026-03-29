@@ -466,6 +466,7 @@ let messageSearchTimer: number | null = null;
 let projectListRenderTimer: number | null = null;
 let workspaceRenderTimer: number | null = null;
 let projectSearchTimer: number | null = null;
+const historyAutoloadTimers: Partial<Record<"messages" | "activities" | "cli", number>> = {};
 let lastConversationSelectSignature = "";
 let lastProjectCatalogSignature = "";
 let lastWorkgroupSummarySignature = "";
@@ -1184,6 +1185,68 @@ function getWorkgroupHistoryState(workgroupId: string): WorkgroupHistoryState | 
   return state.historyByWorkgroupId.get(workgroupId) ?? null;
 }
 
+function prependHistoryItems<T extends { id: string }>(currentItems: T[], olderItems: T[]): T[] {
+  if (olderItems.length === 0) {
+    return currentItems.slice();
+  }
+  if (currentItems.length === 0) {
+    return olderItems.slice();
+  }
+
+  const currentItemsById = new Map(currentItems.map((item) => [item.id, item] as const));
+  const merged: T[] = [];
+  const seen = new Set<string>();
+
+  for (const item of olderItems) {
+    if (seen.has(item.id)) {
+      continue;
+    }
+    merged.push(currentItemsById.get(item.id) ?? item);
+    seen.add(item.id);
+  }
+
+  for (const item of currentItems) {
+    if (seen.has(item.id)) {
+      continue;
+    }
+    merged.push(item);
+    seen.add(item.id);
+  }
+
+  return merged;
+}
+
+function appendLatestHistoryItems<T extends { id: string }>(currentItems: T[], latestItems: T[]): T[] {
+  if (currentItems.length === 0) {
+    return latestItems.slice();
+  }
+  if (latestItems.length === 0) {
+    return currentItems.slice();
+  }
+
+  const latestItemsById = new Map(latestItems.map((item) => [item.id, item] as const));
+  const merged: T[] = [];
+  const seen = new Set<string>();
+
+  for (const item of currentItems) {
+    if (latestItemsById.has(item.id) || seen.has(item.id)) {
+      continue;
+    }
+    merged.push(item);
+    seen.add(item.id);
+  }
+
+  for (const item of latestItems) {
+    if (seen.has(item.id)) {
+      continue;
+    }
+    merged.push(item);
+    seen.add(item.id);
+  }
+
+  return merged;
+}
+
 function syncHistoryStateFromSnapshot(snapshot: SessionSnapshot): void {
   const existing = state.historyByProjectId.get(snapshot.projectId);
   if (!existing || existing.conversationId !== snapshot.activeConversationId) {
@@ -1191,21 +1254,9 @@ function syncHistoryStateFromSnapshot(snapshot: SessionSnapshot): void {
     return;
   }
 
-  const mergeItems = <T extends { id: string }>(currentItems: T[], latestItems: T[]): T[] => {
-    if (currentItems.length === 0) {
-      return latestItems.slice();
-    }
-    if (latestItems.length === 0) {
-      return currentItems;
-    }
-    const latestIds = new Set(latestItems.map((item) => item.id));
-    const olderItems = currentItems.filter((item) => !latestIds.has(item.id));
-    return [...olderItems, ...latestItems];
-  };
-
-  existing.messages = mergeItems(existing.messages, snapshot.messages);
-  existing.activities = mergeItems(existing.activities, snapshot.activities);
-  existing.cliTrace = mergeItems(existing.cliTrace, snapshot.cliTrace);
+  existing.messages = appendLatestHistoryItems(existing.messages, snapshot.messages);
+  existing.activities = appendLatestHistoryItems(existing.activities, snapshot.activities);
+  existing.cliTrace = appendLatestHistoryItems(existing.cliTrace, snapshot.cliTrace);
   existing.hasMoreMessages = snapshot.messageTotal > existing.messages.length;
   existing.hasMoreActivities = snapshot.activityTotal > existing.activities.length;
   existing.hasMoreCli = snapshot.cliTraceTotal > existing.cliTrace.length;
@@ -1222,9 +1273,7 @@ function syncWorkgroupHistoryStateFromSnapshot(snapshot: WorkgroupSessionSnapsho
     existing.hasMoreMessages = snapshot.messageTotal > existing.messages.length;
     return;
   }
-  const latestIds = new Set(snapshot.messages.map((item) => item.id));
-  const olderItems = existing.messages.filter((item) => !latestIds.has(item.id));
-  existing.messages = [...olderItems, ...snapshot.messages];
+  existing.messages = appendLatestHistoryItems(existing.messages, snapshot.messages);
   existing.hasMoreMessages = snapshot.messageTotal > existing.messages.length;
 }
 
@@ -1284,6 +1333,67 @@ function getDisplayedCliTrace(): CliTraceEntry[] {
     return [];
   }
   return getProjectHistoryState(projectId)?.cliTrace ?? getCurrentSession()?.cliTrace ?? [];
+}
+
+function clearHistoryAutoloadTimer(kind: "messages" | "activities" | "cli"): void {
+  const timer = historyAutoloadTimers[kind];
+  if (typeof timer === "number") {
+    window.clearTimeout(timer);
+    delete historyAutoloadTimers[kind];
+  }
+}
+
+function scheduleHistoryAutoload(kind: "messages" | "activities" | "cli"): void {
+  clearHistoryAutoloadTimer(kind);
+  historyAutoloadTimers[kind] = window.setTimeout(() => {
+    delete historyAutoloadTimers[kind];
+
+    if (kind === "messages" && state.messageSearchQuery.trim()) {
+      return;
+    }
+
+    if (state.workgroupId) {
+      if (kind !== "messages") {
+        return;
+      }
+      const historyState = getWorkgroupHistoryState(state.workgroupId);
+      if (!historyState?.hasMoreMessages || historyState.loadingMessages || !elements.messages) {
+        return;
+      }
+      if (elements.messages.scrollHeight > elements.messages.clientHeight + 24) {
+        return;
+      }
+      void loadOlderHistory("messages");
+      return;
+    }
+
+    if (!state.projectId) {
+      return;
+    }
+
+    const historyState = getProjectHistoryState(state.projectId);
+    if (!historyState) {
+      return;
+    }
+
+    const hasMore = kind === "messages"
+      ? historyState.hasMoreMessages
+      : (kind === "activities" ? historyState.hasMoreActivities : historyState.hasMoreCli);
+    const isLoading = kind === "messages"
+      ? historyState.loadingMessages
+      : (kind === "activities" ? historyState.loadingActivities : historyState.loadingCli);
+    const container = kind === "messages"
+      ? elements.messages
+      : (kind === "activities" ? elements.activityList : elements.cliTrace);
+
+    if (!hasMore || isLoading || !container) {
+      return;
+    }
+    if (container.scrollHeight > container.clientHeight + 24) {
+      return;
+    }
+    void loadOlderHistory(kind);
+  }, 80);
 }
 
 function shouldStickToBottom(container: HTMLElement | null): boolean {
@@ -2362,6 +2472,7 @@ function renderCliTrace(): void {
   elements.cliState.className = `project-status-pill ${session?.isRunning ? "running" : "idle"}`;
 
   if (!project) {
+    clearHistoryAutoloadTimer("cli");
     const markup = formatEmptyState(
       inlineText("No project selected", "未选择项目"),
       inlineText("Select a project to inspect the live CLI execution stream.", "选择一个项目查看实时 CLI 执行流。"),
@@ -2377,6 +2488,11 @@ function renderCliTrace(): void {
   const entries = getDisplayedCliTrace();
   if (entries.length === 0) {
     const markup = renderDockBlank();
+    clearHistoryAutoloadTimer("cli");
+    if (renderSignatures.cli !== markup) {
+      renderSignatures.cli = markup;
+      elements.cliTrace.innerHTML = markup;
+    }
     return;
   }
 
@@ -2403,6 +2519,11 @@ function renderCliTrace(): void {
   if (stickToBottom) {
     elements.cliTrace.scrollTop = elements.cliTrace.scrollHeight;
   }
+  if (historyState?.hasMoreCli) {
+    scheduleHistoryAutoload("cli");
+  } else {
+    clearHistoryAutoloadTimer("cli");
+  }
   if (forceScroll) {
     state.forceDockScroll = null;
   }
@@ -2419,6 +2540,7 @@ function renderMessages(): void {
     const historyState = state.workgroupId ? getWorkgroupHistoryState(state.workgroupId) : null;
     const messages = getVisibleWorkgroupMessages();
     if (!workgroupSession || messages.length === 0) {
+      clearHistoryAutoloadTimer("messages");
       const markup = formatEmptyState(
         state.messageSearchQuery.trim()
           ? inlineText("No matching messages", "没有匹配的消息")
@@ -2477,6 +2599,11 @@ function renderMessages(): void {
     if (stickToBottom) {
       elements.messages.scrollTop = elements.messages.scrollHeight;
     }
+    if (!state.messageSearchQuery.trim() && historyState?.hasMoreMessages) {
+      scheduleHistoryAutoload("messages");
+    } else {
+      clearHistoryAutoloadTimer("messages");
+    }
     return;
   }
 
@@ -2484,6 +2611,7 @@ function renderMessages(): void {
   const session = getCurrentSession();
 
   if (!project) {
+    clearHistoryAutoloadTimer("messages");
     const markup = formatEmptyState(
       msg("terminal.empty.selectProjectTitle", "No project selected"),
       msg("terminal.empty.selectProjectDetail", "Choose a project from the left sidebar to view messages."),
@@ -2498,6 +2626,7 @@ function renderMessages(): void {
   const historyState = state.projectId ? getProjectHistoryState(state.projectId) : null;
   const messages = getVisibleProjectMessages();
   if (!session || messages.length === 0) {
+    clearHistoryAutoloadTimer("messages");
     const markup = formatEmptyState(
       state.messageSearchQuery.trim()
         ? inlineText("No matching messages", "没有匹配的消息")
@@ -2555,6 +2684,11 @@ function renderMessages(): void {
   if (stickToBottom) {
     elements.messages.scrollTop = elements.messages.scrollHeight;
   }
+  if (!state.messageSearchQuery.trim() && historyState?.hasMoreMessages) {
+    scheduleHistoryAutoload("messages");
+  } else {
+    clearHistoryAutoloadTimer("messages");
+  }
 }
 
 function renderActivities(): void {
@@ -2565,6 +2699,7 @@ function renderActivities(): void {
   const session = getCurrentSession();
 
   if (!state.projectId) {
+    clearHistoryAutoloadTimer("activities");
     const markup = formatEmptyState(
       msg("terminal.empty.selectProjectTitle", "No project selected"),
       msg("terminal.empty.selectProjectDetail", "Choose a project from the left sidebar to view messages."),
@@ -2580,6 +2715,7 @@ function renderActivities(): void {
   const activities = getDisplayedActivities();
   if (!session || activities.length === 0) {
     const markup = renderDockBlank();
+    clearHistoryAutoloadTimer("activities");
     if (renderSignatures.activities !== markup) {
       renderSignatures.activities = markup;
       elements.activityList.innerHTML = markup;
@@ -2614,6 +2750,11 @@ function renderActivities(): void {
 
   if (stickToBottom) {
     elements.activityList.scrollTop = elements.activityList.scrollHeight;
+  }
+  if (historyState?.hasMoreActivities) {
+    scheduleHistoryAutoload("activities");
+  } else {
+    clearHistoryAutoloadTimer("activities");
   }
   if (forceScroll) {
     state.forceDockScroll = null;
@@ -3213,10 +3354,7 @@ async function loadOlderHistory(kind: "messages" | "activities" | "cli"): Promis
       if (!currentHistory) {
         return;
       }
-      currentHistory.messages = [
-        ...result.page.items,
-        ...currentHistory.messages.filter((item) => !result.page?.items.some((entry) => entry.id === item.id)),
-      ];
+      currentHistory.messages = prependHistoryItems(currentHistory.messages, result.page.items);
       currentHistory.hasMoreMessages = result.page.hasMore;
       renderPanelOnly();
       if (elements.messages) {
@@ -3294,22 +3432,13 @@ async function loadOlderHistory(kind: "messages" | "activities" | "cli"): Promis
     }
 
     if (kind === "messages") {
-      currentHistory.messages = [
-        ...(page.items as SessionMessage[]),
-        ...currentHistory.messages.filter((item) => !page.items.some((entry) => entry.id === item.id)),
-      ];
+      currentHistory.messages = prependHistoryItems(currentHistory.messages, page.items as SessionMessage[]);
       currentHistory.hasMoreMessages = page.hasMore;
     } else if (kind === "activities") {
-      currentHistory.activities = [
-        ...(page.items as SessionActivity[]),
-        ...currentHistory.activities.filter((item) => !page.items.some((entry) => entry.id === item.id)),
-      ];
+      currentHistory.activities = prependHistoryItems(currentHistory.activities, page.items as SessionActivity[]);
       currentHistory.hasMoreActivities = page.hasMore;
     } else {
-      currentHistory.cliTrace = [
-        ...(page.items as CliTraceEntry[]),
-        ...currentHistory.cliTrace.filter((item) => !page.items.some((entry) => entry.id === item.id)),
-      ];
+      currentHistory.cliTrace = prependHistoryItems(currentHistory.cliTrace, page.items as CliTraceEntry[]);
       currentHistory.hasMoreCli = page.hasMore;
     }
 
