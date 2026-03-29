@@ -35,6 +35,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
 import com.claudecode.remote.service.RelayConnectionService
 import com.claudecode.remote.ui.chat.ChatScreen
 import com.claudecode.remote.ui.chat.ChatViewModel
@@ -363,6 +364,16 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         appContainer.uiPresenceTracker.setAppInForeground(true)
+        if (appContainer.tokenStore.shouldAutoStartRelay()) {
+            RelayConnectionService.start(applicationContext)
+            lifecycleScope.launch {
+                try {
+                    appContainer.relayWebSocket.ensureHealthyConnection("activity-start")
+                } catch (e: Exception) {
+                    CrashLogger.logError("MainActivity", "Failed to restore relay connection on foreground", e)
+                }
+            }
+        }
     }
 
     override fun onStop() {

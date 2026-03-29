@@ -76,6 +76,21 @@ class RelayConnectionService : Service() {
                     }
             }
         }
+
+        serviceScope.launch {
+            while (isActive) {
+                delay(CONNECTION_HEALTH_CHECK_INTERVAL_MS)
+                try {
+                    container.relayWebSocket.ensureHealthyConnection("service-loop")
+                } catch (e: Exception) {
+                    CrashLogger.logError(
+                        "RelayConnectionService",
+                        "Failed to keep relay connection healthy",
+                        e
+                    )
+                }
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -95,7 +110,7 @@ class RelayConnectionService : Service() {
                     return@launch
                 }
 
-                container.relayWebSocket.connect()
+                container.relayWebSocket.ensureHealthyConnection("service-start")
             } catch (e: Exception) {
                 CrashLogger.logError("RelayConnectionService", "Failed to connect WebSocket", e)
             }
@@ -141,6 +156,8 @@ class RelayConnectionService : Service() {
     }
 
     companion object {
+        private const val CONNECTION_HEALTH_CHECK_INTERVAL_MS = 45_000L
+
         fun start(context: Context) {
             val intent = Intent(context, RelayConnectionService::class.java)
             ContextCompat.startForegroundService(context, intent)

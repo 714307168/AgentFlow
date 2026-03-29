@@ -61,6 +61,8 @@ class RelayWebSocket(
     private var pingJob: Job? = null
     private var reconnectJob: Job? = null
     private var e2eEnabled: Boolean = tokenStore.isE2EEnabled()
+    @Volatile
+    private var lastInboundAtMs: Long = 0L
     private val pendingRoomKeyOffers = mutableSetOf<String>()
     private val pendingEncryptedEnvelopes = mutableMapOf<String, MutableList<Envelope>>()
     private val connectionMutex = Mutex()
@@ -88,6 +90,56 @@ class RelayWebSocket(
 
     fun setE2EEnabled(enabled: Boolean) {
         e2eEnabled = enabled
+    }
+
+    suspend fun ensureHealthyConnection(reason: String = "health-check") {
+        connectionMutex.withLock {
+            val token = tokenStore.getToken()
+            val deviceId = tokenStore.getDeviceId()
+            if (token.isNullOrEmpty() || deviceId.isNullOrEmpty()) {
+                _errorMessage.value = "璇峰厛鍦ㄨ缃腑閰嶇疆 Token 鍜?Device ID"
+                _connectionState.value = ConnectionState.DISCONNECTED
+                return
+            }
+
+            when (_connectionState.value) {
+                ConnectionState.DISCONNECTED -> {
+                    _connectionState.value = ConnectionState.CONNECTING
+                    _errorMessage.value = null
+                    reconnectAttempts = 0
+                    openWebSocketLocked()
+                }
+
+                ConnectionState.CONNECTING,
+                ConnectionState.RECONNECTING -> Unit
+
+                ConnectionState.CONNECTED -> {
+                    val now = System.currentTimeMillis()
+                    val staleForMs = now - lastInboundAtMs
+                    if (lastInboundAtMs > 0L && staleForMs <= STALE_CONNECTION_TIMEOUT_MS) {
+                        send(
+                            Envelope(
+                                id = UUID.randomUUID().toString(),
+                                event = Events.PING,
+                                ts = now
+                            )
+                        )
+                        return
+                    }
+
+                    Log.w(tag, "Forcing WebSocket reconnect reason=$reason staleForMs=$staleForMs")
+                    reconnectJob?.cancel()
+                    reconnectJob = null
+                    stopPing()
+                    webSocket?.cancel()
+                    webSocket = null
+                    _connectionState.value = ConnectionState.CONNECTING
+                    _errorMessage.value = null
+                    reconnectAttempts = 0
+                    openWebSocketLocked()
+                }
+            }
+        }
     }
 
     suspend fun connect() {
@@ -148,6 +200,7 @@ class RelayWebSocket(
                 return
             }
             Log.d(tag, "WebSocket opened generation=$generation")
+            lastInboundAtMs = System.currentTimeMillis()
             _connectionState.value = ConnectionState.CONNECTED
             reconnectAttempts = 0
             authenticate()
@@ -160,6 +213,7 @@ class RelayWebSocket(
             }
             try {
                 val envelope = json.decodeFromString<Envelope>(text)
+                lastInboundAtMs = System.currentTimeMillis()
                 envelope.seq?.let { if (it > lastSeq) lastSeq = it }
 
                 if (envelope.event == Events.AUTH_ERROR) {
@@ -523,4 +577,8 @@ class RelayWebSocket(
 
     private fun isCurrentSocket(generation: Long, candidate: WebSocket): Boolean =
         generation == connectionGeneration && candidate == webSocket
+
+    companion object {
+        private const val STALE_CONNECTION_TIMEOUT_MS = 75_000L
+    }
 }
