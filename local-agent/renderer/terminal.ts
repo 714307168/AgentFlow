@@ -1895,10 +1895,10 @@ function applyStaticI18n(): void {
   document.documentElement.lang = state.lang;
 
   if (elements.projectsTitle) {
-    elements.projectsTitle.textContent = inlineText("Workspace", "工作台");
+    elements.projectsTitle.textContent = inlineText("Messages", "消息");
   }
   if (elements.projectSearchInput) {
-    elements.projectSearchInput.placeholder = inlineText("Search workspace", "搜索项目或群组");
+    elements.projectSearchInput.placeholder = inlineText("Search messages", "搜索消息");
   }
   if (elements.sidebarProjectsTabLabel) {
     elements.sidebarProjectsTabLabel.textContent = inlineText("Messages", "消息");
@@ -2438,8 +2438,57 @@ function renderProjectList(): void {
     return;
   }
 
+  const renderProjectContactItem = (project: ProjectState): string => {
+    const status = getProjectStatusMeta(project.id);
+    const isSelected = project.id === state.projectId;
+    const lastActivityAt = getActivity(project.id);
+    const originBadge = project.isRemote
+      ? `<span class="project-origin-pill remote">${escapeHtml(inlineText("Remote", "远程"))}</span>`
+      : `<span class="project-origin-pill local">${escapeHtml(inlineText("Local", "本地"))}</span>`;
+    const summaryText = previewText(status.detail, 78) || status.detail;
+    const pathText = previewText(project.path, 84) || project.path;
+    return [
+      `<button class="project-list-item contact-list-item${isSelected ? " selected" : ""}" type="button" data-project-id="${escapeHtml(project.id)}">`,
+      '<div class="project-list-top">',
+      `<div class="project-list-name-row"><span class="project-list-name">${highlightText(project.name, searchQuery)}</span>${originBadge}</div>`,
+      `<span class="project-status-pill ${escapeHtml(status.tone)}">${escapeHtml(status.label)}</span>`,
+      "</div>",
+      `<div class="project-list-detail" title="${escapeHtml(status.detail)}"><span class="project-list-summary">${highlightText(summaryText, searchQuery)}</span><span class="project-list-time">${escapeHtml(formatRelativeTime(lastActivityAt || 0))}</span></div>`,
+      `<div class="project-list-meta"><span class="project-list-path" title="${escapeHtml(project.path)}">${highlightText(pathText, searchQuery)}</span>${project.isRemote && project.agentId ? `<span class="project-meta-pill mono" title="${escapeHtml(project.agentId)}">${escapeHtml(project.agentId)}</span>` : ""}</div>`,
+      "</button>",
+    ].join("");
+  };
+
+  const renderWorkgroupContactItem = (workgroup: WorkgroupSummary): string => {
+    const status = getWorkgroupStatusMeta(workgroup.id);
+    const isSelected = workgroup.id === state.workgroupId;
+    const lastActivityAt = getWorkgroupActivity(workgroup.id);
+    const subtitle = workgroup.lastMessagePreview?.trim() || inlineText(`${workgroup.memberCount} members`, `${workgroup.memberCount} 名成员`);
+    const summaryText = previewText(status.detail, 78) || status.detail;
+    return [
+      `<button class="project-list-item contact-list-item${isSelected ? " selected" : ""}" type="button" data-workgroup-id="${escapeHtml(workgroup.id)}">`,
+      '<div class="project-list-top">',
+      `<div class="project-list-name-row"><span class="project-list-name">${highlightText(workgroup.name, searchQuery)}</span><span class="project-origin-pill group">${escapeHtml(inlineText("Group", "群组"))}</span></div>`,
+      `<span class="project-status-pill ${escapeHtml(status.tone)}">${escapeHtml(status.label)}</span>`,
+      "</div>",
+      `<div class="project-list-detail" title="${escapeHtml(subtitle)}"><span class="project-list-summary">${highlightText(previewText(subtitle, 88) || subtitle, searchQuery)}</span><span class="project-list-time">${escapeHtml(formatRelativeTime(lastActivityAt || workgroup.updatedAt))}</span></div>`,
+      `<div class="project-list-meta"><span class="project-list-path" title="${escapeHtml(status.detail)}">${highlightText(summaryText, searchQuery)}</span><span class="project-meta-pill">${escapeHtml(inlineText(`${workgroup.memberCount} members`, `${workgroup.memberCount} 名成员`))}</span></div>`,
+      "</button>",
+    ].join("");
+  };
+
+  const renderContactSection = (title: string, count: number, content: string, kind: "workgroups" | "remote" | "local"): string => [
+    `<section class="contact-section" data-contact-section="${escapeHtml(kind)}">`,
+    '<div class="contact-section-header">',
+    `<span class="contact-section-title">${escapeHtml(title)}</span>`,
+    `<span class="contact-section-count">${count}</span>`,
+    "</div>",
+    `<div class="contact-section-body">${content}</div>`,
+    "</section>",
+  ].join("");
+
   const groups = new Map<string, { label: string; projects: ProjectState[] }>();
-  for (const project of state.projects) {
+  for (const project of state.projects.filter((entry) => !entry.isRemote)) {
     const groupKey = getProjectGroupKey(project);
     const groupLabel = getProjectGroupLabel(project);
     const entry = groups.get(groupKey) ?? { label: groupLabel, projects: [] };
@@ -2480,58 +2529,75 @@ function renderProjectList(): void {
     return value;
   };
 
-  const workgroupSection = state.workgroups.length === 0
+  const filteredWorkgroups = [...state.workgroups]
+    .sort((left, right) => {
+      const activityDiff = getWorkgroupActivity(right.id) - getWorkgroupActivity(left.id);
+      if (activityDiff !== 0) {
+        return activityDiff;
+      }
+      return left.name.localeCompare(right.name, getLocale(), { sensitivity: "base" });
+    })
+    .filter((workgroup) => {
+      if (!hasSearchQuery) {
+        return true;
+      }
+      const status = getWorkgroupStatusMeta(workgroup.id);
+      const haystack = [
+        workgroup.name,
+        workgroup.description ?? "",
+        workgroup.lastMessagePreview ?? "",
+        status.label,
+        status.detail,
+      ]
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(normalizedSearchQuery);
+    });
+
+  const workgroupSection = filteredWorkgroups.length === 0
     ? ""
-    : [
-        `<section class="project-group" data-group-key="__workgroups__">`,
-        `<div class="project-group-header" aria-expanded="true">`,
-        '<span class="project-group-toggle" aria-hidden="true"></span>',
-        `<span class="project-group-title">${escapeHtml(inlineText("Collaborations", "协作组"))}</span>`,
-        `<span class="project-group-count">${state.workgroups.length}</span>`,
-        "</div>",
-        ...[...state.workgroups]
-          .sort((left, right) => {
-            const activityDiff = getWorkgroupActivity(right.id) - getWorkgroupActivity(left.id);
-            if (activityDiff !== 0) {
-              return activityDiff;
-            }
-            return left.name.localeCompare(right.name, getLocale(), { sensitivity: "base" });
-          })
-          .filter((workgroup) => {
-            if (!hasSearchQuery) {
-              return true;
-            }
-            const status = getWorkgroupStatusMeta(workgroup.id);
-            const haystack = [
-              workgroup.name,
-              workgroup.description ?? "",
-              workgroup.lastMessagePreview ?? "",
-              status.label,
-              status.detail,
-            ]
-              .join(" ")
-              .toLowerCase();
-            return haystack.includes(normalizedSearchQuery);
-          })
-          .map((workgroup) => {
-            const status = getWorkgroupStatusMeta(workgroup.id);
-            const isSelected = workgroup.id === state.workgroupId;
-            const lastActivityAt = getWorkgroupActivity(workgroup.id);
-            const subtitle = workgroup.lastMessagePreview?.trim() || inlineText(`${workgroup.memberCount} members`, `${workgroup.memberCount} 名成员`);
-            const summaryText = previewText(status.detail, 78) || status.detail;
-            return [
-              `<button class="project-list-item${isSelected ? " selected" : ""}" type="button" data-workgroup-id="${escapeHtml(workgroup.id)}">`,
-              '<div class="project-list-top">',
-              `<div class="project-list-name-row"><span class="project-list-name">${highlightText(workgroup.name, searchQuery)}</span><span class="project-origin-pill group">${escapeHtml(inlineText("Group", "群组"))}</span></div>`,
-              `<span class="project-status-pill ${escapeHtml(status.tone)}">${escapeHtml(status.label)}</span>`,
-              "</div>",
-              `<div class="project-list-detail" title="${escapeHtml(subtitle)}"><span class="project-list-summary">${highlightText(previewText(subtitle, 88) || subtitle, searchQuery)}</span><span class="project-list-time">${escapeHtml(formatRelativeTime(lastActivityAt || workgroup.updatedAt))}</span></div>`,
-              `<div class="project-list-meta"><span class="project-list-path" title="${escapeHtml(status.detail)}">${highlightText(summaryText, searchQuery)}</span><span class="project-meta-pill">${escapeHtml(inlineText(`${workgroup.memberCount} members`, `${workgroup.memberCount} 名成员`))}</span></div>`,
-              "</button>",
-            ].join("");
-          }),
-        "</section>",
-      ].join("");
+    : renderContactSection(
+        inlineText("Collaborations", "协作组"),
+        filteredWorkgroups.length,
+        filteredWorkgroups.map((workgroup) => renderWorkgroupContactItem(workgroup)).join(""),
+        "workgroups",
+      );
+
+  const remoteProjects = [...state.projects]
+    .filter((project) => project.isRemote)
+    .sort((left, right) => {
+      const activityDiff = getActivity(right.id) - getActivity(left.id);
+      if (activityDiff !== 0) {
+        return activityDiff;
+      }
+      return left.name.localeCompare(right.name, getLocale(), { sensitivity: "base" });
+    })
+    .filter((project) => {
+      if (!hasSearchQuery) {
+        return true;
+      }
+      const status = getProjectStatusMeta(project.id);
+      const haystack = [
+        project.name,
+        project.path,
+        project.agentId ?? "",
+        status.label,
+        status.detail,
+        inlineText("Remote", "远程"),
+      ]
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(normalizedSearchQuery);
+    });
+
+  const remoteSection = remoteProjects.length === 0
+    ? ""
+    : renderContactSection(
+        inlineText("Remote Agents", "远程"),
+        remoteProjects.length,
+        remoteProjects.map((project) => renderProjectContactItem(project)).join(""),
+        "remote",
+      );
 
   const projectSections = groupKeys
     .map((groupKey) => {
@@ -2575,30 +2641,42 @@ function renderProjectList(): void {
         `<span class="project-group-title">${escapeHtml(group.label)}</span>`,
         `<span class="project-group-count">${projects.length}</span>`,
         "</div>",
-        ...projects.map((project) => {
-          const status = getProjectStatusMeta(project.id);
-          const isSelected = project.id === state.projectId;
-          const lastActivityAt = getActivity(project.id);
-          const originBadge = project.isRemote
-            ? `<span class="project-origin-pill remote">${escapeHtml(inlineText("Remote", "远程"))}</span>`
-            : `<span class="project-origin-pill local">${escapeHtml(inlineText("Local", "本地"))}</span>`;
-          const summaryText = previewText(status.detail, 78) || status.detail;
-          const pathText = previewText(project.path, 84) || project.path;
-          return [
-            `<button class="project-list-item${isSelected ? " selected" : ""}" type="button" data-project-id="${escapeHtml(project.id)}">`,
-            '<div class="project-list-top">',
-            `<div class="project-list-name-row"><span class="project-list-name">${highlightText(project.name, searchQuery)}</span>${originBadge}</div>`,
-            `<span class="project-status-pill ${escapeHtml(status.tone)}">${escapeHtml(status.label)}</span>`,
-            "</div>",
-            `<div class="project-list-detail" title="${escapeHtml(status.detail)}"><span class="project-list-summary">${highlightText(summaryText, searchQuery)}</span><span class="project-list-time">${escapeHtml(formatRelativeTime(lastActivityAt || 0))}</span></div>`,
-            `<div class="project-list-meta"><span class="project-list-path" title="${escapeHtml(project.path)}">${highlightText(pathText, searchQuery)}</span>${project.isRemote && project.agentId ? `<span class="project-meta-pill mono" title="${escapeHtml(project.agentId)}">${escapeHtml(project.agentId)}</span>` : ""}</div>`,
-            "</button>",
-          ].join("");
-        }),
+        ...projects.map((project) => renderProjectContactItem(project)),
         "</section>",
       ].join("");
     })
     .join("");
+
+  const localProjectCount = groupKeys.reduce((total, groupKey) => {
+    const group = groups.get(groupKey);
+    return total + (group ? group.projects.filter((project) => {
+      if (!hasSearchQuery) {
+        return true;
+      }
+      const status = getProjectStatusMeta(project.id);
+      const haystack = [
+        project.name,
+        project.path,
+        project.agentId ?? "",
+        status.label,
+        status.detail,
+        inlineText("Local", "本地"),
+        project.groupName ?? "",
+      ]
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(normalizedSearchQuery);
+    }).length : 0);
+  }, 0);
+
+  const localSection = projectSections
+    ? renderContactSection(
+        inlineText("Projects", "本地项目"),
+        localProjectCount,
+        projectSections,
+        "local",
+      )
+    : "";
 
   const emptyMarkup = formatEmptyState(
     hasSearchQuery
@@ -2608,7 +2686,7 @@ function renderProjectList(): void {
       ? inlineText("Try a different keyword.", "试试其他关键词。")
       : inlineText("Projects, remote agents, and workgroups will appear here together.", "本地项目、远程项目和协作组都会统一显示在这里。"),
   );
-  const markup = `${workgroupSection}${projectSections}` || emptyMarkup;
+  const markup = `${workgroupSection}${remoteSection}${localSection}` || emptyMarkup;
   if (renderSignatures.projectList !== markup) {
     renderSignatures.projectList = markup;
     elements.projectList.innerHTML = markup;

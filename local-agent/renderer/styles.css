@@ -699,6 +699,60 @@ body {
   gap: 6px;
 }
 
+.contact-section {
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+}
+
+.contact-section-header {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.contact-section-title {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.contact-section-count {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-muted);
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-weight: 700;
+  justify-content: center;
+  min-width: 24px;
+  padding: 3px 8px;
+}
+
+.contact-section-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.contact-section .project-group {
+  gap: 8px;
+}
+
+.contact-section .project-group-header {
+  padding: 2px 4px 0;
+}
+
 .project-group-header {
   align-items: center;
   color: var(--text-soft);
@@ -1088,6 +1142,17 @@ body {
   transition: border-color 120ms ease, background 120ms ease, transform 120ms ease;
 }
 
+.recent-chat-item {
+  border-radius: 16px;
+  gap: 5px;
+  min-height: 78px;
+  padding: 10px 11px;
+}
+
+.contact-list-item {
+  min-height: 88px;
+}
+
 .project-list-item:hover {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.065), rgba(255, 255, 255, 0.03));
   border-color: var(--border-strong);
@@ -1164,6 +1229,12 @@ body {
   color: var(--text-muted);
 }
 
+.project-origin-pill.remote {
+  background: rgba(93, 208, 255, 0.12);
+  border-color: rgba(93, 208, 255, 0.2);
+  color: #ddf7ff;
+}
+
 .project-origin-pill.group {
   background: rgba(63, 216, 143, 0.12);
   border-color: rgba(63, 216, 143, 0.18);
@@ -1184,10 +1255,34 @@ body {
   white-space: nowrap;
 }
 
+.recent-chat-item .project-list-name {
+  font-size: 13px;
+}
+
+.recent-chat-item .project-list-detail {
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.recent-chat-item .project-list-summary {
+  color: var(--text-muted);
+  flex: 1 1 auto;
+}
+
+.recent-chat-item .project-list-meta {
+  color: var(--text-soft);
+}
+
+.recent-chat-item .project-status-pill {
+  font-size: 10px;
+  padding: 3px 7px;
+}
+
 .project-list-time {
   color: var(--text-soft);
   flex: 0 0 auto;
   font-size: 10px;
+  text-align: right;
 }
 
 .project-list-meta {
