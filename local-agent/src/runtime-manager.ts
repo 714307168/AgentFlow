@@ -136,6 +136,28 @@ const CODEX_EXIT_CODE_1_RETRY_DELAY_MS = 1_500;
 const CLI_TRACE_NOISE_PATTERNS = [
   /reading prompt from stdin/i,
 ] as const;
+const DIRECT_SCREENSHOT_REJECTION_PATTERNS = [
+  /功能/u,
+  /方案/u,
+  /设计/u,
+  /实现/u,
+  /开发/u,
+  /修复/u,
+  /为什么/u,
+  /怎么/u,
+  /如何/u,
+  /能不能/u,
+  /可以不可以/u,
+  /支持不支持/u,
+  /问题/u,
+  /报错/u,
+  /链路/u,
+  /workflow/i,
+  /feature/i,
+  /implement/i,
+  /support/i,
+  /design/i,
+] as const;
 
 class StopRunError extends Error {
   constructor(
@@ -931,6 +953,15 @@ class RuntimeManager extends EventEmitter {
     run: PendingRun,
     context: RunContext,
   ): Promise<PreparedRunResult> {
+    if (this.isDirectScreenshotRequest(run.prompt)) {
+      const completionDetail = await this.handleScreenshotSlashCommand(state, run, context);
+      return {
+        run,
+        handledLocally: true,
+        completionDetail,
+      };
+    }
+
     const command = this.parseSlashCommand(run.prompt);
     if (!command) {
       return { run, handledLocally: false };
@@ -1668,6 +1699,26 @@ class RuntimeManager extends EventEmitter {
       }
     }
     return trimmed;
+  }
+
+  private isDirectScreenshotRequest(prompt: string): boolean {
+    const normalized = prompt.replace(/\s+/g, " ").trim();
+    if (!normalized || normalized.startsWith("/")) {
+      return false;
+    }
+    if (normalized.length > 120) {
+      return false;
+    }
+    if (DIRECT_SCREENSHOT_REJECTION_PATTERNS.some((pattern) => pattern.test(normalized))) {
+      return false;
+    }
+
+    const screenshotIntent = /(桌面截图|屏幕截图|截个图|截张图|截图发|截图给|截屏发|截屏给|screen ?shot|screenshot|screen capture|capture (the )?(screen|desktop))/iu.test(normalized);
+    if (!screenshotIntent) {
+      return false;
+    }
+
+    return /(发给我|发我|给我看|看一下|看看|回传|发到app|发到聊天|send( it)? to me|send (it )?back|share( it)? here|show me)/iu.test(normalized);
   }
 
   private createProjectImageAttachment(
