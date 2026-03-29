@@ -858,6 +858,9 @@ body {
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--border);
   border-radius: 12px;
+  contain: content;
+  content-visibility: auto;
+  contain-intrinsic-size: 84px;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -964,6 +967,9 @@ body {
   background: rgba(255, 255, 255, 0.035);
   border: 1px solid rgba(255, 191, 105, 0.18);
   border-radius: 14px;
+  contain: content;
+  content-visibility: auto;
+  contain-intrinsic-size: 92px;
   display: flex;
   gap: 10px;
   justify-content: space-between;
@@ -1069,11 +1075,14 @@ body {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.02));
   border: 1px solid var(--border);
   border-radius: 14px;
+  contain: content;
   color: inherit;
+  content-visibility: auto;
   cursor: pointer;
   display: flex;
   flex-direction: column;
   gap: 6px;
+  contain-intrinsic-size: 108px;
   padding: 11px 12px;
   text-align: left;
   transition: border-color 120ms ease, background 120ms ease, transform 120ms ease;
@@ -1271,6 +1280,9 @@ body {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.025));
   border: 1px solid var(--border);
   border-radius: 16px;
+  contain: content;
+  content-visibility: auto;
+  contain-intrinsic-size: 140px;
   position: relative;
 }
 

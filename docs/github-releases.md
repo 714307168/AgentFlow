@@ -40,6 +40,12 @@ The script will:
    - fallback Android asset: `android-app/app/build/outputs/apk/release/app-release.apk`
 6. create or update the release, then replace assets with the same filename
 
+Optional switches:
+
+- `-SkipDesktopAsset`
+- `-SkipAndroidAsset`
+- `-SkipRelayAsset`
+
 ## Typical Usage
 
 Dry run first:
@@ -71,6 +77,15 @@ Publish with explicit asset paths:
 powershell -ExecutionPolicy Bypass -File .\scripts\publish-github-release.ps1 `
   -DesktopAsset '.\local-agent\release\AgentFlow-1.1.28-x64-setup.exe' `
   -AndroidAsset '.\artifacts\AgentFlow-1.1.28-release.apk'
+```
+
+Publish desktop only:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\publish-github-release.ps1 `
+  -DesktopAsset '.\local-agent\release\AgentFlow-1.1.28-x64-setup.exe' `
+  -SkipAndroidAsset `
+  -SkipRelayAsset
 ```
 
 ## Recommended Repository Rename

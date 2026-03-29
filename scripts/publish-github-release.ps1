@@ -8,6 +8,9 @@ param(
     [string]$DesktopAsset,
     [string]$AndroidAsset,
     [string]$RelayAsset,
+    [switch]$SkipDesktopAsset,
+    [switch]$SkipAndroidAsset,
+    [switch]$SkipRelayAsset,
     [switch]$Draft,
     [switch]$Prerelease,
     [switch]$GenerateNotes,
@@ -225,14 +228,18 @@ $resolvedTag = if ($Tag) { $Tag } else { "v$desktopVersion" }
 $resolvedName = if ($Name) { $Name } else { "AgentFlow $resolvedTag" }
 $releaseNotes = Get-ReleaseNotes -InlineNotes $Notes -FilePath $NotesFile -DesktopVersion $desktopVersion -AndroidVersion $androidVersion
 
-$resolvedDesktopAsset = if ($DesktopAsset) {
+$resolvedDesktopAsset = if ($SkipDesktopAsset) {
+    $null
+} elseif ($DesktopAsset) {
     Resolve-AssetPath -PathValue $DesktopAsset -RepoRoot $repoRoot
 } else {
     $defaultDesktopAsset = Join-Path $repoRoot "local-agent\release\AgentFlow-$desktopVersion-x64-setup.exe"
     if (Test-Path $defaultDesktopAsset) { (Resolve-Path $defaultDesktopAsset).Path } else { $null }
 }
 
-$resolvedAndroidAsset = if ($AndroidAsset) {
+$resolvedAndroidAsset = if ($SkipAndroidAsset) {
+    $null
+} elseif ($AndroidAsset) {
     Resolve-AssetPath -PathValue $AndroidAsset -RepoRoot $repoRoot
 } else {
     $candidatePaths = @(
@@ -243,7 +250,11 @@ $resolvedAndroidAsset = if ($AndroidAsset) {
     if ($match) { (Resolve-Path $match).Path } else { $null }
 }
 
-$resolvedRelayAsset = Resolve-AssetPath -PathValue $RelayAsset -RepoRoot $repoRoot
+$resolvedRelayAsset = if ($SkipRelayAsset) {
+    $null
+} else {
+    Resolve-AssetPath -PathValue $RelayAsset -RepoRoot $repoRoot
+}
 $assetPaths = @(@($resolvedDesktopAsset, $resolvedAndroidAsset, $resolvedRelayAsset) | Where-Object { $_ })
 
 Write-Step "Repository: $resolvedRepo"

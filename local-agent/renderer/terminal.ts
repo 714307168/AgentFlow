@@ -318,6 +318,7 @@ interface Window {
 }
 
 const api = window.claudeAgent;
+const WORKSPACE_RENDER_DEBOUNCE_MS = 90;
 
 const elements = {
   projectTitle: document.getElementById("projectTitle"),
@@ -463,6 +464,7 @@ let draggingGroupKey: string | null = null;
 let dragOverGroupKey: string | null = null;
 let messageSearchTimer: number | null = null;
 let projectListRenderTimer: number | null = null;
+let workspaceRenderTimer: number | null = null;
 let projectSearchTimer: number | null = null;
 let lastConversationSelectSignature = "";
 let lastProjectCatalogSignature = "";
@@ -1060,7 +1062,7 @@ function buildSessionSnapshotSignature(snapshot: SessionSnapshot): string {
     snapshot.isRunning ? "1" : "0",
     String(snapshot.queuedCount || 0),
     snapshot.currentSource ?? "",
-    snapshot.currentPrompt ?? "",
+    buildPromptSignature(snapshot.currentPrompt),
     String(snapshot.currentStartedAt ?? 0),
     snapshot.activeConversationId ?? "",
     activeConversation?.title ?? "",
@@ -1078,6 +1080,17 @@ function buildSessionSnapshotSignature(snapshot: SessionSnapshot): string {
     latestQueue?.runId ?? "",
     String(latestQueue?.queuedAt || 0),
   ].join("|");
+}
+
+function buildPromptSignature(prompt: string | null | undefined): string {
+  const normalized = (prompt ?? "").replace(/\s+/g, " ").trim();
+  if (!normalized) {
+    return "";
+  }
+  if (normalized.length <= 96) {
+    return normalized;
+  }
+  return `${normalized.slice(0, 48)}|${normalized.length}|${normalized.slice(-24)}`;
 }
 
 function buildWorkgroupSessionSnapshotSignature(snapshot: WorkgroupSessionSnapshot): string {
@@ -1179,7 +1192,14 @@ function syncHistoryStateFromSnapshot(snapshot: SessionSnapshot): void {
   }
 
   const mergeItems = <T extends { id: string }>(currentItems: T[], latestItems: T[]): T[] => {
-    const olderItems = currentItems.filter((item) => !latestItems.some((latest) => latest.id === item.id));
+    if (currentItems.length === 0) {
+      return latestItems.slice();
+    }
+    if (latestItems.length === 0) {
+      return currentItems;
+    }
+    const latestIds = new Set(latestItems.map((item) => item.id));
+    const olderItems = currentItems.filter((item) => !latestIds.has(item.id));
     return [...olderItems, ...latestItems];
   };
 
@@ -1198,7 +1218,12 @@ function syncWorkgroupHistoryStateFromSnapshot(snapshot: WorkgroupSessionSnapsho
     return;
   }
 
-  const olderItems = existing.messages.filter((item) => !snapshot.messages.some((latest) => latest.id === item.id));
+  if (snapshot.messages.length === 0) {
+    existing.hasMoreMessages = snapshot.messageTotal > existing.messages.length;
+    return;
+  }
+  const latestIds = new Set(snapshot.messages.map((item) => item.id));
+  const olderItems = existing.messages.filter((item) => !latestIds.has(item.id));
   existing.messages = [...olderItems, ...snapshot.messages];
   existing.hasMoreMessages = snapshot.messageTotal > existing.messages.length;
 }
@@ -2300,6 +2325,16 @@ function scheduleProjectListRender(delayMs = 180): void {
       lightbox: false,
       hint: false,
     });
+  }, delayMs);
+}
+
+function scheduleWorkspaceRender(delayMs = WORKSPACE_RENDER_DEBOUNCE_MS): void {
+  if (workspaceRenderTimer !== null) {
+    window.clearTimeout(workspaceRenderTimer);
+  }
+  workspaceRenderTimer = window.setTimeout(() => {
+    workspaceRenderTimer = null;
+    renderWorkspaceOnly();
   }, delayMs);
 }
 
@@ -4067,7 +4102,7 @@ api.onProjectSessionSnapshot((snapshot) => {
     if (state.messageSearchQuery.trim()) {
       scheduleMessageSearch();
     }
-    renderWorkspaceOnly();
+    scheduleWorkspaceRender();
   }
   scheduleProjectListRender(snapshot.projectId === state.projectId ? 160 : 260);
 });
@@ -4093,7 +4128,7 @@ api.onWorkgroupCollaborationSnapshot?.((snapshot) => {
   }
   if (snapshot.workgroupId === state.workgroupId) {
     refreshMentionSuggestions();
-    renderWorkspaceOnly();
+    scheduleWorkspaceRender();
   }
   scheduleProjectListRender(snapshot.workgroupId === state.workgroupId ? 160 : 260);
 });
