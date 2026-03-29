@@ -116,13 +116,20 @@ class RelayConnectionService : Service() {
         envelope: Envelope
     ) {
         try {
+            val previousSession = envelope.projectId?.let { projectId ->
+                container.sessionRepository.getSessionSnapshot(projectId)
+            }
             container.sessionRepository.processEnvelope(envelope)
             container.messageRepository.processEnvelope(envelope)
             container.workgroupRepository.processEnvelope(envelope)
+            val nextSession = envelope.projectId?.let { projectId ->
+                container.sessionRepository.getSessionSnapshot(projectId)
+            }
             notificationHelper.handleEnvelope(
                 envelope = envelope,
                 uiPresenceTracker = container.uiPresenceTracker,
-                sessionRepository = container.sessionRepository
+                previousSession = previousSession,
+                nextSession = nextSession
             )
         } catch (e: Exception) {
             CrashLogger.logError(

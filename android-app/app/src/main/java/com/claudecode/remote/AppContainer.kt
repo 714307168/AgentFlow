@@ -139,8 +139,8 @@ class UiPresenceTracker {
         _activeProjectId.value = projectId?.takeIf { it.isNotBlank() }
     }
 
-    fun shouldSuppressNotifications(projectId: String): Boolean =
-        _appInForeground.value && _activeProjectId.value == projectId
+    fun shouldSuppressNotifications(@Suppress("UNUSED_PARAMETER") projectId: String): Boolean =
+        _appInForeground.value
 }
 
 fun Context.appContainer(): AppContainer =

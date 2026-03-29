@@ -18,8 +18,8 @@ import com.claudecode.remote.UiPresenceTracker
 import com.claudecode.remote.data.local.AppDatabase
 import com.claudecode.remote.data.model.Envelope
 import com.claudecode.remote.data.model.Events
+import com.claudecode.remote.data.model.Session
 import com.claudecode.remote.data.remote.RelayWebSocket
-import com.claudecode.remote.domain.SessionRepository
 
 class RelayNotificationHelper(private val context: Context) {
     private val notificationManager = NotificationManagerCompat.from(context)
@@ -79,22 +79,19 @@ class RelayNotificationHelper(private val context: Context) {
     suspend fun handleEnvelope(
         envelope: Envelope,
         uiPresenceTracker: UiPresenceTracker,
-        sessionRepository: SessionRepository
+        previousSession: Session?,
+        nextSession: Session?
     ) {
-        if (envelope.event != Events.MESSAGE_DONE) {
+        if (!shouldNotifyForCompletion(envelope, previousSession, nextSession)) {
             return
         }
 
-        val projectId = envelope.projectId ?: return
-        val streamId = envelope.streamId ?: return
+        val projectId = envelope.projectId ?: nextSession?.projectId ?: return
         if (uiPresenceTracker.shouldSuppressNotifications(projectId)) {
             return
         }
 
-        val preview = messageDao.getMessageById(streamId)
-            ?.content
-            ?.let(::normalizePreview)
-            .orEmpty()
+        val preview = resolveCompletionPreview(projectId, envelope)
         if (preview.isEmpty()) {
             return
         }
@@ -103,18 +100,17 @@ class RelayNotificationHelper(private val context: Context) {
             return
         }
 
-        val session = sessionRepository.getSessionSnapshot(projectId)
         val pendingIntent = buildChatPendingIntent(
             projectId = projectId,
-            projectName = session?.name ?: "Project",
-            agentId = session?.agentId.orEmpty()
+            projectName = nextSession?.name ?: "Project",
+            agentId = nextSession?.agentId.orEmpty()
         )
 
         notificationManager.notify(
             projectId.hashCode(),
             NotificationCompat.Builder(context, MESSAGE_CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.stat_notify_chat)
-                .setContentTitle(session?.name?.ifBlank { "AgentFlow" } ?: "AgentFlow")
+                .setContentTitle(nextSession?.name?.ifBlank { "AgentFlow" } ?: "AgentFlow")
                 .setContentText(preview)
                 .setStyle(NotificationCompat.BigTextStyle().bigText(preview))
                 .setContentIntent(pendingIntent)
@@ -124,6 +120,35 @@ class RelayNotificationHelper(private val context: Context) {
                 .setCategory(NotificationCompat.CATEGORY_MESSAGE)
                 .build()
         )
+    }
+
+    private fun shouldNotifyForCompletion(
+        envelope: Envelope,
+        previousSession: Session?,
+        nextSession: Session?
+    ): Boolean {
+        if (envelope.event != Events.MESSAGE_DONE && envelope.event != Events.MESSAGE_ERROR && envelope.event != Events.SESSION_SYNC) {
+            return false
+        }
+
+        val wasBusy = previousSession?.let { it.isRunning || it.queuedCount > 0 } ?: false
+        val isBusy = nextSession?.let { it.isRunning || it.queuedCount > 0 } ?: false
+        return wasBusy && !isBusy
+    }
+
+    private suspend fun resolveCompletionPreview(projectId: String, envelope: Envelope): String {
+        val directPreview = envelope.streamId
+            ?.let { streamId -> messageDao.getMessageById(streamId)?.content }
+            ?.let(::normalizePreview)
+            .orEmpty()
+        if (directPreview.isNotEmpty()) {
+            return directPreview
+        }
+
+        return messageDao.getLatestConversationMessageByProject(projectId)
+            ?.content
+            ?.let(::normalizePreview)
+            .orEmpty()
     }
 
     private fun normalizePreview(content: String): String {

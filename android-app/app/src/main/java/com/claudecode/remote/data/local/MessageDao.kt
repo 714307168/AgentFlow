@@ -34,6 +34,17 @@ interface MessageDao {
         """
         SELECT * FROM messages
         WHERE projectId = :projectId
+          AND type IN ('TEXT', 'FILE')
+        ORDER BY timestamp DESC, syncSeq DESC, id DESC
+        LIMIT 1
+        """
+    )
+    suspend fun getLatestConversationMessageByProject(projectId: String): MessageEntity?
+
+    @Query(
+        """
+        SELECT * FROM messages
+        WHERE projectId = :projectId
           AND syncSeq > 0
           AND (:beforeSeq IS NULL OR syncSeq < :beforeSeq)
         ORDER BY syncSeq DESC
