@@ -111,6 +111,11 @@ private data class AttachmentPreviewTarget(
     val attachment: MessageAttachment
 )
 
+private enum class ChatPane {
+    CONVERSATION,
+    ACTIVITY
+}
+
 @Composable
 fun ChatScreen(
     projectId: String,
@@ -122,15 +127,20 @@ fun ChatScreen(
 ) {
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
-    val listState = rememberLazyListState()
+    val conversationListState = rememberLazyListState()
+    val activityListState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
     val lifecycleOwner = context as? LifecycleOwner
+    var selectedPane by rememberSaveable(projectId) { mutableStateOf(ChatPane.CONVERSATION) }
     var showModelDialog by remember { mutableStateOf(false) }
     var showConversationDialog by remember { mutableStateOf(false) }
     var modelInput by remember { mutableStateOf("") }
-    var hasInitialScrollPosition by remember(projectId) { mutableStateOf(false) }
+    var hasInitialConversationScrollPosition by remember(projectId) { mutableStateOf(false) }
     var previousLastMessageId by remember(projectId) { mutableStateOf<String?>(null) }
     var previousMessageCount by remember(projectId) { mutableStateOf(0) }
+    var hasInitialActivityScrollPosition by remember(projectId) { mutableStateOf(false) }
+    var previousLastActivityId by remember(projectId) { mutableStateOf<String?>(null) }
+    var previousActivityCount by remember(projectId) { mutableStateOf(0) }
     var previewAttachment by remember(projectId) { mutableStateOf<AttachmentPreviewTarget?>(null) }
     var resumeScrollRequestToken by remember(projectId) { mutableStateOf(0) }
     var handledResumeScrollToken by remember(projectId) { mutableStateOf(0) }
@@ -151,7 +161,8 @@ fun ChatScreen(
 
     LaunchedEffect(projectId, uiState.hasMoreHistory, uiState.isLoadingOlder) {
         snapshotFlow {
-            listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
+            val activeListState = if (selectedPane == ChatPane.ACTIVITY) activityListState else conversationListState
+            activeListState.firstVisibleItemIndex to activeListState.firstVisibleItemScrollOffset
         }
             .distinctUntilChanged()
             .collect { (index, offset) ->
@@ -193,38 +204,81 @@ fun ChatScreen(
         resumeScrollRequestToken
     ) {
         if (uiState.messages.isEmpty()) {
-            hasInitialScrollPosition = false
+            hasInitialConversationScrollPosition = false
             previousLastMessageId = null
             previousMessageCount = 0
             return@LaunchedEffect
         }
 
         val lastIndex = uiState.messages.lastIndex
-        val lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: lastIndex
+        val lastVisibleIndex = conversationListState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: lastIndex
         val isNearBottom = lastVisibleIndex >= lastIndex - 1
         val hasAppendedMessage =
             uiState.messages.size > previousMessageCount || lastMessage?.id != previousLastMessageId
         val shouldForceLatestOnResume = resumeScrollRequestToken != handledResumeScrollToken
 
         when {
-            !hasInitialScrollPosition || shouldForceLatestOnResume -> {
-                listState.scrollToItem(lastIndex)
-                hasInitialScrollPosition = true
+            !hasInitialConversationScrollPosition || (shouldForceLatestOnResume && selectedPane == ChatPane.CONVERSATION) -> {
+                conversationListState.scrollToItem(lastIndex)
+                hasInitialConversationScrollPosition = true
                 handledResumeScrollToken = resumeScrollRequestToken
             }
             !isNearBottom -> Unit
             hasAppendedMessage -> {
                 coroutineScope.launch {
-                    listState.animateScrollToItem(lastIndex)
+                    conversationListState.animateScrollToItem(lastIndex)
                 }
             }
             lastMessage?.isStreaming == true -> {
-                listState.scrollToItem(lastIndex)
+                conversationListState.scrollToItem(lastIndex)
             }
         }
 
         previousLastMessageId = lastMessage?.id
         previousMessageCount = uiState.messages.size
+    }
+
+    val lastActivityMessage = uiState.activityMessages.lastOrNull()
+    LaunchedEffect(
+        lastActivityMessage?.id,
+        lastActivityMessage?.content,
+        lastActivityMessage?.isStreaming,
+        uiState.activityMessages.size,
+        resumeScrollRequestToken
+    ) {
+        if (uiState.activityMessages.isEmpty()) {
+            hasInitialActivityScrollPosition = false
+            previousLastActivityId = null
+            previousActivityCount = 0
+            return@LaunchedEffect
+        }
+
+        val lastIndex = uiState.activityMessages.lastIndex
+        val lastVisibleIndex = activityListState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: lastIndex
+        val isNearBottom = lastVisibleIndex >= lastIndex - 1
+        val hasAppendedMessage =
+            uiState.activityMessages.size > previousActivityCount || lastActivityMessage?.id != previousLastActivityId
+        val shouldForceLatestOnResume = resumeScrollRequestToken != handledResumeScrollToken
+
+        when {
+            !hasInitialActivityScrollPosition || (shouldForceLatestOnResume && selectedPane == ChatPane.ACTIVITY) -> {
+                activityListState.scrollToItem(lastIndex)
+                hasInitialActivityScrollPosition = true
+                handledResumeScrollToken = resumeScrollRequestToken
+            }
+            !isNearBottom -> Unit
+            hasAppendedMessage -> {
+                coroutineScope.launch {
+                    activityListState.animateScrollToItem(lastIndex)
+                }
+            }
+            lastActivityMessage?.isStreaming == true -> {
+                activityListState.scrollToItem(lastIndex)
+            }
+        }
+
+        previousLastActivityId = lastActivityMessage?.id
+        previousActivityCount = uiState.activityMessages.size
     }
 
     if (showModelDialog) {
@@ -435,11 +489,17 @@ fun ChatScreen(
                     modifier = Modifier.fillMaxSize()
                 ) {
                     Column(modifier = Modifier.fillMaxSize()) {
+                        ChatPaneTabs(
+                            selectedPane = selectedPane,
+                            activityCount = uiState.activityMessages.size,
+                            onSelectPane = { selectedPane = it }
+                        )
+
                         if (shouldShowRuntimeBanner(uiState)) {
                             RuntimeNoticeBanner(uiState = uiState)
                         }
 
-                        if (uiState.messages.isEmpty()) {
+                        if (selectedPane == ChatPane.CONVERSATION && uiState.messages.isEmpty()) {
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()
@@ -452,14 +512,27 @@ fun ChatScreen(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
+                        } else if (selectedPane == ChatPane.ACTIVITY && uiState.activityMessages.isEmpty()) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(horizontal = 18.dp, vertical = 14.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.chat_no_activity),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         } else {
                             LazyColumn(
-                                state = listState,
+                                state = if (selectedPane == ChatPane.ACTIVITY) activityListState else conversationListState,
                                 modifier = Modifier.fillMaxSize(),
                                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp),
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                if (uiState.isLoadingOlder) {
+                                if (selectedPane == ChatPane.CONVERSATION && uiState.isLoadingOlder) {
                                     item(key = "loading-older") {
                                         Text(
                                             text = stringResource(R.string.chat_loading_older),
@@ -471,7 +544,8 @@ fun ChatScreen(
                                         )
                                     }
                                 }
-                                items(uiState.messages, key = { it.id }) { message ->
+                                val activeMessages = if (selectedPane == ChatPane.ACTIVITY) uiState.activityMessages else uiState.messages
+                                items(activeMessages, key = { it.id }) { message ->
                                     MessageBubble(
                                         message = message,
                                         downloadingAttachmentIds = uiState.downloadingAttachmentIds,
@@ -543,6 +617,60 @@ private fun runtimeBannerSummary(uiState: ChatUiState): String =
             ?: stringResource(R.string.chat_runtime_queued_detail, uiState.queuedCount)
         else -> stringResource(R.string.status_ready)
     }.lineSequence().firstOrNull()?.trim().orEmpty()
+
+@Composable
+private fun ChatPaneTabs(
+    selectedPane: ChatPane,
+    activityCount: Int,
+    onSelectPane: (ChatPane) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        ChatPaneTab(
+            label = stringResource(R.string.chat_view_conversation),
+            selected = selectedPane == ChatPane.CONVERSATION,
+            onClick = { onSelectPane(ChatPane.CONVERSATION) }
+        )
+        ChatPaneTab(
+            label = stringResource(R.string.chat_view_activity, activityCount),
+            selected = selectedPane == ChatPane.ACTIVITY,
+            onClick = { onSelectPane(ChatPane.ACTIVITY) }
+        )
+    }
+}
+
+@Composable
+private fun ChatPaneTab(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        color = if (selected) {
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.34f)
+        },
+        shape = RoundedCornerShape(999.dp),
+        border = BorderStroke(
+            1.dp,
+            if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.24f)
+            else MaterialTheme.colorScheme.outline.copy(alpha = 0.12f)
+        ),
+        modifier = Modifier.clickable(onClick = onClick)
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+        )
+    }
+}
 
 @Composable
 private fun ChatHeader(

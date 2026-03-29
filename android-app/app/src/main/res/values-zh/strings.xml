@@ -86,6 +86,9 @@
     <string name="chat_thinking">思考中</string>
     <string name="chat_activity">活动</string>
     <string name="chat_cli">CLI</string>
+    <string name="chat_view_conversation">对话</string>
+    <string name="chat_view_activity">活动 %1$d</string>
+    <string name="chat_no_activity">暂时没有活动日志。</string>
     <string name="chat_file">文件</string>
     <string name="chat_attach_file">附加文件</string>
     <string name="chat_download_attachment">下载</string>

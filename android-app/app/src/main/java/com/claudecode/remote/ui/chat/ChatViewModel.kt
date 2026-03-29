@@ -41,6 +41,7 @@ data class ConversationItem(
 
 data class ChatUiState(
     val messages: List<Message> = emptyList(),
+    val activityMessages: List<Message> = emptyList(),
     val inputText: String = "",
     val pendingAttachments: List<MessageAttachment> = emptyList(),
     val downloadingAttachmentIds: Set<String> = emptySet(),
@@ -83,6 +84,7 @@ class ChatViewModel(
 
     private val json = Json { ignoreUnknownKeys = true }
     private var messagesJob: Job? = null
+    private var activityMessagesJob: Job? = null
     private var sessionJob: Job? = null
     private var allMessages: List<Message> = emptyList()
     private var visibleMessageCount: Int = MESSAGE_PAGE_SIZE
@@ -186,7 +188,8 @@ class ChatViewModel(
                 isLoadingOlder = false,
                 hasMoreHistory = false,
                 isSwitchingConversation = false,
-                messages = emptyList()
+                messages = emptyList(),
+                activityMessages = emptyList()
             )
         }
         markSyncBurst()
@@ -238,6 +241,24 @@ class ChatViewModel(
                 }
             } catch (e: Exception) {
                 CrashLogger.logError("ChatViewModel", "Error collecting messages", e)
+            }
+        }
+
+        activityMessagesJob?.cancel()
+        activityMessagesJob = viewModelScope.launch {
+            try {
+                messageRepository.getMessagesForProject(projectId).collect { messages ->
+                    _uiState.update {
+                        it.copy(
+                            activityMessages = messages.filter { message ->
+                                message.type == com.claudecode.remote.data.model.MessageType.THINKING
+                                    || message.type == com.claudecode.remote.data.model.MessageType.ACTIVITY
+                            }
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                CrashLogger.logError("ChatViewModel", "Error collecting activity messages", e)
             }
         }
 
