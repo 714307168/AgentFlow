@@ -35,6 +35,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -45,10 +46,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.LifecycleOwner
 import com.claudecode.remote.R
 import com.claudecode.remote.data.model.WorkgroupMember
 import com.claudecode.remote.data.model.WorkgroupMessage
@@ -61,17 +66,37 @@ fun WorkgroupChatScreen(
     viewModel: WorkgroupChatViewModel,
     onNavigateBack: () -> Unit
 ) {
+    val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
     val listState = rememberLazyListState()
+    val lifecycleOwner = context as? LifecycleOwner
     var previousLastMessageId by remember(agentId, workgroupId) { mutableStateOf<String?>(null) }
     var previousMessageCount by remember(agentId, workgroupId) { mutableStateOf(0) }
+    var resumeScrollRequestToken by remember(agentId, workgroupId) { mutableStateOf(0) }
+    var handledResumeScrollToken by remember(agentId, workgroupId) { mutableStateOf(0) }
 
     LaunchedEffect(agentId, workgroupId, workgroupName) {
         viewModel.loadWorkgroup(agentId, workgroupId, workgroupName)
     }
 
+    DisposableEffect(lifecycleOwner, agentId, workgroupId) {
+        if (lifecycleOwner == null) {
+            onDispose { }
+        } else {
+            val observer = LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_RESUME) {
+                    resumeScrollRequestToken += 1
+                }
+            }
+            lifecycleOwner.lifecycle.addObserver(observer)
+            onDispose {
+                lifecycleOwner.lifecycle.removeObserver(observer)
+            }
+        }
+    }
+
     val lastMessage = uiState.messages.lastOrNull()
-    LaunchedEffect(lastMessage?.id, lastMessage?.content, uiState.messages.size) {
+    LaunchedEffect(lastMessage?.id, lastMessage?.content, uiState.messages.size, resumeScrollRequestToken) {
         if (uiState.messages.isEmpty()) {
             previousLastMessageId = null
             previousMessageCount = 0
@@ -83,9 +108,13 @@ fun WorkgroupChatScreen(
         val isNearBottom = lastVisibleIndex >= lastIndex - 1
         val hasAppendedMessage =
             uiState.messages.size > previousMessageCount || lastMessage?.id != previousLastMessageId
+        val shouldForceLatestOnResume = resumeScrollRequestToken != handledResumeScrollToken
 
         when {
-            previousMessageCount == 0 -> listState.scrollToItem(lastIndex)
+            previousMessageCount == 0 || shouldForceLatestOnResume -> {
+                listState.scrollToItem(lastIndex)
+                handledResumeScrollToken = resumeScrollRequestToken
+            }
             isNearBottom && hasAppendedMessage -> listState.animateScrollToItem(lastIndex)
             lastMessage?.status == "streaming" && isNearBottom -> listState.scrollToItem(lastIndex)
         }

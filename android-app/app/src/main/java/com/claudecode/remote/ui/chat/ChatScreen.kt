@@ -91,6 +91,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.core.content.FileProvider
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.LifecycleOwner
 import com.claudecode.remote.R
 import com.claudecode.remote.UiPresenceTracker
 import com.claudecode.remote.data.model.Message
@@ -121,6 +124,7 @@ fun ChatScreen(
     val uiState by viewModel.uiState.collectAsState()
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
+    val lifecycleOwner = context as? LifecycleOwner
     var showModelDialog by remember { mutableStateOf(false) }
     var showConversationDialog by remember { mutableStateOf(false) }
     var modelInput by remember { mutableStateOf("") }
@@ -128,6 +132,8 @@ fun ChatScreen(
     var previousLastMessageId by remember(projectId) { mutableStateOf<String?>(null) }
     var previousMessageCount by remember(projectId) { mutableStateOf(0) }
     var previewAttachment by remember(projectId) { mutableStateOf<AttachmentPreviewTarget?>(null) }
+    var resumeScrollRequestToken by remember(projectId) { mutableStateOf(0) }
+    var handledResumeScrollToken by remember(projectId) { mutableStateOf(0) }
 
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenMultipleDocuments()
@@ -162,8 +168,30 @@ fun ChatScreen(
         }
     }
 
+    DisposableEffect(lifecycleOwner, projectId) {
+        if (lifecycleOwner == null) {
+            onDispose { }
+        } else {
+            val observer = LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_RESUME) {
+                    resumeScrollRequestToken += 1
+                }
+            }
+            lifecycleOwner.lifecycle.addObserver(observer)
+            onDispose {
+                lifecycleOwner.lifecycle.removeObserver(observer)
+            }
+        }
+    }
+
     val lastMessage = uiState.messages.lastOrNull()
-    LaunchedEffect(lastMessage?.id, lastMessage?.content, lastMessage?.isStreaming, uiState.messages.size) {
+    LaunchedEffect(
+        lastMessage?.id,
+        lastMessage?.content,
+        lastMessage?.isStreaming,
+        uiState.messages.size,
+        resumeScrollRequestToken
+    ) {
         if (uiState.messages.isEmpty()) {
             hasInitialScrollPosition = false
             previousLastMessageId = null
@@ -176,11 +204,13 @@ fun ChatScreen(
         val isNearBottom = lastVisibleIndex >= lastIndex - 1
         val hasAppendedMessage =
             uiState.messages.size > previousMessageCount || lastMessage?.id != previousLastMessageId
+        val shouldForceLatestOnResume = resumeScrollRequestToken != handledResumeScrollToken
 
         when {
-            !hasInitialScrollPosition -> {
+            !hasInitialScrollPosition || shouldForceLatestOnResume -> {
                 listState.scrollToItem(lastIndex)
                 hasInitialScrollPosition = true
+                handledResumeScrollToken = resumeScrollRequestToken
             }
             !isNearBottom -> Unit
             hasAppendedMessage -> {
