@@ -448,10 +448,16 @@ class ChatViewModel(
         _uiState.update { it.copy(isSwitchingConversation = true) }
         viewModelScope.launch {
             try {
+                val selectedConversation = state.conversations.firstOrNull { it.id == conversationId }
                 visibleMessageCount = MESSAGE_PAGE_SIZE
                 pendingOlderHistoryRequest = null
                 olderHistoryTimeoutJob?.cancel()
                 olderHistoryTimeoutJob = null
+                messageRepository.switchConversationLocally(
+                    projectId = state.projectId,
+                    conversationId = conversationId,
+                    title = selectedConversation?.title
+                )
                 messageRepository.switchConversation(state.projectId, state.agentId, conversationId)
             } catch (e: Exception) {
                 CrashLogger.logError("ChatViewModel", "Error switching conversation", e)

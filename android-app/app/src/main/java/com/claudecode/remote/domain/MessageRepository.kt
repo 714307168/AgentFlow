@@ -281,6 +281,18 @@ class MessageRepository(
         )
     }
 
+    suspend fun switchConversationLocally(
+        projectId: String,
+        conversationId: String,
+        title: String?
+    ) {
+        sessionDao.updateActiveConversation(
+            projectId = projectId,
+            activeConversationId = conversationId,
+            activeConversationTitle = title?.trim()?.takeIf { it.isNotEmpty() }
+        )
+    }
+
     suspend fun sendStopTask(projectId: String, agentId: String? = null) {
         webSocket.send(
             Envelope(

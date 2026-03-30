@@ -109,6 +109,20 @@ interface SessionDao {
         lastActiveAt: Long
     )
 
+    @Query(
+        """
+        UPDATE sessions
+        SET activeConversationId = :activeConversationId,
+            activeConversationTitle = :activeConversationTitle
+        WHERE projectId = :projectId
+        """
+    )
+    suspend fun updateActiveConversation(
+        projectId: String,
+        activeConversationId: String?,
+        activeConversationTitle: String?
+    )
+
     @Query("UPDATE sessions SET lastSyncSeq = :lastSyncSeq WHERE projectId = :projectId")
     suspend fun updateLastSyncSeq(projectId: String, lastSyncSeq: Long)
 
