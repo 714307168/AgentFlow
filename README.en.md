@@ -22,6 +22,8 @@ The project contains three main parts:
 - Desktop and Android update checks
 - Admin UI for users, devices, release publishing, and traffic-by-event visibility
 - Per-project local history with incremental sync
+- Android chat opens from a persisted local snapshot first, then patches in relay deltas
+- Mobile prompt sending preserves per-project order even when attachments are being uploaded
 
 ## Repository Layout
 
@@ -41,6 +43,7 @@ The desktop agent is the source of truth.
 - Each project persists its own history
 - Messages and activities carry monotonic sync sequence numbers
 - Android pulls incremental data with `after_seq`
+- Android keeps the active conversation cache and latest visible chat window locally for instant reopen
 - Large histories no longer rely on full-history sync
 - The relay server also serves as the update center
 
@@ -109,7 +112,8 @@ Common files:
 The Android app uses Room and Preferences for:
 
 - synced messages
-- per-project `lastSyncSeq`
+- per-project active-conversation sync windows
+- persisted chat snapshots for instant reopen
 - sign-in and update preferences
 
 ## Update Center

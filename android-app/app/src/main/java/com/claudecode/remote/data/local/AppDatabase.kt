@@ -35,37 +35,37 @@ abstract class AppDatabase : RoomDatabase() {
         }
 
         private val MIGRATION_3_4 = object : Migration(3, 4) {
-            override fun migrate(database: SupportSQLiteDatabase) {
-                database.execSQL("ALTER TABLE sessions ADD COLUMN lastSyncSeq INTEGER NOT NULL DEFAULT 0")
-                database.execSQL("ALTER TABLE messages ADD COLUMN syncSeq INTEGER NOT NULL DEFAULT 0")
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE sessions ADD COLUMN lastSyncSeq INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE messages ADD COLUMN syncSeq INTEGER NOT NULL DEFAULT 0")
             }
         }
 
         private val MIGRATION_4_5 = object : Migration(4, 5) {
-            override fun migrate(database: SupportSQLiteDatabase) {
-                database.execSQL("ALTER TABLE messages ADD COLUMN attachmentsJson TEXT")
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE messages ADD COLUMN attachmentsJson TEXT")
             }
         }
 
         private val MIGRATION_5_6 = object : Migration(5, 6) {
-            override fun migrate(database: SupportSQLiteDatabase) {
-                database.execSQL("ALTER TABLE sessions ADD COLUMN groupName TEXT")
-                database.execSQL("ALTER TABLE sessions ADD COLUMN activeConversationId TEXT")
-                database.execSQL("ALTER TABLE sessions ADD COLUMN activeConversationTitle TEXT")
-                database.execSQL("ALTER TABLE sessions ADD COLUMN conversationsJson TEXT")
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE sessions ADD COLUMN groupName TEXT")
+                db.execSQL("ALTER TABLE sessions ADD COLUMN activeConversationId TEXT")
+                db.execSQL("ALTER TABLE sessions ADD COLUMN activeConversationTitle TEXT")
+                db.execSQL("ALTER TABLE sessions ADD COLUMN conversationsJson TEXT")
             }
         }
 
         private val MIGRATION_6_7 = object : Migration(6, 7) {
-            override fun migrate(database: SupportSQLiteDatabase) {
-                database.execSQL("ALTER TABLE sessions ADD COLUMN queueJson TEXT")
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE sessions ADD COLUMN queueJson TEXT")
             }
         }
 
         private val MIGRATION_7_8 = object : Migration(7, 8) {
-            override fun migrate(database: SupportSQLiteDatabase) {
-                database.execSQL("ALTER TABLE messages ADD COLUMN conversationId TEXT")
-                database.execSQL(
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE messages ADD COLUMN conversationId TEXT")
+                db.execSQL(
                     """
                     UPDATE messages
                     SET conversationId = (

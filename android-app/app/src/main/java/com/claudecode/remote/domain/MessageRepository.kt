@@ -31,6 +31,8 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.builtins.ListSerializer
@@ -126,7 +128,11 @@ class MessageRepository(
     private val lastProjectSyncRequestedAt = ConcurrentHashMap<String, Long>()
     private val lastWakeupRequestedAt = ConcurrentHashMap<String, Long>()
     private val lastFullItemRequestAt = ConcurrentHashMap<String, Long>()
+    private val projectSendMutexes = ConcurrentHashMap<String, Mutex>()
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+
+    private fun getProjectSendMutex(projectId: String): Mutex =
+        projectSendMutexes.getOrPut(projectId.trim()) { Mutex() }
 
     suspend fun requestProjectSync(
         projectId: String,
@@ -361,53 +367,54 @@ class MessageRepository(
         )
 
         try {
-            wakeupAgent(agentId)
+            getProjectSendMutex(projectId).withLock {
+                wakeupAgent(agentId)
 
-            val uploadedAttachments = normalizedAttachments.map { attachment ->
-                uploadAttachment(projectId, attachment, agentId)
-            }
-            val messageContent = if (trimmedContent.isNotEmpty()) content else buildAttachmentOnlyPrompt(uploadedAttachments)
-            val envelope = Envelope(
-                id = runId,
-                event = Events.MESSAGE_SEND,
-                projectId = projectId,
-                streamId = streamId,
-                payload = buildJsonObject {
-                    put("content", JsonPrimitive(messageContent))
-                    if (uploadedAttachments.isNotEmpty()) {
-                        put("attachments", JsonArray(uploadedAttachments.map(::attachmentToJson)))
-                    }
-                },
-                ts = optimisticTimestamp
-            )
-
-            val optimisticAttachments = uploadedAttachments.map { uploaded ->
-                mergeAttachment(
-                    existing = normalizedAttachments.firstOrNull { it.id == uploaded.id },
-                    incoming = uploaded
-                )
-            }
-
-            addMessage(
-                Message(
-                    id = envelope.id,
+                val uploadedAttachments = normalizedAttachments.map { attachment ->
+                    uploadAttachment(projectId, attachment, agentId)
+                }
+                val messageContent = if (trimmedContent.isNotEmpty()) content else buildAttachmentOnlyPrompt(uploadedAttachments)
+                val envelope = Envelope(
+                    id = runId,
+                    event = Events.MESSAGE_SEND,
                     projectId = projectId,
-                    role = MessageRole.USER,
-                    content = messageContent,
-                    type = if (optimisticAttachments.isNotEmpty()) MessageType.FILE else MessageType.TEXT,
-                    attachments = optimisticAttachments,
-                    timestamp = envelope.ts
+                    streamId = streamId,
+                    payload = buildJsonObject {
+                        put("content", JsonPrimitive(messageContent))
+                        if (uploadedAttachments.isNotEmpty()) {
+                            put("attachments", JsonArray(uploadedAttachments.map(::attachmentToJson)))
+                        }
+                    },
+                    ts = optimisticTimestamp
                 )
-            )
 
-            webSocket.send(envelope, targetAgentId = agentId)
-            runCatching {
-                requestProjectSync(
-                    projectId = projectId,
-                    agentId = agentId,
-                    limit = DEFAULT_SYNC_LIMIT,
-                    shouldWakeAgent = false
+                val optimisticAttachments = uploadedAttachments.map { uploaded ->
+                    mergeAttachment(
+                        existing = normalizedAttachments.firstOrNull { it.id == uploaded.id },
+                        incoming = uploaded
+                    )
+                }
+
+                addMessage(
+                    Message(
+                        id = envelope.id,
+                        projectId = projectId,
+                        role = MessageRole.USER,
+                        content = messageContent,
+                        type = if (optimisticAttachments.isNotEmpty()) MessageType.FILE else MessageType.TEXT,
+                        attachments = optimisticAttachments,
+                        timestamp = envelope.ts
+                    )
                 )
+                webSocket.send(envelope, targetAgentId = agentId)
+                runCatching {
+                    requestProjectSync(
+                        projectId = projectId,
+                        agentId = agentId,
+                        limit = DEFAULT_SYNC_LIMIT,
+                        shouldWakeAgent = false
+                    )
+                }
             }
         } catch (error: Exception) {
             messageDao.deleteMessageById(runId)

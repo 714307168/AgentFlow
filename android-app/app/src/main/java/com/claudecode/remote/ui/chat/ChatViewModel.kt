@@ -148,6 +148,7 @@ class ChatViewModel(
     private var syncBurstUntilMillis: Long = 0L
     private var projectBootstrapJob: Job? = null
     private var lastSnapshotPersistAtMs: Long = 0L
+    private var lastPersistedSnapshotJson: String? = null
 
     private fun restorePersistedSnapshot(projectId: String): PersistedChatSnapshot? =
         tokenStore.getProjectChatSnapshot(projectId)
@@ -159,6 +160,7 @@ class ChatViewModel(
                     }
                     .getOrNull()
                     ?.takeIf { it.projectId == projectId }
+                    ?.also { lastPersistedSnapshotJson = raw }
             }
 
     private fun persistCurrentProjectSnapshot(force: Boolean = false) {
@@ -207,11 +209,17 @@ class ChatViewModel(
             activityMessages = state.activityMessages.takeLast(MESSAGE_PAGE_SIZE)
         )
         runCatching {
+            val encodedSnapshot = json.encodeToString(PersistedChatSnapshot.serializer(), snapshot)
+            if (!force && encodedSnapshot == lastPersistedSnapshotJson) {
+                lastSnapshotPersistAtMs = now
+                return
+            }
             tokenStore.saveProjectChatSnapshot(
                 projectId = projectId,
-                snapshotJson = json.encodeToString(PersistedChatSnapshot.serializer(), snapshot)
+                snapshotJson = encodedSnapshot
             )
             lastSnapshotPersistAtMs = now
+            lastPersistedSnapshotJson = encodedSnapshot
         }.onFailure { error ->
             CrashLogger.logError("ChatViewModel", "Error persisting chat snapshot", error as? Exception ?: Exception(error))
         }
@@ -305,6 +313,7 @@ class ChatViewModel(
         olderHistoryTimeoutJob = null
         pendingOlderHistoryRequest = null
         projectBootstrapJob?.cancel()
+        lastPersistedSnapshotJson = null
         val persistedSnapshot = restorePersistedSnapshot(projectId)
         allMessages = persistedSnapshot?.messages ?: emptyList()
         allActivityMessages = persistedSnapshot?.activityMessages ?: emptyList()
