@@ -53,7 +53,7 @@ class SessionRepository(
         private const val MIN_SYNC_INTERVAL_MS = 3_000L
     }
 
-    val sessions: Flow<List<Session>> = sessionDao.getAllSessions().map { entities ->
+    val sessions: Flow<List<Session>> = sessionDao.getInboxSessions().map { entities ->
         entities.map { it.toSession() }
     }
 

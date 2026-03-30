@@ -57,14 +57,7 @@ class AgentHubViewModel(
     init {
         viewModelScope.launch {
             sessionRepository.sessions.collect { sessions ->
-                _uiState.update {
-                    it.copy(
-                        sessions = sessions.sortedWith(
-                            compareByDescending<Session> { session -> session.lastActiveAt }
-                                .thenBy { session -> session.name.lowercase() }
-                        )
-                    )
-                }
+                _uiState.update { it.copy(sessions = sessions) }
             }
         }
 
