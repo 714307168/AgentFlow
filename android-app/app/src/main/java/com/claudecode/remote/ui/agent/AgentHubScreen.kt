@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
@@ -38,22 +39,30 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.claudecode.remote.R
 import com.claudecode.remote.data.model.Session
 import com.claudecode.remote.data.model.Workgroup
 import com.claudecode.remote.data.remote.RelayWebSocket
 import com.claudecode.remote.util.AlphabeticalSort
+import kotlinx.coroutines.launch
 
 private const val DEFAULT_GROUP_KEY = "__default__"
 private const val COLLABORATION_GROUP_KEY = "__collaboration__"
@@ -68,6 +77,9 @@ fun AgentHubScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val connectionState by webSocket.connectionState.collectAsState()
+    val listState = rememberLazyListState()
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val coroutineScope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
         viewModel.initialize()
@@ -104,6 +116,42 @@ fun AgentHubScreen(
                 { it.first.lowercase() }
             )
         )
+    val currentTopAnchor = remember(groupedSessions, workgroups) {
+        groupedSessions.firstOrNull()?.let { group -> "session-group:${group.key}" }
+            ?: workgroups.firstOrNull()?.let { (agentId, workgroup) -> "workgroup:$agentId:${workgroup.id}" }
+    }
+    val lastTopAnchor = remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(currentTopAnchor) {
+        if (currentTopAnchor == null) {
+            return@LaunchedEffect
+        }
+        val isAlreadyAtTop = listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset <= 8
+        if (isAlreadyAtTop && lastTopAnchor.value != currentTopAnchor) {
+            listState.scrollToItem(0)
+            lastTopAnchor.value = currentTopAnchor
+        }
+    }
+
+    DisposableEffect(lifecycleOwner, currentTopAnchor) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event != Lifecycle.Event.ON_RESUME || currentTopAnchor == null) {
+                return@LifecycleEventObserver
+            }
+            val restoredAwayFromTop = listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 8
+            val topAnchorChanged = lastTopAnchor.value != currentTopAnchor
+            if (restoredAwayFromTop || topAnchorChanged) {
+                coroutineScope.launch {
+                    listState.scrollToItem(0)
+                }
+            }
+            lastTopAnchor.value = currentTopAnchor
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -191,6 +239,7 @@ fun AgentHubScreen(
                         }
                     } else {
                         LazyColumn(
+                            state = listState,
                             modifier = Modifier.weight(1f),
                             contentPadding = PaddingValues(bottom = 20.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -363,7 +412,7 @@ private fun JoinWorkgroupCard(
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.12f)),
         modifier = Modifier.fillMaxWidth()
     ) {
-        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -387,12 +436,13 @@ private fun JoinWorkgroupCard(
                     onValueChange = onQueryChange,
                     modifier = Modifier.weight(1f),
                     singleLine = true,
-                    placeholder = { Text(stringResource(R.string.workgroups_group_number_hint)) }
+                    placeholder = { Text(stringResource(R.string.workgroups_group_number_hint)) },
+                    shape = RoundedCornerShape(14.dp)
                 )
                 TextButton(
                     onClick = onSearch,
                     enabled = enabled && !isSearching,
-                    modifier = Modifier.heightIn(min = 52.dp)
+                    modifier = Modifier.heightIn(min = 48.dp)
                 ) {
                     Text(if (isSearching) stringResource(R.string.workgroups_searching) else stringResource(R.string.workgroups_search))
                 }
