@@ -35,9 +35,9 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -127,9 +127,9 @@ fun ChatScreen(
 ) {
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
-    val conversationListState = rememberLazyListState()
-    val activityListState = rememberLazyListState()
-    val queueListState = rememberLazyListState()
+    val conversationListState = remember(projectId) { LazyListState() }
+    val activityListState = remember(projectId) { LazyListState() }
+    val queueListState = remember(projectId) { LazyListState() }
     val coroutineScope = rememberCoroutineScope()
     var selectedPane by rememberSaveable(projectId) { mutableStateOf(ChatPane.CONVERSATION) }
     var showModelDialog by remember { mutableStateOf(false) }
