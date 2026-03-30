@@ -46,6 +46,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -406,6 +408,15 @@ private fun JoinWorkgroupCard(
     onJoin: (String) -> Unit,
     enabled: Boolean
 ) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    val hasActiveJoinState = query.isNotBlank() || results.isNotEmpty() || isSearching || joiningGroupNumber != null
+
+    LaunchedEffect(hasActiveJoinState) {
+        if (hasActiveJoinState) {
+            expanded = true
+        }
+    }
+
     Surface(
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
         shape = RoundedCornerShape(18.dp),
@@ -418,52 +429,83 @@ private fun JoinWorkgroupCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text(
-                    text = stringResource(R.string.workgroups_join_title),
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold
-                )
-                if (!enabled) {
-                    StatusBadge(
-                        text = stringResource(R.string.status_offline),
-                        accent = MaterialTheme.colorScheme.error
-                    )
-                }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = onQueryChange,
+                Column(
                     modifier = Modifier.weight(1f),
-                    singleLine = true,
-                    placeholder = { Text(stringResource(R.string.workgroups_group_number_hint)) },
-                    shape = RoundedCornerShape(14.dp)
-                )
-                TextButton(
-                    onClick = onSearch,
-                    enabled = enabled && !isSearching,
-                    modifier = Modifier.heightIn(min = 48.dp)
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
-                    Text(if (isSearching) stringResource(R.string.workgroups_searching) else stringResource(R.string.workgroups_search))
+                    Text(
+                        text = stringResource(R.string.workgroups_join_title),
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    if (!expanded) {
+                        Text(
+                            text = stringResource(R.string.workgroups_group_number_hint),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    if (!enabled) {
+                        StatusBadge(
+                            text = stringResource(R.string.status_offline),
+                            accent = MaterialTheme.colorScheme.error
+                        )
+                    }
+                    IconButton(
+                        onClick = { expanded = !expanded },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            contentDescription = null
+                        )
+                    }
                 }
             }
-            results.forEach { (name, groupNumber, owner) ->
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                        Text(
-                            text = stringResource(R.string.workgroups_group_number_label, groupNumber),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Text(owner, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+            if (expanded) {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = query,
+                        onValueChange = onQueryChange,
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        placeholder = { Text(stringResource(R.string.workgroups_group_number_hint)) },
+                        shape = RoundedCornerShape(14.dp)
+                    )
+                    TextButton(
+                        onClick = onSearch,
+                        enabled = enabled && !isSearching,
+                        modifier = Modifier.heightIn(min = 48.dp)
+                    ) {
+                        Text(if (isSearching) stringResource(R.string.workgroups_searching) else stringResource(R.string.workgroups_search))
                     }
-                    TextButton(onClick = { onJoin(groupNumber) }, enabled = joiningGroupNumber != groupNumber) {
-                        Text(if (joiningGroupNumber == groupNumber) stringResource(R.string.workgroups_joining) else stringResource(R.string.workgroups_join_action))
+                }
+                results.forEach { (name, groupNumber, owner) ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                text = stringResource(R.string.workgroups_group_number_label, groupNumber),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Text(owner, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        TextButton(onClick = { onJoin(groupNumber) }, enabled = joiningGroupNumber != groupNumber) {
+                            Text(if (joiningGroupNumber == groupNumber) stringResource(R.string.workgroups_joining) else stringResource(R.string.workgroups_join_action))
+                        }
                     }
                 }
             }

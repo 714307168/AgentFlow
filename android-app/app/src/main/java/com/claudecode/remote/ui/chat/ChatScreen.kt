@@ -677,7 +677,7 @@ private fun ChatPaneTabs(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .padding(horizontal = 12.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         ChatPaneTab(
@@ -730,7 +730,7 @@ private fun ChatPaneTab(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 8.dp)
+                .padding(horizontal = 10.dp, vertical = 7.dp)
         )
     }
 }
@@ -875,17 +875,17 @@ private fun ChatHeader(
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
-        shape = RoundedCornerShape(22.dp),
+        shape = RoundedCornerShape(20.dp),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.12f)),
-        shadowElevation = 4.dp,
+        shadowElevation = 3.dp,
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 10.dp),
+                .padding(horizontal = 10.dp, vertical = 9.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.Top
         ) {
             ChatHeaderButton(
                 icon = Icons.AutoMirrored.Filled.ArrowBack,
@@ -920,21 +920,14 @@ private fun ChatHeader(
                         color = runtimeTone
                     )
                     Text(
-                        text = "$provider / $model",
+                        text = "$conversationTitle · $provider / $model",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false)
+                        modifier = Modifier.weight(1f)
                     )
                 }
-                Text(
-                    text = conversationTitle,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
             }
 
             ChatHeaderButton(
@@ -965,14 +958,14 @@ private fun ChatHeaderButton(
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(14.dp),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.14f)),
-        shadowElevation = 4.dp
+        shadowElevation = 3.dp
     ) {
         IconButton(
             onClick = onClick,
             enabled = enabled,
-            modifier = Modifier.size(42.dp),
+            modifier = Modifier.size(38.dp),
             colors = IconButtonDefaults.iconButtonColors(
                 contentColor = tint,
                 disabledContentColor = MaterialTheme.colorScheme.outline

@@ -149,7 +149,10 @@ fun SettingsScreen(
             ) {
                 SettingsHeader(onNavigateBack = onNavigateBack)
 
-                HeroPanel(initialState.isLoggedIn)
+                SettingsOverviewStrip(
+                    isLoggedIn = initialState.isLoggedIn,
+                    updateState = initialState.updateState
+                )
 
                 bannerMessage?.let { message ->
                     Surface(
@@ -540,7 +543,7 @@ private fun SettingsHeader(onNavigateBack: () -> Unit) {
 
         Column(
             modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
             Text(
                 text = stringResource(R.string.settings_title),
@@ -549,11 +552,6 @@ private fun SettingsHeader(onNavigateBack: () -> Unit) {
                 color = MaterialTheme.colorScheme.onBackground,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = stringResource(R.string.settings_hero_subtitle),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }
@@ -587,52 +585,80 @@ private fun HeaderButton(
 }
 
 @Composable
-private fun HeroPanel(isLoggedIn: Boolean) {
+private fun SettingsOverviewStrip(
+    isLoggedIn: Boolean,
+    updateState: AppUpdateState
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        OverviewStatusCard(
+            title = stringResource(R.string.settings_account_title),
+            value = if (isLoggedIn) {
+                stringResource(R.string.settings_signed_in)
+            } else {
+                stringResource(R.string.settings_sign_in_required)
+            },
+            containerColor = if (isLoggedIn) {
+                MaterialTheme.colorScheme.primaryContainer
+            } else {
+                MaterialTheme.colorScheme.secondaryContainer
+            },
+            contentColor = if (isLoggedIn) {
+                MaterialTheme.colorScheme.onPrimaryContainer
+            } else {
+                MaterialTheme.colorScheme.onSecondaryContainer
+            },
+            modifier = Modifier.weight(1f)
+        )
+        OverviewStatusCard(
+            title = stringResource(R.string.settings_updates_title),
+            value = when (updateState.status) {
+                AppUpdateStatus.AVAILABLE,
+                AppUpdateStatus.DOWNLOADED,
+                AppUpdateStatus.DOWNLOADING -> updateState.latestVersion ?: updateStatusText(updateState)
+                else -> updateStatusText(updateState)
+            },
+            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+            contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+            modifier = Modifier.weight(1f)
+        )
+    }
+}
+
+@Composable
+private fun OverviewStatusCard(
+    title: String,
+    value: String,
+    containerColor: Color,
+    contentColor: Color,
+    modifier: Modifier = Modifier
+) {
     Surface(
-        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
-        shadowElevation = 10.dp,
-        tonalElevation = 3.dp,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.12f)),
-        shape = MaterialTheme.shapes.large,
-        modifier = Modifier.fillMaxWidth()
+        color = containerColor.copy(alpha = 0.92f),
+        shape = RoundedCornerShape(18.dp),
+        border = BorderStroke(1.dp, contentColor.copy(alpha = 0.12f)),
+        modifier = modifier
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Text(
-                text = stringResource(R.string.settings_hero_title),
-                style = MaterialTheme.typography.headlineSmall,
-                color = MaterialTheme.colorScheme.onSurface
+                text = title,
+                style = MaterialTheme.typography.labelMedium,
+                color = contentColor.copy(alpha = 0.78f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
             Text(
-                text = stringResource(R.string.settings_hero_subtitle),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                text = value,
+                style = MaterialTheme.typography.titleSmall,
+                color = contentColor,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
             )
-            Surface(
-                color = if (isLoggedIn) {
-                    MaterialTheme.colorScheme.primaryContainer
-                } else {
-                    MaterialTheme.colorScheme.secondaryContainer
-                },
-                shape = RoundedCornerShape(999.dp)
-            ) {
-                Text(
-                    text = if (isLoggedIn) {
-                        stringResource(R.string.settings_signed_in)
-                    } else {
-                        stringResource(R.string.settings_sign_in_required)
-                    },
-                    style = MaterialTheme.typography.labelLarge,
-                    color = if (isLoggedIn) {
-                        MaterialTheme.colorScheme.onPrimaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.onSecondaryContainer
-                    },
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
-                )
-            }
         }
     }
 }
@@ -713,8 +739,8 @@ private fun SettingsSection(
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 18.dp, vertical = 18.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
