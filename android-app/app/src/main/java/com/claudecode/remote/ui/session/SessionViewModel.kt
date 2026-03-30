@@ -25,7 +25,7 @@ import java.util.UUID
 data class SessionListItem(
     val session: Session,
     val previewText: String? = null,
-    val previewTimestamp: Long = 0L,
+    val previewTimestamp: Long? = null,
     val isPreviewStreaming: Boolean = false
 )
 
@@ -191,7 +191,7 @@ class SessionViewModel(
                 SessionListItem(
                     session = session,
                     previewText = preview?.toPreviewText()?.takeIf { it.isNotBlank() },
-                    previewTimestamp = preview?.timestamp ?: session.lastActiveAt,
+                    previewTimestamp = preview?.timestamp,
                     isPreviewStreaming = preview?.isStreaming == true
                 )
             }

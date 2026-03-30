@@ -541,7 +541,6 @@ private fun SessionCard(item: SessionListItem, onClick: () -> Unit) {
     val session = item.session
     val avatar = session.name.firstOrNull()?.uppercase() ?: "C"
     val previewText = item.previewText ?: session.projectPath
-    val timestamp = if (item.previewTimestamp > 0L) item.previewTimestamp else session.lastActiveAt
 
     Card(
         onClick = onClick,
@@ -656,11 +655,13 @@ private fun SessionCard(item: SessionListItem, onClick: () -> Unit) {
                     overflow = TextOverflow.Ellipsis
                 )
 
-                Text(
-                    text = formatTimestamp(timestamp),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                item.previewTimestamp?.let { previewTimestamp ->
+                    Text(
+                        text = formatTimestamp(previewTimestamp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         }
     }
