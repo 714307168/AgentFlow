@@ -9,6 +9,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -19,7 +22,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -28,6 +33,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.unit.dp
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -124,32 +131,47 @@ class MainActivity : ComponentActivity() {
                     contentWindowInsets = WindowInsets(0, 0, 0, 0),
                     bottomBar = {
                         if (showBottomBar) {
-                            NavigationBar(
-                                windowInsets = WindowInsets(0, 0, 0, 0)
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .navigationBarsPadding()
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                shape = RoundedCornerShape(26.dp),
+                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+                                tonalElevation = 4.dp,
+                                shadowElevation = 10.dp
                             ) {
-                                bottomNavItems.forEach { item ->
-                                    val selected = currentDestination?.hierarchy?.any { destination ->
-                                        destination.route == item.route
-                                    } == true
-                                    NavigationBarItem(
-                                        selected = selected,
-                                        onClick = {
-                                            navController.navigate(item.route) {
-                                                popUpTo(navController.graph.findStartDestination().id) {
-                                                    saveState = true
+                                NavigationBar(
+                                    containerColor = androidx.compose.ui.graphics.Color.Transparent,
+                                    windowInsets = WindowInsets(0, 0, 0, 0)
+                                ) {
+                                    bottomNavItems.forEach { item ->
+                                        val selected = currentDestination?.hierarchy?.any { destination ->
+                                            destination.route == item.route
+                                        } == true
+                                        NavigationBarItem(
+                                            selected = selected,
+                                            colors = NavigationBarItemDefaults.colors(
+                                                indicatorColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.9f)
+                                            ),
+                                            onClick = {
+                                                navController.navigate(item.route) {
+                                                    popUpTo(navController.graph.findStartDestination().id) {
+                                                        saveState = true
+                                                    }
+                                                    launchSingleTop = true
+                                                    restoreState = true
                                                 }
-                                                launchSingleTop = true
-                                                restoreState = true
-                                            }
-                                        },
-                                        icon = {
-                                            Icon(
-                                                imageVector = item.icon,
-                                                contentDescription = stringResource(item.labelResId)
-                                            )
-                                        },
-                                        label = { Text(stringResource(item.labelResId)) }
-                                    )
+                                            },
+                                            icon = {
+                                                Icon(
+                                                    imageVector = item.icon,
+                                                    contentDescription = stringResource(item.labelResId)
+                                                )
+                                            },
+                                            label = { Text(stringResource(item.labelResId)) }
+                                        )
+                                    }
                                 }
                             }
                         }

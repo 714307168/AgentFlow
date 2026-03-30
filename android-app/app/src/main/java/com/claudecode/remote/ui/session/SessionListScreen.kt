@@ -106,10 +106,15 @@ fun SessionListScreen(
                 ) {
                     SessionHeader(
                         connectionState = connectionState,
+                        totalCount = uiState.sessions.size,
                         isRefreshing = uiState.isLoading,
                         onRefresh = onRefreshSessions,
                         onToggleConnection = onToggleConnection
                     )
+
+                    if (uiState.sessions.isNotEmpty()) {
+                        SessionOverviewStrip(sessions = uiState.sessions)
+                    }
 
                     if (updateState.status == AppUpdateStatus.AVAILABLE ||
                         updateState.status == AppUpdateStatus.DOWNLOADED
@@ -305,6 +310,7 @@ private fun UpdateBanner(
 @Composable
 private fun SessionHeader(
     connectionState: RelayWebSocket.ConnectionState,
+    totalCount: Int,
     isRefreshing: Boolean,
     onRefresh: () -> Unit,
     onToggleConnection: () -> Unit
@@ -327,7 +333,19 @@ private fun SessionHeader(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            ConnectionStatusBadge(connectionState)
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                ConnectionStatusBadge(connectionState)
+                if (totalCount > 0) {
+                    Text(
+                        text = stringResource(R.string.session_summary_projects, totalCount),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
         }
 
         Surface(
@@ -361,6 +379,45 @@ private fun SessionHeader(
                     onClick = onToggleConnection
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun SessionOverviewStrip(sessions: List<Session>) {
+    val runningCount = sessions.count { it.isRunning }
+    val queuedCount = sessions.count { it.queuedCount > 0 }
+    val offlineCount = sessions.count { !it.isAgentOnline }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        SummaryPill(
+            text = stringResource(R.string.session_summary_total, sessions.size),
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+        )
+        if (runningCount > 0) {
+            SummaryPill(
+                text = stringResource(R.string.status_running),
+                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+            )
+        }
+        if (queuedCount > 0) {
+            SummaryPill(
+                text = stringResource(R.string.status_queued, queuedCount),
+                containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                contentColor = MaterialTheme.colorScheme.onTertiaryContainer
+            )
+        }
+        if (offlineCount > 0) {
+            SummaryPill(
+                text = stringResource(R.string.status_agent_offline),
+                containerColor = MaterialTheme.colorScheme.errorContainer,
+                contentColor = MaterialTheme.colorScheme.onErrorContainer
+            )
         }
     }
 }
@@ -545,6 +602,12 @@ private fun SessionCard(session: Session, onClick: () -> Unit) {
                         overflow = TextOverflow.Ellipsis
                     )
                 }
+
+                Text(
+                    text = formatTimestamp(session.lastActiveAt),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
     }
@@ -585,3 +648,6 @@ private fun ConnectionStatusBadge(state: RelayWebSocket.ConnectionState) {
         )
     }
 }
+
+private fun formatTimestamp(timestamp: Long): String =
+    java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date(timestamp))

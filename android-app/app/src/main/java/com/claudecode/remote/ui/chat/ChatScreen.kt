@@ -45,6 +45,7 @@ import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
@@ -713,17 +714,20 @@ private fun ChatPaneTabs(
         ChatPaneTab(
             label = stringResource(R.string.chat_view_conversation),
             selected = selectedPane == ChatPane.CONVERSATION,
-            onClick = { onSelectPane(ChatPane.CONVERSATION) }
+            onClick = { onSelectPane(ChatPane.CONVERSATION) },
+            modifier = Modifier.weight(1f)
         )
         ChatPaneTab(
             label = stringResource(R.string.chat_view_activity, activityCount),
             selected = selectedPane == ChatPane.ACTIVITY,
-            onClick = { onSelectPane(ChatPane.ACTIVITY) }
+            onClick = { onSelectPane(ChatPane.ACTIVITY) },
+            modifier = Modifier.weight(1f)
         )
         ChatPaneTab(
             label = stringResource(R.string.chat_view_queue, queueCount),
             selected = selectedPane == ChatPane.QUEUE,
-            onClick = { onSelectPane(ChatPane.QUEUE) }
+            onClick = { onSelectPane(ChatPane.QUEUE) },
+            modifier = Modifier.weight(1f)
         )
     }
 }
@@ -732,7 +736,8 @@ private fun ChatPaneTabs(
 private fun ChatPaneTab(
     label: String,
     selected: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Surface(
         color = if (selected) {
@@ -746,13 +751,17 @@ private fun ChatPaneTab(
             if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.24f)
             else MaterialTheme.colorScheme.outline.copy(alpha = 0.12f)
         ),
-        modifier = Modifier.clickable(onClick = onClick)
+        modifier = modifier.clickable(onClick = onClick)
     ) {
         Text(
             text = label,
             style = MaterialTheme.typography.labelMedium,
             color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 8.dp)
         )
     }
 }
@@ -772,77 +781,85 @@ private fun ChatHeader(
     conversationEnabled: Boolean,
     modelEnabled: Boolean
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.CenterVertically
+    Surface(
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+        shape = RoundedCornerShape(22.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.12f)),
+        shadowElevation = 4.dp,
+        modifier = Modifier.fillMaxWidth()
     ) {
-        ChatHeaderButton(
-            icon = Icons.AutoMirrored.Filled.ArrowBack,
-            contentDescription = stringResource(R.string.back),
-            enabled = true,
-            tint = MaterialTheme.colorScheme.onSurface,
-            onClick = onNavigateBack
-        )
-
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onBackground,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+            ChatHeaderButton(
+                icon = Icons.AutoMirrored.Filled.ArrowBack,
+                contentDescription = stringResource(R.string.back),
+                enabled = true,
+                tint = MaterialTheme.colorScheme.onSurface,
+                onClick = onNavigateBack
             )
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically
+
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                RuntimePill(
-                    text = connectionLabel(isConnected),
-                    color = if (isConnected) Color(0xFF4CAF50) else Color(0xFFEF5350)
-                )
-                RuntimePill(
-                    text = runtimeText,
-                    color = runtimeTone
-                )
                 Text(
-                    text = "$provider / $model",
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RuntimePill(
+                        text = connectionLabel(isConnected),
+                        color = if (isConnected) Color(0xFF4CAF50) else Color(0xFFEF5350)
+                    )
+                    RuntimePill(
+                        text = runtimeText,
+                        color = runtimeTone
+                    )
+                    Text(
+                        text = "$provider / $model",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                }
+                Text(
+                    text = conversationTitle,
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false)
+                    overflow = TextOverflow.Ellipsis
                 )
             }
-            Text(
-                text = conversationTitle,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+
+            ChatHeaderButton(
+                icon = Icons.Default.History,
+                contentDescription = stringResource(R.string.chat_conversations_title),
+                enabled = conversationEnabled,
+                tint = MaterialTheme.colorScheme.onSurface,
+                onClick = onOpenConversations
+            )
+            ChatHeaderButton(
+                icon = Icons.Default.AutoAwesome,
+                contentDescription = stringResource(R.string.action_model),
+                enabled = modelEnabled,
+                tint = MaterialTheme.colorScheme.primary,
+                onClick = onChangeModel
             )
         }
-
-        ChatHeaderButton(
-            icon = Icons.Default.History,
-            contentDescription = stringResource(R.string.chat_conversations_title),
-            enabled = conversationEnabled,
-            tint = MaterialTheme.colorScheme.onSurface,
-            onClick = onOpenConversations
-        )
-        ChatHeaderButton(
-            icon = Icons.Default.AutoAwesome,
-            contentDescription = stringResource(R.string.action_model),
-            enabled = modelEnabled,
-            tint = MaterialTheme.colorScheme.primary,
-            onClick = onChangeModel
-        )
     }
 }
 
@@ -932,7 +949,7 @@ private fun RuntimeNoticeBanner(uiState: ChatUiState) {
         color = tone,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 10.dp, end = 10.dp, top = 10.dp)
+            .padding(start = 10.dp, end = 10.dp, top = 6.dp)
             .animateContentSize(),
         shape = RoundedCornerShape(16.dp),
         shadowElevation = 2.dp,
@@ -1206,9 +1223,9 @@ private fun InputBar(
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.98f),
-        tonalElevation = 4.dp,
-        shadowElevation = 8.dp,
-        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+        tonalElevation = 3.dp,
+        shadowElevation = 6.dp,
+        shape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.12f)),
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -1229,10 +1246,10 @@ private fun InputBar(
             Row(
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-                ) {
+                  Surface(
+                      shape = RoundedCornerShape(16.dp),
+                      color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.36f)
+                  ) {
                     IconButton(
                         onClick = onAttachFile,
                         enabled = enabled,

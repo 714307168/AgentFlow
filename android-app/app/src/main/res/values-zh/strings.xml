@@ -7,6 +7,7 @@
     <string name="no_messages">暂时没有消息，先发一条提示词吧。</string>
     <string name="back">返回</string>
     <string name="dismiss">关闭</string>
+    <string name="action_remove_attachment">移除附件</string>
     <string name="settings">设置</string>
     <string name="settings_title">设置</string>
     <string name="server_connection">连接</string>
@@ -175,6 +176,9 @@
     <string name="workgroups_mention_member">成员</string>
     <string name="nav_messages">&#28040;&#24687;</string>
     <string name="nav_agents">&#20195;&#29702;</string>
+    <string name="session_summary_total">&#20849; %1$d &#20010;</string>
+    <string name="session_summary_projects">%1$d &#20010;&#39033;&#30446;</string>
+    <string name="agents_summary_groups">%1$d &#20010;&#21327;&#20316;&#32452;</string>
     <string name="agents_empty">&#26242;&#26102;&#27809;&#26377;&#20195;&#29702;&#25110;&#21327;&#20316;&#32452;&#12290;</string>
     <string name="agents_collaboration_group">&#21327;&#20316;&#32452;</string>
     <string name="agents_project_meta">&#20195;&#29702; %1$s &#183; %2$s</string>

@@ -137,9 +137,17 @@ fun AgentHubScreen(
                     AgentHeader(
                         connectionState = connectionState,
                         isRefreshing = uiState.isLoading,
+                        projectCount = uiState.sessions.size,
                         onRefresh = viewModel::refresh,
                         onToggleConnection = onToggleConnection
                     )
+
+                    if (uiState.sessions.isNotEmpty() || workgroups.isNotEmpty()) {
+                        AgentOverviewStrip(
+                            projectCount = uiState.sessions.size,
+                            workgroupCount = workgroups.size
+                        )
+                    }
 
                     JoinWorkgroupCard(
                         query = uiState.registryQuery,
@@ -248,6 +256,7 @@ fun AgentHubScreen(
 private fun AgentHeader(
     connectionState: RelayWebSocket.ConnectionState,
     isRefreshing: Boolean,
+    projectCount: Int,
     onRefresh: () -> Unit,
     onToggleConnection: () -> Unit
 ) {
@@ -262,16 +271,32 @@ private fun AgentHeader(
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.SemiBold
             )
-            Text(
-                text = when (connectionState) {
-                    RelayWebSocket.ConnectionState.CONNECTED -> stringResource(R.string.status_connected)
-                    RelayWebSocket.ConnectionState.CONNECTING -> stringResource(R.string.status_connecting)
-                    RelayWebSocket.ConnectionState.RECONNECTING -> stringResource(R.string.status_reconnecting)
-                    RelayWebSocket.ConnectionState.DISCONNECTED -> stringResource(R.string.status_offline)
-                },
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                StatusBadge(
+                    text = when (connectionState) {
+                        RelayWebSocket.ConnectionState.CONNECTED -> stringResource(R.string.status_connected)
+                        RelayWebSocket.ConnectionState.CONNECTING -> stringResource(R.string.status_connecting)
+                        RelayWebSocket.ConnectionState.RECONNECTING -> stringResource(R.string.status_reconnecting)
+                        RelayWebSocket.ConnectionState.DISCONNECTED -> stringResource(R.string.status_offline)
+                    },
+                    accent = when (connectionState) {
+                        RelayWebSocket.ConnectionState.CONNECTED -> Color(0xFF4CAF50)
+                        RelayWebSocket.ConnectionState.CONNECTING,
+                        RelayWebSocket.ConnectionState.RECONNECTING -> Color(0xFFFFA726)
+                        RelayWebSocket.ConnectionState.DISCONNECTED -> MaterialTheme.colorScheme.error
+                    }
+                )
+                if (projectCount > 0) {
+                    Text(
+                        text = stringResource(R.string.session_summary_projects, projectCount),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
         }
         Surface(
             color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
@@ -301,6 +326,27 @@ private fun AgentHeader(
 }
 
 @Composable
+private fun AgentOverviewStrip(projectCount: Int, workgroupCount: Int) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        SummaryBadge(
+            text = stringResource(R.string.session_summary_total, projectCount),
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+        )
+        if (workgroupCount > 0) {
+            SummaryBadge(
+                text = stringResource(R.string.agents_summary_groups, workgroupCount),
+                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+            )
+        }
+    }
+}
+
+@Composable
 private fun JoinWorkgroupCard(
     query: String,
     isSearching: Boolean,
@@ -318,11 +364,23 @@ private fun JoinWorkgroupCard(
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(
-                text = stringResource(R.string.workgroups_join_title),
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.SemiBold
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = stringResource(R.string.workgroups_join_title),
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
+                if (!enabled) {
+                    StatusBadge(
+                        text = stringResource(R.string.status_offline),
+                        accent = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(
                     value = query,
@@ -404,6 +462,7 @@ private fun SimpleProjectCard(session: Session, onClick: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
+            StatusDot(active = session.isAgentOnline)
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(session.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(session.projectPath, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -453,6 +512,49 @@ private fun SimpleWorkgroupCard(agentId: String, workgroup: Workgroup, onClick: 
             Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
+}
+
+@Composable
+private fun SummaryBadge(text: String, containerColor: Color, contentColor: Color) {
+    Surface(
+        color = containerColor,
+        shape = RoundedCornerShape(999.dp)
+    ) {
+        Text(
+            text = text,
+            color = contentColor,
+            style = MaterialTheme.typography.labelMedium,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+        )
+    }
+}
+
+@Composable
+private fun StatusBadge(text: String, accent: Color) {
+    Surface(
+        color = accent.copy(alpha = 0.12f),
+        shape = RoundedCornerShape(999.dp),
+        border = BorderStroke(1.dp, accent.copy(alpha = 0.18f))
+    ) {
+        Text(
+            text = text,
+            color = accent,
+            style = MaterialTheme.typography.labelSmall,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+        )
+    }
+}
+
+@Composable
+private fun StatusDot(active: Boolean) {
+    Box(
+        modifier = Modifier
+            .size(10.dp)
+            .background(
+                color = if (active) Color(0xFF4CAF50) else MaterialTheme.colorScheme.error,
+                shape = RoundedCornerShape(999.dp)
+            )
+    )
 }
 
 @Composable
