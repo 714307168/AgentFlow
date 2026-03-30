@@ -101,6 +101,25 @@ class MainActivity : ComponentActivity() {
                 val workgroupRepository = appContainer.workgroupRepository
                 val appUpdateManager = appContainer.appUpdateManager
                 val e2eCrypto = appContainer.e2eCrypto
+                val sessionViewModel = remember {
+                    SessionViewModel(
+                        repository = sessionRepository,
+                        messageRepository = messageRepository,
+                        webSocket = relayWebSocket,
+                        tokenStore = tokenStore,
+                        workgroupRepository = workgroupRepository
+                    )
+                }
+                val agentHubViewModel = remember {
+                    AgentHubViewModel(
+                        context = applicationContext,
+                        sessionRepository = sessionRepository,
+                        messageRepository = messageRepository,
+                        workgroupRepository = workgroupRepository,
+                        webSocket = relayWebSocket,
+                        tokenStore = tokenStore
+                    )
+                }
                 val navigationTarget by appContainer.chatNavigationBus.target.collectAsState()
                 val updateState by appUpdateManager.state.collectAsState()
                 val backStackEntry by navController.currentBackStackEntryAsState()
@@ -202,18 +221,8 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier.padding(innerPadding)
                     ) {
                         composable("messages") {
-                            val viewModel = remember {
-                                SessionViewModel(
-                                    repository = sessionRepository,
-                                    messageRepository = messageRepository,
-                                    webSocket = relayWebSocket,
-                                    tokenStore = tokenStore,
-                                    workgroupRepository = workgroupRepository
-                                )
-                            }
-
                             SessionListScreen(
-                                viewModel = viewModel,
+                                viewModel = sessionViewModel,
                                 webSocket = relayWebSocket,
                                 updateState = updateState,
                                 onCheckForUpdates = {
@@ -229,7 +238,7 @@ class MainActivity : ComponentActivity() {
                                     navController.navigate("chat/${session.projectId}/$encodedName/$encodedAgentId")
                                 },
                                 onRefreshSessions = {
-                                    viewModel.syncFromDesktop()
+                                    sessionViewModel.syncFromDesktop()
                                 },
                                 onToggleConnection = {
                                     when (relayWebSocket.connectionState.value) {
@@ -244,19 +253,8 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                         composable("agents") {
-                            val viewModel = remember {
-                                AgentHubViewModel(
-                                    context = applicationContext,
-                                    sessionRepository = sessionRepository,
-                                    messageRepository = messageRepository,
-                                    workgroupRepository = workgroupRepository,
-                                    webSocket = relayWebSocket,
-                                    tokenStore = tokenStore
-                                )
-                            }
-
                             AgentHubScreen(
-                                viewModel = viewModel,
+                                viewModel = agentHubViewModel,
                                 webSocket = relayWebSocket,
                                 onNavigateToChat = { session ->
                                     val encodedName = android.net.Uri.encode(session.name.ifEmpty { "Project" })
