@@ -137,6 +137,12 @@ const CODEX_EXIT_CODE_1_RETRY_DELAY_MS = 1_500;
 const AUTO_ROTATE_CONVERSATION_MESSAGE_LIMIT = 72;
 const AUTO_ROTATE_CONVERSATION_ACTIVITY_LIMIT = 120;
 const AUTO_ROTATE_CONVERSATION_CHAR_LIMIT = 90_000;
+const MAX_PROJECT_PROMPT_CHARS = 1_600;
+const MAX_HANDOFF_SUMMARY_CHARS = 2_200;
+const MAX_HANDOFF_USER_ITEMS = 4;
+const MAX_HANDOFF_ASSISTANT_ITEMS = 3;
+const MAX_HANDOFF_ACTIVITY_ITEMS = 3;
+const HANDOFF_PREVIEW_CHARS = 220;
 const CLI_TRACE_NOISE_PATTERNS = [
   /reading prompt from stdin/i,
 ] as const;
@@ -572,7 +578,13 @@ class RuntimeManager extends EventEmitter {
     state.currentSource = next.source;
     state.currentPrompt = next.prompt;
     state.currentStartedAt = Date.now();
-    this.maybeRotateConversationBeforeRun(state);
+    const carryoverSummary = this.maybeRotateConversationBeforeRun(state);
+    const effectiveRun = this.parseSlashCommand(next.prompt)
+      ? next
+      : {
+          ...next,
+          prompt: carryoverSummary ? this.buildCarryoverPrompt(carryoverSummary, next.prompt) : next.prompt,
+        };
 
     const context: RunContext = {
       runId: next.runId,
@@ -610,7 +622,7 @@ class RuntimeManager extends EventEmitter {
 
     try {
       let completionDetail = `${this.getProviderLabel(state.provider)} finished successfully.`;
-      const prepared = await this.prepareRun(state, next, context);
+      const prepared = await this.prepareRun(state, effectiveRun, context);
 
       if (prepared.handledLocally) {
         completionDetail = prepared.completionDetail ?? completionDetail;
@@ -702,10 +714,10 @@ class RuntimeManager extends EventEmitter {
     }
   }
 
-  private maybeRotateConversationBeforeRun(state: ProjectState): void {
+  private maybeRotateConversationBeforeRun(state: ProjectState): string | null {
     const conversation = this.getActiveConversation(state);
     if (!conversation) {
-      return;
+      return null;
     }
 
     const messageChars = conversation.messages.reduce((sum, message) => sum + message.content.length, 0);
@@ -720,10 +732,11 @@ class RuntimeManager extends EventEmitter {
       || totalChars >= AUTO_ROTATE_CONVERSATION_CHAR_LIMIT;
 
     if (!shouldRotate) {
-      return;
+      return null;
     }
 
     const previousTitle = this.getConversationTitle(conversation);
+    const carryoverSummary = this.buildConversationCarryoverSummary(conversation, previousTitle);
     const freshConversation = this.createConversationState();
     state.conversations.push(freshConversation);
     this.activateConversationState(state, freshConversation.id, freshConversation);
@@ -741,6 +754,7 @@ class RuntimeManager extends EventEmitter {
         autoRotated: true,
       },
     });
+    return carryoverSummary;
   }
 
   private executeClaude(state: ProjectState, run: PendingRun, context: RunContext): Promise<void> {
@@ -1669,12 +1683,97 @@ class RuntimeManager extends EventEmitter {
       return "";
     }
 
+    const compactPrompt = this.clampContextText(prompt, MAX_PROJECT_PROMPT_CHARS);
+    const projectGuidance = compactPrompt === prompt
+      ? compactPrompt
+      : `${compactPrompt}\n\n[Project guidance trimmed locally for token control. Keep only the most relevant instructions here.]`;
+
     return [
       "Project guidance:",
-      prompt,
+      projectGuidance,
       "",
       "Use the project guidance above as persistent context for this repository.",
     ].join("\n");
+  }
+
+  private buildConversationCarryoverSummary(
+    conversation: ProjectConversationState,
+    conversationTitle: string,
+  ): string {
+    const lines: string[] = [];
+    const cleanedTitle = conversationTitle.trim();
+    if (cleanedTitle) {
+      lines.push(`Previous conversation: ${cleanedTitle}`);
+    }
+
+    const recentUserMessages = conversation.messages
+      .filter((message) => message.role === "user" && message.content.trim())
+      .slice(-MAX_HANDOFF_USER_ITEMS)
+      .map((message) => `- ${this.previewContextText(message.content, HANDOFF_PREVIEW_CHARS)}`);
+    if (recentUserMessages.length > 0) {
+      lines.push("Recent user requests:");
+      lines.push(...recentUserMessages);
+    }
+
+    const recentAssistantMessages = conversation.messages
+      .filter((message) => (message.role === "assistant" || message.role === "error") && message.content.trim())
+      .slice(-MAX_HANDOFF_ASSISTANT_ITEMS)
+      .map((message) => `- ${this.previewContextText(message.content, HANDOFF_PREVIEW_CHARS)}`);
+    if (recentAssistantMessages.length > 0) {
+      lines.push("Recent outcomes:");
+      lines.push(...recentAssistantMessages);
+    }
+
+    const recentActivities = conversation.activities
+      .filter((activity) => {
+        const detail = activity.detail.trim();
+        if (!detail) {
+          return false;
+        }
+        return activity.status === "error"
+          || CONTEXT_PRESSURE_WARNING_PATTERNS.some((pattern) => pattern.test(detail) || pattern.test(activity.title))
+          || activity.kind === "status";
+      })
+      .slice(-MAX_HANDOFF_ACTIVITY_ITEMS)
+      .map((activity) => `- ${activity.title}: ${this.previewContextText(activity.detail, HANDOFF_PREVIEW_CHARS)}`);
+    if (recentActivities.length > 0) {
+      lines.push("Important runtime notes:");
+      lines.push(...recentActivities);
+    }
+
+    return this.clampContextText(lines.join("\n"), MAX_HANDOFF_SUMMARY_CHARS);
+  }
+
+  private buildCarryoverPrompt(summary: string, prompt: string): string {
+    const cleanedSummary = summary.trim();
+    if (!cleanedSummary) {
+      return prompt;
+    }
+    return [
+      "Conversation handoff summary:",
+      cleanedSummary,
+      "",
+      "Continue with the latest user request below. Only rely on the handoff summary when relevant.",
+      "",
+      "Latest user request:",
+      prompt.trim(),
+    ].join("\n");
+  }
+
+  private previewContextText(value: string, maxChars: number): string {
+    const normalized = value.replace(/\s+/g, " ").trim();
+    if (normalized.length <= maxChars) {
+      return normalized;
+    }
+    return `${normalized.slice(0, Math.max(0, maxChars - 3))}...`;
+  }
+
+  private clampContextText(value: string, maxChars: number): string {
+    const normalized = value.replace(/\r\n/g, "\n").trim();
+    if (normalized.length <= maxChars) {
+      return normalized;
+    }
+    return `${normalized.slice(0, Math.max(0, maxChars - 28))}\n[Earlier context trimmed]`;
   }
 
   private parseSlashCommand(prompt: string): SlashCommand | null {
