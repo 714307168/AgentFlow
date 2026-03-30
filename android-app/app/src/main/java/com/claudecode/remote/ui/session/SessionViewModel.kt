@@ -48,6 +48,7 @@ class SessionViewModel(
     private var latestSessions: List<Session> = emptyList()
     private var latestPreviewMap: Map<String, Message> = emptyMap()
     private var stablePreviewMap: Map<String, Message> = emptyMap()
+    private var initializeStarted = false
 
     private val _uiState = MutableStateFlow(SessionUiState())
     val uiState: StateFlow<SessionUiState> = _uiState.asStateFlow()
@@ -56,6 +57,14 @@ class SessionViewModel(
 
     init {
         _uiState.update { it.copy(collapsedGroupKeys = tokenStore.getCollapsedSessionGroups()) }
+        viewModelScope.launch {
+            val cachedSessions = repository.getInboxSessionSnapshots()
+            if (cachedSessions.isNotEmpty()) {
+                latestSessions = cachedSessions
+                rebuildSessionItems()
+                _uiState.update { current -> current.copy(isLoading = false) }
+            }
+        }
         viewModelScope.launch {
             repository.sessions.collect { sessions ->
                 latestSessions = sessions
@@ -111,9 +120,13 @@ class SessionViewModel(
     }
 
     fun initialize() {
+        if (initializeStarted) {
+            return
+        }
+        initializeStarted = true
         _uiState.update { current ->
             current.copy(
-                isLoading = current.sessionItems.isEmpty()
+                isLoading = current.sessionItems.isEmpty() && latestSessions.isEmpty()
             )
         }
         viewModelScope.launch {

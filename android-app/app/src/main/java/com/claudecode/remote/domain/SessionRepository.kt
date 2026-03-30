@@ -159,6 +159,9 @@ class SessionRepository(
         }.first()
     }
 
+    suspend fun getInboxSessionSnapshots(): List<Session> =
+        sessionDao.getInboxSessionsSnapshot().map { it.toSession() }
+
     suspend fun getSessionSnapshot(projectId: String): Session? =
         sessionDao.getSessionByProjectId(projectId)?.toSession()
 

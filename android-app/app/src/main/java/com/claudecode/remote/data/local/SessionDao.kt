@@ -28,6 +28,25 @@ interface SessionDao {
     )
     fun getInboxSessions(): Flow<List<SessionEntity>>
 
+    @Query(
+        """
+        SELECT * FROM sessions
+        ORDER BY COALESCE(
+            (
+                SELECT MAX(messages.timestamp)
+                FROM messages
+                WHERE messages.projectId = sessions.projectId
+                  AND messages.type IN ('TEXT', 'FILE')
+            ),
+            0
+        ) DESC,
+        createdAt DESC,
+        name COLLATE NOCASE ASC,
+        id ASC
+        """
+    )
+    suspend fun getInboxSessionsSnapshot(): List<SessionEntity>
+
     @Query("SELECT * FROM sessions ORDER BY createdAt ASC, name COLLATE NOCASE ASC, id ASC")
     fun getAllSessions(): Flow<List<SessionEntity>>
 
