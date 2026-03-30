@@ -44,6 +44,27 @@ interface MessageDao {
     @Query(
         """
         SELECT * FROM messages
+        WHERE id IN (
+            SELECT latest.id
+            FROM messages AS latest
+            WHERE latest.type IN ('TEXT', 'FILE')
+              AND latest.id = (
+                  SELECT inner_message.id
+                  FROM messages AS inner_message
+                  WHERE inner_message.projectId = latest.projectId
+                    AND inner_message.type IN ('TEXT', 'FILE')
+                  ORDER BY inner_message.timestamp DESC, inner_message.syncSeq DESC, inner_message.id DESC
+                  LIMIT 1
+              )
+        )
+        ORDER BY timestamp DESC, syncSeq DESC, id DESC
+        """
+    )
+    fun getLatestConversationMessages(): Flow<List<MessageEntity>>
+
+    @Query(
+        """
+        SELECT * FROM messages
         WHERE projectId = :projectId
           AND syncSeq > 0
           AND (:beforeSeq IS NULL OR syncSeq < :beforeSeq)

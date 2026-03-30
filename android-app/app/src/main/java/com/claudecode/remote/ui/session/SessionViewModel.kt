@@ -6,6 +6,7 @@ import com.claudecode.remote.data.local.TokenStore
 import com.claudecode.remote.data.model.AgentWorkgroups
 import com.claudecode.remote.data.model.Envelope
 import com.claudecode.remote.data.model.Events
+import com.claudecode.remote.data.model.Message
 import com.claudecode.remote.data.model.Session
 import com.claudecode.remote.data.remote.RelayWebSocket
 import com.claudecode.remote.domain.MessageRepository
@@ -21,9 +22,17 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.UUID
 
+data class SessionListItem(
+    val session: Session,
+    val previewText: String? = null,
+    val previewTimestamp: Long = 0L,
+    val isPreviewStreaming: Boolean = false
+)
+
 data class SessionUiState(
-    val sessions: List<Session> = emptyList(),
+    val sessionItems: List<SessionListItem> = emptyList(),
     val agentWorkgroups: List<AgentWorkgroups> = emptyList(),
+    val query: String = "",
     val isLoading: Boolean = false,
     val error: String? = null,
     val collapsedGroupKeys: Set<String> = emptySet()
@@ -36,6 +45,8 @@ class SessionViewModel(
     private val tokenStore: TokenStore,
     private val workgroupRepository: WorkgroupRepository
 ) : ViewModel() {
+    private var latestSessions: List<Session> = emptyList()
+    private var latestPreviewMap: Map<String, Message> = emptyMap()
 
     private val _uiState = MutableStateFlow(SessionUiState())
     val uiState: StateFlow<SessionUiState> = _uiState.asStateFlow()
@@ -46,7 +57,14 @@ class SessionViewModel(
         _uiState.update { it.copy(collapsedGroupKeys = tokenStore.getCollapsedSessionGroups()) }
         viewModelScope.launch {
             repository.sessions.collect { sessions ->
-                _uiState.update { it.copy(sessions = sessions) }
+                latestSessions = sessions
+                rebuildSessionItems()
+            }
+        }
+        viewModelScope.launch {
+            messageRepository.getLatestConversationPreviews().collect { previews ->
+                latestPreviewMap = previews
+                rebuildSessionItems()
             }
         }
         viewModelScope.launch {
@@ -83,7 +101,7 @@ class SessionViewModel(
     fun initialize() {
         _uiState.update { current ->
             current.copy(
-                isLoading = current.sessions.isEmpty()
+                isLoading = current.sessionItems.isEmpty()
             )
         }
         viewModelScope.launch {
@@ -127,6 +145,11 @@ class SessionViewModel(
         _uiState.update { it.copy(error = null) }
     }
 
+    fun updateQuery(query: String) {
+        _uiState.update { it.copy(query = query) }
+        rebuildSessionItems(query)
+    }
+
     fun toggleGroupCollapsed(groupKey: String) {
         if (groupKey.isBlank()) {
             return
@@ -156,5 +179,64 @@ class SessionViewModel(
             _uiState.update { it.copy(isLoading = true) }
         }
         workgroupRepository.refresh(agentIds)
+    }
+
+    private fun rebuildSessionItems(queryOverride: String? = null) {
+        val normalizedQuery = (queryOverride ?: _uiState.value.query)
+            .trim()
+            .lowercase()
+        val items = latestSessions
+            .map { session ->
+                val preview = latestPreviewMap[session.projectId]
+                SessionListItem(
+                    session = session,
+                    previewText = preview?.toPreviewText()?.takeIf { it.isNotBlank() },
+                    previewTimestamp = preview?.timestamp ?: session.lastActiveAt,
+                    isPreviewStreaming = preview?.isStreaming == true
+                )
+            }
+            .filter { item ->
+                if (normalizedQuery.isBlank()) {
+                    true
+                } else {
+                    buildSearchHaystack(item).contains(normalizedQuery)
+                }
+            }
+
+        _uiState.update { current ->
+            current.copy(sessionItems = items)
+        }
+    }
+
+    private fun buildSearchHaystack(item: SessionListItem): String =
+        buildString {
+            append(item.session.name)
+            append(' ')
+            append(item.session.projectPath)
+            append(' ')
+            append(item.session.agentId)
+            append(' ')
+            append(item.session.groupName.orEmpty())
+            append(' ')
+            append(item.previewText.orEmpty())
+        }.lowercase()
+
+    private fun Message.toPreviewText(): String {
+        val singleLineContent = content
+            .replace("\r\n", "\n")
+            .lineSequence()
+            .map { it.trim() }
+            .firstOrNull { it.isNotEmpty() }
+            .orEmpty()
+        if (singleLineContent.isNotBlank()) {
+            return singleLineContent
+        }
+
+        val firstAttachmentName = attachments.firstOrNull()?.name?.trim().orEmpty()
+        return when {
+            firstAttachmentName.isBlank() -> ""
+            attachments.size == 1 -> firstAttachmentName
+            else -> "$firstAttachmentName +${attachments.size - 1}"
+        }
     }
 }

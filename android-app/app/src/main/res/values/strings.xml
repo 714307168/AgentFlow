@@ -4,6 +4,8 @@
     <string name="no_sessions">No projects yet. Connect your desktop agent to load them here.</string>
     <string name="send_message">Send</string>
     <string name="message_hint">Send a message</string>
+    <string name="session_search_hint">Search projects or messages</string>
+    <string name="session_search_empty">No matching sessions</string>
     <string name="no_messages">No messages yet. Send a prompt to start.</string>
     <string name="back">Back</string>
     <string name="dismiss">Dismiss</string>
@@ -103,6 +105,11 @@
     <string name="chat_view_conversation">Conversation</string>
     <string name="chat_view_activity">Activity %1$d</string>
     <string name="chat_view_queue">Queue %1$d</string>
+    <string name="chat_pane_item_count">%1$d items</string>
+    <string name="chat_pane_conversation_hint">Recent replies, images, and files</string>
+    <string name="chat_pane_activity_hint">Runtime status and thinking updates</string>
+    <string name="chat_pane_queue_hint">Queued tasks waiting to run</string>
+    <string name="chat_history_hint">Swipe up to load earlier messages</string>
     <string name="chat_no_activity">No activity yet.</string>
     <string name="chat_no_queue">No queued messages right now.</string>
     <string name="chat_queue_source_remote">Mobile</string>

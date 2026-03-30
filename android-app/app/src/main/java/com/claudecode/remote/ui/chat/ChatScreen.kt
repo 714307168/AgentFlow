@@ -503,6 +503,14 @@ fun ChatScreen(
                             onSelectPane = { selectedPane = it }
                         )
 
+                        ChatPaneSummaryStrip(
+                            selectedPane = selectedPane,
+                            conversationCount = uiState.messages.size,
+                            activityCount = uiState.activityMessages.size,
+                            queueCount = maxOf(uiState.queueItems.size, uiState.queuedCount),
+                            hasMoreHistory = uiState.hasMoreHistory
+                        )
+
                         if (shouldShowRuntimeBanner(uiState)) {
                             RuntimeNoticeBanner(uiState = uiState)
                         }
@@ -762,6 +770,67 @@ private fun ChatPaneTab(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 10.dp, vertical = 8.dp)
+        )
+    }
+}
+
+@Composable
+private fun ChatPaneSummaryStrip(
+    selectedPane: ChatPane,
+    conversationCount: Int,
+    activityCount: Int,
+    queueCount: Int,
+    hasMoreHistory: Boolean
+) {
+    val (title, count, detail) = when (selectedPane) {
+        ChatPane.CONVERSATION -> Triple(
+            stringResource(R.string.chat_view_conversation),
+            conversationCount,
+            if (hasMoreHistory) {
+                stringResource(R.string.chat_history_hint)
+            } else {
+                stringResource(R.string.chat_pane_conversation_hint)
+            }
+        )
+        ChatPane.ACTIVITY -> Triple(
+            stringResource(R.string.chat_view_activity, activityCount),
+            activityCount,
+            stringResource(R.string.chat_pane_activity_hint)
+        )
+        ChatPane.QUEUE -> Triple(
+            stringResource(R.string.chat_view_queue, queueCount),
+            queueCount,
+            stringResource(R.string.chat_pane_queue_hint)
+        )
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = detail,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        RuntimePill(
+            text = stringResource(R.string.chat_pane_item_count, count),
+            color = MaterialTheme.colorScheme.primary
         )
     }
 }
@@ -1323,7 +1392,7 @@ private fun InputBar(
 }
 
 @Composable
-private fun PendingAttachmentTray(
+private fun PendingAttachmentTrayLegacy(
     attachments: List<MessageAttachment>,
     onRemove: (String) -> Unit
 ) {
@@ -1365,6 +1434,63 @@ private fun PendingAttachmentTray(
                     }
                     TextButton(onClick = { onRemove(attachment.id) }) {
                         Text("×")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PendingAttachmentTray(
+    attachments: List<MessageAttachment>,
+    onRemove: (String) -> Unit
+) {
+    LazyRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        items(attachments, key = { it.id }) { attachment ->
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.54f),
+                shape = RoundedCornerShape(18.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    AttachmentThumbnail(
+                        attachment = attachment,
+                        size = 42.dp,
+                        onClick = null
+                    )
+                    Column(
+                        modifier = Modifier.widthIn(max = 168.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        Text(
+                            text = attachment.name,
+                            style = MaterialTheme.typography.labelMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = formatFileSize(attachment.size),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    IconButton(
+                        onClick = { onRemove(attachment.id) },
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = stringResource(R.string.action_remove_attachment),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
             }

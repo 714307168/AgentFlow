@@ -4,6 +4,8 @@
     <string name="no_sessions">还没有项目。先连接桌面端 Agent，这里就会同步出来。</string>
     <string name="send_message">发送</string>
     <string name="message_hint">发送消息</string>
+    <string name="session_search_hint">搜索项目或消息</string>
+    <string name="session_search_empty">没有匹配的会话</string>
     <string name="no_messages">暂时没有消息，先发一条提示词吧。</string>
     <string name="back">返回</string>
     <string name="dismiss">关闭</string>
@@ -90,6 +92,11 @@
     <string name="chat_view_conversation">对话</string>
     <string name="chat_view_activity">活动 %1$d</string>
     <string name="chat_view_queue">队列 %1$d</string>
+    <string name="chat_pane_item_count">%1$d 条</string>
+    <string name="chat_pane_conversation_hint">最近回复、图片和文件都在这里</string>
+    <string name="chat_pane_activity_hint">运行状态和思考过程会显示在这里</string>
+    <string name="chat_pane_queue_hint">等待执行的任务会显示在这里</string>
+    <string name="chat_history_hint">上滑可以加载更早的消息</string>
     <string name="chat_no_activity">暂时没有活动日志。</string>
     <string name="chat_no_queue">当前没有排队内容。</string>
     <string name="chat_queue_source_remote">手机端</string>

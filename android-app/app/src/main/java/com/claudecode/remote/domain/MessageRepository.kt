@@ -223,6 +223,13 @@ class MessageRepository(
         }
     }
 
+    fun getLatestConversationPreviews(): Flow<Map<String, Message>> =
+        messageDao.getLatestConversationMessages().map { entities ->
+            entities.associate { entity ->
+                entity.projectId to entity.toMessage()
+            }
+        }
+
     suspend fun clearProjectLocalMessages(projectId: String) {
         db.withTransaction {
             messageDao.deleteMessagesByProject(projectId)

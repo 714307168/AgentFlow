@@ -23,12 +23,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.Surface
@@ -106,14 +109,19 @@ fun SessionListScreen(
                 ) {
                     SessionHeader(
                         connectionState = connectionState,
-                        totalCount = uiState.sessions.size,
+                        totalCount = uiState.sessionItems.size,
                         isRefreshing = uiState.isLoading,
                         onRefresh = onRefreshSessions,
                         onToggleConnection = onToggleConnection
                     )
 
-                    if (uiState.sessions.isNotEmpty()) {
-                        SessionOverviewStrip(sessions = uiState.sessions)
+                    SessionSearchBar(
+                        value = uiState.query,
+                        onValueChange = viewModel::updateQuery
+                    )
+
+                    if (uiState.sessionItems.isNotEmpty()) {
+                        SessionOverviewStrip(sessions = uiState.sessionItems.map { it.session })
                     }
 
                     if (updateState.status == AppUpdateStatus.AVAILABLE ||
@@ -133,7 +141,7 @@ fun SessionListScreen(
                     }
 
                     when {
-                        uiState.isLoading && uiState.sessions.isEmpty() -> {
+                        uiState.isLoading && uiState.sessionItems.isEmpty() -> {
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -144,7 +152,7 @@ fun SessionListScreen(
                             }
                         }
 
-                        uiState.sessions.isEmpty() -> {
+                        uiState.sessionItems.isEmpty() -> {
                             Surface(
                                 color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
                                 shape = RoundedCornerShape(28.dp),
@@ -159,7 +167,11 @@ fun SessionListScreen(
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Text(
-                                        text = stringResource(R.string.no_sessions),
+                                        text = if (uiState.query.isBlank()) {
+                                            stringResource(R.string.no_sessions)
+                                        } else {
+                                            stringResource(R.string.session_search_empty)
+                                        },
                                         style = MaterialTheme.typography.bodyLarge,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -173,10 +185,10 @@ fun SessionListScreen(
                                 contentPadding = PaddingValues(bottom = 16.dp),
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                items(uiState.sessions, key = { it.id }) { session ->
+                                items(uiState.sessionItems, key = { it.session.id }) { item ->
                                     SessionCard(
-                                        session = session,
-                                        onClick = { onNavigateToChat(session) }
+                                        item = item,
+                                        onClick = { onNavigateToChat(item.session) }
                                     )
                                 }
                             }
@@ -184,7 +196,7 @@ fun SessionListScreen(
                     }
                 }
 
-                if (uiState.isLoading && uiState.sessions.isNotEmpty()) {
+                if (uiState.isLoading && uiState.sessionItems.isNotEmpty()) {
                     Surface(
                         shape = RoundedCornerShape(999.dp),
                         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
@@ -245,6 +257,35 @@ fun SessionListScreen(
             }
         }
     }
+}
+
+@Composable
+private fun SessionSearchBar(
+    value: String,
+    onValueChange: (String) -> Unit
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        modifier = Modifier.fillMaxWidth(),
+        singleLine = true,
+        leadingIcon = {
+            Icon(
+                imageVector = Icons.Default.Search,
+                contentDescription = stringResource(R.string.session_search_hint)
+            )
+        },
+        placeholder = {
+            Text(stringResource(R.string.session_search_hint))
+        },
+        shape = RoundedCornerShape(18.dp),
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+            unfocusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+            focusedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.42f),
+            unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.18f)
+        )
+    )
 }
 
 @Composable
@@ -496,8 +537,11 @@ private fun SummaryPill(
 }
 
 @Composable
-private fun SessionCard(session: Session, onClick: () -> Unit) {
+private fun SessionCard(item: SessionListItem, onClick: () -> Unit) {
+    val session = item.session
     val avatar = session.name.firstOrNull()?.uppercase() ?: "C"
+    val previewText = item.previewText ?: session.projectPath
+    val timestamp = if (item.previewTimestamp > 0L) item.previewTimestamp else session.lastActiveAt
 
     Card(
         onClick = onClick,
@@ -567,10 +611,11 @@ private fun SessionCard(session: Session, onClick: () -> Unit) {
                 }
 
                 Text(
-                    text = session.projectPath,
-                    style = MaterialTheme.typography.bodySmall,
+                    text = previewText,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
+                    fontWeight = if (item.isPreviewStreaming) FontWeight.Medium else FontWeight.Normal,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
 
@@ -604,7 +649,15 @@ private fun SessionCard(session: Session, onClick: () -> Unit) {
                 }
 
                 Text(
-                    text = formatTimestamp(session.lastActiveAt),
+                    text = session.projectPath,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                Text(
+                    text = formatTimestamp(timestamp),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
