@@ -56,6 +56,28 @@ class AgentHubViewModel(
 
     init {
         viewModelScope.launch {
+            val cachedSessions = sessionRepository.getInboxSessionSnapshots()
+            if (cachedSessions.isNotEmpty()) {
+                _uiState.update { current ->
+                    current.copy(
+                        sessions = cachedSessions,
+                        isLoading = false
+                    )
+                }
+            }
+
+            val cachedWorkgroups = workgroupRepository.agentWorkgroups.value
+            if (cachedWorkgroups.isNotEmpty()) {
+                _uiState.update { current ->
+                    current.copy(
+                        agentWorkgroups = cachedWorkgroups,
+                        isLoading = false
+                    )
+                }
+            }
+        }
+
+        viewModelScope.launch {
             sessionRepository.sessions.collect { sessions ->
                 _uiState.update { it.copy(sessions = sessions) }
             }
@@ -107,7 +129,29 @@ class AgentHubViewModel(
             return
         }
         initialized = true
-        refresh()
+        viewModelScope.launch {
+            _uiState.update { current ->
+                current.copy(
+                    isLoading = current.sessions.isEmpty() && current.agentWorkgroups.isEmpty(),
+                    error = null
+                )
+            }
+
+            sessionRepository.initialize()
+                .onFailure { error ->
+                    _uiState.update { it.copy(isLoading = false, error = error.message) }
+                    return@launch
+                }
+
+            latestAgentIds = resolveAgentIds()
+            if (isConnected() && latestAgentIds.isNotEmpty()) {
+                requestWorkgroups(
+                    latestAgentIds,
+                    showLoading = uiState.value.sessions.isEmpty() && uiState.value.agentWorkgroups.isEmpty()
+                )
+            }
+            _uiState.update { it.copy(isLoading = false) }
+        }
     }
 
     fun refresh() {
