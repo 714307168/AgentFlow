@@ -87,37 +87,42 @@ fun AgentHubScreen(
         viewModel.initialize()
     }
 
-    val groupedSessions = uiState.sessions
-        .groupBy { session ->
-            session.groupName?.trim().takeUnless { it.isNullOrEmpty() } ?: DEFAULT_GROUP_KEY
-        }
-        .map { (groupKey, sessions) ->
-            AgentSessionGroup(
-                key = groupKey,
-                title = if (groupKey == DEFAULT_GROUP_KEY) {
-                    stringResource(R.string.default_group)
-                } else {
-                    groupKey
-                },
-                sessions = sessions.sortedWith(compareBy<Session>(
-                    { AlphabeticalSort.sortKey(it.name) },
-                    { it.name.lowercase() },
-                    { it.projectPath.lowercase() }
-                ))
+    val defaultGroupTitle = stringResource(R.string.default_group)
+    val groupedSessions = remember(uiState.sessions, defaultGroupTitle) {
+        uiState.sessions
+            .groupBy { session ->
+                session.groupName?.trim().takeUnless { it.isNullOrEmpty() } ?: DEFAULT_GROUP_KEY
+            }
+            .map { (groupKey, sessions) ->
+                AgentSessionGroup(
+                    key = groupKey,
+                    title = if (groupKey == DEFAULT_GROUP_KEY) {
+                        defaultGroupTitle
+                    } else {
+                        groupKey
+                    },
+                    sessions = sessions.sortedWith(compareBy<Session>(
+                        { AlphabeticalSort.sortKey(it.name) },
+                        { it.name.lowercase() },
+                        { it.projectPath.lowercase() }
+                    ))
+                )
+            }
+            .sortedWith { left, right ->
+                AlphabeticalSort.compareStrings(left.title, right.title)
+            }
+    }
+    val workgroups = remember(uiState.agentWorkgroups) {
+        uiState.agentWorkgroups
+            .flatMap { group -> group.workgroups.map { workgroup -> group.agentId to workgroup } }
+            .sortedWith(
+                compareBy<Pair<String, Workgroup>>(
+                    { AlphabeticalSort.sortKey(it.second.name) },
+                    { it.second.name.lowercase() },
+                    { it.first.lowercase() }
+                )
             )
-        }
-        .sortedWith { left, right ->
-            AlphabeticalSort.compareStrings(left.title, right.title)
-        }
-    val workgroups = uiState.agentWorkgroups
-        .flatMap { group -> group.workgroups.map { workgroup -> group.agentId to workgroup } }
-        .sortedWith(
-            compareBy<Pair<String, Workgroup>>(
-                { AlphabeticalSort.sortKey(it.second.name) },
-                { it.second.name.lowercase() },
-                { it.first.lowercase() }
-            )
-        )
+    }
     val currentTopAnchor = remember(groupedSessions, workgroups) {
         groupedSessions.firstOrNull()?.let { group -> "session-group:${group.key}" }
             ?: workgroups.firstOrNull()?.let { (agentId, workgroup) -> "workgroup:$agentId:${workgroup.id}" }

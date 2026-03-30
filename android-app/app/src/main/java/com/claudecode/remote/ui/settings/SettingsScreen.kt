@@ -50,6 +50,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -70,6 +71,8 @@ import com.claudecode.remote.update.AppUpdateState
 import com.claudecode.remote.update.AppUpdateStatus
 import com.claudecode.remote.util.CrashLogFileInfo
 import com.claudecode.remote.util.CrashLogger
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -778,8 +781,12 @@ private fun SettingsSection(
 @Composable
 private fun CrashLogDialog(onDismiss: () -> Unit) {
     var refreshToken by remember { mutableStateOf(0) }
-    val logFiles = remember(refreshToken) { CrashLogger.listLogFiles() }
-    var selectedFileName by remember(refreshToken) { mutableStateOf(logFiles.firstOrNull()?.name) }
+    val logFiles by produceState(initialValue = emptyList<CrashLogFileInfo>(), refreshToken) {
+        value = withContext(Dispatchers.IO) {
+            CrashLogger.listLogFiles()
+        }
+    }
+    var selectedFileName by remember(refreshToken) { mutableStateOf<String?>(null) }
 
     LaunchedEffect(logFiles) {
         if (selectedFileName == null || logFiles.none { it.name == selectedFileName }) {
@@ -788,8 +795,10 @@ private fun CrashLogDialog(onDismiss: () -> Unit) {
     }
 
     val logDirectory = remember { CrashLogger.getLogDirectoryPath() }
-    val logContent = remember(selectedFileName, refreshToken) {
-        selectedFileName?.let(CrashLogger::readLogFile).orEmpty()
+    val logContent by produceState(initialValue = "", selectedFileName, refreshToken) {
+        value = withContext(Dispatchers.IO) {
+            selectedFileName?.let(CrashLogger::readLogFile).orEmpty()
+        }
     }
 
     Dialog(onDismissRequest = onDismiss) {
