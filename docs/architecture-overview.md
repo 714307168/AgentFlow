@@ -69,8 +69,6 @@ Desktop runtime also applies a context-pressure guard before the next run:
 - rotate to a fresh conversation when the current thread is already too large
 - rotate immediately after provider-side long-thread/context warnings
 - keep project-level prompt/config in effect while resetting provider thread/session ids
-- cap project guidance before injection so very long project prompts do not expand every turn
-- carry over only a short handoff summary from the previous conversation instead of resuming an oversized thread forever
 
 ## Relay
 
