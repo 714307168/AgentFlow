@@ -140,6 +140,7 @@ Example endpoints:
 ## Documentation
 
 - [Chinese README](./README.md)
+- [Relay Server Deployment](./docs/relay-server-deployment.md)
 - [Release and Update Center](./docs/release-and-update-center.md)
 - [Release Upload Runbook](./docs/release-upload-runbook.md)
 - [GitHub Releases Publishing](./docs/github-releases.md)
