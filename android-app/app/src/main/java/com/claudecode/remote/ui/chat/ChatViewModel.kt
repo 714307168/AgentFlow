@@ -342,7 +342,9 @@ class ChatViewModel(
                 messageRepository.getConversationMessagesForProjectSnapshot(projectId).isNotEmpty()
             }.getOrDefault(false)
             triggerImmediateSync(
-                debounceMs = if (hasCachedConversation) SYNC_TRIGGER_DEBOUNCE_MS else 0L,
+                // Entering a project should always refresh its latest messages/activity immediately.
+                // Keep cached content for instant render, then backfill fresh data in parallel.
+                debounceMs = 0L,
                 recentOverlapCount = ACTIVE_SYNC_OVERLAP_COUNT,
                 limit = if (hasCachedConversation) MESSAGE_PAGE_SIZE else INITIAL_SYNC_PAGE_SIZE
             )
