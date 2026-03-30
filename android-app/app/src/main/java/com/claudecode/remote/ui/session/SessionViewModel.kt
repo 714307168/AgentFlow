@@ -59,6 +59,11 @@ class SessionViewModel(
         _uiState.update { it.copy(collapsedGroupKeys = tokenStore.getCollapsedSessionGroups()) }
         viewModelScope.launch {
             val cachedSessions = repository.getInboxSessionSnapshots()
+            val cachedPreviews = messageRepository.getLatestConversationPreviewSnapshots()
+            if (cachedPreviews.isNotEmpty()) {
+                stablePreviewMap = cachedPreviews
+                latestPreviewMap = cachedPreviews
+            }
             if (cachedSessions.isNotEmpty()) {
                 latestSessions = cachedSessions
                 rebuildSessionItems()

@@ -230,6 +230,11 @@ class MessageRepository(
             }
         }
 
+    suspend fun getLatestConversationPreviewSnapshots(): Map<String, Message> =
+        messageDao.getLatestConversationMessagesSnapshot().associate { entity ->
+            entity.projectId to entity.toMessage()
+        }
+
     suspend fun clearProjectLocalMessages(projectId: String) {
         db.withTransaction {
             messageDao.deleteMessagesByProject(projectId)
