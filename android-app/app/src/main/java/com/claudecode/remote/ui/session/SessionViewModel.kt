@@ -217,11 +217,8 @@ class SessionViewModel(
             .sortedWith(
                 compareByDescending<SessionListItem> { item ->
                     item.previewTimestamp
-                        ?: item.session.currentStartedAt
-                        ?: item.session.lastActiveAt
+                        ?: item.session.createdAt
                 }
-                    .thenByDescending { it.session.isRunning }
-                    .thenByDescending { it.session.queuedCount }
                     .thenBy { it.session.name.lowercase() }
                     .thenBy { it.session.id }
             )

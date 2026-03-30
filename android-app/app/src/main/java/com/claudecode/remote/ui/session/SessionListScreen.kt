@@ -508,7 +508,7 @@ private fun SessionCard(item: SessionListItem, onClick: () -> Unit) {
     val session = item.session
     val avatar = session.name.firstOrNull()?.uppercase() ?: "C"
     val previewText = item.previewText ?: session.currentPrompt ?: session.queuePreview ?: session.projectPath
-    val timestamp = item.previewTimestamp ?: session.currentStartedAt ?: session.lastActiveAt
+    val timestamp = item.previewTimestamp ?: session.createdAt
     val metaText = buildString {
         append(providerLabel(session.cliProvider))
         modelLabel(session.cliModel)
