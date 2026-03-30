@@ -526,7 +526,7 @@ fun ChatScreen(
                                 title = stringResource(R.string.chat_no_activity),
                                 detail = stringResource(R.string.chat_pane_activity_hint)
                             )
-                        } else if (selectedPane == ChatPane.QUEUE && uiState.queueItems.isEmpty()) {
+                        } else if (selectedPane == ChatPane.QUEUE && uiState.queueItems.isEmpty() && uiState.queuedCount <= 0) {
                             ChatEmptyState(
                                 title = stringResource(R.string.chat_no_queue),
                                 detail = stringResource(R.string.chat_pane_queue_hint)
@@ -612,16 +612,22 @@ private fun QueueItemCard(item: QueueItem) {
                         MaterialTheme.colorScheme.secondary
                     }
                 )
-                Text(
-                    text = formatTimestamp(item.queuedAt),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                if (item.queuedAt > 0L) {
+                    Text(
+                        text = formatTimestamp(item.queuedAt),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
             Text(
-                text = item.prompt,
+                text = item.prompt.ifBlank { stringResource(R.string.chat_pane_queue_hint) },
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface
+                color = if (item.isPlaceholder) {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                }
             )
         }
     }

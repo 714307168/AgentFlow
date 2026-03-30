@@ -43,7 +43,8 @@ data class QueueItem(
     val runId: String,
     val prompt: String,
     val source: String,
-    val queuedAt: Long
+    val queuedAt: Long,
+    val isPlaceholder: Boolean = false
 )
 
 data class ChatUiState(
@@ -209,6 +210,8 @@ class ChatViewModel(
             try {
                 messageRepository.getSessionForProject(projectId).collect { session ->
                     _uiState.update { current ->
+                        val queuedCount = session?.queuedCount ?: 0
+                        val queuePreview = session?.queuePreview
                         current.copy(
                             projectName = session?.name?.ifBlank { current.projectName } ?: current.projectName,
                             agentId = session?.agentId?.ifBlank { current.agentId } ?: current.agentId,
@@ -216,9 +219,9 @@ class ChatViewModel(
                             cliModel = session?.cliModel?.orEmpty() ?: "",
                             isAgentOnline = session?.isAgentOnline ?: current.isAgentOnline,
                             isRunning = session?.isRunning ?: false,
-                            queuedCount = session?.queuedCount ?: 0,
+                            queuedCount = queuedCount,
                             currentPrompt = session?.currentPrompt,
-                            queuePreview = session?.queuePreview,
+                            queuePreview = queuePreview,
                             currentStartedAt = session?.currentStartedAt,
                             activeConversationId = session?.activeConversationId,
                             activeConversationTitle = session?.activeConversationTitle,
@@ -226,7 +229,11 @@ class ChatViewModel(
                                 session?.conversationsJson,
                                 session?.activeConversationId
                             ),
-                            queueItems = parseQueueItems(session?.queueJson),
+                            queueItems = resolveQueueItems(
+                                rawJson = session?.queueJson,
+                                queuedCount = queuedCount,
+                                queuePreview = queuePreview
+                            ),
                             isSwitchingConversation = false
                         )
                     }
@@ -850,6 +857,36 @@ class ChatViewModel(
             CrashLogger.logError("ChatViewModel", "Failed to parse queue list", error as? Exception ?: Exception(error))
             emptyList()
         }
+    }
+
+    private fun resolveQueueItems(
+        rawJson: String?,
+        queuedCount: Int,
+        queuePreview: String?
+    ): List<QueueItem> {
+        val parsed = parseQueueItems(rawJson)
+        if (queuedCount <= 0) {
+            return parsed
+        }
+
+        val normalizedPreview = queuePreview?.trim().takeUnless { it.isNullOrEmpty() }.orEmpty()
+        val maxVisibleCount = queuedCount.coerceAtMost(8)
+        if (parsed.size >= maxVisibleCount) {
+            return parsed.take(maxVisibleCount)
+        }
+
+        val queueItems = parsed.toMutableList()
+        val missingCount = maxVisibleCount - queueItems.size
+        repeat(missingCount) { index ->
+            queueItems += QueueItem(
+                runId = "queued-placeholder-${index + 1}",
+                prompt = normalizedPreview,
+                source = "",
+                queuedAt = 0L,
+                isPlaceholder = true
+            )
+        }
+        return queueItems
     }
 
     private fun mergeAttachments(
