@@ -53,6 +53,7 @@ import com.claudecode.remote.R
 import com.claudecode.remote.data.model.Session
 import com.claudecode.remote.data.model.Workgroup
 import com.claudecode.remote.data.remote.RelayWebSocket
+import com.claudecode.remote.util.AlphabeticalSort
 
 private const val DEFAULT_GROUP_KEY = "__default__"
 private const val COLLABORATION_GROUP_KEY = "__collaboration__"
@@ -76,10 +77,33 @@ fun AgentHubScreen(
         .groupBy { session ->
             session.groupName?.trim().takeUnless { it.isNullOrEmpty() } ?: DEFAULT_GROUP_KEY
         }
-        .toSortedMap(String.CASE_INSENSITIVE_ORDER)
+        .map { (groupKey, sessions) ->
+            AgentSessionGroup(
+                key = groupKey,
+                title = if (groupKey == DEFAULT_GROUP_KEY) {
+                    stringResource(R.string.default_group)
+                } else {
+                    groupKey
+                },
+                sessions = sessions.sortedWith(compareBy<Session>(
+                    { AlphabeticalSort.sortKey(it.name) },
+                    { it.name.lowercase() },
+                    { it.projectPath.lowercase() }
+                ))
+            )
+        }
+        .sortedWith { left, right ->
+            AlphabeticalSort.compareStrings(left.title, right.title)
+        }
     val workgroups = uiState.agentWorkgroups
         .flatMap { group -> group.workgroups.map { workgroup -> group.agentId to workgroup } }
-        .sortedByDescending { (_, workgroup) -> workgroup.updatedAt }
+        .sortedWith(
+            compareBy<Pair<String, Workgroup>>(
+                { AlphabeticalSort.sortKey(it.second.name) },
+                { it.second.name.lowercase() },
+                { it.first.lowercase() }
+            )
+        )
 
     Box(
         modifier = Modifier
@@ -163,21 +187,17 @@ fun AgentHubScreen(
                             contentPadding = PaddingValues(bottom = 20.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            groupedSessions.forEach { (groupKey, sessions) ->
-                                item("header-$groupKey") {
+                            groupedSessions.forEach { group ->
+                                item("header-${group.key}") {
                                     CollapsibleHeader(
-                                        title = if (groupKey == DEFAULT_GROUP_KEY) {
-                                            stringResource(R.string.default_group)
-                                        } else {
-                                            groupKey
-                                        },
-                                        count = sessions.size,
-                                        collapsed = uiState.collapsedGroupKeys.contains(groupKey),
-                                        onToggle = { viewModel.toggleGroupCollapsed(groupKey) }
+                                        title = group.title,
+                                        count = group.sessions.size,
+                                        collapsed = uiState.collapsedGroupKeys.contains(group.key),
+                                        onToggle = { viewModel.toggleGroupCollapsed(group.key) }
                                     )
                                 }
-                                if (!uiState.collapsedGroupKeys.contains(groupKey)) {
-                                    items(sessions, key = { it.id }) { session ->
+                                if (!uiState.collapsedGroupKeys.contains(group.key)) {
+                                    items(group.sessions, key = { it.id }) { session ->
                                         SimpleProjectCard(session = session, onClick = { onNavigateToChat(session) })
                                     }
                                 }
