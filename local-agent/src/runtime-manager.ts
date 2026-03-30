@@ -47,6 +47,7 @@ export interface EnqueueMessageOptions {
   prompt: string;
   attachments?: RunAttachment[];
   source: RunSource;
+  queuedAt?: number;
   interruptCurrent?: boolean;
   interruptReason?: string;
   runId?: string;
@@ -206,7 +207,9 @@ class RuntimeManager extends EventEmitter {
       prompt: normalizedPrompt,
       attachments,
       runId: options.runId ?? uuidv4(),
-      queuedAt: Date.now(),
+      queuedAt: Number.isFinite(options.queuedAt) && Number(options.queuedAt) > 0
+        ? Number(options.queuedAt)
+        : Date.now(),
     };
 
     if (options.interruptCurrent && state.active) {
@@ -218,6 +221,7 @@ class RuntimeManager extends EventEmitter {
       );
     } else {
       state.queue.push(pendingRun);
+      state.queue.sort((left, right) => left.queuedAt - right.queuedAt || left.runId.localeCompare(right.runId));
     }
     this.emitSnapshot(options.projectId);
     void this.processNext(options.projectId);

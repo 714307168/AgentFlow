@@ -184,6 +184,7 @@ class MessageRouter {
       prompt: content,
       attachments,
       source: "remote",
+      queuedAt: env.ts,
       runId: env.id,
       responseMessageId: streamId,
       onTextDelta: (chunk) => {
