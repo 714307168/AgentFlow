@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -38,24 +39,32 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.claudecode.remote.R
 import com.claudecode.remote.data.model.Session
 import com.claudecode.remote.data.remote.RelayWebSocket
 import com.claudecode.remote.update.AppUpdateState
 import com.claudecode.remote.update.AppUpdateStatus
+import kotlinx.coroutines.launch
 
 @Composable
 fun SessionListScreen(
@@ -72,9 +81,45 @@ fun SessionListScreen(
     val uiState by viewModel.uiState.collectAsState()
     val connectionState by webSocket.connectionState.collectAsState()
     val connectionError by webSocket.errorMessage.collectAsState()
+    val listState = rememberLazyListState()
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val coroutineScope = rememberCoroutineScope()
+    val currentTopSessionId = uiState.sessionItems.firstOrNull()?.session?.id
+    val lastVisibleTopSessionId = remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
         viewModel.initialize()
+    }
+
+    LaunchedEffect(currentTopSessionId) {
+        if (currentTopSessionId == null) {
+            return@LaunchedEffect
+        }
+        val isAlreadyAtTop = listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset <= 8
+        if (isAlreadyAtTop && lastVisibleTopSessionId.value != currentTopSessionId) {
+            listState.scrollToItem(0)
+            lastVisibleTopSessionId.value = currentTopSessionId
+        }
+    }
+
+    DisposableEffect(lifecycleOwner, currentTopSessionId) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event != Lifecycle.Event.ON_RESUME || uiState.sessionItems.isEmpty()) {
+                return@LifecycleEventObserver
+            }
+            val restoredAwayFromTop = listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 8
+            val topSessionChanged = lastVisibleTopSessionId.value != currentTopSessionId
+            if (restoredAwayFromTop || topSessionChanged) {
+                coroutineScope.launch {
+                    listState.scrollToItem(0)
+                }
+            }
+            lastVisibleTopSessionId.value = currentTopSessionId
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
     }
 
     Scaffold(
@@ -120,6 +165,7 @@ fun SessionListScreen(
 
                     else -> {
                         LazyColumn(
+                            state = listState,
                             modifier = Modifier.weight(1f),
                             contentPadding = PaddingValues(bottom = 16.dp),
                             verticalArrangement = Arrangement.spacedBy(0.dp)
