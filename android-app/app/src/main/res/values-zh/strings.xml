@@ -173,4 +173,10 @@
     <string name="workgroups_mention_qa">测试角色</string>
     <string name="workgroups_mention_pm">项目经理</string>
     <string name="workgroups_mention_member">成员</string>
+    <string name="nav_messages">&#28040;&#24687;</string>
+    <string name="nav_agents">&#20195;&#29702;</string>
+    <string name="agents_empty">&#26242;&#26102;&#27809;&#26377;&#20195;&#29702;&#25110;&#21327;&#20316;&#32452;&#12290;</string>
+    <string name="agents_collaboration_group">&#21327;&#20316;&#32452;</string>
+    <string name="agents_project_meta">&#20195;&#29702; %1$s &#183; %2$s</string>
+    <string name="agents_collaboration_meta">&#20195;&#29702; %1$s &#183; %2$d &#20010;&#25104;&#21592; &#183; %3$d &#26465;&#28040;&#24687;</string>
 </resources>

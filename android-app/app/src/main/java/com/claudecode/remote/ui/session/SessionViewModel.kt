@@ -46,7 +46,14 @@ class SessionViewModel(
         _uiState.update { it.copy(collapsedGroupKeys = tokenStore.getCollapsedSessionGroups()) }
         viewModelScope.launch {
             repository.sessions.collect { sessions ->
-                _uiState.update { it.copy(sessions = sessions) }
+                _uiState.update {
+                    it.copy(
+                        sessions = sessions.sortedWith(
+                            compareByDescending<Session> { session -> session.lastActiveAt }
+                                .thenBy { session -> session.name.lowercase() }
+                        )
+                    )
+                }
             }
         }
         viewModelScope.launch {

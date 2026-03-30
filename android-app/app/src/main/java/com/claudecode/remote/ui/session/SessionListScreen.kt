@@ -21,8 +21,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Card
@@ -56,8 +54,6 @@ import com.claudecode.remote.data.model.Session
 import com.claudecode.remote.data.remote.RelayWebSocket
 import com.claudecode.remote.update.AppUpdateState
 import com.claudecode.remote.update.AppUpdateStatus
-
-private const val DEFAULT_GROUP_KEY = "__default__"
 
 @Composable
 fun SessionListScreen(
@@ -167,41 +163,16 @@ fun SessionListScreen(
                         }
 
                         else -> {
-                            val defaultGroupName = stringResource(R.string.default_group)
-                            val groupedSessions = uiState.sessions
-                                .groupBy { session ->
-                                    session.groupName?.trim().takeUnless { it.isNullOrEmpty() }
-                                        ?: DEFAULT_GROUP_KEY
-                                }
-                                .toSortedMap(compareBy(String.CASE_INSENSITIVE_ORDER) { it })
                             LazyColumn(
                                 modifier = Modifier.weight(1f),
                                 contentPadding = PaddingValues(bottom = 16.dp),
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                groupedSessions.forEach { (groupKey, sessions) ->
-                                    val groupName = if (groupKey == DEFAULT_GROUP_KEY) {
-                                        defaultGroupName
-                                    } else {
-                                        groupKey
-                                    }
-                                    val isCollapsed = uiState.collapsedGroupKeys.contains(groupKey)
-                                    item(key = "group-$groupKey") {
-                                        GroupHeader(
-                                            groupName = groupName,
-                                            count = sessions.size,
-                                            collapsed = isCollapsed,
-                                            onToggle = { viewModel.toggleGroupCollapsed(groupKey) }
-                                        )
-                                    }
-                                    if (!isCollapsed) {
-                                        items(sessions, key = { it.id }) { session ->
-                                            SessionCard(
-                                                session = session,
-                                                onClick = { onNavigateToChat(session) }
-                                            )
-                                        }
-                                    }
+                                items(uiState.sessions, key = { it.id }) { session ->
+                                    SessionCard(
+                                        session = session,
+                                        onClick = { onNavigateToChat(session) }
+                                    )
                                 }
                             }
                         }
@@ -266,67 +237,6 @@ fun SessionListScreen(
                         Text(error)
                     }
                 }
-            }
-        }
-    }
-}
-
-@Composable
-private fun GroupHeader(
-    groupName: String,
-    count: Int,
-    collapsed: Boolean,
-    onToggle: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 8.dp, bottom = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        Row(
-            modifier = Modifier.weight(1f),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Text(
-                text = groupName,
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onBackground,
-                fontWeight = FontWeight.SemiBold
-            )
-            Surface(
-                shape = RoundedCornerShape(999.dp),
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.14f))
-            ) {
-                Text(
-                    text = count.toString(),
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-        Surface(
-            shape = RoundedCornerShape(999.dp),
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.82f),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.14f))
-        ) {
-            IconButton(
-                onClick = onToggle,
-                modifier = Modifier.size(30.dp)
-            ) {
-                Icon(
-                    imageVector = if (collapsed) Icons.Default.ExpandMore else Icons.Default.ExpandLess,
-                    contentDescription = if (collapsed) {
-                        stringResource(R.string.action_expand)
-                    } else {
-                        stringResource(R.string.action_collapse)
-                    },
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
             }
         }
     }
@@ -411,7 +321,7 @@ private fun SessionHeader(
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Text(
-                text = stringResource(R.string.app_name),
+                text = stringResource(R.string.nav_messages),
                 style = MaterialTheme.typography.titleLarge,
                 color = MaterialTheme.colorScheme.onBackground,
                 maxLines = 1,

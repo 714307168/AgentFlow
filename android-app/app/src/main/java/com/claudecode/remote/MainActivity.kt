@@ -13,7 +13,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
-import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Icon
@@ -37,6 +37,8 @@ import androidx.navigation.compose.rememberNavController
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.claudecode.remote.service.RelayConnectionService
+import com.claudecode.remote.ui.agent.AgentHubScreen
+import com.claudecode.remote.ui.agent.AgentHubViewModel
 import com.claudecode.remote.ui.chat.ChatScreen
 import com.claudecode.remote.ui.chat.ChatViewModel
 import com.claudecode.remote.ui.session.SessionListScreen
@@ -46,8 +48,6 @@ import com.claudecode.remote.ui.settings.SettingsState
 import com.claudecode.remote.ui.theme.RemoteTheme
 import com.claudecode.remote.ui.workgroup.WorkgroupChatScreen
 import com.claudecode.remote.ui.workgroup.WorkgroupChatViewModel
-import com.claudecode.remote.ui.workgroup.WorkgroupScreen
-import com.claudecode.remote.ui.workgroup.WorkgroupViewModel
 import com.claudecode.remote.util.CrashLogger
 import kotlinx.coroutines.launch
 import java.util.Locale
@@ -97,8 +97,8 @@ class MainActivity : ComponentActivity() {
                 val backStackEntry by navController.currentBackStackEntryAsState()
                 val currentDestination = backStackEntry?.destination
                 val bottomNavItems = listOf(
-                    BottomNavItem("sessions", R.string.chat_conversations_title, Icons.AutoMirrored.Filled.Chat),
-                    BottomNavItem("workgroups", R.string.workgroups_title, Icons.Default.Groups),
+                    BottomNavItem("messages", R.string.nav_messages, Icons.AutoMirrored.Filled.Chat),
+                    BottomNavItem("agents", R.string.nav_agents, Icons.Default.Dns),
                     BottomNavItem("settings", R.string.settings_title, Icons.Default.Settings),
                 )
                 val showBottomBar = bottomNavItems.any { item ->
@@ -157,10 +157,10 @@ class MainActivity : ComponentActivity() {
                 ) { innerPadding ->
                     NavHost(
                         navController = navController,
-                        startDestination = "sessions",
+                        startDestination = "messages",
                         modifier = Modifier.padding(innerPadding)
                     ) {
-                        composable("sessions") {
+                        composable("messages") {
                             val viewModel = remember {
                                 SessionViewModel(
                                     repository = sessionRepository,
@@ -202,19 +202,41 @@ class MainActivity : ComponentActivity() {
                                 }
                             )
                         }
-                        composable("workgroups") {
+                        composable("agents") {
                             val viewModel = remember {
-                                WorkgroupViewModel(applicationContext, sessionRepository, workgroupRepository, relayWebSocket)
+                                AgentHubViewModel(
+                                    context = applicationContext,
+                                    sessionRepository = sessionRepository,
+                                    messageRepository = messageRepository,
+                                    workgroupRepository = workgroupRepository,
+                                    webSocket = relayWebSocket,
+                                    tokenStore = tokenStore
+                                )
                             }
 
-                            WorkgroupScreen(
+                            AgentHubScreen(
                                 viewModel = viewModel,
-                                onNavigateBack = { navController.popBackStack() },
+                                webSocket = relayWebSocket,
+                                onNavigateToChat = { session ->
+                                    val encodedName = android.net.Uri.encode(session.name.ifEmpty { "Project" })
+                                    val encodedAgentId = android.net.Uri.encode(session.agentId)
+                                    navController.navigate("chat/${session.projectId}/$encodedName/$encodedAgentId")
+                                },
                                 onOpenWorkgroupChat = { agentId, workgroupId, groupName ->
                                     val encodedAgentId = android.net.Uri.encode(agentId)
                                     val encodedWorkgroupId = android.net.Uri.encode(workgroupId)
                                     val encodedGroupName = android.net.Uri.encode(groupName.ifEmpty { "Workgroup" })
                                     navController.navigate("workgroups/chat/$encodedAgentId/$encodedWorkgroupId/$encodedGroupName")
+                                },
+                                onToggleConnection = {
+                                    when (relayWebSocket.connectionState.value) {
+                                        com.claudecode.remote.data.remote.RelayWebSocket.ConnectionState.CONNECTED,
+                                        com.claudecode.remote.data.remote.RelayWebSocket.ConnectionState.CONNECTING,
+                                        com.claudecode.remote.data.remote.RelayWebSocket.ConnectionState.RECONNECTING ->
+                                            RelayConnectionService.stop(applicationContext)
+                                        com.claudecode.remote.data.remote.RelayWebSocket.ConnectionState.DISCONNECTED ->
+                                            RelayConnectionService.start(applicationContext)
+                                    }
                                 }
                             )
                         }
