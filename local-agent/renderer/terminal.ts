@@ -3370,25 +3370,6 @@ async function loadProjectSession(projectId: string): Promise<void> {
   }
 }
 
-async function refreshProjectSession(projectId: string): Promise<boolean> {
-  const result = await api.getProjectSession(projectId);
-  if (!result.success || !result.session) {
-    return false;
-  }
-
-  state.sessionsByProjectId.set(projectId, result.session);
-  syncHistoryStateFromSnapshot(result.session);
-  if (projectId === state.projectId) {
-    syncActiveViewForCurrentProject();
-    if (state.messageSearchQuery.trim()) {
-      scheduleMessageSearch();
-    }
-    scheduleWorkspaceRender();
-  }
-  scheduleProjectListRender(projectId === state.projectId ? 160 : 260);
-  return true;
-}
-
 async function loadWorkgroupSession(workgroupId: string): Promise<void> {
   const getWorkgroupCollaborationSession = api.getWorkgroupCollaborationSession;
   if (!getWorkgroupCollaborationSession) {
@@ -4485,35 +4466,29 @@ elements.modelBadge?.addEventListener("click", () => {
 elements.conversationSelect?.addEventListener("change", async (event) => {
   const target = event.target as HTMLSelectElement | null;
   const conversationId = target?.value?.trim();
-  const projectId = state.projectId;
-  if (!projectId || !conversationId || !api.activateProjectConversation) {
+  if (!state.projectId || !conversationId || !api.activateProjectConversation) {
     return;
   }
 
   const result = await api.activateProjectConversation({
-    projectId,
+    projectId: state.projectId,
     conversationId,
   });
   if (!result.success) {
     setHintText(result.error ?? inlineText("Failed to switch conversation.", "Failed to switch conversation."), true);
-    await refreshProjectSession(projectId);
-    return;
   }
-  await refreshProjectSession(projectId);
 });
 
 elements.newConversationBtn?.addEventListener("click", async () => {
-  const projectId = state.projectId;
-  if (!projectId || !api.createProjectConversation) {
+  if (!state.projectId || !api.createProjectConversation) {
     return;
   }
 
-  const result = await api.createProjectConversation(projectId);
+  const result = await api.createProjectConversation(state.projectId);
   if (!result.success) {
     setHintText(result.error ?? inlineText("Failed to create a new conversation.", "Failed to create a new conversation."), true);
     return;
   }
-  await refreshProjectSession(projectId);
   setHintText(inlineText("Started a new conversation.", "Started a new conversation."), false);
 });
 
