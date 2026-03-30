@@ -449,6 +449,7 @@ class MessageRouter {
       limit?: number;
       action?: string;
       conversation_id?: string;
+      item_id?: string;
       run_id?: string;
       project_updates?: {
         group_name?: string | null;
@@ -465,6 +466,9 @@ class MessageRouter {
     const action = typeof payloadObject?.action === "string" ? payloadObject.action.trim().toLowerCase() : "";
     const requestedConversationId = typeof payloadObject?.conversation_id === "string"
       ? payloadObject.conversation_id.trim()
+      : "";
+    const requestedItemId = typeof payloadObject?.item_id === "string"
+      ? payloadObject.item_id.trim()
       : "";
     const requestedRunId = typeof payloadObject?.run_id === "string"
       ? payloadObject.run_id.trim()
@@ -502,11 +506,13 @@ class MessageRouter {
       afterSeq,
       beforeSeq,
       limit,
+      itemId: requestedItemId || undefined,
     });
     const payload = buildSessionSyncPayload(snapshot, delta, {
       afterSeq,
       beforeSeq,
       limit,
+      fullItemId: action === SessionSyncActions.FETCH_ITEM_DETAIL ? requestedItemId : undefined,
       knownItems: Array.isArray(payloadObject?.known_items)
         ? payloadObject.known_items
             .map((item) => ({

@@ -75,8 +75,12 @@ export interface SessionSyncPayload {
   };
 }
 
+function normalizeText(text: string | null | undefined): string {
+  return (text ?? "").replace(/\r\n/g, "\n").trim();
+}
+
 function trimText(text: string | null | undefined, maxChars: number): string {
-  const normalized = (text ?? "").replace(/\r\n/g, "\n").trim();
+  const normalized = normalizeText(text);
   if (normalized.length <= maxChars) {
     return normalized;
   }
@@ -130,17 +134,29 @@ function buildKnownItemMap(knownItems?: SessionSyncKnownItemDigest[]): Map<strin
   return map;
 }
 
-function normalizeItems(delta: ProjectSyncDelta, knownItems?: SessionSyncKnownItemDigest[]): SessionSyncItemPayload[] {
-  const knownItemMap = buildKnownItemMap(knownItems);
+function normalizeItems(
+  delta: ProjectSyncDelta,
+  options: {
+    knownItems?: SessionSyncKnownItemDigest[];
+    fullItemId?: string | null;
+  } = {},
+): SessionSyncItemPayload[] {
+  const requestedFullItemId = options.fullItemId?.trim() || "";
+  const knownItemMap = buildKnownItemMap(options.knownItems);
   return delta.items
     .slice(-MAX_SYNC_ITEMS)
     .map((item) => {
-      const trimmedContent = trimText(item.content, MAX_SYNC_TEXT_CHARS);
-      const contentMd5 = createSessionSyncContentMd5(trimmedContent);
+      const fullContent = normalizeText(item.content);
+      const contentMd5 = createSessionSyncContentMd5(fullContent);
+      const shouldSendFullContent = requestedFullItemId !== "" && item.id === requestedFullItemId;
+      const payloadContent = shouldSendFullContent ? fullContent : trimText(fullContent, MAX_SYNC_TEXT_CHARS);
+      const isContentTrimmed = payloadContent !== fullContent;
       const attachments = cloneAttachments(item.attachments);
       const attachmentsMd5 = createSessionSyncAttachmentsMd5(attachments);
       const known = knownItemMap.get(item.id);
-      const shouldOmitContent = Boolean(known?.content_md5) && known?.content_md5 === contentMd5;
+      const shouldOmitContent = !shouldSendFullContent
+        && Boolean(known?.content_md5)
+        && known?.content_md5 === contentMd5;
       const shouldOmitAttachments = Boolean(attachmentsMd5) && known?.attachments_md5 === attachmentsMd5;
 
       return {
@@ -150,9 +166,9 @@ function normalizeItems(delta: ProjectSyncDelta, knownItems?: SessionSyncKnownIt
         createdAt: item.createdAt,
         updatedAt: item.updatedAt,
         role: item.role,
-        content: shouldOmitContent ? "" : trimmedContent,
+        content: shouldOmitContent ? "" : payloadContent,
         content_md5: contentMd5,
-        content_omitted: shouldOmitContent || undefined,
+        content_omitted: (shouldOmitContent || isContentTrimmed) || undefined,
         attachments: shouldOmitAttachments ? undefined : attachments,
         attachments_md5: attachmentsMd5 ?? undefined,
         attachments_omitted: shouldOmitAttachments || undefined,
@@ -185,6 +201,7 @@ export function buildSessionSyncPayload(
     beforeSeq?: number;
     limit?: number;
     knownItems?: SessionSyncKnownItemDigest[];
+    fullItemId?: string | null;
   } = {},
 ): SessionSyncPayload {
   const afterSeq = Number(request.afterSeq) > 0 ? Number(request.afterSeq) : 0;
@@ -209,11 +226,18 @@ export function buildSessionSyncPayload(
       limit,
       latest_seq: delta.latestSeq,
       truncated: delta.truncated,
-      items: normalizeItems(delta, request.knownItems),
+      items: normalizeItems(delta, {
+        knownItems: request.knownItems,
+        fullItemId: request.fullItemId,
+      }),
     },
   };
 
-  while (payloadByteLength(payload) > MAX_SYNC_PAYLOAD_BYTES && payload.sync.items.length > 0) {
+  while (
+    !request.fullItemId
+    && payloadByteLength(payload) > MAX_SYNC_PAYLOAD_BYTES
+    && payload.sync.items.length > 0
+  ) {
     payload = {
       ...payload,
       sync: {
@@ -222,7 +246,6 @@ export function buildSessionSyncPayload(
         items: payload.sync.items.slice(1).map((item) => ({
           ...item,
           content: item.content_omitted ? item.content : trimText(item.content, 1_200),
-          content_md5: item.content_omitted ? item.content_md5 : createSessionSyncContentMd5(trimText(item.content, 1_200)),
         })),
       },
     };

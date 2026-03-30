@@ -76,6 +76,7 @@ export interface ProjectSyncRequest {
   beforeSeq?: number;
   limit?: number;
   conversationId?: string | null;
+  itemId?: string | null;
 }
 
 export interface ChatHistoryRepairProjectResult {
@@ -366,6 +367,16 @@ class SessionHistoryStore {
     }
 
     changes.sort((left, right) => left.seq - right.seq || left.createdAt - right.createdAt);
+
+    const requestedItemId = options.itemId?.trim() || "";
+    if (requestedItemId) {
+      const item = changes.find((entry) => entry.id === requestedItemId);
+      return {
+        latestSeq: state.latestSeq,
+        items: item ? [item] : [],
+        truncated: false,
+      };
+    }
 
     let items = beforeSeq > 0
       ? changes.filter((entry) => entry.seq < beforeSeq)

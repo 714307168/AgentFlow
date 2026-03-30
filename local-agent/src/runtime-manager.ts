@@ -134,8 +134,17 @@ const DEFAULT_HISTORY_PAGE_SIZE = 30;
 const SNAPSHOT_EMIT_INTERVAL_MS = 120;
 const CODEX_EXIT_CODE_1_MAX_RETRIES = 3;
 const CODEX_EXIT_CODE_1_RETRY_DELAY_MS = 1_500;
+const AUTO_ROTATE_CONVERSATION_MESSAGE_LIMIT = 72;
+const AUTO_ROTATE_CONVERSATION_ACTIVITY_LIMIT = 120;
+const AUTO_ROTATE_CONVERSATION_CHAR_LIMIT = 90_000;
 const CLI_TRACE_NOISE_PATTERNS = [
   /reading prompt from stdin/i,
+] as const;
+const CODEX_STREAM_LAG_WARNING_PATTERN = /event stream lagged; dropped \d+ events/i;
+const CONTEXT_PRESSURE_WARNING_PATTERNS = [
+  /long threads and multiple compactions/i,
+  /keep threads small and targeted/i,
+  /context window/i,
 ] as const;
 const DIRECT_SCREENSHOT_REJECTION_PATTERNS = [
   /功能/u,
@@ -563,6 +572,7 @@ class RuntimeManager extends EventEmitter {
     state.currentSource = next.source;
     state.currentPrompt = next.prompt;
     state.currentStartedAt = Date.now();
+    this.maybeRotateConversationBeforeRun(state);
 
     const context: RunContext = {
       runId: next.runId,
@@ -690,6 +700,47 @@ class RuntimeManager extends EventEmitter {
       this.emitSnapshot(projectId);
       void this.processNext(projectId);
     }
+  }
+
+  private maybeRotateConversationBeforeRun(state: ProjectState): void {
+    const conversation = this.getActiveConversation(state);
+    if (!conversation) {
+      return;
+    }
+
+    const messageChars = conversation.messages.reduce((sum, message) => sum + message.content.length, 0);
+    const activityChars = conversation.activities.reduce((sum, activity) => sum + activity.detail.length, 0);
+    const totalChars = messageChars + activityChars;
+    const sawContextPressureWarning = conversation.activities.some((activity) =>
+      CONTEXT_PRESSURE_WARNING_PATTERNS.some((pattern) => pattern.test(activity.detail) || pattern.test(activity.title)),
+    );
+    const shouldRotate = sawContextPressureWarning
+      || conversation.messages.length >= AUTO_ROTATE_CONVERSATION_MESSAGE_LIMIT
+      || conversation.activities.length >= AUTO_ROTATE_CONVERSATION_ACTIVITY_LIMIT
+      || totalChars >= AUTO_ROTATE_CONVERSATION_CHAR_LIMIT;
+
+    if (!shouldRotate) {
+      return;
+    }
+
+    const previousTitle = this.getConversationTitle(conversation);
+    const freshConversation = this.createConversationState();
+    state.conversations.push(freshConversation);
+    this.activateConversationState(state, freshConversation.id, freshConversation);
+    this.addActivity(state, {
+      id: uuidv4(),
+      kind: "status",
+      title: "Conversation refreshed",
+      detail: previousTitle
+        ? `Started a new conversation to keep model context accurate. Previous conversation: ${previousTitle}`
+        : "Started a new conversation to keep model context accurate.",
+      status: "completed",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      meta: {
+        autoRotated: true,
+      },
+    });
   }
 
   private executeClaude(state: ProjectState, run: PendingRun, context: RunContext): Promise<void> {
@@ -941,12 +992,13 @@ class RuntimeManager extends EventEmitter {
           }
 
           if (event.type === "item.completed") {
+            const normalizedItem = this.normalizeCodexActivityItem(item);
             this.addActivity(state, {
               id: uuidv4(),
-              kind: "status",
-              title: String(item.type ?? "Item"),
-              detail: JSON.stringify(item, null, 2),
-              status: "completed",
+              kind: normalizedItem.kind,
+              title: normalizedItem.title,
+              detail: normalizedItem.detail,
+              status: normalizedItem.status,
               createdAt: Date.now(),
               updatedAt: Date.now(),
               meta: {
@@ -999,6 +1051,49 @@ class RuntimeManager extends EventEmitter {
         successCloseMessage: "Codex process terminated after logical completion.",
       },
     );
+  }
+
+  private normalizeCodexActivityItem(item: Record<string, any>): {
+    kind: SessionActivity["kind"];
+    title: string;
+    detail: string;
+    status: SessionActivity["status"];
+  } {
+    const itemType = String(item.type ?? "Item").trim() || "Item";
+    const message = String(item.message ?? "").trim();
+    if (itemType.toLowerCase() !== "error") {
+      return {
+        kind: "status",
+        title: itemType,
+        detail: JSON.stringify(item, null, 2),
+        status: "completed",
+      };
+    }
+
+    if (CODEX_STREAM_LAG_WARNING_PATTERN.test(message)) {
+      return {
+        kind: "status",
+        title: "Event stream warning",
+        detail: message,
+        status: "completed",
+      };
+    }
+
+    if (CONTEXT_PRESSURE_WARNING_PATTERNS.some((pattern) => pattern.test(message))) {
+      return {
+        kind: "status",
+        title: "Context warning",
+        detail: message,
+        status: "completed",
+      };
+    }
+
+    return {
+      kind: "error",
+      title: "Runtime error",
+      detail: message || JSON.stringify(item, null, 2),
+      status: "error",
+    };
   }
 
   private async prepareRun(

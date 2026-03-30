@@ -129,6 +129,7 @@ const MAX_CONSECUTIVE_EMPTY_PROJECT_LISTS = 2;
 const REMOTE_RUN_START_TIMEOUT_MS = 20_000;
 const REMOTE_RUN_IDLE_TIMEOUT_MS = 120_000;
 const REMOTE_RUN_MAX_LIFETIME_MS = 10 * 60_000;
+const FULL_ITEM_REQUEST_DEDUPE_MS = 5_000;
 
 function cloneAttachments(attachments?: RunAttachment[]): RunAttachment[] | undefined {
   if (!attachments || attachments.length === 0) {
@@ -162,6 +163,7 @@ export default class RemoteSessionStore extends EventEmitter {
   private readonly pendingHistoryRequests = new Map<string, PendingHistoryRequest[]>();
   private readonly pendingUploadAcks = new Map<string, PendingUploadAck>();
   private readonly runObservers = new Map<string, RemoteRunObserver>();
+  private readonly pendingFullItemRequests = new Map<string, number>();
 
   constructor(relayClient: RelayClient, options: { localAgentId: () => string }) {
     super();
@@ -412,6 +414,7 @@ export default class RemoteSessionStore extends EventEmitter {
     limit?: number;
     action?: string;
     conversationId?: string | null;
+    itemId?: string | null;
     runId?: string | null;
     projectUpdates?: {
       groupName?: string | null;
@@ -431,6 +434,7 @@ export default class RemoteSessionStore extends EventEmitter {
         limit: options.limit,
         action: options.action,
         conversation_id: options.conversationId ?? undefined,
+        item_id: options.itemId ?? undefined,
         run_id: options.runId ?? undefined,
         project_updates: options.projectUpdates ? {
           group_name: options.projectUpdates.groupName ?? undefined,
@@ -1203,9 +1207,12 @@ export default class RemoteSessionStore extends EventEmitter {
       const nextMessage: RemoteMessageEntry = {
         id: itemId,
         role: item.role === "user" ? "user" : (item.role === "error" ? "error" : "assistant"),
-        content: contentOmitted && existingMessage && createSessionSyncContentMd5(existingMessage.content) === contentMd5
-          ? existingMessage.content
-          : readString(item.content ?? itemRecord.content),
+        content: this.resolveRemoteContent(
+          existingMessage?.content,
+          readString(item.content ?? itemRecord.content),
+          contentMd5,
+          contentOmitted,
+        ),
         attachments: attachmentsOmitted && existingMessage
           && createSessionSyncAttachmentsMd5(existingMessage.attachments) === attachmentsMd5
           ? cloneAttachments(existingMessage.attachments)
@@ -1222,6 +1229,7 @@ export default class RemoteSessionStore extends EventEmitter {
       } else {
         state.messages.push(nextMessage);
       }
+      this.scheduleFullItemSyncIfNeeded(state, itemId, contentOmitted || attachmentsOmitted);
       this.trimMessages(state);
       return;
     }
@@ -1233,9 +1241,12 @@ export default class RemoteSessionStore extends EventEmitter {
       const nextEntry: RemoteCliEntry = {
         id: itemId,
         stream: item.cli_stream === "stderr" ? "stderr" : (item.cli_stream === "system" ? "system" : "stdout"),
-        text: contentOmitted && existingEntry && createSessionSyncContentMd5(existingEntry.text) === contentMd5
-          ? existingEntry.text
-          : readString(item.content ?? itemRecord.content),
+        text: this.resolveRemoteContent(
+          existingEntry?.text,
+          readString(item.content ?? itemRecord.content),
+          contentMd5,
+          contentOmitted,
+        ),
         createdAt: itemCreatedAt,
         syncSeq: itemSeq,
       };
@@ -1245,6 +1256,7 @@ export default class RemoteSessionStore extends EventEmitter {
       } else {
         state.cliTrace.push(nextEntry);
       }
+      this.scheduleFullItemSyncIfNeeded(state, itemId, contentOmitted);
       this.trimCli(state);
       return;
     }
@@ -1258,9 +1270,12 @@ export default class RemoteSessionStore extends EventEmitter {
         ? "thinking"
         : ((item.activity_kind as SessionActivity["kind"]) || "status"),
       title: readString(item.title ?? itemRecord.title) || (itemKind === "thinking" ? "Thinking" : "Activity"),
-      detail: contentOmitted && existingActivity && createSessionSyncContentMd5(existingActivity.detail) === contentMd5
-        ? existingActivity.detail
-        : readString(item.content ?? itemRecord.content),
+      detail: this.resolveRemoteContent(
+        existingActivity?.detail,
+        readString(item.content ?? itemRecord.content),
+        contentMd5,
+        contentOmitted,
+      ),
       status: this.mapActivityStatus(item.status),
       createdAt: itemCreatedAt,
       updatedAt: itemUpdatedAt,
@@ -1272,7 +1287,52 @@ export default class RemoteSessionStore extends EventEmitter {
     } else {
       state.activities.push(nextActivity);
     }
+    this.scheduleFullItemSyncIfNeeded(state, itemId, contentOmitted);
     this.trimActivities(state);
+  }
+
+  private resolveRemoteContent(
+    existingContent: string | undefined,
+    incomingContent: string,
+    contentMd5: string,
+    contentOmitted: boolean,
+  ): string {
+    const normalizedExisting = typeof existingContent === "string" ? existingContent : "";
+    if (
+      normalizedExisting
+      && contentMd5
+      && createSessionSyncContentMd5(normalizedExisting) === contentMd5
+    ) {
+      return normalizedExisting;
+    }
+    if (contentOmitted) {
+      return incomingContent;
+    }
+    return incomingContent;
+  }
+
+  private scheduleFullItemSyncIfNeeded(state: RemoteState, itemId: string, requiresFullContent: boolean): void {
+    const requestKey = `${state.project.id}:${itemId}`;
+    if (!requiresFullContent) {
+      this.pendingFullItemRequests.delete(requestKey);
+      return;
+    }
+    if (!this.relayClient.isConnected() || state.project.online === false) {
+      return;
+    }
+
+    const now = Date.now();
+    const previousRequestedAt = this.pendingFullItemRequests.get(requestKey) ?? 0;
+    if (now - previousRequestedAt < FULL_ITEM_REQUEST_DEDUPE_MS) {
+      return;
+    }
+    this.pendingFullItemRequests.set(requestKey, now);
+    this.requestSessionSync(state.project.id, {
+      action: SessionSyncActions.FETCH_ITEM_DETAIL,
+      conversationId: state.activeConversationId,
+      itemId,
+      limit: 1,
+    });
   }
 
   private mapActivityStatus(status: string): SessionActivity["status"] {
