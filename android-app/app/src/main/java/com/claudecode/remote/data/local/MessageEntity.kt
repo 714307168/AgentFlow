@@ -9,6 +9,7 @@ import com.claudecode.remote.data.model.MessageType
 data class MessageEntity(
     @PrimaryKey val id: String,
     val projectId: String,
+    val conversationId: String? = null,
     val role: String, // USER or ASSISTANT
     val content: String,
     val type: String, // TEXT or FILE

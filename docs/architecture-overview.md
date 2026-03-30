@@ -59,7 +59,9 @@ Recommended rule of thumb:
 Current cross-device session sync now follows these rules:
 
 - Initial project open should render local cache first, then immediately request the latest session delta
+- Android local cache is scoped by `projectId + conversationId`; switching conversations must reuse cached rows instead of clearing project history
 - Normal sync sends lightweight message/activity/CLI summaries, but keeps `content_md5` based on the full body
+- Android should compute `after_seq` from the active conversation's local max `syncSeq`, so session sync only requests conversation-level adds/updates
 - If a sync item is trimmed or omitted, clients request that single `itemId` again for full content and patch it in place
 - Once a client has the full body, later summary syncs should not overwrite it back to the trimmed variant
 - Relay/UI should treat provider advisories such as event-stream lag or long-thread warnings as notices, not task failures

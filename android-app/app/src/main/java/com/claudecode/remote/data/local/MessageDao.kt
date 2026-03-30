@@ -14,18 +14,42 @@ data class ProjectSyncBounds(
 
 @Dao
 interface MessageDao {
-    @Query("SELECT * FROM messages WHERE projectId = :projectId ORDER BY timestamp ASC")
+    @Query(
+        """
+        SELECT * FROM messages
+        WHERE projectId = :projectId
+          AND COALESCE(conversationId, '') = COALESCE(
+            (SELECT activeConversationId FROM sessions WHERE projectId = :projectId LIMIT 1),
+            ''
+          )
+        ORDER BY timestamp ASC, syncSeq ASC, id ASC
+        """
+    )
     fun getMessagesByProject(projectId: String): Flow<List<MessageEntity>>
 
-    @Query("SELECT * FROM messages WHERE projectId = :projectId ORDER BY timestamp ASC")
+    @Query(
+        """
+        SELECT * FROM messages
+        WHERE projectId = :projectId
+          AND COALESCE(conversationId, '') = COALESCE(
+            (SELECT activeConversationId FROM sessions WHERE projectId = :projectId LIMIT 1),
+            ''
+          )
+        ORDER BY timestamp ASC, syncSeq ASC, id ASC
+        """
+    )
     suspend fun getMessagesByProjectSnapshot(projectId: String): List<MessageEntity>
 
     @Query(
         """
         SELECT * FROM messages
         WHERE projectId = :projectId
+          AND COALESCE(conversationId, '') = COALESCE(
+            (SELECT activeConversationId FROM sessions WHERE projectId = :projectId LIMIT 1),
+            ''
+          )
           AND type IN ('TEXT', 'FILE')
-        ORDER BY timestamp ASC
+        ORDER BY timestamp ASC, syncSeq ASC, id ASC
         """
     )
     fun getConversationMessagesByProject(projectId: String): Flow<List<MessageEntity>>
@@ -34,8 +58,12 @@ interface MessageDao {
         """
         SELECT * FROM messages
         WHERE projectId = :projectId
+          AND COALESCE(conversationId, '') = COALESCE(
+            (SELECT activeConversationId FROM sessions WHERE projectId = :projectId LIMIT 1),
+            ''
+          )
           AND type IN ('TEXT', 'FILE')
-        ORDER BY timestamp ASC
+        ORDER BY timestamp ASC, syncSeq ASC, id ASC
         """
     )
     suspend fun getConversationMessagesByProjectSnapshot(projectId: String): List<MessageEntity>
@@ -100,13 +128,19 @@ interface MessageDao {
         """
         SELECT * FROM messages
         WHERE projectId = :projectId
+          AND COALESCE(conversationId, '') = COALESCE(:conversationId, '')
           AND syncSeq > 0
           AND (:beforeSeq IS NULL OR syncSeq < :beforeSeq)
         ORDER BY syncSeq DESC
         LIMIT :limit
         """
     )
-    suspend fun getSyncDigestMessages(projectId: String, beforeSeq: Long?, limit: Int): List<MessageEntity>
+    suspend fun getSyncDigestMessages(
+        projectId: String,
+        conversationId: String?,
+        beforeSeq: Long?,
+        limit: Int
+    ): List<MessageEntity>
 
     @Query(
         """
@@ -116,9 +150,10 @@ interface MessageDao {
             COUNT(CASE WHEN syncSeq > 0 THEN 1 END) AS messageCount
         FROM messages
         WHERE projectId = :projectId
+          AND COALESCE(conversationId, '') = COALESCE(:conversationId, '')
         """
     )
-    suspend fun getProjectSyncBounds(projectId: String): ProjectSyncBounds?
+    suspend fun getConversationSyncBounds(projectId: String, conversationId: String?): ProjectSyncBounds?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMessage(message: MessageEntity)

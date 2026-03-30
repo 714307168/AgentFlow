@@ -143,25 +143,25 @@ class MessageRepository(
         if (shouldWakeAgent) {
             wakeupAgent(agentId)
         }
-        val storedAfterSeq = sessionDao.getSessionByProjectId(projectId)?.lastSyncSeq ?: 0L
+        val session = sessionDao.getSessionByProjectId(projectId)
+        val effectiveConversationId = conversationId?.trim()?.takeIf { it.isNotEmpty() }
+            ?: session?.activeConversationId?.trim()?.takeIf { it.isNotEmpty() }
+        val conversationSyncBounds = messageDao.getConversationSyncBounds(projectId, effectiveConversationId)
+        val storedAfterSeq = conversationSyncBounds?.latestSyncSeq ?: 0L
         var afterSeq = afterSeqOverride ?: storedAfterSeq
         if (beforeSeq == null && afterSeqOverride == null && afterSeq > 0L && recentOverlapCount > 0) {
             afterSeq = maxOf(0L, afterSeq - recentOverlapCount.toLong())
         }
 
         if (beforeSeq == null && afterSeqOverride == null && storedAfterSeq > 0L) {
-            val syncBounds = messageDao.getProjectSyncBounds(projectId)
-            val earliestLoadedSeq = syncBounds?.earliestSyncSeq ?: 0L
-            val latestLoadedSeq = syncBounds?.latestSyncSeq ?: 0L
-            val messageCount = syncBounds?.messageCount ?: 0
-            val expectedEarliestSeq = maxOf(1L, storedAfterSeq - messageCount + 1L)
-            val hasGap = messageCount == 0
-                || latestLoadedSeq < storedAfterSeq
-                || (earliestLoadedSeq > 0L && earliestLoadedSeq > expectedEarliestSeq)
+            val earliestLoadedSeq = conversationSyncBounds?.earliestSyncSeq ?: 0L
+            val latestLoadedSeq = conversationSyncBounds?.latestSyncSeq ?: 0L
+            val messageCount = conversationSyncBounds?.messageCount ?: 0
+            val hasGap = messageCount == 0 || latestLoadedSeq < storedAfterSeq
             if (hasGap) {
                 CrashLogger.logInfo(
                     "MessageRepository",
-                    "Detected incomplete local sync for projectId=$projectId storedAfterSeq=$storedAfterSeq earliest=$earliestLoadedSeq latest=$latestLoadedSeq count=$messageCount; forcing full resync"
+                    "Detected incomplete local sync for projectId=$projectId conversationId=${effectiveConversationId ?: "none"} storedAfterSeq=$storedAfterSeq earliest=$earliestLoadedSeq latest=$latestLoadedSeq count=$messageCount; forcing full resync"
                 )
                 afterSeq = 0L
             }
@@ -174,7 +174,7 @@ class MessageRepository(
             beforeSeq = beforeSeq,
             limit = limit ?: DEFAULT_SYNC_LIMIT,
             action = action,
-            conversationId = conversationId,
+            conversationId = effectiveConversationId,
             itemId = itemId
         )
         val now = System.currentTimeMillis()
@@ -199,7 +199,7 @@ class MessageRepository(
                     action?.trim()?.takeIf { it.isNotEmpty() }?.let {
                         put("action", JsonPrimitive(it))
                     }
-                    conversationId?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                    effectiveConversationId?.let {
                         put("conversation_id", JsonPrimitive(it))
                     }
                     itemId?.trim()?.takeIf { it.isNotEmpty() }?.let {
@@ -207,6 +207,7 @@ class MessageRepository(
                     }
                     val knownItems = buildKnownSyncItemPayloads(
                         projectId = projectId,
+                        conversationId = effectiveConversationId,
                         afterSeq = afterSeq,
                         beforeSeq = beforeSeq,
                         limit = limit ?: DEFAULT_SYNC_LIMIT
@@ -242,13 +243,6 @@ class MessageRepository(
         messageDao.getLatestConversationMessagesSnapshot().associate { entity ->
             entity.projectId to entity.toMessage()
         }
-
-    suspend fun clearProjectLocalMessages(projectId: String) {
-        db.withTransaction {
-            messageDao.deleteMessagesByProject(projectId)
-            sessionDao.updateLastSyncSeq(projectId, 0L)
-        }
-    }
 
     suspend fun loadOlderProjectMessages(
         projectId: String,
@@ -675,7 +669,6 @@ class MessageRepository(
 
             Events.SESSION_SYNC -> {
                 val payloadObj = envelope.payload?.jsonObject ?: return
-                val previousSession = sessionDao.getSessionByProjectId(projectId)
                 val provider = payloadObj["provider"]?.jsonPrimitive?.contentOrNull?.trim()
                     .takeUnless { it.isNullOrBlank() } ?: "claude"
                 val model = payloadObj["model"]?.jsonPrimitive?.contentOrNull?.trim()
@@ -697,11 +690,6 @@ class MessageRepository(
                 val activeConversationId = payloadObj["active_conversation_id"]?.jsonPrimitive?.contentOrNull?.trim()
                     .takeUnless { it.isNullOrBlank() }
                 val conversationsArray = payloadObj["conversations"]?.jsonArray
-                val conversationChanged = previousSession?.activeConversationId != activeConversationId
-                    && !activeConversationId.isNullOrBlank()
-                if (conversationChanged) {
-                    clearProjectLocalMessages(projectId)
-                }
                 val activeConversationTitle = conversationsArray
                     ?.firstOrNull { conversation ->
                         conversation.jsonObject["id"]?.jsonPrimitive?.contentOrNull?.trim() == activeConversationId
@@ -746,7 +734,8 @@ class MessageRepository(
                         latestSeq = latestSeq,
                         fallbackTimestamp = envelope.ts,
                         requestBeforeSeq = requestedBeforeSeq,
-                        truncated = truncated
+                        truncated = truncated,
+                        conversationId = activeConversationId
                     )
                     maybeRequestProjectBackfill(
                         projectId = projectId,
@@ -803,7 +792,8 @@ class MessageRepository(
         latestSeq: Long,
         fallbackTimestamp: Long,
         requestBeforeSeq: Long?,
-        truncated: Boolean
+        truncated: Boolean,
+        conversationId: String?
     ): AppliedSyncWindow {
         var earliestSeq: Long? = null
         var highestSeq = 0L
@@ -828,7 +818,8 @@ class MessageRepository(
                         projectId = projectId,
                         itemObj = itemObj,
                         fallbackTimestamp = fallbackTimestamp,
-                        existing = messageDao.getMessageById(itemId)
+                        existing = messageDao.getMessageById(itemId),
+                        conversationId = conversationId
                     )
                 }.onFailure { error ->
                     CrashLogger.logError(
@@ -962,6 +953,7 @@ class MessageRepository(
         rawActivities: JsonArray,
         fallbackTimestamp: Long
     ) {
+        val activeConversationId = sessionDao.getSessionByProjectId(projectId)?.activeConversationId
         val currentLastSeq = sessionDao.getSessionByProjectId(projectId)?.lastSyncSeq ?: 0L
         val messages = buildList {
             rawMessages.forEachIndexed { index, item ->
@@ -970,7 +962,8 @@ class MessageRepository(
                         projectId = projectId,
                         messageObj = item.jsonObject,
                         fallbackTimestamp = fallbackTimestamp,
-                        syncSeq = currentLastSeq + index + 1L
+                        syncSeq = currentLastSeq + index + 1L,
+                        conversationId = activeConversationId
                     )
                 }.onFailure { error ->
                     CrashLogger.logError(
@@ -988,7 +981,8 @@ class MessageRepository(
                         projectId = projectId,
                         activityObj = item.jsonObject,
                         fallbackTimestamp = fallbackTimestamp,
-                        syncSeq = currentLastSeq + rawMessages.size + index + 1L
+                        syncSeq = currentLastSeq + rawMessages.size + index + 1L,
+                        conversationId = activeConversationId
                     )
                 }.onFailure { error ->
                     CrashLogger.logError(
@@ -1029,6 +1023,7 @@ class MessageRepository(
         timestamp: Long
     ) {
         val existing = messageDao.getMessageById(streamId)
+        val activeConversationId = sessionDao.getSessionByProjectId(projectId)?.activeConversationId
         val attachments = existing?.toMessage()?.attachments ?: emptyList()
         val message = Message(
             id = streamId,
@@ -1042,7 +1037,7 @@ class MessageRepository(
             syncSeq = 0L,
             isStreaming = isStreaming
         )
-        messageDao.insertMessage(message.toEntity())
+        messageDao.insertMessage(message.toEntity(activeConversationId ?: existing?.conversationId))
     }
 
     private suspend fun wakeupAgent(agentId: String?) {
@@ -1481,6 +1476,7 @@ class MessageRepository(
         val primary = mergedAttachments.firstOrNull()
 
         return incoming.copy(
+            conversationId = incoming.conversationId ?: existing.conversationId,
             fileName = primary?.name ?: incoming.fileName ?: existing.fileName,
             fileSize = primary?.size ?: incoming.fileSize ?: existing.fileSize,
             mimeType = primary?.mimeType ?: incoming.mimeType ?: existing.mimeType,
@@ -1553,7 +1549,7 @@ class MessageRepository(
         )
     }
 
-    private fun Message.toEntity(): MessageEntity {
+    private fun Message.toEntity(conversationId: String? = null): MessageEntity {
         val normalizedAttachments = attachments.ifEmpty {
             fileInfo?.let {
                 listOf(
@@ -1571,6 +1567,7 @@ class MessageRepository(
         return MessageEntity(
             id = id,
             projectId = projectId,
+            conversationId = conversationId,
             role = role.name,
             content = content,
             type = type.name,
@@ -1590,7 +1587,8 @@ class MessageRepository(
         projectId: String,
         messageObj: JsonObject,
         fallbackTimestamp: Long,
-        syncSeq: Long
+        syncSeq: Long,
+        conversationId: String? = null
     ): MessageEntity? {
         val id = messageObj["id"]?.jsonPrimitive?.content ?: return null
         val roleValue = messageObj["role"]?.jsonPrimitive?.content?.lowercase() ?: "assistant"
@@ -1620,7 +1618,7 @@ class MessageRepository(
             timestamp = createdAt,
             syncSeq = syncSeq,
             isStreaming = status == "streaming"
-        ).toEntity()
+        ).toEntity(conversationId)
     }
 
     private fun parseDesktopLegacyAttachment(messageObj: JsonObject): MessageAttachment? {
@@ -1682,7 +1680,8 @@ class MessageRepository(
         projectId: String,
         activityObj: JsonObject,
         fallbackTimestamp: Long,
-        syncSeq: Long
+        syncSeq: Long,
+        conversationId: String? = null
     ): MessageEntity? {
         val id = activityObj["id"]?.jsonPrimitive?.content ?: return null
         val kind = activityObj["kind"]?.jsonPrimitive?.content?.lowercase() ?: return null
@@ -1709,14 +1708,15 @@ class MessageRepository(
             timestamp = timestamp,
             syncSeq = syncSeq,
             isStreaming = status == "running" || status == "pending"
-        ).toEntity()
+        ).toEntity(conversationId)
     }
 
     private fun parseSyncItem(
         projectId: String,
         itemObj: JsonObject,
         fallbackTimestamp: Long,
-        existing: MessageEntity?
+        existing: MessageEntity?,
+        conversationId: String?
     ): MessageEntity? {
         val id = itemObj["id"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
         if (id.isBlank()) {
@@ -1757,6 +1757,7 @@ class MessageRepository(
             "thinking" -> MessageEntity(
                 id = id,
                 projectId = projectId,
+                conversationId = conversationId ?: existing?.conversationId,
                 role = MessageRole.ASSISTANT.name,
                 content = resolvedContent,
                 type = MessageType.THINKING.name,
@@ -1769,6 +1770,7 @@ class MessageRepository(
             "activity" -> MessageEntity(
                 id = id,
                 projectId = projectId,
+                conversationId = conversationId ?: existing?.conversationId,
                 role = MessageRole.ASSISTANT.name,
                 content = buildActivityContent(
                     title = itemObj["title"]?.jsonPrimitive?.contentOrNull,
@@ -1786,6 +1788,7 @@ class MessageRepository(
             "cli" -> MessageEntity(
                 id = id,
                 projectId = projectId,
+                conversationId = conversationId ?: existing?.conversationId,
                 role = MessageRole.ASSISTANT.name,
                 content = buildCliContent(
                     stream = itemObj["cli_stream"]?.jsonPrimitive?.contentOrNull,
@@ -1827,7 +1830,7 @@ class MessageRepository(
                     timestamp = timestamp,
                     syncSeq = syncSeq,
                     isStreaming = isStreaming
-                ).toEntity()
+                ).toEntity(conversationId ?: existing?.conversationId)
             }
         }
     }
@@ -1896,6 +1899,7 @@ class MessageRepository(
 
     private suspend fun buildKnownSyncItemPayloads(
         projectId: String,
+        conversationId: String?,
         afterSeq: Long,
         beforeSeq: Long?,
         limit: Int
@@ -1907,6 +1911,7 @@ class MessageRepository(
         }
         val candidates = messageDao.getSyncDigestMessages(
             projectId = projectId,
+            conversationId = conversationId,
             beforeSeq = beforeSeq?.takeIf { it > 0L },
             limit = digestLimit
         )

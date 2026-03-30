@@ -422,11 +422,9 @@ class ChatViewModel(
         viewModelScope.launch {
             try {
                 visibleMessageCount = MESSAGE_PAGE_SIZE
-                allMessages = emptyList()
                 pendingOlderHistoryRequest = null
                 olderHistoryTimeoutJob?.cancel()
                 olderHistoryTimeoutJob = null
-                messageRepository.clearProjectLocalMessages(state.projectId)
                 messageRepository.createNewConversation(state.projectId, state.agentId)
             } catch (e: Exception) {
                 CrashLogger.logError("ChatViewModel", "Error creating conversation", e)
@@ -451,11 +449,9 @@ class ChatViewModel(
         viewModelScope.launch {
             try {
                 visibleMessageCount = MESSAGE_PAGE_SIZE
-                allMessages = emptyList()
                 pendingOlderHistoryRequest = null
                 olderHistoryTimeoutJob?.cancel()
                 olderHistoryTimeoutJob = null
-                messageRepository.clearProjectLocalMessages(state.projectId)
                 messageRepository.switchConversation(state.projectId, state.agentId, conversationId)
             } catch (e: Exception) {
                 CrashLogger.logError("ChatViewModel", "Error switching conversation", e)
