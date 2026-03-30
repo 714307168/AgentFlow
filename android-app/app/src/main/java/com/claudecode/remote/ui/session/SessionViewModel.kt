@@ -214,14 +214,6 @@ class SessionViewModel(
                     buildSearchHaystack(item).contains(normalizedQuery)
                 }
             }
-            .sortedWith(
-                compareByDescending<SessionListItem> { item ->
-                    item.previewTimestamp
-                        ?: item.session.createdAt
-                }
-                    .thenBy { it.session.name.lowercase() }
-                    .thenBy { it.session.id }
-            )
 
         _uiState.update { current ->
             if (current.sessionItems == items) {
