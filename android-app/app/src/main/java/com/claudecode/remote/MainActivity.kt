@@ -31,7 +31,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.unit.dp
@@ -103,11 +105,23 @@ class MainActivity : ComponentActivity() {
                 val updateState by appUpdateManager.state.collectAsState()
                 val backStackEntry by navController.currentBackStackEntryAsState()
                 val currentDestination = backStackEntry?.destination
+                val darkTheme = isSystemInDarkTheme()
+                val colorScheme = MaterialTheme.colorScheme
                 val bottomNavItems = listOf(
                     BottomNavItem("messages", R.string.nav_messages, Icons.AutoMirrored.Filled.Chat),
                     BottomNavItem("agents", R.string.nav_agents, Icons.Default.Dns),
                     BottomNavItem("settings", R.string.settings_title, Icons.Default.Settings),
                 )
+                val bottomBarColor = if (darkTheme) {
+                    lerp(
+                        colorScheme.surface,
+                        colorScheme.surfaceVariant,
+                        0.42f
+                    ).copy(alpha = 0.98f)
+                } else {
+                    colorScheme.surface.copy(alpha = 0.96f)
+                }
+                val bottomBarOutline = colorScheme.outline.copy(alpha = if (darkTheme) 0.24f else 0.12f)
                 val showBottomBar = bottomNavItems.any { item ->
                     currentDestination?.hierarchy?.any { destination -> destination.route == item.route } == true
                 }
@@ -137,9 +151,10 @@ class MainActivity : ComponentActivity() {
                                     .navigationBarsPadding()
                                     .padding(horizontal = 12.dp, vertical = 10.dp),
                                 shape = RoundedCornerShape(26.dp),
-                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+                                color = bottomBarColor,
                                 tonalElevation = 4.dp,
-                                shadowElevation = 10.dp
+                                shadowElevation = if (darkTheme) 4.dp else 10.dp,
+                                border = androidx.compose.foundation.BorderStroke(1.dp, bottomBarOutline)
                             ) {
                                 NavigationBar(
                                     containerColor = androidx.compose.ui.graphics.Color.Transparent,
@@ -152,7 +167,11 @@ class MainActivity : ComponentActivity() {
                                         NavigationBarItem(
                                             selected = selected,
                                             colors = NavigationBarItemDefaults.colors(
-                                                indicatorColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.9f)
+                                                selectedIconColor = colorScheme.onPrimaryContainer,
+                                                selectedTextColor = colorScheme.onPrimaryContainer,
+                                                unselectedIconColor = colorScheme.onSurfaceVariant.copy(alpha = if (darkTheme) 0.92f else 0.78f),
+                                                unselectedTextColor = colorScheme.onSurfaceVariant.copy(alpha = if (darkTheme) 0.92f else 0.78f),
+                                                indicatorColor = colorScheme.primaryContainer.copy(alpha = if (darkTheme) 0.72f else 0.9f)
                                             ),
                                             onClick = {
                                                 navController.navigate(item.route) {
