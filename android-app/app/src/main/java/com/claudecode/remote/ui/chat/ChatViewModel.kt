@@ -25,11 +25,11 @@ import kotlinx.serialization.json.jsonPrimitive
 private const val MESSAGE_PAGE_SIZE = 30
 private const val INITIAL_SYNC_PAGE_SIZE = 80
 private const val INCREMENTAL_SYNC_PAGE_SIZE = 32
-private const val ACTIVE_SYNC_OVERLAP_COUNT = 12
-private const val ACTIVE_SYNC_POLL_MS = 5_000L
-private const val IDLE_SYNC_POLL_MS = 12_000L
-private const val ACTIVE_SYNC_BURST_MS = 8_000L
-private const val SYNC_TRIGGER_DEBOUNCE_MS = 250L
+private const val ACTIVE_SYNC_OVERLAP_COUNT = 8
+private const val ACTIVE_SYNC_POLL_MS = 15_000L
+private const val IDLE_SYNC_POLL_MS = 45_000L
+private const val ACTIVE_SYNC_BURST_MS = 4_000L
+private const val SYNC_TRIGGER_DEBOUNCE_MS = 900L
 private const val OLDER_HISTORY_REQUEST_TIMEOUT_MS = 6_000L
 
 data class ConversationItem(
@@ -103,6 +103,7 @@ class ChatViewModel(
     private var olderHistoryTimeoutJob: Job? = null
     private var pendingOlderHistoryRequest: PendingOlderHistoryRequest? = null
     private var syncBurstUntilMillis: Long = 0L
+    private var projectBootstrapJob: Job? = null
 
     init {
         viewModelScope.launch {
@@ -113,11 +114,14 @@ class ChatViewModel(
                 }
 
                 if (isConnected) {
-                    markSyncBurst()
+                    val uiState = _uiState.value
+                    val hasLocalContent = uiState.messages.isNotEmpty() ||
+                        uiState.activityMessages.isNotEmpty() ||
+                        uiState.queueItems.isNotEmpty()
                     triggerImmediateSync(
-                        debounceMs = 0L,
+                        debounceMs = if (hasLocalContent) SYNC_TRIGGER_DEBOUNCE_MS else 0L,
                         recentOverlapCount = ACTIVE_SYNC_OVERLAP_COUNT,
-                        limit = INITIAL_SYNC_PAGE_SIZE
+                        limit = if (hasLocalContent) MESSAGE_PAGE_SIZE else INITIAL_SYNC_PAGE_SIZE
                     )
                     startActiveSyncLoop()
                 } else {
@@ -186,6 +190,7 @@ class ChatViewModel(
         olderHistoryTimeoutJob?.cancel()
         olderHistoryTimeoutJob = null
         pendingOlderHistoryRequest = null
+        projectBootstrapJob?.cancel()
         _uiState.update {
             it.copy(
                 projectId = projectId,
@@ -199,10 +204,59 @@ class ChatViewModel(
                 isSwitchingConversation = false,
                 messages = emptyList(),
                 activityMessages = emptyList(),
-                queueItems = emptyList()
+                queueItems = emptyList(),
+                currentPrompt = null,
+                queuePreview = null,
+                currentStartedAt = null,
+                activeConversationId = null,
+                activeConversationTitle = null,
+                conversations = emptyList()
             )
         }
-        markSyncBurst()
+
+        projectBootstrapJob = viewModelScope.launch {
+            try {
+                val cachedSession = messageRepository.getSessionForProjectSnapshot(projectId)
+                val cachedConversationMessages = messageRepository.getConversationMessagesForProjectSnapshot(projectId)
+                val cachedProjectMessages = messageRepository.getMessagesForProjectSnapshot(projectId)
+                allMessages = cachedConversationMessages
+                publishVisibleMessages()
+                _uiState.update { current ->
+                    val queuedCount = cachedSession?.queuedCount ?: 0
+                    val queuePreview = cachedSession?.queuePreview
+                    current.copy(
+                        projectName = cachedSession?.name?.ifBlank { current.projectName } ?: current.projectName,
+                        agentId = cachedSession?.agentId?.ifBlank { current.agentId } ?: current.agentId,
+                        cliProvider = cachedSession?.cliProvider?.ifBlank { "claude" } ?: current.cliProvider,
+                        cliModel = cachedSession?.cliModel?.orEmpty() ?: "",
+                        isAgentOnline = cachedSession?.isAgentOnline ?: current.isAgentOnline,
+                        isRunning = cachedSession?.isRunning ?: false,
+                        queuedCount = queuedCount,
+                        currentPrompt = cachedSession?.currentPrompt,
+                        queuePreview = queuePreview,
+                        currentStartedAt = cachedSession?.currentStartedAt,
+                        activeConversationId = cachedSession?.activeConversationId,
+                        activeConversationTitle = cachedSession?.activeConversationTitle,
+                        conversations = parseConversationItems(
+                            cachedSession?.conversationsJson,
+                            cachedSession?.activeConversationId
+                        ),
+                        queueItems = resolveQueueItems(
+                            rawJson = cachedSession?.queueJson,
+                            queuedCount = queuedCount,
+                            queuePreview = queuePreview
+                        ),
+                        activityMessages = cachedProjectMessages.filter { message ->
+                            message.type == com.claudecode.remote.data.model.MessageType.THINKING ||
+                                message.type == com.claudecode.remote.data.model.MessageType.ACTIVITY
+                        }
+                    )
+                }
+            } catch (e: Exception) {
+                CrashLogger.logError("ChatViewModel", "Error hydrating cached project state", e)
+            }
+        }
+
         startActiveSyncLoop()
 
         sessionJob?.cancel()
@@ -279,11 +333,16 @@ class ChatViewModel(
             }
         }
 
-        triggerImmediateSync(
-            debounceMs = 0L,
-            recentOverlapCount = ACTIVE_SYNC_OVERLAP_COUNT,
-            limit = INITIAL_SYNC_PAGE_SIZE
-        )
+        viewModelScope.launch {
+            val hasCachedConversation = runCatching {
+                messageRepository.getConversationMessagesForProjectSnapshot(projectId).isNotEmpty()
+            }.getOrDefault(false)
+            triggerImmediateSync(
+                debounceMs = if (hasCachedConversation) SYNC_TRIGGER_DEBOUNCE_MS else 0L,
+                recentOverlapCount = ACTIVE_SYNC_OVERLAP_COUNT,
+                limit = if (hasCachedConversation) MESSAGE_PAGE_SIZE else INITIAL_SYNC_PAGE_SIZE
+            )
+        }
     }
 
     private fun requestProjectSyncIfConnected(
@@ -795,6 +854,7 @@ class ChatViewModel(
         activeSyncJob?.cancel()
         pendingSyncTriggerJob?.cancel()
         olderHistoryTimeoutJob?.cancel()
+        projectBootstrapJob?.cancel()
         super.onCleared()
     }
 

@@ -47,6 +47,7 @@ class SessionViewModel(
 ) : ViewModel() {
     private var latestSessions: List<Session> = emptyList()
     private var latestPreviewMap: Map<String, Message> = emptyMap()
+    private var stablePreviewMap: Map<String, Message> = emptyMap()
 
     private val _uiState = MutableStateFlow(SessionUiState())
     val uiState: StateFlow<SessionUiState> = _uiState.asStateFlow()
@@ -63,7 +64,18 @@ class SessionViewModel(
         }
         viewModelScope.launch {
             messageRepository.getLatestConversationPreviews().collect { previews ->
-                latestPreviewMap = previews
+                val nextStableMap = stablePreviewMap.toMutableMap()
+                previews.forEach { (projectId, preview) ->
+                    val previous = nextStableMap[projectId]
+                    if (!preview.isStreaming || previous == null) {
+                        nextStableMap[projectId] = preview
+                    }
+                }
+                val activeProjectIds = latestSessions.map { it.projectId }.toSet()
+                stablePreviewMap = nextStableMap.filterKeys { projectId ->
+                    projectId in activeProjectIds || projectId in previews.keys
+                }
+                latestPreviewMap = stablePreviewMap
                 rebuildSessionItems()
             }
         }

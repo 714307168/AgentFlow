@@ -761,15 +761,24 @@ class MessageRepository(
             entities.map { it.toMessage() }
         }
 
+    suspend fun getMessagesForProjectSnapshot(projectId: String): List<Message> =
+        messageDao.getMessagesByProjectSnapshot(projectId).map { it.toMessage() }
+
     fun getConversationMessagesForProject(projectId: String): Flow<List<Message>> =
         messageDao.getConversationMessagesByProject(projectId).map { entities ->
             entities.map { it.toMessage() }
         }
 
+    suspend fun getConversationMessagesForProjectSnapshot(projectId: String): List<Message> =
+        messageDao.getConversationMessagesByProjectSnapshot(projectId).map { it.toMessage() }
+
     fun getSessionForProject(projectId: String): Flow<Session?> =
         sessionDao.observeSessionByProjectId(projectId).map { entity ->
             entity?.toSession()
         }
+
+    suspend fun getSessionForProjectSnapshot(projectId: String): Session? =
+        sessionDao.getSessionByProjectId(projectId)?.toSession()
 
     private suspend fun addMessage(message: Message) {
         messageDao.insertMessage(message.toEntity())
@@ -1905,6 +1914,7 @@ class MessageRepository(
         agentId = agentId,
         projectId = projectId,
         projectPath = projectPath,
+        groupName = groupName,
         cliProvider = cliProvider,
         cliModel = cliModel,
         isAgentOnline = isAgentOnline,
@@ -1912,7 +1922,11 @@ class MessageRepository(
         queuedCount = queuedCount,
         currentPrompt = currentPrompt,
         queuePreview = queuePreview,
+        queueJson = queueJson,
         currentStartedAt = currentStartedAt,
+        activeConversationId = activeConversationId,
+        activeConversationTitle = activeConversationTitle,
+        conversationsJson = conversationsJson,
         createdAt = createdAt,
         lastActiveAt = lastActiveAt
     )
