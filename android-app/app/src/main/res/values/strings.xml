@@ -161,6 +161,12 @@
     <string name="workgroups_no_messages">No group messages yet.</string>
     <string name="workgroups_load_older">Load earlier messages</string>
     <string name="workgroups_message_hint">Send a group message</string>
+    <string name="workgroups_loading_hint">Syncing members and recent messages</string>
+    <string name="workgroups_empty_hint">Start with a clear task or coordination message</string>
+    <string name="workgroups_summary_title">Group conversation</string>
+    <string name="workgroups_summary_hint">Messages and mentions stay in one shared thread</string>
+    <string name="workgroups_runtime_offline_hint">Desktop is offline. Messages will continue after reconnection.</string>
+    <string name="workgroups_runtime_running_hint">The group is still processing recent coordination work.</string>
     <string name="workgroups_assignee_label">Assignee: %1$s</string>
     <string name="workgroups_dispatch">Dispatch</string>
     <string name="workgroups_todo">Todo</string>

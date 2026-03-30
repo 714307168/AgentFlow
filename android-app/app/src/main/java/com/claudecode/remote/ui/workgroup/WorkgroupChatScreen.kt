@@ -23,12 +23,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.Surface
@@ -168,6 +171,17 @@ fun WorkgroupChatScreen(
                         onRefresh = viewModel::refresh
                     )
 
+                    WorkgroupSummaryStrip(
+                        messageCount = uiState.messages.size,
+                        memberCount = uiState.members.size,
+                        hasMoreHistory = uiState.hasMoreHistory,
+                        description = uiState.description
+                    )
+
+                    if (!uiState.isConnected || uiState.isRunning) {
+                        WorkgroupRuntimeBanner(uiState = uiState)
+                    }
+
                     Surface(
                         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
                         shape = RoundedCornerShape(20.dp),
@@ -175,25 +189,16 @@ fun WorkgroupChatScreen(
                         modifier = Modifier.fillMaxSize()
                     ) {
                         if (uiState.isLoading && uiState.messages.isEmpty()) {
-                            Box(
-                                modifier = Modifier.fillMaxSize(),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.workgroups_loading_chat),
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
+                            WorkgroupEmptyState(
+                                title = stringResource(R.string.workgroups_loading_chat),
+                                detail = stringResource(R.string.workgroups_loading_hint),
+                                loading = true
+                            )
                         } else if (uiState.messages.isEmpty()) {
-                            Box(
-                                modifier = Modifier.fillMaxSize(),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.workgroups_no_messages),
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
+                            WorkgroupEmptyState(
+                                title = stringResource(R.string.workgroups_no_messages),
+                                detail = stringResource(R.string.workgroups_empty_hint)
+                            )
                         } else {
                             LazyColumn(
                                 state = listState,
@@ -203,19 +208,10 @@ fun WorkgroupChatScreen(
                             ) {
                                 item(key = "history-header") {
                                     if (uiState.hasMoreHistory) {
-                                        TextButton(
-                                            onClick = { viewModel.loadOlderMessages() },
-                                            enabled = !uiState.isLoadingOlder,
-                                            modifier = Modifier.fillMaxWidth()
-                                        ) {
-                                            Text(
-                                                text = if (uiState.isLoadingOlder) {
-                                                    stringResource(R.string.chat_loading_older_safe)
-                                                } else {
-                                                    stringResource(R.string.workgroups_load_older)
-                                                }
-                                            )
-                                        }
+                                        WorkgroupHistoryBanner(
+                                            isLoadingOlder = uiState.isLoadingOlder,
+                                            onLoadOlder = viewModel::loadOlderMessages
+                                        )
                                     }
                                 }
                                 items(uiState.messages, key = { it.id }) { message ->
@@ -251,85 +247,264 @@ private fun WorkgroupChatHeader(
     onNavigateBack: () -> Unit,
     onRefresh: () -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+    Surface(
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+        shape = RoundedCornerShape(22.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.12f)),
+        shadowElevation = 4.dp,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            IconButton(onClick = onNavigateBack) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = stringResource(R.string.back)
-                )
-            }
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = uiState.workgroupName,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = stringResource(R.string.workgroups_agent_label, uiState.agentId),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            IconButton(onClick = onRefresh, enabled = uiState.isConnected && !uiState.isLoading) {
-                Icon(
-                    imageVector = Icons.Default.Refresh,
-                    contentDescription = stringResource(R.string.action_refresh)
-                )
-            }
-        }
-
-        LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            contentPadding = PaddingValues(horizontal = 2.dp)
-        ) {
-            item("status") {
-                HeaderChip(
-                    text = if (uiState.isRunning) stringResource(R.string.status_running) else stringResource(R.string.status_ready),
-                    containerColor = if (uiState.isRunning) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.secondaryContainer,
-                    contentColor = if (uiState.isRunning) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onSecondaryContainer
-                )
-            }
-            item("members") {
-                HeaderChip(
-                    text = stringResource(R.string.workgroups_members_count, uiState.members.size),
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            item("connection") {
-                HeaderChip(
-                    text = if (uiState.isConnected) stringResource(R.string.status_connected) else stringResource(R.string.status_offline),
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            items(uiState.members, key = { it.id }) { member ->
-                Surface(
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f),
-                    shape = RoundedCornerShape(999.dp),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
-                ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                IconButton(onClick = onNavigateBack) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = stringResource(R.string.back)
+                    )
+                }
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = member.name + roleSuffix(member),
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        text = uiState.workgroupName,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = stringResource(R.string.workgroups_agent_label, uiState.agentId),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
+                IconButton(onClick = onRefresh, enabled = uiState.isConnected && !uiState.isLoading) {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = stringResource(R.string.action_refresh)
+                    )
+                }
             }
+
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(horizontal = 2.dp)
+            ) {
+                item("status") {
+                    HeaderChip(
+                        text = if (uiState.isRunning) stringResource(R.string.status_running) else stringResource(R.string.status_ready),
+                        containerColor = if (uiState.isRunning) MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = if (uiState.isRunning) MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                }
+                item("members") {
+                    HeaderChip(
+                        text = stringResource(R.string.workgroups_members_count, uiState.members.size),
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                item("connection") {
+                    HeaderChip(
+                        text = if (uiState.isConnected) stringResource(R.string.status_connected) else stringResource(R.string.status_offline),
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                items(uiState.members, key = { it.id }) { member ->
+                    Surface(
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f),
+                        shape = RoundedCornerShape(999.dp),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
+                    ) {
+                        Text(
+                            text = member.name + roleSuffix(member),
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WorkgroupSummaryStrip(
+    messageCount: Int,
+    memberCount: Int,
+    hasMoreHistory: Boolean,
+    description: String?
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(
+                text = stringResource(R.string.workgroups_summary_title),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = description?.takeIf { it.isNotBlank() }
+                    ?: if (hasMoreHistory) {
+                        stringResource(R.string.chat_history_hint)
+                    } else {
+                        stringResource(R.string.workgroups_summary_hint)
+                    },
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            HeaderChip(
+                text = stringResource(R.string.chat_pane_item_count, messageCount),
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+            HeaderChip(
+                text = stringResource(R.string.workgroups_members_count, memberCount),
+                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun WorkgroupRuntimeBanner(uiState: WorkgroupChatUiState) {
+    val containerColor = if (uiState.isConnected) {
+        MaterialTheme.colorScheme.tertiaryContainer
+    } else {
+        MaterialTheme.colorScheme.errorContainer
+    }
+    val contentColor = if (uiState.isConnected) {
+        MaterialTheme.colorScheme.onTertiaryContainer
+    } else {
+        MaterialTheme.colorScheme.onErrorContainer
+    }
+    val summary = when {
+        !uiState.isConnected -> stringResource(R.string.workgroups_runtime_offline_hint)
+        uiState.isRunning -> stringResource(R.string.workgroups_runtime_running_hint)
+        else -> stringResource(R.string.status_ready)
+    }
+
+    Surface(
+        color = containerColor,
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, contentColor.copy(alpha = 0.12f)),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.Groups,
+                contentDescription = null,
+                tint = contentColor,
+                modifier = Modifier.size(18.dp)
+            )
+            Text(
+                text = summary,
+                style = MaterialTheme.typography.bodySmall,
+                color = contentColor
+            )
+        }
+    }
+}
+
+@Composable
+private fun WorkgroupHistoryBanner(
+    isLoadingOlder: Boolean,
+    onLoadOlder: () -> Unit
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f),
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.12f)),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = if (isLoadingOlder) {
+                    stringResource(R.string.chat_loading_older_safe)
+                } else {
+                    stringResource(R.string.workgroups_load_older)
+                },
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (isLoadingOlder) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(14.dp),
+                    strokeWidth = 2.dp
+                )
+            } else {
+                TextButton(onClick = onLoadOlder) {
+                    Text(stringResource(R.string.action_refresh))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WorkgroupEmptyState(
+    title: String,
+    detail: String,
+    loading: Boolean = false
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 20.dp, vertical = 18.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            if (loading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    strokeWidth = 2.dp
+                )
+            }
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = detail,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }
@@ -429,6 +604,7 @@ private fun WorkgroupInputBar(
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
         tonalElevation = 6.dp,
         shadowElevation = 6.dp,
+        shape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp),
         modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
@@ -446,11 +622,17 @@ private fun WorkgroupInputBar(
                     contentPadding = PaddingValues(horizontal = 2.dp)
                 ) {
                     items(mentionSuggestions, key = { it.label }) { suggestion ->
-                        TextButton(
-                            onClick = { onApplyMention(suggestion) },
-                            enabled = enabled
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.46f),
+                            shape = RoundedCornerShape(999.dp),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
                         ) {
-                            Text("${suggestion.label} ${suggestion.meta}", maxLines = 1)
+                            TextButton(
+                                onClick = { onApplyMention(suggestion) },
+                                enabled = enabled
+                            ) {
+                                Text("${suggestion.label} ${suggestion.meta}", maxLines = 1)
+                            }
                         }
                     }
                 }
@@ -468,7 +650,13 @@ private fun WorkgroupInputBar(
                     placeholder = { Text(stringResource(R.string.workgroups_message_hint)) },
                     enabled = enabled,
                     maxLines = 5,
-                    shape = RoundedCornerShape(22.dp)
+                    shape = RoundedCornerShape(22.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = MaterialTheme.colorScheme.surface,
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.28f)
+                    )
                 )
                 FilledIconButton(
                     onClick = onSend,

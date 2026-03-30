@@ -152,6 +152,12 @@
     <string name="workgroups_no_messages">还没有群聊消息。</string>
     <string name="workgroups_load_older">加载更早消息</string>
     <string name="workgroups_message_hint">发送群消息</string>
+    <string name="workgroups_loading_hint">正在同步成员和最近消息</string>
+    <string name="workgroups_empty_hint">先发一个明确目标或协作安排会更清楚</string>
+    <string name="workgroups_summary_title">群聊</string>
+    <string name="workgroups_summary_hint">消息和 @ 提醒都会集中在这里</string>
+    <string name="workgroups_runtime_offline_hint">桌面端当前离线，重连后会继续同步消息</string>
+    <string name="workgroups_runtime_running_hint">协作组还在处理最近的协作任务</string>
     <string name="workgroups_assignee_label">执行人：%1$s</string>
     <string name="workgroups_dispatch">派发</string>
     <string name="workgroups_todo">待办</string>
