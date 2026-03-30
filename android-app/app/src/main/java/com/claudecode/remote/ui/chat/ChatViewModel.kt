@@ -58,6 +58,7 @@ data class ChatUiState(
     val isSending: Boolean = false,
     val isLoadingOlder: Boolean = false,
     val hasMoreHistory: Boolean = false,
+    val hasMoreActivityHistory: Boolean = false,
     val isSwitchingConversation: Boolean = false,
     val projectId: String = "",
     val projectName: String = "",
@@ -96,7 +97,9 @@ class ChatViewModel(
     private var activityMessagesJob: Job? = null
     private var sessionJob: Job? = null
     private var allMessages: List<Message> = emptyList()
+    private var allActivityMessages: List<Message> = emptyList()
     private var visibleMessageCount: Int = MESSAGE_PAGE_SIZE
+    private var visibleActivityCount: Int = MESSAGE_PAGE_SIZE
     private var isAutoLoadingConversationHistory = false
     private var activeSyncJob: Job? = null
     private var pendingSyncTriggerJob: Job? = null
@@ -185,7 +188,9 @@ class ChatViewModel(
         }
 
         visibleMessageCount = MESSAGE_PAGE_SIZE
+        visibleActivityCount = MESSAGE_PAGE_SIZE
         allMessages = emptyList()
+        allActivityMessages = emptyList()
         isAutoLoadingConversationHistory = false
         olderHistoryTimeoutJob?.cancel()
         olderHistoryTimeoutJob = null
@@ -201,6 +206,7 @@ class ChatViewModel(
                 downloadingAttachmentIds = emptySet(),
                 isLoadingOlder = false,
                 hasMoreHistory = false,
+                hasMoreActivityHistory = false,
                 isSwitchingConversation = false,
                 messages = emptyList(),
                 activityMessages = emptyList(),
@@ -221,6 +227,11 @@ class ChatViewModel(
                 val cachedProjectMessages = messageRepository.getMessagesForProjectSnapshot(projectId)
                 allMessages = cachedConversationMessages
                 publishVisibleMessages()
+                allActivityMessages = cachedProjectMessages.filter { message ->
+                    message.type == com.claudecode.remote.data.model.MessageType.THINKING ||
+                        message.type == com.claudecode.remote.data.model.MessageType.ACTIVITY
+                }
+                publishVisibleActivityMessages()
                 _uiState.update { current ->
                     val queuedCount = cachedSession?.queuedCount ?: 0
                     val queuePreview = cachedSession?.queuePreview
@@ -245,11 +256,7 @@ class ChatViewModel(
                             rawJson = cachedSession?.queueJson,
                             queuedCount = queuedCount,
                             queuePreview = queuePreview
-                        ),
-                        activityMessages = cachedProjectMessages.filter { message ->
-                            message.type == com.claudecode.remote.data.model.MessageType.THINKING ||
-                                message.type == com.claudecode.remote.data.model.MessageType.ACTIVITY
-                        }
+                        )
                     )
                 }
             } catch (e: Exception) {
@@ -319,14 +326,11 @@ class ChatViewModel(
         activityMessagesJob = viewModelScope.launch {
             try {
                 messageRepository.getMessagesForProject(projectId).collect { messages ->
-                    _uiState.update {
-                        it.copy(
-                            activityMessages = messages.filter { message ->
-                                message.type == com.claudecode.remote.data.model.MessageType.THINKING
-                                    || message.type == com.claudecode.remote.data.model.MessageType.ACTIVITY
-                            }
-                        )
+                    allActivityMessages = messages.filter { message ->
+                        message.type == com.claudecode.remote.data.model.MessageType.THINKING ||
+                            message.type == com.claudecode.remote.data.model.MessageType.ACTIVITY
                     }
+                    publishVisibleActivityMessages()
                 }
             } catch (e: Exception) {
                 CrashLogger.logError("ChatViewModel", "Error collecting activity messages", e)
@@ -394,6 +398,16 @@ class ChatViewModel(
         }
 
         requestOlderMessages(earliestSyncSeq, state.projectId, state.agentId)
+    }
+
+    fun loadOlderActivityMessages() {
+        val state = _uiState.value
+        if (state.projectId.isBlank() || !state.hasMoreActivityHistory) {
+            return
+        }
+
+        visibleActivityCount += MESSAGE_PAGE_SIZE
+        publishVisibleActivityMessages()
     }
 
     fun createConversation() {
@@ -649,6 +663,17 @@ class ChatViewModel(
             it.copy(
                 messages = visibleMessages,
                 hasMoreHistory = startIndex > 0 || earliestSyncSeq > 1L
+            )
+        }
+    }
+
+    private fun publishVisibleActivityMessages() {
+        val startIndex = (allActivityMessages.size - visibleActivityCount).coerceAtLeast(0)
+        val visibleMessages = allActivityMessages.drop(startIndex)
+        _uiState.update {
+            it.copy(
+                activityMessages = visibleMessages,
+                hasMoreActivityHistory = startIndex > 0
             )
         }
     }

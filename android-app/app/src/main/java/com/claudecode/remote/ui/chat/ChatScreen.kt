@@ -157,7 +157,13 @@ fun ChatScreen(
         }
     }
 
-    LaunchedEffect(projectId, uiState.hasMoreHistory, uiState.isLoadingOlder) {
+    LaunchedEffect(
+        projectId,
+        selectedPane,
+        uiState.hasMoreHistory,
+        uiState.hasMoreActivityHistory,
+        uiState.isLoadingOlder
+    ) {
         snapshotFlow {
             when (selectedPane) {
                 ChatPane.ACTIVITY -> activityListState.firstVisibleItemIndex to activityListState.firstVisibleItemScrollOffset
@@ -168,8 +174,20 @@ fun ChatScreen(
             .distinctUntilChanged()
             .collect { state ->
                 val (index, offset) = state ?: return@collect
-                if (index == 0 && offset <= 24 && uiState.hasMoreHistory && !uiState.isLoadingOlder) {
-                    viewModel.loadOlderMessages()
+                if (index == 0 && offset <= 24) {
+                    when (selectedPane) {
+                        ChatPane.CONVERSATION -> {
+                            if (uiState.hasMoreHistory && !uiState.isLoadingOlder) {
+                                viewModel.loadOlderMessages()
+                            }
+                        }
+                        ChatPane.ACTIVITY -> {
+                            if (uiState.hasMoreActivityHistory) {
+                                viewModel.loadOlderActivityMessages()
+                            }
+                        }
+                        ChatPane.QUEUE -> Unit
+                    }
                 }
             }
     }
