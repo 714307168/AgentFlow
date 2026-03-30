@@ -93,9 +93,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.core.content.FileProvider
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.LifecycleOwner
 import com.claudecode.remote.R
 import com.claudecode.remote.UiPresenceTracker
 import com.claudecode.remote.data.model.Message
@@ -134,7 +131,6 @@ fun ChatScreen(
     val activityListState = rememberLazyListState()
     val queueListState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
-    val lifecycleOwner = context as? LifecycleOwner
     var selectedPane by rememberSaveable(projectId) { mutableStateOf(ChatPane.CONVERSATION) }
     var showModelDialog by remember { mutableStateOf(false) }
     var showConversationDialog by remember { mutableStateOf(false) }
@@ -146,8 +142,6 @@ fun ChatScreen(
     var previousLastActivityId by remember(projectId) { mutableStateOf<String?>(null) }
     var previousActivityCount by remember(projectId) { mutableStateOf(0) }
     var previewAttachment by remember(projectId) { mutableStateOf<AttachmentPreviewTarget?>(null) }
-    var resumeScrollRequestToken by remember(projectId) { mutableStateOf(0) }
-    var handledResumeScrollToken by remember(projectId) { mutableStateOf(0) }
 
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenMultipleDocuments()
@@ -187,29 +181,12 @@ fun ChatScreen(
         }
     }
 
-    DisposableEffect(lifecycleOwner, projectId) {
-        if (lifecycleOwner == null) {
-            onDispose { }
-        } else {
-            val observer = LifecycleEventObserver { _, event ->
-                if (event == Lifecycle.Event.ON_RESUME) {
-                    resumeScrollRequestToken += 1
-                }
-            }
-            lifecycleOwner.lifecycle.addObserver(observer)
-            onDispose {
-                lifecycleOwner.lifecycle.removeObserver(observer)
-            }
-        }
-    }
-
     val lastMessage = uiState.messages.lastOrNull()
     LaunchedEffect(
         lastMessage?.id,
         lastMessage?.content,
         lastMessage?.isStreaming,
-        uiState.messages.size,
-        resumeScrollRequestToken
+        uiState.messages.size
     ) {
         if (uiState.messages.isEmpty()) {
             hasInitialConversationScrollPosition = false
@@ -223,13 +200,11 @@ fun ChatScreen(
         val isNearBottom = lastVisibleIndex >= lastIndex - 1
         val hasAppendedMessage =
             uiState.messages.size > previousMessageCount || lastMessage?.id != previousLastMessageId
-        val shouldForceLatestOnResume = resumeScrollRequestToken != handledResumeScrollToken
 
         when {
-            !hasInitialConversationScrollPosition || (shouldForceLatestOnResume && selectedPane == ChatPane.CONVERSATION) -> {
+            !hasInitialConversationScrollPosition && selectedPane == ChatPane.CONVERSATION -> {
                 conversationListState.scrollToItem(lastIndex)
                 hasInitialConversationScrollPosition = true
-                handledResumeScrollToken = resumeScrollRequestToken
             }
             !isNearBottom -> Unit
             hasAppendedMessage -> {
@@ -237,7 +212,7 @@ fun ChatScreen(
                     conversationListState.animateScrollToItem(lastIndex)
                 }
             }
-            lastMessage?.isStreaming == true -> {
+            lastMessage?.isStreaming == true && selectedPane == ChatPane.CONVERSATION -> {
                 conversationListState.scrollToItem(lastIndex)
             }
         }
@@ -251,8 +226,7 @@ fun ChatScreen(
         lastActivityMessage?.id,
         lastActivityMessage?.content,
         lastActivityMessage?.isStreaming,
-        uiState.activityMessages.size,
-        resumeScrollRequestToken
+        uiState.activityMessages.size
     ) {
         if (uiState.activityMessages.isEmpty()) {
             hasInitialActivityScrollPosition = false
@@ -266,13 +240,11 @@ fun ChatScreen(
         val isNearBottom = lastVisibleIndex >= lastIndex - 1
         val hasAppendedMessage =
             uiState.activityMessages.size > previousActivityCount || lastActivityMessage?.id != previousLastActivityId
-        val shouldForceLatestOnResume = resumeScrollRequestToken != handledResumeScrollToken
 
         when {
-            !hasInitialActivityScrollPosition || (shouldForceLatestOnResume && selectedPane == ChatPane.ACTIVITY) -> {
+            !hasInitialActivityScrollPosition && selectedPane == ChatPane.ACTIVITY -> {
                 activityListState.scrollToItem(lastIndex)
                 hasInitialActivityScrollPosition = true
-                handledResumeScrollToken = resumeScrollRequestToken
             }
             !isNearBottom -> Unit
             hasAppendedMessage -> {
@@ -280,7 +252,7 @@ fun ChatScreen(
                     activityListState.animateScrollToItem(lastIndex)
                 }
             }
-            lastActivityMessage?.isStreaming == true -> {
+            lastActivityMessage?.isStreaming == true && selectedPane == ChatPane.ACTIVITY -> {
                 activityListState.scrollToItem(lastIndex)
             }
         }
@@ -491,9 +463,9 @@ fun ChatScreen(
 
                 Surface(
                     color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
-                    shape = RoundedCornerShape(24.dp),
+                    shape = RoundedCornerShape(20.dp),
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.12f)),
-                    shadowElevation = 6.dp,
+                    shadowElevation = 2.dp,
                     modifier = Modifier.fillMaxSize()
                 ) {
                     Column(modifier = Modifier.fillMaxSize()) {
@@ -502,14 +474,6 @@ fun ChatScreen(
                             activityCount = uiState.activityMessages.size,
                             queueCount = maxOf(uiState.queueItems.size, uiState.queuedCount),
                             onSelectPane = { selectedPane = it }
-                        )
-
-                        ChatPaneSummaryStrip(
-                            selectedPane = selectedPane,
-                            conversationCount = uiState.messages.size,
-                            activityCount = uiState.activityMessages.size,
-                            queueCount = maxOf(uiState.queueItems.size, uiState.queuedCount),
-                            hasMoreHistory = uiState.hasMoreHistory
                         )
 
                         if (shouldShowRuntimeBanner(uiState)) {

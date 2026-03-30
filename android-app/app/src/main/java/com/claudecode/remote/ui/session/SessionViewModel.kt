@@ -202,9 +202,24 @@ class SessionViewModel(
                     buildSearchHaystack(item).contains(normalizedQuery)
                 }
             }
+            .sortedWith(
+                compareByDescending<SessionListItem> { item ->
+                    item.previewTimestamp
+                        ?: item.session.currentStartedAt
+                        ?: item.session.lastActiveAt
+                }
+                    .thenByDescending { it.session.isRunning }
+                    .thenByDescending { it.session.queuedCount }
+                    .thenBy { it.session.name.lowercase() }
+                    .thenBy { it.session.id }
+            )
 
         _uiState.update { current ->
-            current.copy(sessionItems = items)
+            if (current.sessionItems == items) {
+                current
+            } else {
+                current.copy(sessionItems = items)
+            }
         }
     }
 

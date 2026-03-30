@@ -1,8 +1,8 @@
 package com.claudecode.remote.ui.session
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -44,7 +44,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
@@ -78,113 +77,100 @@ fun SessionListScreen(
         viewModel.initialize()
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(
-                brush = Brush.verticalGradient(
-                    colors = listOf(
-                        MaterialTheme.colorScheme.background,
-                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.34f),
-                        MaterialTheme.colorScheme.surface
-                    )
-                )
-            )
-    ) {
-        Scaffold(
-            containerColor = Color.Transparent,
-            contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        ) { padding ->
-            Box(
+    Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+    ) { padding ->
+        Box(
+            modifier = Modifier
+                .padding(padding)
+                .fillMaxSize()
+        ) {
+            Column(
                 modifier = Modifier
-                    .padding(padding)
                     .fillMaxSize()
+                    .statusBarsPadding()
+                    .padding(horizontal = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .statusBarsPadding()
-                        .padding(horizontal = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    SessionHeader(
-                        connectionState = connectionState,
-                        totalCount = uiState.sessionItems.size,
-                        isRefreshing = uiState.isLoading,
-                        onRefresh = onRefreshSessions,
-                        onToggleConnection = onToggleConnection
-                    )
+                SessionHeader(
+                    connectionState = connectionState,
+                    totalCount = uiState.sessionItems.size,
+                    isRefreshing = uiState.isLoading,
+                    onRefresh = onRefreshSessions,
+                    onToggleConnection = onToggleConnection
+                )
 
-                    SessionSearchBar(
-                        value = uiState.query,
-                        onValueChange = viewModel::updateQuery
-                    )
+                SessionSearchBar(
+                    value = uiState.query,
+                    onValueChange = viewModel::updateQuery
+                )
 
-                    if (uiState.sessionItems.isNotEmpty()) {
-                        SessionOverviewStrip(sessions = uiState.sessionItems.map { it.session })
-                    }
-
-                    if (updateState.status == AppUpdateStatus.AVAILABLE ||
-                        updateState.status == AppUpdateStatus.DOWNLOADED
-                    ) {
-                        UpdateBanner(
-                            updateState = updateState,
-                            onPrimaryAction = {
-                                if (updateState.status == AppUpdateStatus.DOWNLOADED) {
-                                    onInstallUpdate()
-                                } else {
-                                    onDownloadUpdate()
-                                }
-                            },
-                            onSecondaryAction = onCheckForUpdates
-                        )
-                    }
-
-                    when {
-                        uiState.isLoading && uiState.sessionItems.isEmpty() -> {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .weight(1f),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                CircularProgressIndicator()
-                            }
+                when {
+                    uiState.isLoading && uiState.sessionItems.isEmpty() -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator()
                         }
+                    }
 
-                        uiState.sessionItems.isEmpty() -> {
-                            Surface(
-                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
-                                shape = RoundedCornerShape(28.dp),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .weight(1f)
+                    else -> {
+                        LazyColumn(
+                            modifier = Modifier.weight(1f),
+                            contentPadding = PaddingValues(bottom = 16.dp),
+                            verticalArrangement = Arrangement.spacedBy(0.dp)
+                        ) {
+                            if (updateState.status == AppUpdateStatus.AVAILABLE ||
+                                updateState.status == AppUpdateStatus.DOWNLOADED
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .padding(24.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = if (uiState.query.isBlank()) {
-                                            stringResource(R.string.no_sessions)
-                                        } else {
-                                            stringResource(R.string.session_search_empty)
+                                item(key = "update-banner") {
+                                    UpdateBanner(
+                                        updateState = updateState,
+                                        onPrimaryAction = {
+                                            if (updateState.status == AppUpdateStatus.DOWNLOADED) {
+                                                onInstallUpdate()
+                                            } else {
+                                                onDownloadUpdate()
+                                            }
                                         },
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        onSecondaryAction = onCheckForUpdates
                                     )
+                                    Spacer(modifier = Modifier.size(8.dp))
                                 }
                             }
-                        }
 
-                        else -> {
-                            LazyColumn(
-                                modifier = Modifier.weight(1f),
-                                contentPadding = PaddingValues(bottom = 16.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
+                            if (uiState.sessionItems.isEmpty()) {
+                                item(key = "empty-state") {
+                                    Surface(
+                                        color = MaterialTheme.colorScheme.surface,
+                                        shape = RoundedCornerShape(24.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(top = 4.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 24.dp, vertical = 56.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = if (uiState.query.isBlank()) {
+                                                    stringResource(R.string.no_sessions)
+                                                } else {
+                                                    stringResource(R.string.session_search_empty)
+                                                },
+                                                style = MaterialTheme.typography.bodyLarge,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                }
+                            } else {
                                 items(uiState.sessionItems, key = { it.session.id }) { item ->
                                     SessionCard(
                                         item = item,
@@ -195,64 +181,38 @@ fun SessionListScreen(
                         }
                     }
                 }
+            }
 
-                if (uiState.isLoading && uiState.sessionItems.isNotEmpty()) {
-                    Surface(
-                        shape = RoundedCornerShape(999.dp),
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
-                        shadowElevation = 6.dp,
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(top = 12.dp, end = 20.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
-                                strokeWidth = 2.dp
-                            )
-                            Text(
-                                text = stringResource(R.string.action_refresh),
-                                style = MaterialTheme.typography.labelMedium
-                            )
+            connectionError?.let { error ->
+                Snackbar(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(16.dp),
+                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                    contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                    action = {
+                        TextButton(onClick = { viewModel.clearError() }) {
+                            Text(stringResource(R.string.dismiss))
                         }
                     }
+                ) {
+                    Text(error)
                 }
+            }
 
-                connectionError?.let { error ->
-                    Snackbar(
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(16.dp),
-                        containerColor = MaterialTheme.colorScheme.errorContainer,
-                        contentColor = MaterialTheme.colorScheme.onErrorContainer,
-                        action = {
-                            TextButton(onClick = { viewModel.clearError() }) {
-                                Text(stringResource(R.string.dismiss))
-                            }
+            uiState.error?.let { error ->
+                Snackbar(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(16.dp)
+                        .padding(bottom = 60.dp),
+                    action = {
+                        TextButton(onClick = { viewModel.clearError() }) {
+                            Text(stringResource(R.string.dismiss))
                         }
-                    ) {
-                        Text(error)
                     }
-                }
-
-                uiState.error?.let { error ->
-                    Snackbar(
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(16.dp)
-                            .padding(bottom = 60.dp),
-                        action = {
-                            TextButton(onClick = { viewModel.clearError() }) {
-                                Text(stringResource(R.string.dismiss))
-                            }
-                        }
-                    ) {
-                        Text(error)
-                    }
+                ) {
+                    Text(error)
                 }
             }
         }
@@ -278,10 +238,10 @@ private fun SessionSearchBar(
         placeholder = {
             Text(stringResource(R.string.session_search_hint))
         },
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = OutlinedTextFieldDefaults.colors(
-            focusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
-            unfocusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+            focusedContainerColor = MaterialTheme.colorScheme.surface,
+            unfocusedContainerColor = MaterialTheme.colorScheme.surface,
             focusedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.42f),
             unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.18f)
         )
@@ -369,7 +329,7 @@ private fun SessionHeader(
         ) {
             Text(
                 text = stringResource(R.string.nav_messages),
-                style = MaterialTheme.typography.titleLarge,
+                style = MaterialTheme.typography.headlineSmall,
                 color = MaterialTheme.colorScheme.onBackground,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -390,11 +350,11 @@ private fun SessionHeader(
         }
 
         Surface(
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+            color = MaterialTheme.colorScheme.surface,
             contentColor = MaterialTheme.colorScheme.onSurface,
-            shape = RoundedCornerShape(18.dp),
+            shape = RoundedCornerShape(16.dp),
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.14f)),
-            shadowElevation = 5.dp
+            shadowElevation = 2.dp
         ) {
             Row(
                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp),
@@ -420,45 +380,6 @@ private fun SessionHeader(
                     onClick = onToggleConnection
                 )
             }
-        }
-    }
-}
-
-@Composable
-private fun SessionOverviewStrip(sessions: List<Session>) {
-    val runningCount = sessions.count { it.isRunning }
-    val queuedCount = sessions.count { it.queuedCount > 0 }
-    val offlineCount = sessions.count { !it.isAgentOnline }
-
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        SummaryPill(
-            text = stringResource(R.string.session_summary_total, sessions.size),
-            containerColor = MaterialTheme.colorScheme.primaryContainer,
-            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-        )
-        if (runningCount > 0) {
-            SummaryPill(
-                text = stringResource(R.string.status_running),
-                containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                contentColor = MaterialTheme.colorScheme.onSecondaryContainer
-            )
-        }
-        if (queuedCount > 0) {
-            SummaryPill(
-                text = stringResource(R.string.status_queued, queuedCount),
-                containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                contentColor = MaterialTheme.colorScheme.onTertiaryContainer
-            )
-        }
-        if (offlineCount > 0) {
-            SummaryPill(
-                text = stringResource(R.string.status_agent_offline),
-                containerColor = MaterialTheme.colorScheme.errorContainer,
-                contentColor = MaterialTheme.colorScheme.onErrorContainer
-            )
         }
     }
 }
@@ -540,18 +461,32 @@ private fun SummaryPill(
 private fun SessionCard(item: SessionListItem, onClick: () -> Unit) {
     val session = item.session
     val avatar = session.name.firstOrNull()?.uppercase() ?: "C"
-    val previewText = item.previewText ?: session.projectPath
+    val previewText = item.previewText ?: session.currentPrompt ?: session.queuePreview ?: session.projectPath
+    val timestamp = item.previewTimestamp ?: session.currentStartedAt ?: session.lastActiveAt
+    val metaText = buildString {
+        append(providerLabel(session.cliProvider))
+        modelLabel(session.cliModel)
+            .takeUnless { it.equals("Auto", ignoreCase = true) }
+            ?.let {
+                append(" / ")
+                append(it)
+            }
+        session.groupName?.trim()?.takeUnless { it.isEmpty() }?.let {
+            append(" · ")
+            append(it)
+        }
+    }
 
     Card(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(0.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.97f),
+            containerColor = MaterialTheme.colorScheme.surface,
             contentColor = MaterialTheme.colorScheme.onSurface
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.14f))
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.08f))
     ) {
         Row(
             modifier = Modifier
@@ -601,11 +536,11 @@ private fun SessionCard(item: SessionListItem, onClick: () -> Unit) {
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    SummaryPill(
-                        text = runtimeLabel(session),
-                        containerColor = runtimeColor(session).copy(alpha = 0.14f),
-                        contentColor = runtimeColor(session)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = formatTimestamp(timestamp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
 
@@ -620,47 +555,32 @@ private fun SessionCard(item: SessionListItem, onClick: () -> Unit) {
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text(
-                        text = "${providerLabel(session.cliProvider)} / ${modelLabel(session.cliModel)}",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f)
-                    )
                     Box(
                         modifier = Modifier
-                            .size(6.dp)
+                            .size(7.dp)
                             .clip(CircleShape)
                             .background(
                                 if (session.isAgentOnline) Color(0xFF4CAF50) else Color(0xFFEF5350)
                             )
                     )
                     Text(
-                        text = stringResource(R.string.agent_prefix, session.agentId.take(8)),
+                        text = metaText,
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
                     )
-                }
-
-                Text(
-                    text = session.projectPath,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-
-                item.previewTimestamp?.let { previewTimestamp ->
-                    Text(
-                        text = formatTimestamp(previewTimestamp),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    if (session.isRunning || session.queuedCount > 0 || !session.isAgentOnline) {
+                        SummaryPill(
+                            text = runtimeLabel(session),
+                            containerColor = runtimeColor(session).copy(alpha = 0.12f),
+                            contentColor = runtimeColor(session)
+                        )
+                    }
                 }
             }
         }
