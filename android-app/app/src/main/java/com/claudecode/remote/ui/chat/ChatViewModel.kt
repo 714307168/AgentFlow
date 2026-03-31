@@ -116,6 +116,56 @@ data class ChatUiState(
     val conversations: List<ConversationItem> = emptyList()
 )
 
+internal data class OlderHistoryLoadDecision(
+    val visibleHistoryArrived: Boolean,
+    val shouldRequestMore: Boolean,
+    val shouldClearLoading: Boolean
+)
+
+internal fun resolveOlderHistoryLoadDecision(
+    previousMessageEarliestSyncSeq: Long,
+    previousTimelineEarliestSyncSeq: Long,
+    nextMessageEarliestSyncSeq: Long,
+    nextTimelineEarliestSyncSeq: Long,
+    prependedVisibleCount: Int
+): OlderHistoryLoadDecision {
+    val visibleHistoryArrived = prependedVisibleCount > 0 ||
+        (
+            previousMessageEarliestSyncSeq > 0L &&
+                nextMessageEarliestSyncSeq > 0L &&
+                nextMessageEarliestSyncSeq < previousMessageEarliestSyncSeq
+            )
+    val timelineAdvanced = previousTimelineEarliestSyncSeq > 0L &&
+        nextTimelineEarliestSyncSeq > 0L &&
+        nextTimelineEarliestSyncSeq < previousTimelineEarliestSyncSeq
+
+    return when {
+        visibleHistoryArrived -> OlderHistoryLoadDecision(
+            visibleHistoryArrived = true,
+            shouldRequestMore = false,
+            shouldClearLoading = true
+        )
+
+        timelineAdvanced && nextTimelineEarliestSyncSeq > 1L -> OlderHistoryLoadDecision(
+            visibleHistoryArrived = false,
+            shouldRequestMore = true,
+            shouldClearLoading = false
+        )
+
+        timelineAdvanced -> OlderHistoryLoadDecision(
+            visibleHistoryArrived = false,
+            shouldRequestMore = false,
+            shouldClearLoading = true
+        )
+
+        else -> OlderHistoryLoadDecision(
+            visibleHistoryArrived = false,
+            shouldRequestMore = false,
+            shouldClearLoading = false
+        )
+    }
+}
+
 class ChatViewModel(
     private val messageRepository: MessageRepository,
     private val webSocket: RelayWebSocket,
@@ -377,7 +427,8 @@ class ChatViewModel(
                 allMessages = cachedConversationMessages
                 allActivityMessages = cachedProjectMessages.filter { message ->
                     message.type == com.claudecode.remote.data.model.MessageType.THINKING ||
-                        message.type == com.claudecode.remote.data.model.MessageType.ACTIVITY
+                        message.type == com.claudecode.remote.data.model.MessageType.ACTIVITY ||
+                        message.type == com.claudecode.remote.data.model.MessageType.CLI
                 }
                 publishVisibleMessages()
                 publishVisibleActivityMessages()
@@ -470,7 +521,8 @@ class ChatViewModel(
                     }
                     allActivityMessages = timelineMessages.filter { message ->
                         message.type == com.claudecode.remote.data.model.MessageType.THINKING ||
-                            message.type == com.claudecode.remote.data.model.MessageType.ACTIVITY
+                            message.type == com.claudecode.remote.data.model.MessageType.ACTIVITY ||
+                            message.type == com.claudecode.remote.data.model.MessageType.CLI
                     }
                     reconcilePendingOlderHistory(
                         previousMessages = previousMessages,
@@ -908,26 +960,40 @@ class ChatViewModel(
         )
         val nextEarliestSyncSeq = nextMessages.earliestSyncSeq()
         val nextTimelineEarliestSyncSeq = nextTimeline.earliestSyncSeq()
-        val olderHistoryArrived = prependedCount > 0 ||
-            (
-                pending.previousMessageEarliestSyncSeq > 0L &&
-                    nextEarliestSyncSeq > 0L &&
-                    nextEarliestSyncSeq < pending.previousMessageEarliestSyncSeq
-                ) ||
-            (
-                pending.previousTimelineEarliestSyncSeq > 0L &&
-                    nextTimelineEarliestSyncSeq > 0L &&
-                    nextTimelineEarliestSyncSeq < pending.previousTimelineEarliestSyncSeq
-                )
-        if (!olderHistoryArrived) {
+        val decision = resolveOlderHistoryLoadDecision(
+            previousMessageEarliestSyncSeq = pending.previousMessageEarliestSyncSeq,
+            previousTimelineEarliestSyncSeq = pending.previousTimelineEarliestSyncSeq,
+            nextMessageEarliestSyncSeq = nextEarliestSyncSeq,
+            nextTimelineEarliestSyncSeq = nextTimelineEarliestSyncSeq,
+            prependedVisibleCount = prependedCount
+        )
+        if (!decision.visibleHistoryArrived && !decision.shouldRequestMore && !decision.shouldClearLoading) {
             return
         }
 
-        visibleMessageCount = maxOf(
-            pending.visibleMessageCount + prependedCount,
-            visibleMessageCount + prependedCount
-        )
-        clearPendingOlderHistory()
+        if (decision.visibleHistoryArrived) {
+            visibleMessageCount = maxOf(
+                pending.visibleMessageCount + prependedCount,
+                visibleMessageCount + prependedCount
+            )
+            clearPendingOlderHistory()
+            return
+        }
+
+        if (decision.shouldRequestMore) {
+            val state = _uiState.value
+            requestOlderMessages(
+                beforeSeq = nextTimelineEarliestSyncSeq,
+                projectId = state.projectId,
+                agentId = state.agentId,
+                autoTriggered = pending.autoTriggered
+            )
+            return
+        }
+
+        if (decision.shouldClearLoading) {
+            clearPendingOlderHistory()
+        }
     }
 
     private fun clearPendingOlderHistory() {
