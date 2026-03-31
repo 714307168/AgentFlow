@@ -135,9 +135,6 @@ const DEFAULT_HISTORY_PAGE_SIZE = 30;
 const SNAPSHOT_EMIT_INTERVAL_MS = 120;
 const CODEX_EXIT_CODE_1_MAX_RETRIES = 3;
 const CODEX_EXIT_CODE_1_RETRY_DELAY_MS = 1_500;
-const AUTO_ROTATE_CONVERSATION_MESSAGE_LIMIT = 48;
-const AUTO_ROTATE_CONVERSATION_ACTIVITY_LIMIT = 80;
-const AUTO_ROTATE_CONVERSATION_CHAR_LIMIT = 50_000;
 const CLI_TRACE_NOISE_PATTERNS = [
   /reading prompt from stdin/i,
 ] as const;
@@ -576,8 +573,6 @@ class RuntimeManager extends EventEmitter {
     state.currentSource = next.source;
     state.currentPrompt = next.prompt;
     state.currentStartedAt = Date.now();
-    this.maybeRotateConversationBeforeRun(state);
-
     const context: RunContext = {
       runId: next.runId,
       runStatusActivityId: null,
@@ -704,47 +699,6 @@ class RuntimeManager extends EventEmitter {
       this.emitSnapshot(projectId);
       void this.processNext(projectId);
     }
-  }
-
-  private maybeRotateConversationBeforeRun(state: ProjectState): void {
-    const conversation = this.getActiveConversation(state);
-    if (!conversation) {
-      return;
-    }
-
-    const messageChars = conversation.messages.reduce((sum, message) => sum + message.content.length, 0);
-    const activityChars = conversation.activities.reduce((sum, activity) => sum + activity.detail.length, 0);
-    const totalChars = messageChars + activityChars;
-    const sawContextPressureWarning = conversation.activities.some((activity) =>
-      CONTEXT_PRESSURE_WARNING_PATTERNS.some((pattern) => pattern.test(activity.detail) || pattern.test(activity.title)),
-    );
-    const shouldRotate = sawContextPressureWarning
-      || conversation.messages.length >= AUTO_ROTATE_CONVERSATION_MESSAGE_LIMIT
-      || conversation.activities.length >= AUTO_ROTATE_CONVERSATION_ACTIVITY_LIMIT
-      || totalChars >= AUTO_ROTATE_CONVERSATION_CHAR_LIMIT;
-
-    if (!shouldRotate) {
-      return;
-    }
-
-    const previousTitle = this.getConversationTitle(conversation);
-    const freshConversation = this.createConversationState();
-    state.conversations.push(freshConversation);
-    this.activateConversationState(state, freshConversation.id, freshConversation);
-    this.addActivity(state, {
-      id: uuidv4(),
-      kind: "status",
-      title: "Conversation refreshed",
-      detail: previousTitle
-        ? `Started a new conversation to keep model context accurate. Previous conversation: ${previousTitle}`
-        : "Started a new conversation to keep model context accurate.",
-      status: "completed",
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      meta: {
-        autoRotated: true,
-      },
-    });
   }
 
   private executeClaude(state: ProjectState, run: PendingRun, context: RunContext): Promise<void> {

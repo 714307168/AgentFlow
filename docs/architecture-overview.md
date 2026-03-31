@@ -67,12 +67,7 @@ Current cross-device session sync now follows these rules:
 - If a sync item is trimmed or omitted, clients request that single `itemId` again for full content and patch it in place
 - Once a client has the full body, later summary syncs should not overwrite it back to the trimmed variant
 - Relay/UI should treat provider advisories such as event-stream lag or long-thread warnings as notices, not task failures
-
-Desktop runtime also applies a context-pressure guard before the next run:
-
-- rotate to a fresh conversation when the current thread is already too large
-- rotate immediately after provider-side long-thread/context warnings
-- keep project-level prompt/config in effect while resetting provider thread/session ids
+- Desktop should keep the current conversation/thread unless the user explicitly creates or switches to another conversation
 
 ## Relay
 
