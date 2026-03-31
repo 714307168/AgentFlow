@@ -25,6 +25,9 @@ class RelayClient extends EventEmitter {
   private reconnectDelay: number = 1000;
   private maxDelay: number = 30000;
   private lastSeq: number = 0;
+  private lastInboundAt: number = 0;
+  private lastSocketOpenAttemptAt: number = 0;
+  private pingTimer: NodeJS.Timeout | null = null;
   private clientType: ClientType;
   private agentId: string;
   private deviceId: string;
@@ -84,6 +87,49 @@ class RelayClient extends EventEmitter {
     this.token = token;
   }
 
+  resetResumeState(): void {
+    this.lastSeq = 0;
+  }
+
+  ensureHealthyConnection(reason: string = "health-check", staleTimeoutMs: number = 75_000): void {
+    if (this.intentionalDisconnect) {
+      return;
+    }
+
+    const now = Date.now();
+    const socket = this.ws;
+    if (!socket) {
+      this.connect();
+      return;
+    }
+
+    if (socket.readyState === WebSocket.CONNECTING) {
+      const staleForMs = this.lastSocketOpenAttemptAt > 0 ? now - this.lastSocketOpenAttemptAt : Number.MAX_SAFE_INTEGER;
+      if (staleForMs > staleTimeoutMs) {
+        console.warn(`[RelayClient] Reconnecting stalled socket during ${reason}; state=connecting staleForMs=${staleForMs}`);
+        this.connect();
+      }
+      return;
+    }
+
+    if (socket.readyState !== WebSocket.OPEN) {
+      this.connect();
+      return;
+    }
+
+    if (!this.isAuthenticated) {
+      console.warn(`[RelayClient] Reconnecting unauthenticated socket during ${reason}`);
+      this.connect();
+      return;
+    }
+
+    const staleForMs = this.lastInboundAt > 0 ? now - this.lastInboundAt : now - this.lastSocketOpenAttemptAt;
+    if (staleForMs > staleTimeoutMs) {
+      console.warn(`[RelayClient] Reconnecting stale socket during ${reason}; staleForMs=${staleForMs}`);
+      this.connect();
+    }
+  }
+
   connect(): void {
     this.intentionalDisconnect = false;
     this.isAuthenticated = false;
@@ -97,18 +143,23 @@ class RelayClient extends EventEmitter {
     if (previousSocket) {
       this.disposeSocket(previousSocket);
     }
+    this.stopPing();
+    this.lastSocketOpenAttemptAt = Date.now();
     const socket = new WebSocket(this.serverUrl);
     this.ws = socket;
     socket.on("open", () => this.onOpen(generation, socket));
     socket.on("message", (data: WebSocket.RawData) => this.onMessage(generation, socket, data.toString()));
     socket.on("close", () => this.onClose(generation, socket));
     socket.on("error", (err: Error) => this.onError(generation, socket, err));
+    socket.on("ping", () => this.onSocketActivity(generation, socket));
+    socket.on("pong", () => this.onSocketActivity(generation, socket));
   }
 
   disconnect(): void {
     this.intentionalDisconnect = true;
     this.isAuthenticated = false;
     this.pendingOutgoingEnvelopes.length = 0;
+    this.stopPing();
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -150,6 +201,7 @@ class RelayClient extends EventEmitter {
       return;
     }
     console.log("[RelayClient] Connected to relay server");
+    this.lastInboundAt = Date.now();
     this.resetBackoff();
     const event = this.lastSeq > 0 ? Events.AUTH_RESUME : Events.AUTH_LOGIN;
     const payload: Record<string, unknown> = {
@@ -171,6 +223,7 @@ class RelayClient extends EventEmitter {
       payload,
     };
     this.send(env);
+    this.startPing(generation, socket);
     this.emit("connected");
   }
 
@@ -179,12 +232,14 @@ class RelayClient extends EventEmitter {
       return;
     }
     try {
+      this.lastInboundAt = Date.now();
       const env: Envelope = JSON.parse(data);
       if (env.seq !== undefined && env.seq > this.lastSeq) {
         this.lastSeq = env.seq;
       }
       if (env.event === Events.AUTH_ERROR) {
         this.isAuthenticated = false;
+        this.stopPing();
         this.emit("auth-failed", env);
         return;
       }
@@ -309,6 +364,7 @@ class RelayClient extends EventEmitter {
     }
     console.log("[RelayClient] Connection closed");
     this.isAuthenticated = false;
+    this.stopPing();
     this.ws = null;
     this.emit("disconnected");
     if (!this.intentionalDisconnect) {
@@ -322,7 +378,15 @@ class RelayClient extends EventEmitter {
     }
     console.error("[RelayClient] WebSocket error:", err.message);
     this.isAuthenticated = false;
+    this.stopPing();
     this.emit("error", err);
+  }
+
+  private onSocketActivity(generation: number, socket: WebSocket): void {
+    if (!this.isCurrentSocket(generation, socket)) {
+      return;
+    }
+    this.lastInboundAt = Date.now();
   }
 
   private scheduleReconnect(): void {
@@ -337,6 +401,28 @@ class RelayClient extends EventEmitter {
 
   private resetBackoff(): void {
     this.reconnectDelay = 1000;
+  }
+
+  private startPing(generation: number, socket: WebSocket): void {
+    this.stopPing();
+    this.pingTimer = setInterval(() => {
+      if (!this.isCurrentSocket(generation, socket) || socket.readyState !== WebSocket.OPEN) {
+        this.stopPing();
+        return;
+      }
+      this.send({
+        id: uuidv4(),
+        event: Events.PING,
+        ts: Date.now(),
+      });
+    }, 30_000);
+  }
+
+  private stopPing(): void {
+    if (this.pingTimer) {
+      clearInterval(this.pingTimer);
+      this.pingTimer = null;
+    }
   }
 
   private isAuthEvent(event: string): boolean {

@@ -49,6 +49,9 @@ class RelayWebSocket(
     private val _incomingEnvelopes = MutableSharedFlow<Envelope>(extraBufferCapacity = 64)
     val incomingEnvelopes: SharedFlow<Envelope> = _incomingEnvelopes.asSharedFlow()
 
+    private val _authFailures = MutableSharedFlow<String>(extraBufferCapacity = 4)
+    val authFailures: SharedFlow<String> = _authFailures.asSharedFlow()
+
     private val _connectionState = MutableStateFlow(ConnectionState.DISCONNECTED)
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
 
@@ -297,8 +300,12 @@ class RelayWebSocket(
 
                 if (envelope.event == Events.AUTH_ERROR) {
                     isAuthenticated = false
+                    lastSeq = 0
                     _errorMessage.value = "认证失败，请检查 Token 是否正确"
                     _connectionState.value = ConnectionState.DISCONNECTED
+                    scope.launch {
+                        _authFailures.emit("auth-error")
+                    }
                     webSocket.close(1000, "Auth failed")
                     return
                 }

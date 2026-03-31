@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, dialog, safeStorage, clipboard, desktopCapturer, screen, shell } from "electron";
+import { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, dialog, safeStorage, clipboard, desktopCapturer, screen, shell, powerMonitor } from "electron";
 import "./user-data-bootstrap";
 import * as fs from "fs";
 import * as path from "path";
@@ -256,9 +256,12 @@ const WORKGROUP_COLLABORATION_RELAY_DEBOUNCE_MS = 200;
 let lastWorkgroupCollaborationRelayPayloadHash = "";
 const REMOTE_PROJECT_CATALOG_REFRESH_MIN_INTERVAL_MS = 5_000;
 const REMOTE_WORKGROUP_CATALOG_REFRESH_MIN_INTERVAL_MS = 15_000;
+const RELAY_HEALTH_CHECK_INTERVAL_MS = 30_000;
+const RELAY_STALE_CONNECTION_TIMEOUT_MS = 75_000;
 let lastRemoteProjectCatalogRefreshAt = 0;
 let remoteProjectCatalogRefreshTimer: NodeJS.Timeout | null = null;
 let lastRemoteWorkgroupCatalogRefreshAt = 0;
+let relayHealthCheckTimer: NodeJS.Timeout | null = null;
 
 function clampTimeoutDelayMs(delayMs: number): number {
   if (!Number.isFinite(delayMs)) {
@@ -1913,6 +1916,46 @@ function ensureRemoteRelayReady(configOverride?: AgentConfig): boolean {
   return true;
 }
 
+async function recoverAgentRelayAuthentication(reason: string): Promise<void> {
+  const refreshed = await refreshAgentToken(true);
+  if (!refreshed || !relayClient) {
+    return;
+  }
+  console.warn(`[Main] Recovering agent relay after auth failure: ${reason}`);
+  relayClient.resetResumeState();
+  updateRelayClientAuthFromConfig();
+  relayClient.connect();
+}
+
+async function recoverControllerRelayAuthentication(reason: string): Promise<void> {
+  const refreshed = await refreshControllerToken(true);
+  if (!refreshed) {
+    return;
+  }
+  ensureRemoteRelayReady(loadConfig());
+  if (!controllerRelayClient) {
+    return;
+  }
+  console.warn(`[Main] Recovering controller relay after auth failure: ${reason}`);
+  controllerRelayClient.resetResumeState();
+  updateControllerRelayClientAuthFromConfig();
+  controllerRelayClient.connect();
+}
+
+function runRelayHealthCheck(reason: string): void {
+  relayClient?.ensureHealthyConnection(`agent:${reason}`, RELAY_STALE_CONNECTION_TIMEOUT_MS);
+  controllerRelayClient?.ensureHealthyConnection(`controller:${reason}`, RELAY_STALE_CONNECTION_TIMEOUT_MS);
+}
+
+function startRelayHealthChecks(): void {
+  if (relayHealthCheckTimer) {
+    clearInterval(relayHealthCheckTimer);
+  }
+  relayHealthCheckTimer = setInterval(() => {
+    runRelayHealthCheck("periodic");
+  }, RELAY_HEALTH_CHECK_INTERVAL_MS);
+}
+
 function requestRemoteProjectCatalogRefresh(): void {
   if (!remoteSessionStore || !controllerRelayClient) {
     return;
@@ -2389,7 +2432,7 @@ function initRelay(config: AgentConfig): void {
   });
 
   relayClient.on("auth-failed", () => {
-    void refreshAgentToken(true);
+    void recoverAgentRelayAuthentication("relay-auth-failed");
   });
 
   relayClient.on("error", (err: Error) => {
@@ -2474,7 +2517,7 @@ function initRemoteRelay(config: AgentConfig): void {
     void 0;
   });
   controllerRelayClient.on("auth-failed", () => {
-    void refreshControllerToken(true);
+    void recoverControllerRelayAuthentication("controller-auth-failed");
   });
   controllerRelayClient.on("message", (env: any) => {
     remoteSessionStore?.handleEnvelope(env);
@@ -3918,6 +3961,17 @@ app.whenReady().then(async () => {
   ensureRemoteRelayReady(config);
   scheduleTokenRefresh();
   scheduleControllerTokenRefresh();
+  startRelayHealthChecks();
+  powerMonitor.on("resume", () => {
+    void refreshAgentToken(false);
+    void refreshControllerToken(false);
+    runRelayHealthCheck("power-resume");
+  });
+  powerMonitor.on("unlock-screen", () => {
+    void refreshAgentToken(false);
+    void refreshControllerToken(false);
+    runRelayHealthCheck("unlock-screen");
+  });
   updateManager.start();
 
   // Open workspace window unless silent launch is configured
@@ -3941,6 +3995,10 @@ app.on("before-quit", () => {
   if (controllerTokenRefreshTimer) {
     clearTimeout(controllerTokenRefreshTimer);
     controllerTokenRefreshTimer = null;
+  }
+  if (relayHealthCheckTimer) {
+    clearInterval(relayHealthCheckTimer);
+    relayHealthCheckTimer = null;
   }
   if (relayClient) relayClient.disconnect();
   if (controllerRelayClient) controllerRelayClient.disconnect();

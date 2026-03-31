@@ -49,6 +49,38 @@ class RelayConnectionService : Service() {
         }
 
         serviceScope.launch {
+            container.relayWebSocket.authFailures.collect {
+                val deviceId = container.tokenStore.getDeviceId().orEmpty()
+                if (deviceId.isBlank()) {
+                    return@collect
+                }
+
+                container.authSessionManager.ensureValidToken(deviceId, forceRefresh = true)
+                    .onSuccess { refreshedToken ->
+                        if (refreshedToken.isBlank()) {
+                            return@onSuccess
+                        }
+                        runCatching {
+                            container.relayWebSocket.forceReconnect("auth-error-recovery")
+                        }.onFailure { error ->
+                            CrashLogger.logError(
+                                "RelayConnectionService",
+                                "Failed to reconnect relay after auth error recovery",
+                                error as? Exception ?: Exception(error)
+                            )
+                        }
+                    }
+                    .onFailure { error ->
+                        CrashLogger.logError(
+                            "RelayConnectionService",
+                            "Failed to refresh mobile token after auth error",
+                            error as? Exception
+                        )
+                    }
+            }
+        }
+
+        serviceScope.launch {
             while (isActive) {
                 val nextRefreshDelay = container.authSessionManager.nextRefreshDelayMillis()
                 if (nextRefreshDelay == null) {
