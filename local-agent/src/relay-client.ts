@@ -15,6 +15,11 @@ interface RelayEncryptedEnvelopePayload extends EncryptedPayload {
   key_id?: string;
 }
 
+interface QueuedOutgoingEnvelope {
+  env: Envelope;
+  queuedAt: number;
+}
+
 class RelayClient extends EventEmitter {
   private ws: WebSocket | null = null;
   private reconnectDelay: number = 1000;
@@ -27,11 +32,13 @@ class RelayClient extends EventEmitter {
   private serverUrl: string;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private intentionalDisconnect: boolean = false;
+  private isAuthenticated: boolean = false;
   private e2e: E2ECrypto;
   private e2eEnabled: boolean;
   private readonly resolveTargetAgentId?: (env: Envelope) => string | null;
   private readonly pendingRoomKeyOffers: Set<string> = new Set();
   private readonly pendingEncryptedEnvelopes: Map<string, Envelope[]> = new Map();
+  private readonly pendingOutgoingEnvelopes: QueuedOutgoingEnvelope[] = [];
   private connectionGeneration = 0;
 
   constructor(
@@ -79,6 +86,11 @@ class RelayClient extends EventEmitter {
 
   connect(): void {
     this.intentionalDisconnect = false;
+    this.isAuthenticated = false;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     this.connectionGeneration += 1;
     const generation = this.connectionGeneration;
     const previousSocket = this.ws;
@@ -95,6 +107,8 @@ class RelayClient extends EventEmitter {
 
   disconnect(): void {
     this.intentionalDisconnect = true;
+    this.isAuthenticated = false;
+    this.pendingOutgoingEnvelopes.length = 0;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -108,15 +122,26 @@ class RelayClient extends EventEmitter {
   }
 
   send(env: Envelope): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      console.warn("[RelayClient] Cannot send - not connected");
+    if (this.shouldQueueUntilAuthenticated(env)) {
+      this.queueOutgoingEnvelope(env);
       return;
     }
+
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      this.queueOutgoingEnvelope(env);
+      return;
+    }
+
     const outgoing = this.prepareOutgoingEnvelope(env);
     if (!outgoing) {
       return;
     }
-    this.ws.send(JSON.stringify(outgoing));
+    try {
+      this.ws.send(JSON.stringify(outgoing));
+    } catch (error) {
+      console.warn("[RelayClient] Failed to send; queueing for retry", error);
+      this.queueOutgoingEnvelope(env);
+    }
   }
 
   private onOpen(generation: number, socket: WebSocket): void {
@@ -159,6 +184,7 @@ class RelayClient extends EventEmitter {
         this.lastSeq = env.seq;
       }
       if (env.event === Events.AUTH_ERROR) {
+        this.isAuthenticated = false;
         this.emit("auth-failed", env);
         return;
       }
@@ -167,11 +193,18 @@ class RelayClient extends EventEmitter {
         return;
       }
       if (env.event === Events.AUTH_OK && this.clientType === "device") {
+        this.isAuthenticated = true;
         const payload = env.payload as { agent_id?: string } | undefined;
         const agentId = payload?.agent_id?.trim();
         if (agentId) {
           this.ensureRoomKey(agentId);
         }
+        this.flushPendingOutgoingEnvelopes();
+        this.emit("authenticated", env);
+      } else if (env.event === Events.AUTH_OK) {
+        this.isAuthenticated = true;
+        this.flushPendingOutgoingEnvelopes();
+        this.emit("authenticated", env);
       }
       // Handle E2E key exchange
       if (env.event === Events.E2E_OFFER) {
@@ -275,6 +308,7 @@ class RelayClient extends EventEmitter {
       return;
     }
     console.log("[RelayClient] Connection closed");
+    this.isAuthenticated = false;
     this.ws = null;
     this.emit("disconnected");
     if (!this.intentionalDisconnect) {
@@ -287,6 +321,7 @@ class RelayClient extends EventEmitter {
       return;
     }
     console.error("[RelayClient] WebSocket error:", err.message);
+    this.isAuthenticated = false;
     this.emit("error", err);
   }
 
@@ -302,6 +337,61 @@ class RelayClient extends EventEmitter {
 
   private resetBackoff(): void {
     this.reconnectDelay = 1000;
+  }
+
+  private isAuthEvent(event: string): boolean {
+    return event === Events.AUTH_LOGIN || event === Events.AUTH_RESUME;
+  }
+
+  private shouldQueueUntilAuthenticated(env: Envelope): boolean {
+    if (this.isAuthEvent(env.event)) {
+      return !this.ws || this.ws.readyState !== WebSocket.OPEN;
+    }
+    return !this.ws || this.ws.readyState !== WebSocket.OPEN || !this.isAuthenticated;
+  }
+
+  private queueOutgoingEnvelope(env: Envelope): void {
+    if (this.isAuthEvent(env.event) && this.ws && this.ws.readyState === WebSocket.OPEN) {
+      return;
+    }
+
+    const now = Date.now();
+    for (let index = this.pendingOutgoingEnvelopes.length - 1; index >= 0; index -= 1) {
+      if (now - this.pendingOutgoingEnvelopes[index].queuedAt > 90_000) {
+        this.pendingOutgoingEnvelopes.splice(index, 1);
+      }
+    }
+
+    const duplicateIndex = this.pendingOutgoingEnvelopes.findIndex((queued) =>
+      queued.env.id === env.id
+      && queued.env.event === env.event
+      && queued.env.project_id === env.project_id
+      && queued.env.stream_id === env.stream_id,
+    );
+    const next = { env, queuedAt: now };
+    if (duplicateIndex >= 0) {
+      this.pendingOutgoingEnvelopes[duplicateIndex] = next;
+    } else {
+      if (this.pendingOutgoingEnvelopes.length >= 160) {
+        this.pendingOutgoingEnvelopes.shift();
+      }
+      this.pendingOutgoingEnvelopes.push(next);
+    }
+
+    if (!this.intentionalDisconnect && (!this.ws || this.ws.readyState === WebSocket.CLOSED)) {
+      this.connect();
+    }
+  }
+
+  private flushPendingOutgoingEnvelopes(): void {
+    const now = Date.now();
+    const queued = this.pendingOutgoingEnvelopes
+      .filter((entry) => now - entry.queuedAt <= 90_000)
+      .map((entry) => entry.env);
+    this.pendingOutgoingEnvelopes.length = 0;
+    for (const env of queued) {
+      this.send(env);
+    }
   }
 
   private prepareOutgoingEnvelope(env: Envelope): Envelope | null {

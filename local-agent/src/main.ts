@@ -2373,6 +2373,9 @@ function initRelay(config: AgentConfig): void {
     }
     updateTrayTooltip();
     scheduleTokenRefresh();
+  });
+
+  relayClient.on("authenticated", () => {
     syncProjectCatalog(loadConfig().agentId);
     broadcastWorkgroupCollaborationRelaySummaries();
   });
@@ -2460,6 +2463,8 @@ function initRemoteRelay(config: AgentConfig): void {
 
   controllerRelayClient.on("connected", () => {
     scheduleControllerTokenRefresh();
+  });
+  controllerRelayClient.on("authenticated", () => {
     requestRemoteProjectCatalogRefresh();
     scheduleRemoteProjectCatalogRefresh(1_500);
     scheduleRemoteProjectCatalogRefresh(5_000);

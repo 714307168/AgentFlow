@@ -7,6 +7,7 @@ import android.os.IBinder
 import androidx.core.content.ContextCompat
 import com.claudecode.remote.appContainer
 import com.claudecode.remote.data.model.Envelope
+import com.claudecode.remote.data.model.Events
 import com.claudecode.remote.data.remote.RelayWebSocket
 import com.claudecode.remote.util.CrashLogger
 import kotlinx.coroutines.CoroutineScope
@@ -34,6 +35,9 @@ class RelayConnectionService : Service() {
 
         serviceScope.launch {
             container.relayWebSocket.incomingEnvelopes.collect { envelope ->
+                if (envelope.event == Events.AUTH_OK) {
+                    syncAfterAuthentication(container)
+                }
                 processEnvelope(container, envelope)
             }
         }
@@ -41,14 +45,6 @@ class RelayConnectionService : Service() {
         serviceScope.launch {
             container.relayWebSocket.connectionState.collect { state ->
                 notificationHelper.updateServiceNotification(state)
-                if (state == RelayWebSocket.ConnectionState.CONNECTED) {
-                    val syncResult = container.sessionRepository.syncFromServer()
-                    if (syncResult.isSuccess) {
-                        container.messageRepository.requestProjectSyncs(
-                            container.sessionRepository.getSessions()
-                        )
-                    }
-                }
             }
         }
 
@@ -151,6 +147,23 @@ class RelayConnectionService : Service() {
                 "RelayConnectionService",
                 "Failed to process envelope event=${envelope.event}",
                 e
+            )
+        }
+    }
+
+    private suspend fun syncAfterAuthentication(container: com.claudecode.remote.AppContainer) {
+        runCatching {
+            val syncResult = container.sessionRepository.syncFromServer(force = true)
+            if (syncResult.isSuccess) {
+                container.messageRepository.requestProjectSyncs(
+                    container.sessionRepository.getSessions()
+                )
+            }
+        }.onFailure { error ->
+            CrashLogger.logError(
+                "RelayConnectionService",
+                "Failed to sync sessions after relay authentication",
+                error as? Exception ?: Exception(error)
             )
         }
     }

@@ -1,6 +1,6 @@
 {
   "name": "agentflow-desktop",
-  "version": "1.1.78",
+  "version": "1.1.79",
   "description": "Desktop agent for AgentFlow remote control",
   "main": "dist/src/main.js",
   "scripts": {
