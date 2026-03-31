@@ -194,10 +194,9 @@ class WorkgroupChatViewModel(
             }
         }
 
-        triggerImmediateSync(
-            debounceMs = 0L,
+        requestLatestSessionNow(
             showLoading = true,
-            recentLimit = WORKGROUP_INITIAL_SYNC_PAGE_SIZE
+            limit = WORKGROUP_INITIAL_SYNC_PAGE_SIZE
         )
         startActiveSyncLoop()
     }
@@ -327,6 +326,18 @@ class WorkgroupChatViewModel(
         showLoading: Boolean,
         limit: Int
     ) {
+        requestLatestSession(
+            showLoading = showLoading,
+            limit = limit,
+            bypassDedupe = false
+        )
+    }
+
+    private fun requestLatestSession(
+        showLoading: Boolean,
+        limit: Int,
+        bypassDedupe: Boolean
+    ) {
         val state = _uiState.value
         if (state.agentId.isBlank() || state.workgroupId.isBlank()) {
             return
@@ -342,7 +353,8 @@ class WorkgroupChatViewModel(
             val result = workgroupRepository.requestSession(
                 agentId = state.agentId,
                 workgroupId = state.workgroupId,
-                limit = limit
+                limit = limit,
+                bypassDedupe = bypassDedupe
             )
             if (result.isFailure) {
                 _uiState.update {
@@ -356,6 +368,19 @@ class WorkgroupChatViewModel(
                 }
             }
         }
+    }
+
+    private fun requestLatestSessionNow(
+        showLoading: Boolean,
+        limit: Int
+    ) {
+        markSyncBurst()
+        pendingSyncTriggerJob?.cancel()
+        requestLatestSession(
+            showLoading = showLoading,
+            limit = limit,
+            bypassDedupe = true
+        )
     }
 
     private fun publishVisibleMessages(hasMoreRemoteHistory: Boolean) {

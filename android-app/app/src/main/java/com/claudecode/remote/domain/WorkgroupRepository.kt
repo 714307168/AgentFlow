@@ -115,7 +115,8 @@ class WorkgroupRepository(
         agentId: String,
         workgroupId: String,
         beforeId: String? = null,
-        limit: Int = DEFAULT_PAGE_SIZE
+        limit: Int = DEFAULT_PAGE_SIZE,
+        bypassDedupe: Boolean = false
     ): Result<Unit> {
         val normalizedAgentId = agentId.trim()
         val normalizedWorkgroupId = workgroupId.trim()
@@ -131,7 +132,8 @@ class WorkgroupRepository(
         )
         val now = System.currentTimeMillis()
         val lastRequestedAt = lastSessionRequestedAt[dedupeKey]
-        if (beforeId.isNullOrBlank() &&
+        if (!bypassDedupe &&
+            beforeId.isNullOrBlank() &&
             lastRequestedAt != null &&
             now - lastRequestedAt < SESSION_REQUEST_DEDUPE_WINDOW_MS &&
             getSession(normalizedAgentId, normalizedWorkgroupId) != null
