@@ -513,7 +513,15 @@ fun ChatScreen(
                             RuntimeNoticeBanner(uiState = uiState)
                         }
 
-                        if (selectedPane == ChatPane.CONVERSATION && uiState.messages.isEmpty()) {
+                        val shouldShowConversationList =
+                            selectedPane == ChatPane.CONVERSATION &&
+                                (
+                                    uiState.messages.isNotEmpty() ||
+                                        uiState.hasMoreHistory ||
+                                        uiState.isLoadingOlder
+                                    )
+
+                        if (selectedPane == ChatPane.CONVERSATION && !shouldShowConversationList) {
                             ChatEmptyState(
                                 title = stringResource(R.string.no_messages),
                                 detail = stringResource(R.string.chat_pane_conversation_hint)
