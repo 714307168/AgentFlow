@@ -436,7 +436,11 @@ class MainActivity : ComponentActivity() {
             RelayConnectionService.start(applicationContext)
             lifecycleScope.launch {
                 try {
-                    appContainer.relayWebSocket.ensureHealthyConnection("activity-start")
+                    restoreRelayConnectionOnForeground(
+                        reason = "activity-start",
+                        forceReconnect = false,
+                        staleTimeoutMs = RESUME_STALE_CONNECTION_TIMEOUT_MS
+                    )
                 } catch (e: Exception) {
                     CrashLogger.logError("MainActivity", "Failed to restore relay connection on foreground", e)
                 }
@@ -452,14 +456,11 @@ class MainActivity : ComponentActivity() {
                     val now = System.currentTimeMillis()
                     val shouldForceReconnect = lastStoppedAtMs > 0L &&
                         now - lastStoppedAtMs >= FOREGROUND_FORCE_RECONNECT_THRESHOLD_MS
-                    if (shouldForceReconnect) {
-                        appContainer.relayWebSocket.forceReconnect("activity-resume-after-background")
-                    } else {
-                        appContainer.relayWebSocket.ensureHealthyConnection(
-                            reason = "activity-resume",
-                            staleTimeoutMs = RESUME_STALE_CONNECTION_TIMEOUT_MS
-                        )
-                    }
+                    restoreRelayConnectionOnForeground(
+                        reason = "activity-resume",
+                        forceReconnect = shouldForceReconnect,
+                        staleTimeoutMs = RESUME_STALE_CONNECTION_TIMEOUT_MS
+                    )
                 } catch (e: Exception) {
                     CrashLogger.logError("MainActivity", "Failed to verify relay connection on resume", e)
                 }
@@ -498,6 +499,54 @@ class MainActivity : ComponentActivity() {
         config.setLocale(locale)
         @Suppress("DEPRECATION")
         resources.updateConfiguration(config, resources.displayMetrics)
+    }
+
+    private suspend fun restoreRelayConnectionOnForeground(
+        reason: String,
+        forceReconnect: Boolean,
+        staleTimeoutMs: Long
+    ) {
+        val tokenStore = appContainer.tokenStore
+        val deviceId = tokenStore.getDeviceId()?.trim().orEmpty()
+        if (deviceId.isEmpty()) {
+            return
+        }
+
+        val previousToken = tokenStore.getToken()?.trim().orEmpty()
+        var tokenChanged = false
+        if (tokenStore.hasSavedCredentials()) {
+            val shouldRefreshToken = forceReconnect ||
+                previousToken.isBlank() ||
+                appContainer.authSessionManager.isTokenExpiringSoon()
+            appContainer.authSessionManager.ensureValidToken(
+                clientId = deviceId,
+                forceRefresh = shouldRefreshToken
+            ).onSuccess { refreshedToken ->
+                val normalizedToken = refreshedToken.trim()
+                tokenChanged = normalizedToken.isNotEmpty() && normalizedToken != previousToken
+            }.onFailure { error ->
+                CrashLogger.logError(
+                    "MainActivity",
+                    "Failed to refresh relay token on foreground restore",
+                    error as? Exception ?: Exception(error)
+                )
+            }
+        }
+
+        if (forceReconnect || tokenChanged) {
+            val reconnectReason = if (tokenChanged) {
+                "$reason-token-refresh"
+            } else {
+                "$reason-force-reconnect"
+            }
+            appContainer.relayWebSocket.forceReconnect(reconnectReason)
+            return
+        }
+
+        appContainer.relayWebSocket.ensureHealthyConnection(
+            reason = reason,
+            staleTimeoutMs = staleTimeoutMs
+        )
     }
 
     companion object {
