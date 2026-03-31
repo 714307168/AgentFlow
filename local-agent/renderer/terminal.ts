@@ -3152,8 +3152,8 @@ function renderHeader(): void {
     }
     if (elements.composerInput) {
       elements.composerInput.placeholder = inlineText(
-        "Talk to the group with @all, @developer, @qa, @pm, or member names.",
-        "可用 @all、@developer、@qa、@pm 或成员名称与群组协作。",
+        "Talk to the group with @all, @developer, @qa, or member names.",
+        "可用 @all、@developer、@qa 或成员名称与群组协作。",
       );
     }
     syncDocumentTitleIfNeeded();
@@ -3968,14 +3968,6 @@ function getMentionableMembers(): MentionSuggestionItem[] {
       role: "qa",
       kind: "role",
       searchText: "qa test deploy",
-    },
-    {
-      key: "role:project_manager",
-      token: "pm",
-      label: "pm",
-      role: "project_manager",
-      kind: "role",
-      searchText: "pm manager projectmanager",
     },
     ...members,
   ];

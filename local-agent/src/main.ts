@@ -458,6 +458,8 @@ function buildProjectListPayload(agentId: string): {
   };
 }
 
+normalizeAllWorkgroupPmMembers();
+
 const runtimeManager = new RuntimeManager(() => ({
   getProjectProvider: getProjectCliProvider,
   getProjectModel: getProjectCliModel,
@@ -1319,9 +1321,13 @@ function ensurePmMember(workgroup: Workgroup): WorkgroupMember {
     workgroup.planWorkspacePath ?? getDefaultWorkgroupPlanPath(workgroup.id),
   );
   const pmProjectId = getWorkgroupPmProjectId(workgroup.id);
-  const existingPm = workgroupStore
+  const matchingPmMembers = workgroupStore
     .listMembers(workgroup.id)
-    .find((member) => member.kind === "pm" || member.projectId === pmProjectId);
+    .filter((member) => member.kind === "pm" || member.projectId === pmProjectId);
+  const existingPm = matchingPmMembers[0];
+  for (const duplicate of matchingPmMembers.slice(1)) {
+    workgroupStore.removeMember(duplicate.id);
+  }
   if (workgroup.planWorkspacePath !== planWorkspacePath) {
     workgroupStore.saveWorkgroup({
       ...workgroup,
@@ -1348,6 +1354,12 @@ function ensurePmMember(workgroup: Workgroup): WorkgroupMember {
     systemPrompt: existingPm?.systemPrompt?.trim()
       || "Coordinate the workgroup, keep plans in this workspace, break goals into clear subtasks, and summarize final outcomes.",
   });
+}
+
+function normalizeAllWorkgroupPmMembers(): void {
+  for (const workgroup of workgroupStore.listWorkgroups()) {
+    ensurePmMember(workgroup);
+  }
 }
 
 function syncWorkgroupMembersFromSelection(workgroup: Workgroup, selectedProjectIds: string[]): void {

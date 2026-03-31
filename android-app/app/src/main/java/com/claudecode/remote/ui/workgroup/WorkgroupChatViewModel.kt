@@ -580,14 +580,6 @@ class WorkgroupChatViewModel(
                     kind = "role"
                 )
             )
-            add(
-                WorkgroupMentionSuggestion(
-                    token = "pm",
-                    label = "@pm",
-                    meta = text(R.string.workgroups_mention_pm),
-                    kind = "role"
-                )
-            )
             members
                 .filter { it.name.isNotBlank() }
                 .sortedBy { it.name.lowercase() }
