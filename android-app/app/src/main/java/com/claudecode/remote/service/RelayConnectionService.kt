@@ -62,7 +62,21 @@ class RelayConnectionService : Service() {
                     continue
                 }
 
+                val previousToken = container.tokenStore.getToken().orEmpty()
                 container.authSessionManager.ensureValidToken(deviceId, forceRefresh = true)
+                    .onSuccess { refreshedToken ->
+                        if (refreshedToken.isNotBlank() && refreshedToken != previousToken) {
+                            runCatching {
+                                container.relayWebSocket.forceReconnect("token-refresh")
+                            }.onFailure { error ->
+                                CrashLogger.logError(
+                                    "RelayConnectionService",
+                                    "Failed to reconnect relay after token refresh",
+                                    error as? Exception ?: Exception(error)
+                                )
+                            }
+                        }
+                    }
                     .onFailure { error ->
                         CrashLogger.logError(
                             "RelayConnectionService",

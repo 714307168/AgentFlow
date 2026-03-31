@@ -69,6 +69,7 @@ private data class BottomNavItem(
 
 class MainActivity : ComponentActivity() {
     private lateinit var appContainer: AppContainer
+    private var lastStoppedAtMs: Long = 0L
 
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -448,10 +449,17 @@ class MainActivity : ComponentActivity() {
         if (appContainer.tokenStore.shouldAutoStartRelay()) {
             lifecycleScope.launch {
                 try {
-                    appContainer.relayWebSocket.ensureHealthyConnection(
-                        reason = "activity-resume",
-                        staleTimeoutMs = RESUME_STALE_CONNECTION_TIMEOUT_MS
-                    )
+                    val now = System.currentTimeMillis()
+                    val shouldForceReconnect = lastStoppedAtMs > 0L &&
+                        now - lastStoppedAtMs >= FOREGROUND_FORCE_RECONNECT_THRESHOLD_MS
+                    if (shouldForceReconnect) {
+                        appContainer.relayWebSocket.forceReconnect("activity-resume-after-background")
+                    } else {
+                        appContainer.relayWebSocket.ensureHealthyConnection(
+                            reason = "activity-resume",
+                            staleTimeoutMs = RESUME_STALE_CONNECTION_TIMEOUT_MS
+                        )
+                    }
                 } catch (e: Exception) {
                     CrashLogger.logError("MainActivity", "Failed to verify relay connection on resume", e)
                 }
@@ -461,6 +469,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         appContainer.uiPresenceTracker.setAppInForeground(false)
+        lastStoppedAtMs = System.currentTimeMillis()
         super.onStop()
     }
 
@@ -493,5 +502,6 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         private const val RESUME_STALE_CONNECTION_TIMEOUT_MS = 20_000L
+        private const val FOREGROUND_FORCE_RECONNECT_THRESHOLD_MS = 30_000L
     }
 }

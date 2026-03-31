@@ -215,6 +215,31 @@ class RelayWebSocket(
         }
     }
 
+    suspend fun forceReconnect(reason: String = "manual-reconnect") {
+        connectionMutex.withLock {
+            val token = tokenStore.getToken()
+            val deviceId = tokenStore.getDeviceId()
+            if (token.isNullOrEmpty() || deviceId.isNullOrEmpty()) {
+                _errorMessage.value = "璇峰厛鍦ㄨ缃腑閰嶇疆 Token 鍜?Device ID"
+                _connectionState.value = ConnectionState.DISCONNECTED
+                return
+            }
+
+            Log.w(tag, "Force reconnecting WebSocket reason=$reason")
+            reconnectJob?.cancel()
+            reconnectJob = null
+            stopPing()
+            isAuthenticated = false
+            lastSocketOpenAttemptAtMs = System.currentTimeMillis()
+            webSocket?.cancel()
+            webSocket = null
+            _connectionState.value = ConnectionState.CONNECTING
+            _errorMessage.value = null
+            reconnectAttempts = 0
+            openWebSocketLocked()
+        }
+    }
+
     fun disconnect() {
         scope.launch {
             connectionMutex.withLock {
