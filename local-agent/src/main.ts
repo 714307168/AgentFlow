@@ -468,6 +468,7 @@ const runtimeManager = new RuntimeManager(() => ({
   getProjectModel: getProjectCliModel,
   getProjectPrompt,
   getProviderEnvironment: (provider) => getProviderEnvironment(provider),
+  shouldResumeConversation: (projectId) => !isWorkgroupPmProjectId(projectId),
   updateProject: (projectId, updates) => {
     projectStore.update(projectId, updates);
   },
@@ -1658,6 +1659,11 @@ function syncWorkgroupTasksForProjectSnapshot(snapshot: ProjectSessionSnapshot):
 }
 
 function broadcastSessionSync(snapshot: ProjectSessionSnapshot): void {
+  if (isWorkgroupPmProjectId(snapshot.projectId)) {
+    clearRelaySyncState(snapshot.projectId);
+    return;
+  }
+
   if (!relayClient || !relayClient.isConnected()) {
     return;
   }

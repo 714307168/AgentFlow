@@ -36,6 +36,7 @@ export interface RuntimeConfig {
   getProjectModel: (projectId: string) => string | null;
   getProjectPrompt?: (projectId: string) => string | null;
   getProviderEnvironment?: (provider: CliProvider) => Record<string, string>;
+  shouldResumeConversation?: (projectId: string, provider: CliProvider) => boolean;
   updateProject: (projectId: string, updates: { cliModel?: string | null }) => void;
   onProjectConfigChanged?: (projectId: string) => void;
   captureProjectScreenshot?: (projectId: string) => Promise<RunAttachment>;
@@ -721,7 +722,7 @@ class RuntimeManager extends EventEmitter {
     if (state.model) {
       args.push("--model", state.model);
     }
-    if (state.claudeSessionId) {
+    if (this.shouldResumeConversation(state.projectId, "claude") && state.claudeSessionId) {
       args.push("-r", state.claudeSessionId);
     }
 
@@ -860,7 +861,8 @@ class RuntimeManager extends EventEmitter {
     const command = process.platform === "win32" ? "codex.cmd" : "codex";
     let codexChild: ChildProcessWithoutNullStreams | null = null;
     let logicalCompletionSeen = false;
-    const args = state.codexThreadId
+    const canResumeConversation = this.shouldResumeConversation(state.projectId, "codex");
+    const args = canResumeConversation && state.codexThreadId
       ? [
           "exec",
           "resume",
@@ -1328,6 +1330,10 @@ class RuntimeManager extends EventEmitter {
       .filter((line) => line && !this.isCliNoiseLine(line))
       .join("\n")
       .trim();
+  }
+
+  private shouldResumeConversation(projectId: string, provider: CliProvider): boolean {
+    return this.getConfig().shouldResumeConversation?.(projectId, provider) ?? true;
   }
 
   private shouldRetryCodexExitCode1(error: unknown, attempt: number): boolean {
