@@ -57,6 +57,7 @@ export interface ProjectSyncChange {
   createdAt: number;
   updatedAt: number;
   role?: SessionMessage["role"];
+  source?: SessionMessage["source"];
   content: string;
   attachments?: RunAttachment[];
   status: string;
@@ -333,6 +334,7 @@ class SessionHistoryStore {
         createdAt: message.createdAt,
         updatedAt: message.updatedAt,
         role: message.role,
+        source: message.source,
         content: message.content,
         attachments: this.cloneAttachments(message.attachments),
         status: message.status,
@@ -739,7 +741,9 @@ class SessionHistoryStore {
           cwd: this.readString(queueEntry.cwd) || "",
           prompt,
           attachments: this.normalizeAttachments(queueEntry.attachments),
-          source: queueEntry.source === "remote" ? "remote" : "desktop",
+          source: queueEntry.source === "remote"
+            ? "remote"
+            : (queueEntry.source === "workgroup" ? "workgroup" : "desktop"),
           queuedAt: this.normalizeTimestamp(queueEntry.queuedAt, Date.now()),
         } as PersistedQueuedRun;
       })
@@ -767,7 +771,9 @@ class SessionHistoryStore {
       content: String((input as PersistedSessionMessage).content ?? ""),
       attachments: this.normalizeAttachments((input as PersistedSessionMessage).attachments),
       provider: (input as PersistedSessionMessage).provider === "codex" ? "codex" : ((input as PersistedSessionMessage).provider === "claude" ? "claude" : null),
-      source: (input as PersistedSessionMessage).source === "remote" ? "remote" : "desktop",
+      source: (input as PersistedSessionMessage).source === "remote"
+        ? "remote"
+        : ((input as PersistedSessionMessage).source === "workgroup" ? "workgroup" : "desktop"),
       createdAt,
       updatedAt: Math.max(updatedAt, createdAt),
       status: (input as PersistedSessionMessage).status === "streaming" ? "streaming" : "done",

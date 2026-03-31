@@ -18,6 +18,7 @@ interface MessageDao {
         """
         SELECT * FROM messages
         WHERE projectId = :projectId
+          AND source != 'workgroup'
           AND COALESCE(conversationId, '') = COALESCE(
             (SELECT activeConversationId FROM sessions WHERE projectId = :projectId LIMIT 1),
             ''
@@ -31,6 +32,7 @@ interface MessageDao {
         """
         SELECT * FROM messages
         WHERE projectId = :projectId
+          AND source != 'workgroup'
           AND COALESCE(conversationId, '') = COALESCE(
             (SELECT activeConversationId FROM sessions WHERE projectId = :projectId LIMIT 1),
             ''
@@ -44,6 +46,7 @@ interface MessageDao {
         """
         SELECT * FROM messages
         WHERE projectId = :projectId
+          AND source != 'workgroup'
           AND COALESCE(conversationId, '') = COALESCE(
             (SELECT activeConversationId FROM sessions WHERE projectId = :projectId LIMIT 1),
             ''
@@ -58,6 +61,7 @@ interface MessageDao {
         """
         SELECT * FROM messages
         WHERE projectId = :projectId
+          AND source != 'workgroup'
           AND COALESCE(conversationId, '') = COALESCE(
             (SELECT activeConversationId FROM sessions WHERE projectId = :projectId LIMIT 1),
             ''
@@ -75,6 +79,7 @@ interface MessageDao {
         """
         SELECT * FROM messages
         WHERE projectId = :projectId
+          AND source != 'workgroup'
           AND type IN ('TEXT', 'FILE')
         ORDER BY timestamp DESC, syncSeq DESC, id DESC
         LIMIT 1
@@ -89,10 +94,12 @@ interface MessageDao {
             SELECT latest.id
             FROM messages AS latest
             WHERE latest.type IN ('TEXT', 'FILE')
+              AND latest.source != 'workgroup'
               AND latest.id = (
                   SELECT inner_message.id
                   FROM messages AS inner_message
                   WHERE inner_message.projectId = latest.projectId
+                    AND inner_message.source != 'workgroup'
                     AND inner_message.type IN ('TEXT', 'FILE')
                   ORDER BY inner_message.timestamp DESC, inner_message.syncSeq DESC, inner_message.id DESC
                   LIMIT 1
@@ -110,10 +117,12 @@ interface MessageDao {
             SELECT latest.id
             FROM messages AS latest
             WHERE latest.type IN ('TEXT', 'FILE')
+              AND latest.source != 'workgroup'
               AND latest.id = (
                   SELECT inner_message.id
                   FROM messages AS inner_message
                   WHERE inner_message.projectId = latest.projectId
+                    AND inner_message.source != 'workgroup'
                     AND inner_message.type IN ('TEXT', 'FILE')
                   ORDER BY inner_message.timestamp DESC, inner_message.syncSeq DESC, inner_message.id DESC
                   LIMIT 1

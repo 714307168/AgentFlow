@@ -30,6 +30,7 @@ data class Message(
     val type: MessageType = MessageType.TEXT,
     val attachments: List<MessageAttachment> = emptyList(),
     val fileInfo: FileInfo? = attachments.firstOrNull()?.toFileInfo(),
+    val source: String = "desktop",
     val streamId: String? = null,
     val timestamp: Long,
     val syncSeq: Long = 0L,

@@ -1501,6 +1501,7 @@ class MessageRepository(
 
         return incoming.copy(
             conversationId = incoming.conversationId ?: existing.conversationId,
+            source = normalizeMessageSource(incoming.source.ifBlank { existing.source }),
             fileName = primary?.name ?: incoming.fileName ?: existing.fileName,
             fileSize = primary?.size ?: incoming.fileSize ?: existing.fileSize,
             mimeType = primary?.mimeType ?: incoming.mimeType ?: existing.mimeType,
@@ -1595,6 +1596,7 @@ class MessageRepository(
             role = role.name,
             content = content,
             type = type.name,
+            source = normalizeMessageSource(source),
             fileName = primary?.name ?: fileInfo?.fileName,
             fileSize = primary?.size ?: fileInfo?.fileSize,
             mimeType = primary?.mimeType ?: fileInfo?.mimeType,
@@ -1639,6 +1641,7 @@ class MessageRepository(
             content = if (roleValue == "error") "[Error] $content" else content,
             type = messageType,
             attachments = attachments,
+            source = normalizeMessageSource(messageObj["source"]?.jsonPrimitive?.contentOrNull),
             timestamp = createdAt,
             syncSeq = syncSeq,
             isStreaming = status == "streaming"
@@ -1729,6 +1732,7 @@ class MessageRepository(
             role = MessageRole.ASSISTANT,
             content = detail,
             type = MessageType.THINKING,
+            source = normalizeMessageSource(activityObj["source"]?.jsonPrimitive?.contentOrNull),
             timestamp = timestamp,
             syncSeq = syncSeq,
             isStreaming = status == "running" || status == "pending"
@@ -1759,6 +1763,9 @@ class MessageRepository(
             "streaming", "running", "pending" -> true
             else -> false
         }
+        val source = normalizeMessageSource(
+            itemObj["source"]?.jsonPrimitive?.contentOrNull ?: existing?.source
+        )
         val existingAttachments = existing?.let { entity ->
             deserializeAttachments(entity.attachmentsJson).ifEmpty {
                 legacyAttachment(entity.fileName, entity.fileSize, entity.mimeType, entity.filePath)?.let(::listOf) ?: emptyList()
@@ -1785,6 +1792,7 @@ class MessageRepository(
                 role = MessageRole.ASSISTANT.name,
                 content = resolvedContent,
                 type = MessageType.THINKING.name,
+                source = source,
                 attachmentsJson = null,
                 timestamp = timestamp,
                 syncSeq = syncSeq,
@@ -1803,6 +1811,7 @@ class MessageRepository(
                     status = itemObj["status"]?.jsonPrimitive?.contentOrNull
                 ),
                 type = MessageType.ACTIVITY.name,
+                source = source,
                 attachmentsJson = null,
                 timestamp = timestamp,
                 syncSeq = syncSeq,
@@ -1819,6 +1828,7 @@ class MessageRepository(
                     text = resolvedContent
                 ),
                 type = MessageType.CLI.name,
+                source = source,
                 attachmentsJson = null,
                 timestamp = timestamp,
                 syncSeq = syncSeq,
@@ -1851,6 +1861,7 @@ class MessageRepository(
                     content = if (roleValue == "error") "[Error] $content" else content,
                     type = if (attachments.isNotEmpty()) MessageType.FILE else MessageType.TEXT,
                     attachments = attachments,
+                    source = source,
                     timestamp = timestamp,
                     syncSeq = syncSeq,
                     isStreaming = isStreaming
@@ -1880,12 +1891,20 @@ class MessageRepository(
             attachments = attachments,
             fileInfo = attachments.firstOrNull()?.toFileInfo()
                 ?: if (fileName != null) FileInfo(fileName, fileSize ?: 0, mimeType ?: "", filePath) else null,
+            source = normalizeMessageSource(source),
             streamId = streamId,
             timestamp = timestamp,
             syncSeq = syncSeq,
             isStreaming = isStreaming
         )
     }
+
+    private fun normalizeMessageSource(raw: String?): String =
+        when (raw?.trim()?.lowercase()) {
+            "remote" -> "remote"
+            "workgroup" -> "workgroup"
+            else -> "desktop"
+        }
 
     private fun buildActivityContent(
         title: String?,

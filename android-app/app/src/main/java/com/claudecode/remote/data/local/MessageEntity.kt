@@ -13,6 +13,7 @@ data class MessageEntity(
     val role: String, // USER or ASSISTANT
     val content: String,
     val type: String, // TEXT or FILE
+    val source: String = "desktop",
     val fileName: String? = null,
     val fileSize: Long? = null,
     val mimeType: String? = null,

@@ -18,7 +18,7 @@ const MAX_SYNC_PROMPT_CHARS = 320;
 export interface SessionSyncQueuePayload {
   runId: string;
   prompt: string;
-  source: "remote" | "desktop";
+  source: "remote" | "desktop" | "workgroup";
   queuedAt: number;
 }
 
@@ -29,6 +29,7 @@ export interface SessionSyncItemPayload {
   createdAt: number;
   updatedAt: number;
   role?: SessionMessage["role"];
+  source?: SessionMessage["source"];
   content: string;
   content_md5: string;
   content_omitted?: boolean;
@@ -166,6 +167,7 @@ function normalizeItems(
         createdAt: item.createdAt,
         updatedAt: item.updatedAt,
         role: item.role,
+        source: item.kind === "message" ? item.source : undefined,
         content: shouldOmitContent ? "" : payloadContent,
         content_md5: contentMd5,
         content_omitted: (shouldOmitContent || isContentTrimmed) || undefined,

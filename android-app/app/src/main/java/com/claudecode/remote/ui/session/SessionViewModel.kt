@@ -8,6 +8,8 @@ import com.claudecode.remote.data.model.Envelope
 import com.claudecode.remote.data.model.Events
 import com.claudecode.remote.data.model.Message
 import com.claudecode.remote.data.model.Session
+import com.claudecode.remote.data.model.Workgroup
+import com.claudecode.remote.data.model.WorkgroupSession
 import com.claudecode.remote.data.remote.RelayWebSocket
 import com.claudecode.remote.domain.MessageRepository
 import com.claudecode.remote.domain.SessionRepository
@@ -22,11 +24,25 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.UUID
 
+enum class SessionListItemType {
+    PROJECT,
+    WORKGROUP
+}
+
 data class SessionListItem(
-    val session: Session,
+    val key: String,
+    val type: SessionListItemType,
+    val session: Session? = null,
+    val agentId: String = "",
+    val workgroupId: String? = null,
+    val title: String,
     val previewText: String? = null,
     val previewTimestamp: Long? = null,
-    val isPreviewStreaming: Boolean = false
+    val isPreviewStreaming: Boolean = false,
+    val metaText: String? = null,
+    val isOnline: Boolean = true,
+    val isRunning: Boolean = false,
+    val queuedCount: Int = 0
 )
 
 data class SessionUiState(
@@ -48,6 +64,8 @@ class SessionViewModel(
     private var latestSessions: List<Session> = emptyList()
     private var latestPreviewMap: Map<String, Message> = emptyMap()
     private var stablePreviewMap: Map<String, Message> = emptyMap()
+    private var latestAgentWorkgroups: List<AgentWorkgroups> = emptyList()
+    private var latestWorkgroupSessions: Map<String, WorkgroupSession> = emptyMap()
     private var initializeStarted = false
 
     private val _uiState = MutableStateFlow(SessionUiState())
@@ -95,7 +113,15 @@ class SessionViewModel(
         }
         viewModelScope.launch {
             workgroupRepository.agentWorkgroups.collect { groups ->
+                latestAgentWorkgroups = groups
                 _uiState.update { it.copy(agentWorkgroups = groups) }
+                rebuildSessionItems()
+            }
+        }
+        viewModelScope.launch {
+            workgroupRepository.sessions.collect { sessions ->
+                latestWorkgroupSessions = sessions
+                rebuildSessionItems()
             }
         }
         viewModelScope.launch {
@@ -109,9 +135,10 @@ class SessionViewModel(
                 }
                 .distinctUntilChanged()
                 .collect { agentIds ->
-                    workgroupRepository.retainAgentIds(agentIds)
-                    if (agentIds.isNotEmpty() && webSocket.connectionState.value == RelayWebSocket.ConnectionState.CONNECTED) {
-                        workgroupRepository.refresh(agentIds)
+                    val trackedAgentIds = workgroupRepository.resolveTrackedAgentIds(agentIds)
+                    workgroupRepository.retainAgentIds(trackedAgentIds)
+                    if (trackedAgentIds.isNotEmpty() && webSocket.connectionState.value == RelayWebSocket.ConnectionState.CONNECTED) {
+                        workgroupRepository.refresh(trackedAgentIds)
                     }
                 }
         }
@@ -196,35 +223,57 @@ class SessionViewModel(
     }
 
     private suspend fun refreshWorkgroups(showLoading: Boolean) {
-        val agentIds = repository.getSessions()
+        val trackedAgentIds = workgroupRepository.resolveTrackedAgentIds(
+            repository.getSessions()
             .map { it.agentId.trim() }
             .filter { it.isNotEmpty() }
             .distinct()
             .sorted()
-        if (agentIds.isEmpty() || webSocket.connectionState.value != RelayWebSocket.ConnectionState.CONNECTED) {
-            workgroupRepository.retainAgentIds(agentIds)
+        )
+        if (trackedAgentIds.isEmpty() || webSocket.connectionState.value != RelayWebSocket.ConnectionState.CONNECTED) {
+            workgroupRepository.retainAgentIds(trackedAgentIds)
             return
         }
         if (showLoading) {
             _uiState.update { it.copy(isLoading = true) }
         }
-        workgroupRepository.refresh(agentIds)
+        workgroupRepository.refresh(trackedAgentIds)
     }
 
     private fun rebuildSessionItems(queryOverride: String? = null) {
         val normalizedQuery = (queryOverride ?: _uiState.value.query)
             .trim()
             .lowercase()
-        val items = latestSessions
+        val sessionItems = latestSessions
             .map { session ->
                 val preview = latestPreviewMap[session.projectId]
                 SessionListItem(
+                    key = "project:${session.id}",
+                    type = SessionListItemType.PROJECT,
                     session = session,
+                    agentId = session.agentId,
+                    title = session.name,
                     previewText = preview?.toPreviewText()?.takeIf { it.isNotBlank() },
                     previewTimestamp = preview?.timestamp,
-                    isPreviewStreaming = preview?.isStreaming == true
+                    isPreviewStreaming = preview?.isStreaming == true,
+                    metaText = buildString {
+                        append(session.cliProvider)
+                        session.groupName?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                            append(" · ")
+                            append(it)
+                        }
+                    },
+                    isOnline = session.isAgentOnline,
+                    isRunning = session.isRunning,
+                    queuedCount = session.queuedCount
                 )
             }
+        val workgroupItems = latestAgentWorkgroups.flatMap { agentGroups ->
+            agentGroups.workgroups.map { workgroup ->
+                buildWorkgroupListItem(agentGroups.agentId, workgroup)
+            }
+        }
+        val items = (sessionItems + workgroupItems)
             .filter { item ->
                 if (normalizedQuery.isBlank()) {
                     true
@@ -232,6 +281,10 @@ class SessionViewModel(
                     buildSearchHaystack(item).contains(normalizedQuery)
                 }
             }
+            .sortedWith(
+                compareByDescending<SessionListItem> { it.previewTimestamp ?: 0L }
+                    .thenBy { it.title.lowercase() }
+            )
 
         _uiState.update { current ->
             if (current.sessionItems == items) {
@@ -244,16 +297,49 @@ class SessionViewModel(
 
     private fun buildSearchHaystack(item: SessionListItem): String =
         buildString {
-            append(item.session.name)
+            append(item.title)
             append(' ')
-            append(item.session.projectPath)
+            append(item.session?.projectPath.orEmpty())
             append(' ')
-            append(item.session.agentId)
+            append(item.agentId)
             append(' ')
-            append(item.session.groupName.orEmpty())
+            append(item.session?.groupName.orEmpty())
+            append(' ')
+            append(item.metaText.orEmpty())
             append(' ')
             append(item.previewText.orEmpty())
         }.lowercase()
+
+    private fun buildWorkgroupListItem(agentId: String, workgroup: Workgroup): SessionListItem {
+        val sessionKey = "${agentId.trim()}::${workgroup.id.trim()}"
+        val session = latestWorkgroupSessions[sessionKey]
+        val latestMessage = session?.messages?.lastOrNull()
+        val previewText = latestMessage?.content?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?: workgroup.lastMessagePreview?.trim()?.takeIf { it.isNotEmpty() }
+            ?: workgroup.description?.trim()?.takeIf { it.isNotEmpty() }
+        val previewTimestamp = maxOf(
+            latestMessage?.updatedAt ?: 0L,
+            latestMessage?.createdAt ?: 0L,
+            session?.updatedAt ?: 0L,
+            workgroup.updatedAt
+        ).takeIf { it > 0L }
+
+        return SessionListItem(
+            key = "workgroup:$sessionKey",
+            type = SessionListItemType.WORKGROUP,
+            agentId = agentId,
+            workgroupId = workgroup.id,
+            title = workgroup.name,
+            previewText = previewText,
+            previewTimestamp = previewTimestamp,
+            isPreviewStreaming = latestMessage?.status == "streaming",
+            metaText = "$agentId · ${workgroup.memberCount} members",
+            isOnline = webSocket.connectionState.value == RelayWebSocket.ConnectionState.CONNECTED,
+            isRunning = session?.isRunning ?: workgroup.isRunning,
+            queuedCount = 0
+        )
+    }
 
     private fun Message.toPreviewText(): String {
         val singleLineContent = content

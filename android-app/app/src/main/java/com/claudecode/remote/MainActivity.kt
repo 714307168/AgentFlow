@@ -237,6 +237,12 @@ class MainActivity : ComponentActivity() {
                                     val encodedAgentId = android.net.Uri.encode(session.agentId)
                                     navController.navigate("chat/${session.projectId}/$encodedName/$encodedAgentId")
                                 },
+                                onNavigateToWorkgroupChat = { agentId, workgroupId, workgroupName ->
+                                    val encodedAgentId = android.net.Uri.encode(agentId)
+                                    val encodedWorkgroupId = android.net.Uri.encode(workgroupId)
+                                    val encodedGroupName = android.net.Uri.encode(workgroupName.ifEmpty { "Workgroup" })
+                                    navController.navigate("workgroups/chat/$encodedAgentId/$encodedWorkgroupId/$encodedGroupName")
+                                },
                                 onRefreshSessions = {
                                     sessionViewModel.syncFromDesktop()
                                 },

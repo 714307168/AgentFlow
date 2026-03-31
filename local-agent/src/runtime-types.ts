@@ -1,5 +1,5 @@
 export type CliProvider = "claude" | "codex";
-export type RunSource = "remote" | "desktop";
+export type RunSource = "remote" | "desktop" | "workgroup";
 
 export interface RunAttachment {
   id: string;

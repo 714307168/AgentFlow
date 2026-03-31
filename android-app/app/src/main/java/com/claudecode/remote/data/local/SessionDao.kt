@@ -17,6 +17,7 @@ interface SessionDao {
                 SELECT MAX(messages.timestamp)
                 FROM messages
                 WHERE messages.projectId = sessions.projectId
+                  AND messages.source != 'workgroup'
                   AND messages.type IN ('TEXT', 'FILE')
             ),
             0
@@ -36,6 +37,7 @@ interface SessionDao {
                 SELECT MAX(messages.timestamp)
                 FROM messages
                 WHERE messages.projectId = sessions.projectId
+                  AND messages.source != 'workgroup'
                   AND messages.type IN ('TEXT', 'FILE')
             ),
             0

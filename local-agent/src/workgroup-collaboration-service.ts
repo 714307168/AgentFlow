@@ -701,7 +701,7 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       projectId: project.id,
       cwd: project.path,
       prompt,
-      source: "desktop",
+      source: "workgroup",
       runId,
       responseMessageId: replyMessage.id,
       onTextDelta: handleText,

@@ -67,6 +67,7 @@ fun SessionListScreen(
     onDownloadUpdate: () -> Unit,
     onInstallUpdate: () -> Unit,
     onNavigateToChat: (session: Session) -> Unit,
+    onNavigateToWorkgroupChat: (agentId: String, workgroupId: String, workgroupName: String) -> Unit,
     onRefreshSessions: () -> Unit,
     onToggleConnection: () -> Unit
 ) {
@@ -74,7 +75,7 @@ fun SessionListScreen(
     val connectionState by webSocket.connectionState.collectAsState()
     val connectionError by webSocket.errorMessage.collectAsState()
     val listState = rememberLazyListState()
-    val currentTopSessionId = uiState.sessionItems.firstOrNull()?.session?.id
+    val currentTopSessionId = uiState.sessionItems.firstOrNull()?.key
 
     LaunchedEffect(Unit) {
         viewModel.initialize()
@@ -185,10 +186,18 @@ fun SessionListScreen(
                                     }
                                 }
                             } else {
-                                items(uiState.sessionItems, key = { it.session.id }) { item ->
+                                items(uiState.sessionItems, key = { it.key }) { item ->
                                     SessionCard(
                                         item = item,
-                                        onClick = { onNavigateToChat(item.session) }
+                                        onClick = {
+                                            when (item.type) {
+                                                SessionListItemType.PROJECT -> item.session?.let(onNavigateToChat)
+                                                SessionListItemType.WORKGROUP -> {
+                                                    val workgroupId = item.workgroupId ?: return@SessionCard
+                                                    onNavigateToWorkgroupChat(item.agentId, workgroupId, item.title)
+                                                }
+                                            }
+                                        }
                                     )
                                 }
                             }
@@ -473,9 +482,20 @@ private fun SummaryPill(
 
 @Composable
 private fun SessionCard(item: SessionListItem, onClick: () -> Unit) {
-    val session = item.session
-    val avatar = session.name.firstOrNull()?.uppercase() ?: "C"
-    val previewText = item.previewText ?: session.currentPrompt ?: session.queuePreview ?: session.projectPath
+    val session = item.session ?: Session(
+        id = item.key,
+        name = item.title,
+        agentId = item.agentId,
+        projectId = item.workgroupId ?: item.key,
+        projectPath = item.metaText.orEmpty(),
+        isAgentOnline = item.isOnline,
+        isRunning = item.isRunning,
+        queuedCount = item.queuedCount,
+        createdAt = item.previewTimestamp ?: 0L,
+        lastActiveAt = item.previewTimestamp ?: 0L
+    )
+    val avatar = item.title.firstOrNull()?.uppercase() ?: "C"
+    val previewText = item.previewText ?: session.projectPath.ifBlank { item.metaText.orEmpty() }
     val timestamp = item.previewTimestamp ?: session.createdAt
     val metaText = buildString {
         append(providerLabel(session.cliProvider))
@@ -488,6 +508,25 @@ private fun SessionCard(item: SessionListItem, onClick: () -> Unit) {
         session.groupName?.trim()?.takeUnless { it.isEmpty() }?.let {
             append(" · ")
             append(it)
+        }
+    }
+
+    val statusLabel = if (item.type == SessionListItemType.PROJECT) {
+        runtimeLabel(session)
+    } else {
+        when {
+            !item.isOnline -> stringResource(R.string.status_offline)
+            item.isRunning -> stringResource(R.string.status_running)
+            else -> stringResource(R.string.status_ready)
+        }
+    }
+    val statusColor = if (item.type == SessionListItemType.PROJECT) {
+        runtimeColor(session)
+    } else {
+        when {
+            !item.isOnline -> MaterialTheme.colorScheme.error
+            item.isRunning -> MaterialTheme.colorScheme.tertiary
+            else -> MaterialTheme.colorScheme.secondary
         }
     }
 
@@ -509,7 +548,7 @@ private fun SessionCard(item: SessionListItem, onClick: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Surface(
-                color = if (session.isAgentOnline) {
+                color = if (item.isOnline) {
                     MaterialTheme.colorScheme.primaryContainer
                 } else {
                     MaterialTheme.colorScheme.errorContainer
@@ -521,7 +560,7 @@ private fun SessionCard(item: SessionListItem, onClick: () -> Unit) {
                     Text(
                         text = avatar,
                         style = MaterialTheme.typography.titleSmall,
-                        color = if (session.isAgentOnline) {
+                        color = if (item.isOnline) {
                             MaterialTheme.colorScheme.onPrimaryContainer
                         } else {
                             MaterialTheme.colorScheme.onErrorContainer
@@ -542,7 +581,7 @@ private fun SessionCard(item: SessionListItem, onClick: () -> Unit) {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = session.name,
+                        text = item.title,
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface,
@@ -577,22 +616,22 @@ private fun SessionCard(item: SessionListItem, onClick: () -> Unit) {
                             .size(7.dp)
                             .clip(CircleShape)
                             .background(
-                                if (session.isAgentOnline) Color(0xFF4CAF50) else Color(0xFFEF5350)
+                                if (item.isOnline) Color(0xFF4CAF50) else Color(0xFFEF5350)
                             )
                     )
                     Text(
-                        text = metaText,
+                        text = if (item.type == SessionListItemType.PROJECT) metaText else item.metaText.orEmpty(),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
                     )
-                    if (session.isRunning || session.queuedCount > 0 || !session.isAgentOnline) {
+                    if (item.isRunning || item.queuedCount > 0 || !item.isOnline) {
                         SummaryPill(
-                            text = runtimeLabel(session),
-                            containerColor = runtimeColor(session).copy(alpha = 0.12f),
-                            contentColor = runtimeColor(session)
+                            text = statusLabel,
+                            containerColor = statusColor.copy(alpha = 0.12f),
+                            contentColor = statusColor
                         )
                     }
                 }

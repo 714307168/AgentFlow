@@ -351,6 +351,7 @@ class RuntimeManager extends EventEmitter {
 
     const limit = Number(request.limit) > 0 ? Math.max(1, Number(request.limit)) : 200;
     return conversation.messages
+      .filter((message) => message.source !== "workgroup")
       .filter((message) => {
         const attachmentText = (message.attachments ?? [])
           .map((attachment) => `${attachment.name} ${attachment.path}`)
@@ -686,6 +687,10 @@ class RuntimeManager extends EventEmitter {
           status: "error",
           createdAt: Date.now(),
           updatedAt: Date.now(),
+          meta: {
+            source: next.source,
+            runId: next.runId,
+          },
         });
         next.onError?.(message);
       }
@@ -768,6 +773,7 @@ class RuntimeManager extends EventEmitter {
                   createdAt: Date.now(),
                   updatedAt: Date.now(),
                   meta: {
+                    source: run.source,
                     runId: run.runId,
                   },
                 });
@@ -797,6 +803,7 @@ class RuntimeManager extends EventEmitter {
                   createdAt: Date.now(),
                   updatedAt: Date.now(),
                   meta: {
+                    source: run.source,
                     runId: run.runId,
                   },
                 }),
@@ -908,6 +915,7 @@ class RuntimeManager extends EventEmitter {
                   createdAt: Date.now(),
                   updatedAt: Date.now(),
                   meta: {
+                    source: run.source,
                     runId: run.runId,
                   },
                 });
@@ -942,6 +950,7 @@ class RuntimeManager extends EventEmitter {
                 createdAt: Date.now(),
                 updatedAt: Date.now(),
                 meta: {
+                  source: run.source,
                   runId: run.runId,
                 },
               });
@@ -960,6 +969,7 @@ class RuntimeManager extends EventEmitter {
               createdAt: Date.now(),
               updatedAt: Date.now(),
               meta: {
+                source: run.source,
                 runId: run.runId,
               },
             });

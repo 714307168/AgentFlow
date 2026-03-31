@@ -91,7 +91,7 @@ interface SessionMessage {
   content: string;
   attachments?: AttachmentRef[];
   provider?: "claude" | "codex" | null;
-  source: "remote" | "desktop";
+  source: "remote" | "desktop" | "workgroup";
   createdAt: number;
   updatedAt: number;
   status: "streaming" | "done";
@@ -105,12 +105,13 @@ interface SessionActivity {
   status: "pending" | "running" | "completed" | "error";
   createdAt: number;
   updatedAt: number;
+  meta?: Record<string, string | number | boolean>;
 }
 
 interface QueuedRunItem {
   runId: string;
   prompt: string;
-  source: "remote" | "desktop";
+  source: "remote" | "desktop" | "workgroup";
   queuedAt: number;
 }
 
@@ -128,7 +129,7 @@ interface SessionSnapshot {
   automationMode: "full-auto";
   isRunning: boolean;
   queuedCount: number;
-  currentSource: "remote" | "desktop" | null;
+  currentSource: "remote" | "desktop" | "workgroup" | null;
   currentPrompt?: string | null;
   currentStartedAt?: number | null;
   activeConversationId: string | null;
@@ -600,10 +601,29 @@ function modelLabel(model: string | null | undefined): string {
   return value || inlineText("Auto", "自动");
 }
 
-function translateSource(source: "remote" | "desktop"): string {
-  return source === "remote"
-    ? msg("terminal.source.remote", "remote")
-    : msg("terminal.source.desktop", "desktop");
+function translateSource(source: "remote" | "desktop" | "workgroup"): string {
+  if (source === "remote") {
+    return msg("terminal.source.remote", "remote");
+  }
+  if (source === "workgroup") {
+    return inlineText("workgroup", "协作组");
+  }
+  return msg("terminal.source.desktop", "desktop");
+}
+
+function isPrivateProjectMessage(message: SessionMessage | null | undefined): boolean {
+  return Boolean(message) && message?.source !== "workgroup";
+}
+
+function getVisibleSessionMessages(session: SessionSnapshot | null): SessionMessage[] {
+  if (!session) {
+    return [];
+  }
+  return session.messages.filter((message) => isPrivateProjectMessage(message));
+}
+
+function isPrivateProjectActivity(activity: SessionActivity | null | undefined): boolean {
+  return Boolean(activity) && activity?.meta?.source !== "workgroup";
 }
 
 function translateRole(role: SessionMessage["role"]): string {
@@ -714,22 +734,21 @@ function getProjectLastActivityAt(projectId: string): number {
     }
   };
 
-  for (const message of session.messages) {
+  for (const message of getVisibleSessionMessages(session)) {
     update(message.updatedAt || message.createdAt);
   }
-  for (const activity of session.activities) {
+  for (const activity of session.activities.filter((entry) => isPrivateProjectActivity(entry))) {
     update(activity.updatedAt || activity.createdAt);
   }
   for (const entry of session.cliTrace) {
     update(entry.createdAt);
   }
-  for (const item of session.queue) {
+  for (const item of session.queue.filter((entry) => entry.source !== "workgroup")) {
     update(item.queuedAt);
   }
-  for (const convo of session.conversations ?? []) {
-    update(convo.updatedAt || convo.createdAt);
+  if (session.currentSource !== "workgroup") {
+    update(session.currentStartedAt ?? null);
   }
-  update(session.currentStartedAt ?? null);
 
   return last;
 }
@@ -1364,7 +1383,11 @@ function getDisplayedMessages(): SessionMessage[] {
   if (!projectId) {
     return [];
   }
-  return getProjectHistoryState(projectId)?.messages ?? getCurrentSession()?.messages ?? [];
+  const historyMessages = getProjectHistoryState(projectId)?.messages;
+  if (historyMessages) {
+    return historyMessages.filter((message) => isPrivateProjectMessage(message));
+  }
+  return getVisibleSessionMessages(getCurrentSession());
 }
 
 function getDisplayedWorkgroupMessages(): WorkgroupMessage[] {
@@ -1419,7 +1442,7 @@ function getDisplayedActivities(): SessionActivity[] {
       return leftUpdatedAt - rightUpdatedAt;
     }
     return left.id.localeCompare(right.id, "en-US");
-  });
+  }).filter((activity) => isPrivateProjectActivity(activity));
 }
 
 function getDisplayedCliTrace(): CliTraceEntry[] {
@@ -1504,11 +1527,12 @@ function shouldStickToBottom(container: HTMLElement | null): boolean {
 }
 
 function getLatestActivity(session: SessionSnapshot | null): SessionActivity | null {
-  if (!session || session.activities.length === 0) {
+  const activities = session?.activities.filter((entry) => isPrivateProjectActivity(entry)) ?? [];
+  if (activities.length === 0) {
     return null;
   }
 
-  return session.activities[session.activities.length - 1] ?? null;
+  return activities[activities.length - 1] ?? null;
 }
 
 function getLatestCliEntry(session: SessionSnapshot | null): CliTraceEntry | null {
@@ -1520,11 +1544,12 @@ function getLatestCliEntry(session: SessionSnapshot | null): CliTraceEntry | nul
 }
 
 function getLatestMessage(session: SessionSnapshot | null): SessionMessage | null {
-  if (!session || session.messages.length === 0) {
+  const messages = getVisibleSessionMessages(session);
+  if (messages.length === 0) {
     return null;
   }
 
-  return session.messages[session.messages.length - 1] ?? null;
+  return messages[messages.length - 1] ?? null;
 }
 
 function getConfiguredProvider(project: ProjectState | null, session: SessionSnapshot | null): "claude" | "codex" {
@@ -1573,8 +1598,12 @@ function getProjectStatusMeta(projectId: string): { label: string; tone: string;
     };
   }
 
-  const source = session.currentSource === "remote" ? "remote" : "desktop";
-  if (session.isRunning) {
+  const source = session.currentSource === "remote"
+    ? "remote"
+    : (session.currentSource === "workgroup" ? "workgroup" : "desktop");
+  const visibleQueue = session.queue.filter((entry) => entry.source !== "workgroup");
+  const isPrivateRunActive = session.isRunning && session.currentSource !== "workgroup";
+  if (isPrivateRunActive) {
     return {
       label: msg("terminal.project.status.running", "Running"),
       tone: "running",
@@ -1588,7 +1617,7 @@ function getProjectStatusMeta(projectId: string): { label: string; tone: string;
     };
   }
 
-  if (session.queuedCount > 0) {
+  if (visibleQueue.length > 0) {
     return {
       label: msg("terminal.project.status.queued", "Queued"),
       tone: "queued",
@@ -1596,7 +1625,7 @@ function getProjectStatusMeta(projectId: string): { label: string; tone: string;
         configuredProvider,
         configuredModel,
         msg("terminal.project.summary.queued", "{count} queued", {
-          count: String(session.queuedCount),
+          count: String(visibleQueue.length),
         }),
       ),
     };
@@ -1615,7 +1644,7 @@ function getProjectStatusMeta(projectId: string): { label: string; tone: string;
     };
   }
 
-  if (session.messages.length > 0) {
+  if (getVisibleSessionMessages(session).length > 0) {
     return {
       label: msg("terminal.project.status.ready", "Ready"),
       tone: "ready",
@@ -2248,7 +2277,7 @@ function renderQueue(): void {
 
   const project = getCurrentProject();
   const session = getCurrentSession();
-  const queuedItems = session?.queue ?? [];
+  const queuedItems = (session?.queue ?? []).filter((item) => item.source !== "workgroup");
   elements.queueCount.textContent = String(queuedItems.length);
 
   if (!project) {
