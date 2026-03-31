@@ -43,6 +43,10 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -82,9 +86,29 @@ fun SessionListScreen(
     val connectionState by webSocket.connectionState.collectAsState()
     val connectionError by webSocket.errorMessage.collectAsState()
     val listState = rememberLazyListState()
+    val anchorItemKey = remember { mutableStateOf<String?>(null) }
+    val anchorItemOffset = remember { mutableIntStateOf(0) }
 
     LaunchedEffect(Unit) {
         viewModel.initialize()
+    }
+
+    LaunchedEffect(listState, uiState.sessionItems) {
+        snapshotFlow {
+            val index = listState.firstVisibleItemIndex
+            uiState.sessionItems.getOrNull(index)?.key to listState.firstVisibleItemScrollOffset
+        }.collect { (key, offset) ->
+            anchorItemKey.value = key
+            anchorItemOffset.intValue = offset
+        }
+    }
+
+    LaunchedEffect(uiState.sessionItems.map { it.key }) {
+        val anchorKey = anchorItemKey.value ?: return@LaunchedEffect
+        val targetIndex = uiState.sessionItems.indexOfFirst { it.key == anchorKey }
+        if (targetIndex >= 0 && targetIndex != listState.firstVisibleItemIndex) {
+            listState.scrollToItem(targetIndex, anchorItemOffset.intValue)
+        }
     }
 
     DisposableEffect(lifecycleOwner) {
