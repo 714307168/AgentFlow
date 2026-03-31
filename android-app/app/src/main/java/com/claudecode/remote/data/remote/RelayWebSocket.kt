@@ -92,6 +92,10 @@ class RelayWebSocket(
         e2eEnabled = enabled
     }
 
+    fun clearErrorMessage() {
+        _errorMessage.value = null
+    }
+
     suspend fun ensureHealthyConnection(
         reason: String = "health-check",
         staleTimeoutMs: Long = STALE_CONNECTION_TIMEOUT_MS
@@ -204,6 +208,7 @@ class RelayWebSocket(
             }
             Log.d(tag, "WebSocket opened generation=$generation")
             lastInboundAtMs = System.currentTimeMillis()
+            _errorMessage.value = null
             _connectionState.value = ConnectionState.CONNECTED
             reconnectAttempts = 0
             authenticate()
@@ -252,9 +257,8 @@ class RelayWebSocket(
             if (!isCurrentSocket(generation, webSocket)) {
                 return
             }
-            val errorMsg = "连接失败: ${t.message ?: "未知错误"}"
             Log.e(tag, "WebSocket failure generation=$generation response=${response?.code}", t)
-            _errorMessage.value = errorMsg
+            _errorMessage.value = buildDisplayableFailureMessage(t, response)
             _connectionState.value = ConnectionState.RECONNECTING
             stopPing()
             scheduleReconnect(generation)
@@ -266,7 +270,12 @@ class RelayWebSocket(
             }
             Log.d(tag, "WebSocket closed generation=$generation code=$code reason=$reason")
             if (code != 1000) {
-                _errorMessage.value = "连接关闭: $reason (code: $code)"
+                val normalizedReason = reason.trim()
+                _errorMessage.value = if (normalizedReason.isBlank()) {
+                    null
+                } else {
+                    "连接关闭: $normalizedReason (code: $code)"
+                }
             }
             if (_connectionState.value != ConnectionState.DISCONNECTED) {
                 _connectionState.value = ConnectionState.RECONNECTING
@@ -580,6 +589,27 @@ class RelayWebSocket(
 
     private fun isCurrentSocket(generation: Long, candidate: WebSocket): Boolean =
         generation == connectionGeneration && candidate == webSocket
+
+    private fun buildDisplayableFailureMessage(t: Throwable, response: Response?): String? {
+        val responseCode = response?.code
+        if (responseCode != null && responseCode >= 400) {
+            return "连接失败: HTTP $responseCode"
+        }
+
+        val rawMessage = t.message?.trim().orEmpty()
+        val normalizedMessage = rawMessage.lowercase()
+        if (
+            rawMessage.isBlank() ||
+            normalizedMessage == "canceled" ||
+            normalizedMessage == "socket closed" ||
+            normalizedMessage.contains("closed") ||
+            normalizedMessage.contains("cancel")
+        ) {
+            return null
+        }
+
+        return "连接失败: $rawMessage"
+    }
 
     companion object {
         private const val STALE_CONNECTION_TIMEOUT_MS = 75_000L

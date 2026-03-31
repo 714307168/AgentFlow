@@ -229,7 +229,11 @@ fun SessionListScreen(
                 }
             }
 
-            connectionError?.let { error ->
+            val shouldShowConnectionError =
+                connectionState == RelayWebSocket.ConnectionState.DISCONNECTED &&
+                    !connectionError.isNullOrBlank()
+            if (shouldShowConnectionError) {
+                val error = connectionError.orEmpty()
                 Snackbar(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
@@ -237,7 +241,7 @@ fun SessionListScreen(
                     containerColor = MaterialTheme.colorScheme.errorContainer,
                     contentColor = MaterialTheme.colorScheme.onErrorContainer,
                     action = {
-                        TextButton(onClick = { viewModel.clearError() }) {
+                        TextButton(onClick = { webSocket.clearErrorMessage() }) {
                             Text(stringResource(R.string.dismiss))
                         }
                     }
