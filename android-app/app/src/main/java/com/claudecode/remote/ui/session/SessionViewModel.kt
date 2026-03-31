@@ -149,6 +149,7 @@ class SessionViewModel(
         viewModelScope.launch {
             webSocket.connectionState.collect { state ->
                 if (state == RelayWebSocket.ConnectionState.CONNECTED) {
+                    messageRepository.requestProjectSyncs(repository.getSessions())
                     refreshWorkgroups(showLoading = false)
                 }
             }
@@ -284,7 +285,9 @@ class SessionViewModel(
                     agentId = session.agentId,
                     title = session.name,
                     previewText = preview?.toPreviewText()?.takeIf { it.isNotBlank() },
-                    previewTimestamp = preview?.timestamp,
+                    previewTimestamp = preview?.timestamp
+                        ?: session.lastActiveAt.takeIf { it > 0L }
+                        ?: session.createdAt.takeIf { it > 0L },
                     isPreviewStreaming = preview?.isStreaming == true,
                     metaText = buildString {
                         append(session.cliProvider)

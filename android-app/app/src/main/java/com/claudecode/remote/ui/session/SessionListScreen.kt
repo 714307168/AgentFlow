@@ -82,20 +82,9 @@ fun SessionListScreen(
     val connectionState by webSocket.connectionState.collectAsState()
     val connectionError by webSocket.errorMessage.collectAsState()
     val listState = rememberLazyListState()
-    val currentTopSessionId = uiState.sessionItems.firstOrNull()?.key
 
     LaunchedEffect(Unit) {
         viewModel.initialize()
-    }
-
-    LaunchedEffect(currentTopSessionId) {
-        if (currentTopSessionId == null) {
-            return@LaunchedEffect
-        }
-        val isAlreadyAtTop = listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset <= 8
-        if (isAlreadyAtTop) {
-            listState.scrollToItem(0)
-        }
     }
 
     DisposableEffect(lifecycleOwner) {

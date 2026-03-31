@@ -63,6 +63,8 @@ class RelayWebSocket(
     private var e2eEnabled: Boolean = tokenStore.isE2EEnabled()
     @Volatile
     private var lastInboundAtMs: Long = 0L
+    @Volatile
+    private var lastSocketOpenAttemptAtMs: Long = 0L
     private val pendingRoomKeyOffers = mutableSetOf<String>()
     private val pendingEncryptedEnvelopes = mutableMapOf<String, MutableList<Envelope>>()
     private val connectionMutex = Mutex()
@@ -118,7 +120,38 @@ class RelayWebSocket(
                 }
 
                 ConnectionState.CONNECTING,
-                ConnectionState.RECONNECTING -> Unit
+                ConnectionState.RECONNECTING -> {
+                    val now = System.currentTimeMillis()
+                    val staleForMs = if (lastSocketOpenAttemptAtMs > 0L) {
+                        now - lastSocketOpenAttemptAtMs
+                    } else if (lastInboundAtMs > 0L) {
+                        now - lastInboundAtMs
+                    } else {
+                        Long.MAX_VALUE
+                    }
+                    val reconnectActive = reconnectJob?.isActive == true
+                    val shouldForceReconnect =
+                        webSocket == null ||
+                            staleForMs > staleTimeoutMs ||
+                            (_connectionState.value == ConnectionState.RECONNECTING && !reconnectActive)
+                    if (!shouldForceReconnect) {
+                        return
+                    }
+
+                    Log.w(
+                        tag,
+                        "Recovering stalled WebSocket state=${_connectionState.value} reason=$reason staleForMs=$staleForMs reconnectActive=$reconnectActive"
+                    )
+                    reconnectJob?.cancel()
+                    reconnectJob = null
+                    stopPing()
+                    webSocket?.cancel()
+                    webSocket = null
+                    _connectionState.value = ConnectionState.CONNECTING
+                    _errorMessage.value = null
+                    reconnectAttempts = 0
+                    openWebSocketLocked()
+                }
 
                 ConnectionState.CONNECTED -> {
                     val now = System.currentTimeMillis()
@@ -194,6 +227,7 @@ class RelayWebSocket(
         val wsUrl = toWsUrl(serverUrl)
         connectionGeneration += 1
         val generation = connectionGeneration
+        lastSocketOpenAttemptAtMs = System.currentTimeMillis()
         webSocket?.cancel()
         Log.d(tag, "Opening WebSocket: $wsUrl generation=$generation")
         val request = Request.Builder().url(wsUrl).build()
