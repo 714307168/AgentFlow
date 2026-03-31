@@ -67,6 +67,8 @@ import com.claudecode.remote.data.remote.RelayWebSocket
 import com.claudecode.remote.update.AppUpdateState
 import com.claudecode.remote.update.AppUpdateStatus
 
+private const val SESSION_LIST_TOP_SNAP_THRESHOLD_PX = 24
+
 @Composable
 fun SessionListScreen(
     viewModel: SessionViewModel,
@@ -88,6 +90,7 @@ fun SessionListScreen(
     val listState = rememberLazyListState()
     val anchorItemKey = remember { mutableStateOf<String?>(null) }
     val anchorItemOffset = remember { mutableIntStateOf(0) }
+    val shouldStickToTop = remember { mutableStateOf(true) }
 
     LaunchedEffect(Unit) {
         viewModel.initialize()
@@ -96,14 +99,28 @@ fun SessionListScreen(
     LaunchedEffect(listState, uiState.sessionItems) {
         snapshotFlow {
             val index = listState.firstVisibleItemIndex
-            uiState.sessionItems.getOrNull(index)?.key to listState.firstVisibleItemScrollOffset
-        }.collect { (key, offset) ->
+            Triple(
+                uiState.sessionItems.getOrNull(index)?.key,
+                listState.firstVisibleItemScrollOffset,
+                index == 0 && listState.firstVisibleItemScrollOffset <= SESSION_LIST_TOP_SNAP_THRESHOLD_PX
+            )
+        }.collect { (key, offset, isNearTop) ->
             anchorItemKey.value = key
             anchorItemOffset.intValue = offset
+            shouldStickToTop.value = isNearTop
         }
     }
 
     LaunchedEffect(uiState.sessionItems.map { it.key }) {
+        if (uiState.sessionItems.isEmpty()) {
+            return@LaunchedEffect
+        }
+        if (shouldStickToTop.value) {
+            if (listState.firstVisibleItemIndex != 0 || listState.firstVisibleItemScrollOffset != 0) {
+                listState.scrollToItem(0)
+            }
+            return@LaunchedEffect
+        }
         val anchorKey = anchorItemKey.value ?: return@LaunchedEffect
         val targetIndex = uiState.sessionItems.indexOfFirst { it.key == anchorKey }
         if (targetIndex >= 0 && targetIndex != listState.firstVisibleItemIndex) {
