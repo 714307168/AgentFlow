@@ -79,10 +79,7 @@ class MessageRepository(
         private const val FILE_SYNC_KIND_DOWNLOAD_REQUEST = "download_request"
         private const val MAX_PREVIEW_EDGE = 480
         private const val MAX_PREVIEW_BYTES = 220 * 1024
-        private const val SYNC_KNOWN_ITEM_LIMIT = 60
         private const val RECENT_SYNC_OVERLAP_COUNT = 6
-        private const val SESSION_SYNC_ACTION_FETCH_ITEM_DETAIL = "fetch_item_detail"
-        private const val FULL_ITEM_REQUEST_DEDUPE_WINDOW_MS = 5_000L
     }
 
     private data class UploadAck(
@@ -127,7 +124,6 @@ class MessageRepository(
     private val pendingDownloadTransfers = ConcurrentHashMap<String, PendingDownloadTransfer>()
     private val lastProjectSyncRequestedAt = ConcurrentHashMap<String, Long>()
     private val lastWakeupRequestedAt = ConcurrentHashMap<String, Long>()
-    private val lastFullItemRequestAt = ConcurrentHashMap<String, Long>()
     private val projectSendMutexes = ConcurrentHashMap<String, Mutex>()
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
@@ -142,7 +138,6 @@ class MessageRepository(
         limit: Int? = null,
         action: String? = null,
         conversationId: String? = null,
-        itemId: String? = null,
         recentOverlapCount: Int = RECENT_SYNC_OVERLAP_COUNT,
         shouldWakeAgent: Boolean = true
     ) {
@@ -180,8 +175,7 @@ class MessageRepository(
             beforeSeq = beforeSeq,
             limit = limit ?: DEFAULT_SYNC_LIMIT,
             action = action,
-            conversationId = effectiveConversationId,
-            itemId = itemId
+            conversationId = effectiveConversationId
         )
         val now = System.currentTimeMillis()
         val previousRequestedAt = lastProjectSyncRequestedAt.put(requestKey, now)
@@ -207,19 +201,6 @@ class MessageRepository(
                     }
                     effectiveConversationId?.let {
                         put("conversation_id", JsonPrimitive(it))
-                    }
-                    itemId?.trim()?.takeIf { it.isNotEmpty() }?.let {
-                        put("item_id", JsonPrimitive(it))
-                    }
-                    val knownItems = buildKnownSyncItemPayloads(
-                        projectId = projectId,
-                        conversationId = effectiveConversationId,
-                        afterSeq = afterSeq,
-                        beforeSeq = beforeSeq,
-                        limit = limit ?: DEFAULT_SYNC_LIMIT
-                    )
-                    if (knownItems.isNotEmpty()) {
-                        put("known_items", JsonArray(knownItems))
                     }
                 },
                 ts = System.currentTimeMillis()
@@ -816,22 +797,12 @@ class MessageRepository(
     ): AppliedSyncWindow {
         var earliestSeq: Long? = null
         var highestSeq = 0L
-        val omittedItemIds = mutableSetOf<String>()
 
         db.withTransaction {
             val currentLastSeq = sessionDao.getSessionByProjectId(projectId)?.lastSyncSeq ?: 0L
             rawItems.forEachIndexed { index, item ->
                 val itemObj = item.jsonObject
                 val itemId = itemObj["id"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
-                if (
-                    itemId.isNotBlank()
-                    && (
-                        itemObj["content_omitted"]?.jsonPrimitive?.booleanOrNull == true
-                        || itemObj["attachments_omitted"]?.jsonPrimitive?.booleanOrNull == true
-                    )
-                ) {
-                    omittedItemIds.add(itemId)
-                }
                 val entity = runCatching {
                     parseSyncItem(
                         projectId = projectId,
@@ -866,18 +837,6 @@ class MessageRepository(
                 else -> maxOf(currentLastSeq, latestSeq, highestSeq)
             }
             sessionDao.updateLastSyncSeq(projectId, nextLastSyncSeq)
-        }
-
-        if (omittedItemIds.isNotEmpty()) {
-            val session = sessionDao.getSessionByProjectId(projectId)
-            omittedItemIds.forEach { itemId ->
-                requestFullSyncItemIfNeeded(
-                    projectId = projectId,
-                    agentId = session?.agentId,
-                    conversationId = session?.activeConversationId,
-                    itemId = itemId
-                )
-            }
         }
 
         return AppliedSyncWindow(
@@ -923,47 +882,6 @@ class MessageRepository(
             limit = requestLimit,
             shouldWakeAgent = false
         )
-    }
-
-    private suspend fun requestFullSyncItemIfNeeded(
-        projectId: String,
-        agentId: String?,
-        conversationId: String?,
-        itemId: String
-    ) {
-        val normalizedItemId = itemId.trim()
-        if (projectId.isBlank() || normalizedItemId.isBlank()) {
-            return
-        }
-        if (webSocket.connectionState.value != RelayWebSocket.ConnectionState.CONNECTED) {
-            return
-        }
-
-        val requestKey = "${projectId.trim()}::${normalizedItemId}"
-        val now = System.currentTimeMillis()
-        val previousRequestedAt = lastFullItemRequestAt.put(requestKey, now)
-        if (previousRequestedAt != null && now - previousRequestedAt < FULL_ITEM_REQUEST_DEDUPE_WINDOW_MS) {
-            return
-        }
-
-        try {
-            requestProjectSync(
-                projectId = projectId,
-                agentId = agentId,
-                action = SESSION_SYNC_ACTION_FETCH_ITEM_DETAIL,
-                conversationId = conversationId,
-                itemId = normalizedItemId,
-                limit = 1,
-                shouldWakeAgent = false
-            )
-        } catch (error: Exception) {
-            lastFullItemRequestAt.remove(requestKey, now)
-            CrashLogger.logError(
-                "MessageRepository",
-                "Error requesting full sync item for projectId=$projectId itemId=$normalizedItemId",
-                error
-            )
-        }
     }
 
     private suspend fun mergeProjectMessagesFromDesktop(
@@ -1096,8 +1014,7 @@ class MessageRepository(
         beforeSeq: Long?,
         limit: Int,
         action: String?,
-        conversationId: String?,
-        itemId: String?
+        conversationId: String?
     ): String = listOf(
         projectId.trim(),
         agentId?.trim().orEmpty(),
@@ -1105,8 +1022,7 @@ class MessageRepository(
         beforeSeq?.toString().orEmpty(),
         limit.toString(),
         action?.trim().orEmpty(),
-        conversationId?.trim().orEmpty(),
-        itemId?.trim().orEmpty()
+        conversationId?.trim().orEmpty()
     ).joinToString(separator = "::")
 
     private suspend fun pruneProjectMessageCache(
@@ -1931,42 +1847,6 @@ class MessageRepository(
         } else {
             json.encodeToString(ListSerializer(MessageAttachment.serializer()), attachments)
         }
-
-    private suspend fun buildKnownSyncItemPayloads(
-        projectId: String,
-        conversationId: String?,
-        afterSeq: Long,
-        beforeSeq: Long?,
-        limit: Int
-    ): List<JsonObject> {
-        val digestLimit = if (afterSeq > 0L && beforeSeq == null) {
-            maxOf(limit, RECENT_SYNC_OVERLAP_COUNT * 4)
-        } else {
-            maxOf(SYNC_KNOWN_ITEM_LIMIT, limit * 2)
-        }
-        val candidates = messageDao.getSyncDigestMessages(
-            projectId = projectId,
-            conversationId = conversationId,
-            beforeSeq = beforeSeq?.takeIf { it > 0L },
-            limit = digestLimit
-        )
-        if (candidates.isEmpty()) {
-            return emptyList()
-        }
-
-        return candidates.map { entity ->
-            val attachments = deserializeAttachments(entity.attachmentsJson).ifEmpty {
-                legacyAttachment(entity.fileName, entity.fileSize, entity.mimeType, entity.filePath)?.let(::listOf) ?: emptyList()
-            }
-            buildJsonObject {
-                put("id", JsonPrimitive(entity.id))
-                put("content_md5", JsonPrimitive(createMd5(entity.content)))
-                createAttachmentsMd5(attachments)?.let {
-                    put("attachments_md5", JsonPrimitive(it))
-                }
-            }
-        }
-    }
 
     private fun createMd5(value: String): String {
         val digest = MessageDigest.getInstance("MD5")

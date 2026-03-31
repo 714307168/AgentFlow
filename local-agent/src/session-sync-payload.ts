@@ -2,7 +2,6 @@ import type { ProjectSyncDelta } from "./session-history-store";
 import {
   createSessionSyncContentMd5,
   createSessionSyncAttachmentsMd5,
-  type SessionSyncKnownItemDigest,
 } from "./session-sync-hash";
 import type {
   ProjectSessionSnapshot,
@@ -12,7 +11,6 @@ import type {
 
 const MAX_SYNC_PAYLOAD_BYTES = 240 * 1024;
 const MAX_SYNC_ITEMS = 200;
-const MAX_SYNC_TEXT_CHARS = 2_400;
 const MAX_SYNC_PROMPT_CHARS = 320;
 
 export interface SessionSyncQueuePayload {
@@ -118,46 +116,14 @@ function buildQueuePayload(snapshot: ProjectSessionSnapshot): SessionSyncQueuePa
     }));
 }
 
-function buildKnownItemMap(knownItems?: SessionSyncKnownItemDigest[]): Map<string, SessionSyncKnownItemDigest> {
-  const map = new Map<string, SessionSyncKnownItemDigest>();
-  for (const item of knownItems ?? []) {
-    const id = String(item?.id ?? "").trim();
-    if (!id) {
-      continue;
-    }
-    map.set(id, {
-      id,
-      content_md5: typeof item.content_md5 === "string" ? item.content_md5.trim() : undefined,
-      attachments_md5: typeof item.attachments_md5 === "string" ? item.attachments_md5.trim() : undefined,
-    });
-  }
-  return map;
-}
-
-function normalizeItems(
-  delta: ProjectSyncDelta,
-  options: {
-    knownItems?: SessionSyncKnownItemDigest[];
-    fullItemId?: string | null;
-  } = {},
-): SessionSyncItemPayload[] {
-  const requestedFullItemId = options.fullItemId?.trim() || "";
-  const knownItemMap = buildKnownItemMap(options.knownItems);
+function normalizeItems(delta: ProjectSyncDelta): SessionSyncItemPayload[] {
   return delta.items
     .slice(-MAX_SYNC_ITEMS)
     .map((item) => {
       const fullContent = normalizeText(item.content);
       const contentMd5 = createSessionSyncContentMd5(fullContent);
-      const shouldSendFullContent = requestedFullItemId !== "" && item.id === requestedFullItemId;
-      const payloadContent = shouldSendFullContent ? fullContent : trimText(fullContent, MAX_SYNC_TEXT_CHARS);
-      const isContentTrimmed = payloadContent !== fullContent;
       const attachments = cloneAttachments(item.attachments);
       const attachmentsMd5 = createSessionSyncAttachmentsMd5(attachments);
-      const known = knownItemMap.get(item.id);
-      const shouldOmitContent = !shouldSendFullContent
-        && Boolean(known?.content_md5)
-        && known?.content_md5 === contentMd5;
-      const shouldOmitAttachments = Boolean(attachmentsMd5) && known?.attachments_md5 === attachmentsMd5;
 
       return {
         id: item.id,
@@ -166,12 +132,10 @@ function normalizeItems(
         createdAt: item.createdAt,
         updatedAt: item.updatedAt,
         role: item.role,
-        content: shouldOmitContent ? "" : payloadContent,
+        content: fullContent,
         content_md5: contentMd5,
-        content_omitted: (shouldOmitContent || isContentTrimmed) || undefined,
-        attachments: shouldOmitAttachments ? undefined : attachments,
+        attachments,
         attachments_md5: attachmentsMd5 ?? undefined,
-        attachments_omitted: shouldOmitAttachments || undefined,
         status: item.status,
         title: item.title ? trimText(item.title, 240) : undefined,
         activity_kind: item.activityKind,
@@ -200,8 +164,6 @@ export function buildSessionSyncPayload(
     afterSeq?: number;
     beforeSeq?: number;
     limit?: number;
-    knownItems?: SessionSyncKnownItemDigest[];
-    fullItemId?: string | null;
   } = {},
 ): SessionSyncPayload {
   const afterSeq = Number(request.afterSeq) > 0 ? Number(request.afterSeq) : 0;
@@ -226,27 +188,17 @@ export function buildSessionSyncPayload(
       limit,
       latest_seq: delta.latestSeq,
       truncated: delta.truncated,
-      items: normalizeItems(delta, {
-        knownItems: request.knownItems,
-        fullItemId: request.fullItemId,
-      }),
+      items: normalizeItems(delta),
     },
   };
 
-  while (
-    !request.fullItemId
-    && payloadByteLength(payload) > MAX_SYNC_PAYLOAD_BYTES
-    && payload.sync.items.length > 0
-  ) {
+  while (payloadByteLength(payload) > MAX_SYNC_PAYLOAD_BYTES && payload.sync.items.length > 0) {
     payload = {
       ...payload,
       sync: {
         ...payload.sync,
         truncated: true,
-        items: payload.sync.items.slice(1).map((item) => ({
-          ...item,
-          content: item.content_omitted ? item.content : trimText(item.content, 1_200),
-        })),
+        items: payload.sync.items.slice(1),
       },
     };
   }

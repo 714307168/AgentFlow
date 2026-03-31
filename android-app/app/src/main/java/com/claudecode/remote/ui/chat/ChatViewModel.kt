@@ -16,7 +16,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
@@ -32,7 +31,6 @@ private const val IDLE_SYNC_POLL_MS = 45_000L
 private const val ACTIVE_SYNC_BURST_MS = 4_000L
 private const val SYNC_TRIGGER_DEBOUNCE_MS = 900L
 private const val OLDER_HISTORY_REQUEST_TIMEOUT_MS = 6_000L
-private const val SNAPSHOT_PERSIST_THROTTLE_MS = 1_200L
 
 data class ConversationItem(
     val id: String,
@@ -47,44 +45,6 @@ data class QueueItem(
     val source: String,
     val queuedAt: Long,
     val isPlaceholder: Boolean = false
-)
-
-@Serializable
-private data class PersistedConversationItem(
-    val id: String,
-    val title: String,
-    val updatedAt: Long,
-    val isActive: Boolean
-)
-
-@Serializable
-private data class PersistedQueueItem(
-    val runId: String,
-    val prompt: String,
-    val source: String,
-    val queuedAt: Long,
-    val isPlaceholder: Boolean = false
-)
-
-@Serializable
-private data class PersistedChatSnapshot(
-    val projectId: String,
-    val projectName: String,
-    val agentId: String,
-    val cliProvider: String,
-    val cliModel: String,
-    val isAgentOnline: Boolean,
-    val isRunning: Boolean,
-    val queuedCount: Int,
-    val currentPrompt: String? = null,
-    val queuePreview: String? = null,
-    val currentStartedAt: Long? = null,
-    val activeConversationId: String? = null,
-    val activeConversationTitle: String? = null,
-    val conversations: List<PersistedConversationItem> = emptyList(),
-    val queueItems: List<PersistedQueueItem> = emptyList(),
-    val messages: List<Message> = emptyList(),
-    val activityMessages: List<Message> = emptyList()
 )
 
 data class ChatUiState(
@@ -197,83 +157,6 @@ class ChatViewModel(
     private var pendingOlderHistoryRequest: PendingOlderHistoryRequest? = null
     private var syncBurstUntilMillis: Long = 0L
     private var projectBootstrapJob: Job? = null
-    private var lastSnapshotPersistAtMs: Long = 0L
-    private var lastPersistedSnapshotJson: String? = null
-
-    private fun restorePersistedSnapshot(projectId: String): PersistedChatSnapshot? =
-        tokenStore.getProjectChatSnapshot(projectId)
-            ?.takeIf { it.isNotBlank() }
-            ?.let { raw ->
-                runCatching { json.decodeFromString(PersistedChatSnapshot.serializer(), raw) }
-                    .onFailure { error ->
-                        CrashLogger.logError("ChatViewModel", "Error restoring persisted chat snapshot", error as? Exception ?: Exception(error))
-                    }
-                    .getOrNull()
-                    ?.takeIf { it.projectId == projectId }
-                    ?.also { lastPersistedSnapshotJson = raw }
-            }
-
-    private fun persistCurrentProjectSnapshot(force: Boolean = false) {
-        val state = _uiState.value
-        val projectId = state.projectId.trim()
-        if (projectId.isEmpty()) {
-            return
-        }
-        val now = System.currentTimeMillis()
-        if (!force && now - lastSnapshotPersistAtMs < SNAPSHOT_PERSIST_THROTTLE_MS) {
-            return
-        }
-
-        val snapshot = PersistedChatSnapshot(
-            projectId = projectId,
-            projectName = state.projectName,
-            agentId = state.agentId,
-            cliProvider = state.cliProvider,
-            cliModel = state.cliModel,
-            isAgentOnline = state.isAgentOnline,
-            isRunning = state.isRunning,
-            queuedCount = state.queuedCount,
-            currentPrompt = state.currentPrompt,
-            queuePreview = state.queuePreview,
-            currentStartedAt = state.currentStartedAt,
-            activeConversationId = state.activeConversationId,
-            activeConversationTitle = state.activeConversationTitle,
-            conversations = state.conversations.map {
-                PersistedConversationItem(
-                    id = it.id,
-                    title = it.title,
-                    updatedAt = it.updatedAt,
-                    isActive = it.isActive
-                )
-            },
-            queueItems = state.queueItems.map {
-                PersistedQueueItem(
-                    runId = it.runId,
-                    prompt = it.prompt,
-                    source = it.source,
-                    queuedAt = it.queuedAt,
-                    isPlaceholder = it.isPlaceholder
-                )
-            },
-            messages = state.messages.takeLast(MESSAGE_PAGE_SIZE),
-            activityMessages = state.activityMessages.takeLast(MESSAGE_PAGE_SIZE)
-        )
-        runCatching {
-            val encodedSnapshot = json.encodeToString(PersistedChatSnapshot.serializer(), snapshot)
-            if (!force && encodedSnapshot == lastPersistedSnapshotJson) {
-                lastSnapshotPersistAtMs = now
-                return
-            }
-            tokenStore.saveProjectChatSnapshot(
-                projectId = projectId,
-                snapshotJson = encodedSnapshot
-            )
-            lastSnapshotPersistAtMs = now
-            lastPersistedSnapshotJson = encodedSnapshot
-        }.onFailure { error ->
-            CrashLogger.logError("ChatViewModel", "Error persisting chat snapshot", error as? Exception ?: Exception(error))
-        }
-    }
 
     init {
         viewModelScope.launch {
@@ -364,19 +247,11 @@ class ChatViewModel(
         olderHistoryTimeoutJob = null
         pendingOlderHistoryRequest = null
         projectBootstrapJob?.cancel()
-        lastPersistedSnapshotJson = null
-        val persistedSnapshot = restorePersistedSnapshot(projectId)
-        allMessages = persistedSnapshot?.messages ?: emptyList()
-        allActivityMessages = persistedSnapshot?.activityMessages ?: emptyList()
-        allConversationTimeline = mergeConversationTimeline(
-            messages = allMessages,
-            activityMessages = allActivityMessages
-        )
         _uiState.update {
             it.copy(
                 projectId = projectId,
-                projectName = persistedSnapshot?.projectName?.ifBlank { projectName } ?: projectName,
-                agentId = persistedSnapshot?.agentId?.ifBlank { agentId } ?: agentId,
+                projectName = projectName,
+                agentId = agentId,
                 inputText = tokenStore.getDraft(projectId),
                 pendingAttachments = emptyList(),
                 downloadingAttachmentIds = emptySet(),
@@ -384,39 +259,22 @@ class ChatViewModel(
                 hasMoreHistory = false,
                 hasMoreActivityHistory = false,
                 isSwitchingConversation = false,
-                messages = persistedSnapshot?.messages?.takeLast(MESSAGE_PAGE_SIZE) ?: emptyList(),
-                activityMessages = persistedSnapshot?.activityMessages?.takeLast(MESSAGE_PAGE_SIZE) ?: emptyList(),
-                queueItems = persistedSnapshot?.queueItems?.map {
-                    QueueItem(
-                        runId = it.runId,
-                        prompt = it.prompt,
-                        source = it.source,
-                        queuedAt = it.queuedAt,
-                        isPlaceholder = it.isPlaceholder
-                    )
-                } ?: emptyList(),
-                cliProvider = persistedSnapshot?.cliProvider ?: "claude",
-                cliModel = persistedSnapshot?.cliModel ?: "",
-                isAgentOnline = persistedSnapshot?.isAgentOnline ?: true,
-                isRunning = persistedSnapshot?.isRunning ?: false,
-                queuedCount = persistedSnapshot?.queuedCount ?: 0,
-                currentPrompt = persistedSnapshot?.currentPrompt,
-                queuePreview = persistedSnapshot?.queuePreview,
-                currentStartedAt = persistedSnapshot?.currentStartedAt,
-                activeConversationId = persistedSnapshot?.activeConversationId,
-                activeConversationTitle = persistedSnapshot?.activeConversationTitle,
-                conversations = persistedSnapshot?.conversations?.map {
-                    ConversationItem(
-                        id = it.id,
-                        title = it.title,
-                        updatedAt = it.updatedAt,
-                        isActive = it.isActive
-                    )
-                } ?: emptyList()
+                messages = emptyList(),
+                activityMessages = emptyList(),
+                queueItems = emptyList(),
+                cliProvider = "claude",
+                cliModel = "",
+                isAgentOnline = true,
+                isRunning = false,
+                queuedCount = 0,
+                currentPrompt = null,
+                queuePreview = null,
+                currentStartedAt = null,
+                activeConversationId = null,
+                activeConversationTitle = null,
+                conversations = emptyList()
             )
         }
-        publishVisibleMessages()
-        publishVisibleActivityMessages()
 
         projectBootstrapJob = viewModelScope.launch {
             try {
@@ -459,7 +317,6 @@ class ChatViewModel(
                         )
                     )
                 }
-                persistCurrentProjectSnapshot(force = true)
             } catch (e: Exception) {
                 CrashLogger.logError("ChatViewModel", "Error hydrating cached project state", e)
             }
@@ -502,7 +359,6 @@ class ChatViewModel(
                     if ((session?.isRunning == true) || (session?.queuedCount ?: 0) > 0) {
                         markSyncBurst()
                     }
-                    persistCurrentProjectSnapshot()
                 }
             } catch (e: Exception) {
                 CrashLogger.logError("ChatViewModel", "Error collecting session metadata", e)
@@ -864,7 +720,6 @@ class ChatViewModel(
                 hasMoreHistory = startIndex > 0 || earliestSyncSeq > 1L
             )
         }
-        persistCurrentProjectSnapshot()
     }
 
     private fun publishVisibleActivityMessages() {
@@ -876,7 +731,6 @@ class ChatViewModel(
                 hasMoreActivityHistory = startIndex > 0
             )
         }
-        persistCurrentProjectSnapshot()
     }
 
     private fun maybeLoadMoreConversationHistory() {
