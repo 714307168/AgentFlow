@@ -6,6 +6,12 @@ This repository contains a three-part remote control system for Claude Code:
 - `relay-server/`: Go relay server and update center
 - `android-app/`: Kotlin Android client
 
+## Repository Guidance
+
+- When you modify code, run the relevant tests before finishing.
+- After completing the change, create a commit.
+- If the work affects a release version or publishing flow, complete the corresponding release or publish step.
+
 ## Main Commands
 
 ### Local Agent
