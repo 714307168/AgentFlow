@@ -83,6 +83,7 @@ class MessageRepository(
         private const val RECENT_SYNC_OVERLAP_COUNT = 6
         private const val SESSION_SYNC_ACTION_FETCH_ITEM_DETAIL = "fetch_item_detail"
         private const val FULL_ITEM_REQUEST_DEDUPE_WINDOW_MS = 5_000L
+        private const val SEND_STALE_CONNECTION_TIMEOUT_MS = 12_000L
     }
 
     private data class UploadAck(
@@ -133,6 +134,14 @@ class MessageRepository(
 
     private fun getProjectSendMutex(projectId: String): Mutex =
         projectSendMutexes.getOrPut(projectId.trim()) { Mutex() }
+
+    private suspend fun ensureSendReady(projectId: String, agentId: String?, reason: String) {
+        webSocket.ensureHealthyConnection(
+            reason = "$reason:$projectId",
+            staleTimeoutMs = SEND_STALE_CONNECTION_TIMEOUT_MS
+        )
+        wakeupAgent(agentId)
+    }
 
     suspend fun requestProjectSync(
         projectId: String,
@@ -305,6 +314,7 @@ class MessageRepository(
     }
 
     suspend fun sendStopTask(projectId: String, agentId: String? = null) {
+        ensureSendReady(projectId, agentId, "task-stop")
         webSocket.send(
             Envelope(
                 id = UUID.randomUUID().toString(),
@@ -343,6 +353,8 @@ class MessageRepository(
             return@withContext
         }
 
+        ensureSendReady(projectId, agentId, "message-send")
+
         val previousSession = sessionDao.getSessionByProjectId(projectId)
         val optimisticTimestamp = System.currentTimeMillis()
         val runId = UUID.randomUUID().toString()
@@ -374,8 +386,6 @@ class MessageRepository(
 
         try {
             getProjectSendMutex(projectId).withLock {
-                wakeupAgent(agentId)
-
                 val uploadedAttachments = normalizedAttachments.map { attachment ->
                     uploadAttachment(projectId, attachment, agentId)
                 }
@@ -419,7 +429,8 @@ class MessageRepository(
                         projectId = projectId,
                         agentId = agentId,
                         limit = DEFAULT_SYNC_LIMIT,
-                        shouldWakeAgent = false
+                        shouldWakeAgent = false,
+                        bypassDedupe = true
                     )
                 }
             }
@@ -444,7 +455,7 @@ class MessageRepository(
             throw IllegalStateException("Attachment does not expose a downloadable file path.")
         }
 
-        wakeupAgent(agentId)
+        ensureSendReady(projectId, agentId, "attachment-download")
 
         val transferId = UUID.randomUUID().toString()
         val deferred = CompletableDeferred<MessageAttachment>()

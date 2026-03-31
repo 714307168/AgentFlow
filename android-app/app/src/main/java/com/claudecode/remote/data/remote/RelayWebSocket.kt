@@ -62,11 +62,14 @@ class RelayWebSocket(
     private var reconnectJob: Job? = null
     private var e2eEnabled: Boolean = tokenStore.isE2EEnabled()
     @Volatile
+    private var isAuthenticated: Boolean = false
+    @Volatile
     private var lastInboundAtMs: Long = 0L
     @Volatile
     private var lastSocketOpenAttemptAtMs: Long = 0L
     private val pendingRoomKeyOffers = mutableSetOf<String>()
     private val pendingEncryptedEnvelopes = mutableMapOf<String, MutableList<Envelope>>()
+    private val pendingOutgoingEnvelopes = mutableListOf<QueuedOutgoingEnvelope>()
     private val connectionMutex = Mutex()
     private var connectionGeneration: Long = 0
 
@@ -83,6 +86,12 @@ class RelayWebSocket(
         val encrypted: Boolean,
         val senderId: String? = null,
         val keyId: String? = null
+    )
+
+    private data class QueuedOutgoingEnvelope(
+        val envelope: Envelope,
+        val targetAgentId: String?,
+        val queuedAtMs: Long
     )
 
     fun updateServerUrl(newUrl: String) {
@@ -214,6 +223,8 @@ class RelayWebSocket(
                 stopPing()
                 pendingRoomKeyOffers.clear()
                 pendingEncryptedEnvelopes.clear()
+                pendingOutgoingEnvelopes.clear()
+                isAuthenticated = false
                 connectionGeneration += 1
                 webSocket?.close(1000, "User disconnected")
                 webSocket = null
@@ -242,6 +253,7 @@ class RelayWebSocket(
             }
             Log.d(tag, "WebSocket opened generation=$generation")
             lastInboundAtMs = System.currentTimeMillis()
+            isAuthenticated = false
             _errorMessage.value = null
             _connectionState.value = ConnectionState.CONNECTED
             reconnectAttempts = 0
@@ -259,6 +271,7 @@ class RelayWebSocket(
                 envelope.seq?.let { if (it > lastSeq) lastSeq = it }
 
                 if (envelope.event == Events.AUTH_ERROR) {
+                    isAuthenticated = false
                     _errorMessage.value = "认证失败，请检查 Token 是否正确"
                     _connectionState.value = ConnectionState.DISCONNECTED
                     webSocket.close(1000, "Auth failed")
@@ -266,9 +279,11 @@ class RelayWebSocket(
                 }
 
                 if (envelope.event == Events.AUTH_OK) {
+                    isAuthenticated = true
                     _errorMessage.value = null
                     Log.d(tag, "Authentication successful generation=$generation")
                     extractAgentId(envelope)?.let(::ensureRoomKey)
+                    flushPendingOutgoingEnvelopes()
                 }
 
                 if (envelope.event == Events.E2E_ANSWER) {
@@ -292,6 +307,7 @@ class RelayWebSocket(
                 return
             }
             Log.e(tag, "WebSocket failure generation=$generation response=${response?.code}", t)
+            isAuthenticated = false
             _errorMessage.value = buildDisplayableFailureMessage(t, response)
             _connectionState.value = ConnectionState.RECONNECTING
             stopPing()
@@ -303,6 +319,7 @@ class RelayWebSocket(
                 return
             }
             Log.d(tag, "WebSocket closed generation=$generation code=$code reason=$reason")
+            isAuthenticated = false
             if (code != 1000) {
                 val normalizedReason = reason.trim()
                 _errorMessage.value = if (normalizedReason.isBlank()) {
@@ -345,15 +362,27 @@ class RelayWebSocket(
 
     fun send(envelope: Envelope, targetAgentId: String? = null) {
         try {
+            if (shouldQueueUntilSocketReady(envelope)) {
+                queueOutgoingEnvelope(envelope, targetAgentId)
+                return
+            }
             val outgoing = prepareOutgoingEnvelope(envelope, targetAgentId) ?: return
-            if (_connectionState.value != ConnectionState.CONNECTED || webSocket == null) {
-                Log.w(tag, "Dropping send while disconnected event=${envelope.event}")
+            val socket = webSocket
+            if (socket == null) {
+                queueOutgoingEnvelope(envelope, targetAgentId)
                 return
             }
             val text = json.encodeToString(outgoing)
-            webSocket?.send(text)
+            val accepted = socket.send(text)
+            if (!accepted) {
+                Log.w(tag, "Socket rejected send event=${envelope.event}; queueing for retry")
+                queueOutgoingEnvelope(envelope, targetAgentId)
+            }
         } catch (e: Exception) {
             Log.e(tag, "Failed to send envelope", e)
+            if (!isAuthEvent(envelope.event)) {
+                queueOutgoingEnvelope(envelope, targetAgentId)
+            }
         }
     }
 
@@ -428,6 +457,16 @@ class RelayWebSocket(
         Events.E2E_OFFER,
         Events.E2E_ANSWER
     )
+
+    private fun isAuthEvent(event: String): Boolean =
+        event == Events.AUTH_LOGIN || event == Events.AUTH_RESUME
+
+    private fun shouldQueueUntilSocketReady(envelope: Envelope): Boolean {
+        if (isAuthEvent(envelope.event)) {
+            return _connectionState.value != ConnectionState.CONNECTED || webSocket == null
+        }
+        return _connectionState.value != ConnectionState.CONNECTED || webSocket == null || !isAuthenticated
+    }
 
     private fun resolveTargetAgentId(envelope: Envelope, explicitAgentId: String?): String {
         val direct = explicitAgentId?.trim().orEmpty()
@@ -621,6 +660,61 @@ class RelayWebSocket(
         }
     }
 
+    private fun queueOutgoingEnvelope(envelope: Envelope, targetAgentId: String?) {
+        if (isAuthEvent(envelope.event) && _connectionState.value == ConnectionState.CONNECTED && webSocket != null) {
+            return
+        }
+
+        val now = System.currentTimeMillis()
+        synchronized(pendingOutgoingEnvelopes) {
+            pendingOutgoingEnvelopes.removeAll { queued ->
+                now - queued.queuedAtMs > OUTGOING_ENVELOPE_TTL_MS
+            }
+            val duplicateIndex = pendingOutgoingEnvelopes.indexOfFirst { queued ->
+                queued.envelope.id == envelope.id &&
+                    queued.envelope.event == envelope.event &&
+                    queued.envelope.projectId == envelope.projectId &&
+                    queued.envelope.streamId == envelope.streamId &&
+                    queued.targetAgentId == targetAgentId
+            }
+            val next = QueuedOutgoingEnvelope(
+                envelope = envelope,
+                targetAgentId = targetAgentId,
+                queuedAtMs = now
+            )
+            if (duplicateIndex >= 0) {
+                pendingOutgoingEnvelopes[duplicateIndex] = next
+            } else {
+                if (pendingOutgoingEnvelopes.size >= MAX_PENDING_OUTGOING_ENVELOPES) {
+                    pendingOutgoingEnvelopes.removeAt(0)
+                }
+                pendingOutgoingEnvelopes += next
+            }
+        }
+        Log.w(tag, "Queued outgoing envelope event=${envelope.event} while socket unavailable or unauthenticated")
+        scope.launch {
+            runCatching {
+                ensureHealthyConnection(reason = "queued-send:${envelope.event}")
+            }.onFailure { error ->
+                Log.w(tag, "Failed to restore connection for queued envelope event=${envelope.event}", error)
+            }
+        }
+    }
+
+    private fun flushPendingOutgoingEnvelopes() {
+        val now = System.currentTimeMillis()
+        val queuedEnvelopes = synchronized(pendingOutgoingEnvelopes) {
+            val ready = pendingOutgoingEnvelopes
+                .filter { queued -> now - queued.queuedAtMs <= OUTGOING_ENVELOPE_TTL_MS }
+                .toList()
+            pendingOutgoingEnvelopes.clear()
+            ready
+        }
+        queuedEnvelopes.forEach { queuedEnvelope ->
+            send(queuedEnvelope.envelope, targetAgentId = queuedEnvelope.targetAgentId)
+        }
+    }
+
     private fun isCurrentSocket(generation: Long, candidate: WebSocket): Boolean =
         generation == connectionGeneration && candidate == webSocket
 
@@ -647,5 +741,7 @@ class RelayWebSocket(
 
     companion object {
         private const val STALE_CONNECTION_TIMEOUT_MS = 75_000L
+        private const val MAX_PENDING_OUTGOING_ENVELOPES = 160
+        private const val OUTGOING_ENVELOPE_TTL_MS = 90_000L
     }
 }

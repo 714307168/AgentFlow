@@ -35,6 +35,7 @@ private const val OLDER_HISTORY_REQUEST_TIMEOUT_MS = 6_000L
 private const val SNAPSHOT_PERSIST_THROTTLE_MS = 1_200L
 private const val RESUME_STALE_CONNECTION_TIMEOUT_MS = 20_000L
 private const val ACTIVE_SYNC_STALE_CONNECTION_TIMEOUT_MS = 20_000L
+private val POST_SEND_SYNC_DELAYS_MS = longArrayOf(0L, 1_200L, 4_000L, 9_000L)
 
 data class ConversationItem(
     val id: String,
@@ -151,6 +152,7 @@ class ChatViewModel(
     private var projectBootstrapJob: Job? = null
     private var lastSnapshotPersistAtMs: Long = 0L
     private var lastPersistedSnapshotJson: String? = null
+    private val postSendSyncJobs = mutableListOf<Job>()
 
     private fun restorePersistedSnapshot(projectId: String): PersistedChatSnapshot? =
         tokenStore.getProjectChatSnapshot(projectId)
@@ -315,6 +317,7 @@ class ChatViewModel(
         olderHistoryTimeoutJob = null
         pendingOlderHistoryRequest = null
         projectBootstrapJob?.cancel()
+        cancelPostSendSyncNudges()
         lastPersistedSnapshotJson = null
         val persistedSnapshot = restorePersistedSnapshot(projectId)
         allMessages = persistedSnapshot?.messages ?: emptyList()
@@ -724,6 +727,7 @@ class ChatViewModel(
                     attachments = attachmentSnapshot,
                     agentId = state.agentId
                 )
+                schedulePostSendSyncNudges()
             } catch (e: Exception) {
                 CrashLogger.logError("ChatViewModel", "Error sending message", e)
                 tokenStore.saveDraft(state.projectId, textSnapshot)
@@ -1071,11 +1075,32 @@ class ChatViewModel(
         }
     }
 
+    private fun schedulePostSendSyncNudges() {
+        cancelPostSendSyncNudges()
+        POST_SEND_SYNC_DELAYS_MS.forEach { delayMs ->
+            postSendSyncJobs += viewModelScope.launch {
+                if (delayMs > 0L) {
+                    kotlinx.coroutines.delay(delayMs)
+                }
+                requestProjectSyncNow(
+                    recentOverlapCount = ACTIVE_SYNC_OVERLAP_COUNT,
+                    limit = INCREMENTAL_SYNC_PAGE_SIZE
+                )
+            }
+        }
+    }
+
+    private fun cancelPostSendSyncNudges() {
+        postSendSyncJobs.forEach(Job::cancel)
+        postSendSyncJobs.clear()
+    }
+
     override fun onCleared() {
         activeSyncJob?.cancel()
         pendingSyncTriggerJob?.cancel()
         olderHistoryTimeoutJob?.cancel()
         projectBootstrapJob?.cancel()
+        cancelPostSendSyncNudges()
         super.onCleared()
     }
 

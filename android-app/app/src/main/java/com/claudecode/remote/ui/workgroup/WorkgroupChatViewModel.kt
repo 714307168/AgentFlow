@@ -28,6 +28,7 @@ private const val WORKGROUP_ACTIVE_SYNC_BURST_MS = 8_000L
 private const val WORKGROUP_SYNC_TRIGGER_DEBOUNCE_MS = 250L
 private const val WORKGROUP_RESUME_STALE_CONNECTION_TIMEOUT_MS = 20_000L
 private const val WORKGROUP_ACTIVE_SYNC_STALE_CONNECTION_TIMEOUT_MS = 20_000L
+private val WORKGROUP_POST_SEND_SYNC_DELAYS_MS = longArrayOf(0L, 1_200L, 4_000L, 9_000L)
 
 data class WorkgroupMentionSuggestion(
     val token: String,
@@ -77,6 +78,7 @@ class WorkgroupChatViewModel(
     private var pendingSyncTriggerJob: Job? = null
     private var pendingOlderHistoryRequest: PendingOlderHistoryRequest? = null
     private var syncBurstUntilMillis: Long = 0L
+    private val postSendSyncJobs = mutableListOf<Job>()
 
     private fun text(resId: Int, vararg args: Any): String = context.getString(resId, *args)
 
@@ -138,6 +140,7 @@ class WorkgroupChatViewModel(
         allMessages = emptyList()
         visibleMessageCount = WORKGROUP_VISIBLE_PAGE_SIZE
         pendingOlderHistoryRequest = null
+        cancelPostSendSyncNudges()
         _uiState.update {
             it.copy(
                 agentId = agentId,
@@ -333,6 +336,8 @@ class WorkgroupChatViewModel(
                         )
                     )
                 }
+            } else {
+                schedulePostSendSyncNudges()
             }
             _uiState.update { it.copy(isSending = false) }
         }
@@ -559,6 +564,26 @@ class WorkgroupChatViewModel(
         syncBurstUntilMillis = System.currentTimeMillis() + durationMs
     }
 
+    private fun schedulePostSendSyncNudges() {
+        cancelPostSendSyncNudges()
+        WORKGROUP_POST_SEND_SYNC_DELAYS_MS.forEach { delayMs ->
+            postSendSyncJobs += viewModelScope.launch {
+                if (delayMs > 0L) {
+                    kotlinx.coroutines.delay(delayMs)
+                }
+                requestLatestSessionNow(
+                    showLoading = false,
+                    limit = WORKGROUP_INCREMENTAL_SYNC_PAGE_SIZE
+                )
+            }
+        }
+    }
+
+    private fun cancelPostSendSyncNudges() {
+        postSendSyncJobs.forEach(Job::cancel)
+        postSendSyncJobs.clear()
+    }
+
     private fun triggerImmediateSync(
         debounceMs: Long = WORKGROUP_SYNC_TRIGGER_DEBOUNCE_MS,
         showLoading: Boolean = false,
@@ -654,6 +679,7 @@ class WorkgroupChatViewModel(
         sessionsJob?.cancel()
         activeSyncJob?.cancel()
         pendingSyncTriggerJob?.cancel()
+        cancelPostSendSyncNudges()
         super.onCleared()
     }
 }

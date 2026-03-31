@@ -45,6 +45,7 @@ class WorkgroupRepository(
         private const val LIST_REQUEST_DEDUPE_WINDOW_MS = 2_000L
         private const val SESSION_REQUEST_DEDUPE_WINDOW_MS = 1_200L
         private const val WAKEUP_THROTTLE_WINDOW_MS = 10_000L
+        private const val SEND_STALE_CONNECTION_TIMEOUT_MS = 12_000L
     }
 
     private data class SessionResponse(
@@ -67,6 +68,14 @@ class WorkgroupRepository(
     private val lastSessionRequestedAt = ConcurrentHashMap<String, Long>()
     private val lastWakeupRequestedAt = ConcurrentHashMap<String, Long>()
 
+    private suspend fun ensureSocketReady(agentId: String, reason: String) {
+        webSocket.ensureHealthyConnection(
+            reason = "$reason:$agentId",
+            staleTimeoutMs = SEND_STALE_CONNECTION_TIMEOUT_MS
+        )
+        wakeupAgent(agentId)
+    }
+
     suspend fun refresh(agentIds: List<String>, force: Boolean = false) {
         refreshMyRegistry()
         val normalizedAgentIds = resolveTrackedAgentIds(agentIds)
@@ -79,7 +88,7 @@ class WorkgroupRepository(
                 return@forEach
             }
             lastListRequestedAtByAgent[agentId] = now
-            wakeupAgent(agentId)
+            ensureSocketReady(agentId, "workgroup-refresh")
             webSocket.send(
                 Envelope(
                     id = UUID.randomUUID().toString(),
@@ -146,7 +155,7 @@ class WorkgroupRepository(
         val deferred = CompletableDeferred<Result<SessionResponse>>()
         pendingSessionRequests[requestId] = deferred
 
-        wakeupAgent(normalizedAgentId)
+        ensureSocketReady(normalizedAgentId, "workgroup-session")
         webSocket.send(
             Envelope(
                 id = requestId,
@@ -204,7 +213,7 @@ class WorkgroupRepository(
         val deferred = CompletableDeferred<Result<Unit>>()
         pendingSendRequests[requestId] = deferred
 
-        wakeupAgent(normalizedAgentId)
+        ensureSocketReady(normalizedAgentId, "workgroup-send")
         webSocket.send(
             Envelope(
                 id = requestId,
