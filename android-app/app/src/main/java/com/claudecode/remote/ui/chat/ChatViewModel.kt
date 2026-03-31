@@ -486,10 +486,7 @@ class ChatViewModel(
             val hasCachedConversation = runCatching {
                 messageRepository.getConversationMessagesForProjectSnapshot(projectId).isNotEmpty()
             }.getOrDefault(false)
-            triggerImmediateSync(
-                // Entering a project should always refresh its latest messages/activity immediately.
-                // Keep cached content for instant render, then backfill fresh data in parallel.
-                debounceMs = 0L,
+            requestProjectSyncNow(
                 recentOverlapCount = ACTIVE_SYNC_OVERLAP_COUNT,
                 limit = if (hasCachedConversation) MESSAGE_PAGE_SIZE else INITIAL_SYNC_PAGE_SIZE
             )
@@ -498,7 +495,8 @@ class ChatViewModel(
 
     private fun requestProjectSyncIfConnected(
         recentOverlapCount: Int = ACTIVE_SYNC_OVERLAP_COUNT,
-        limit: Int = INCREMENTAL_SYNC_PAGE_SIZE
+        limit: Int = INCREMENTAL_SYNC_PAGE_SIZE,
+        bypassDedupe: Boolean = false
     ) {
         val state = _uiState.value
         if (state.projectId.isBlank()) {
@@ -514,12 +512,24 @@ class ChatViewModel(
                     projectId = state.projectId,
                     agentId = state.agentId,
                     limit = limit,
-                    recentOverlapCount = recentOverlapCount
+                    recentOverlapCount = recentOverlapCount,
+                    bypassDedupe = bypassDedupe
                 )
             } catch (e: Exception) {
                 CrashLogger.logError("ChatViewModel", "Error requesting desktop sync", e)
             }
         }
+    }
+
+    private fun requestProjectSyncNow(
+        recentOverlapCount: Int = ACTIVE_SYNC_OVERLAP_COUNT,
+        limit: Int = INCREMENTAL_SYNC_PAGE_SIZE
+    ) {
+        requestProjectSyncIfConnected(
+            recentOverlapCount = recentOverlapCount,
+            limit = limit,
+            bypassDedupe = true
+        )
     }
 
     fun loadOlderMessages() {

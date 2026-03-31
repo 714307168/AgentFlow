@@ -144,7 +144,8 @@ class MessageRepository(
         conversationId: String? = null,
         itemId: String? = null,
         recentOverlapCount: Int = RECENT_SYNC_OVERLAP_COUNT,
-        shouldWakeAgent: Boolean = true
+        shouldWakeAgent: Boolean = true,
+        bypassDedupe: Boolean = false
     ) {
         if (shouldWakeAgent) {
             wakeupAgent(agentId)
@@ -184,9 +185,13 @@ class MessageRepository(
             itemId = itemId
         )
         val now = System.currentTimeMillis()
-        val previousRequestedAt = lastProjectSyncRequestedAt.put(requestKey, now)
-        if (previousRequestedAt != null && now - previousRequestedAt < PROJECT_SYNC_DEDUPE_WINDOW_MS) {
-            return
+        if (!bypassDedupe) {
+            val previousRequestedAt = lastProjectSyncRequestedAt.put(requestKey, now)
+            if (previousRequestedAt != null && now - previousRequestedAt < PROJECT_SYNC_DEDUPE_WINDOW_MS) {
+                return
+            }
+        } else {
+            lastProjectSyncRequestedAt[requestKey] = now
         }
 
         webSocket.send(
