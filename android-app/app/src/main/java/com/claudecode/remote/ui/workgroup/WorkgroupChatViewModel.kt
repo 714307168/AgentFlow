@@ -240,7 +240,10 @@ class WorkgroupChatViewModel(
                 _uiState.update {
                     it.copy(
                         isLoadingOlder = false,
-                        error = result.exceptionOrNull()?.message ?: text(R.string.workgroups_error_load_older)
+                        error = context.resolveWorkgroupErrorMessage(
+                            result.exceptionOrNull(),
+                            text(R.string.workgroups_error_load_older)
+                        )
                     )
                 }
             }
@@ -298,7 +301,10 @@ class WorkgroupChatViewModel(
                     it.copy(
                         inputText = textSnapshot,
                         mentionSuggestions = buildMentionSuggestions(textSnapshot, it.members),
-                        error = result.exceptionOrNull()?.message ?: text(R.string.workgroups_error_send_message)
+                        error = context.resolveWorkgroupErrorMessage(
+                            result.exceptionOrNull(),
+                            text(R.string.workgroups_error_send_message)
+                        )
                     )
                 }
             }
@@ -342,7 +348,10 @@ class WorkgroupChatViewModel(
                 _uiState.update {
                     it.copy(
                         isLoading = false,
-                        error = result.exceptionOrNull()?.message ?: text(R.string.workgroups_error_load)
+                        error = context.resolveWorkgroupErrorMessage(
+                            result.exceptionOrNull(),
+                            text(R.string.workgroups_error_load)
+                        )
                     )
                 }
             }
@@ -442,7 +451,10 @@ class WorkgroupChatViewModel(
                 _uiState.update {
                     it.copy(
                         isLoadingOlder = false,
-                        error = result.exceptionOrNull()?.message ?: text(R.string.workgroups_error_load_older)
+                        error = context.resolveWorkgroupErrorMessage(
+                            result.exceptionOrNull(),
+                            text(R.string.workgroups_error_load_older)
+                        )
                     )
                 }
             }

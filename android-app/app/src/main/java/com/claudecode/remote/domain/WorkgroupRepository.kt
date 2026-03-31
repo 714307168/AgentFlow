@@ -39,7 +39,7 @@ class WorkgroupRepository(
     private val tokenStore: TokenStore
 ) {
     companion object {
-        private const val REQUEST_TIMEOUT_MS = 15_000L
+        private const val REQUEST_TIMEOUT_MS = 30_000L
         private const val DEFAULT_PAGE_SIZE = 30
         private const val KNOWN_ITEM_LIMIT = 60
         private const val LIST_REQUEST_DEDUPE_WINDOW_MS = 2_000L

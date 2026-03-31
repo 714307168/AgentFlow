@@ -191,6 +191,7 @@
     <string name="workgroups_error_load_older">Failed to load older messages.</string>
     <string name="workgroups_error_send_message">Failed to send message.</string>
     <string name="workgroups_error_load">Failed to load workgroup.</string>
+    <string name="workgroups_error_timeout">The desktop did not respond in time. Check whether it is online and try again.</string>
     <string name="workgroups_mention_all">All members</string>
     <string name="workgroups_mention_developer">Developer role</string>
     <string name="workgroups_mention_qa">QA role</string>

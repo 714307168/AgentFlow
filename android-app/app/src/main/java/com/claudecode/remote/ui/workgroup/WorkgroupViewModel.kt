@@ -133,7 +133,10 @@ class WorkgroupViewModel(
                     _uiState.update {
                         it.copy(
                             isSearchingRegistry = false,
-                            error = error.message ?: text(R.string.workgroups_error_search)
+                            error = context.resolveWorkgroupErrorMessage(
+                                error,
+                                text(R.string.workgroups_error_search)
+                            )
                         )
                     }
                 }
@@ -165,7 +168,10 @@ class WorkgroupViewModel(
                     _uiState.update {
                         it.copy(
                             joiningGroupNumber = null,
-                            error = error.message ?: text(R.string.workgroups_error_join)
+                            error = context.resolveWorkgroupErrorMessage(
+                                error,
+                                text(R.string.workgroups_error_join)
+                            )
                         )
                     }
                 }

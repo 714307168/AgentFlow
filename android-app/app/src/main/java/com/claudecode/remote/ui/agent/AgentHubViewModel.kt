@@ -12,6 +12,7 @@ import com.claudecode.remote.data.remote.RelayWebSocket
 import com.claudecode.remote.domain.MessageRepository
 import com.claudecode.remote.domain.SessionRepository
 import com.claudecode.remote.domain.WorkgroupRepository
+import com.claudecode.remote.ui.workgroup.resolveWorkgroupErrorMessage
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -219,7 +220,10 @@ class AgentHubViewModel(
                     _uiState.update {
                         it.copy(
                             isSearchingRegistry = false,
-                            error = error.message ?: text(R.string.workgroups_error_search)
+                            error = context.resolveWorkgroupErrorMessage(
+                                error,
+                                text(R.string.workgroups_error_search)
+                            )
                         )
                     }
                 }
@@ -255,7 +259,10 @@ class AgentHubViewModel(
                     _uiState.update {
                         it.copy(
                             joiningGroupNumber = null,
-                            error = error.message ?: text(R.string.workgroups_error_join)
+                            error = context.resolveWorkgroupErrorMessage(
+                                error,
+                                text(R.string.workgroups_error_join)
+                            )
                         )
                     }
                 }

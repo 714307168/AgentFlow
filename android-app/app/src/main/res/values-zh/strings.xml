@@ -182,6 +182,7 @@
     <string name="workgroups_error_load_older">加载更早消息失败。</string>
     <string name="workgroups_error_send_message">发送消息失败。</string>
     <string name="workgroups_error_load">加载工作组失败。</string>
+    <string name="workgroups_error_timeout">桌面端超时未响应，请确认其在线后重试。</string>
     <string name="workgroups_mention_all">全部成员</string>
     <string name="workgroups_mention_developer">开发角色</string>
     <string name="workgroups_mention_qa">测试角色</string>
