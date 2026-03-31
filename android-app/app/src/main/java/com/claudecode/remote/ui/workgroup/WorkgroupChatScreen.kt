@@ -88,6 +88,7 @@ fun WorkgroupChatScreen(
         } else {
             val observer = LifecycleEventObserver { _, event ->
                 if (event == Lifecycle.Event.ON_RESUME) {
+                    viewModel.onResume()
                     resumeScrollRequestToken += 1
                 }
             }

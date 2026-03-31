@@ -26,6 +26,8 @@ private const val WORKGROUP_ACTIVE_SYNC_POLL_MS = 5_000L
 private const val WORKGROUP_IDLE_SYNC_POLL_MS = 12_000L
 private const val WORKGROUP_ACTIVE_SYNC_BURST_MS = 8_000L
 private const val WORKGROUP_SYNC_TRIGGER_DEBOUNCE_MS = 250L
+private const val WORKGROUP_RESUME_STALE_CONNECTION_TIMEOUT_MS = 20_000L
+private const val WORKGROUP_ACTIVE_SYNC_STALE_CONNECTION_TIMEOUT_MS = 20_000L
 
 data class WorkgroupMentionSuggestion(
     val token: String,
@@ -207,6 +209,31 @@ class WorkgroupChatViewModel(
             showLoading = true,
             recentLimit = WORKGROUP_INITIAL_SYNC_PAGE_SIZE
         )
+    }
+
+    fun onResume() {
+        val state = _uiState.value
+        if (state.agentId.isBlank() || state.workgroupId.isBlank()) {
+            return
+        }
+        markSyncBurst()
+        viewModelScope.launch {
+            try {
+                webSocket.ensureHealthyConnection(
+                    reason = "workgroup-resume:${state.agentId}:${state.workgroupId}",
+                    staleTimeoutMs = WORKGROUP_RESUME_STALE_CONNECTION_TIMEOUT_MS
+                )
+            } catch (e: Exception) {
+                CrashLogger.logError("WorkgroupChatViewModel", "Failed to restore workgroup connection on resume", e)
+            }
+
+            if (webSocket.connectionState.value == RelayWebSocket.ConnectionState.CONNECTED) {
+                requestLatestSessionNow(
+                    showLoading = false,
+                    limit = WORKGROUP_INITIAL_SYNC_PAGE_SIZE
+                )
+            }
+        }
     }
 
     fun loadOlderMessages() {
@@ -501,6 +528,14 @@ class WorkgroupChatViewModel(
                         state.isRunning ||
                         state.messages.lastOrNull()?.status == "streaming" ||
                         now < syncBurstUntilMillis
+                try {
+                    webSocket.ensureHealthyConnection(
+                        reason = "workgroup-active-sync:${state.agentId}:${state.workgroupId}",
+                        staleTimeoutMs = WORKGROUP_ACTIVE_SYNC_STALE_CONNECTION_TIMEOUT_MS
+                    )
+                } catch (e: Exception) {
+                    CrashLogger.logError("WorkgroupChatViewModel", "Failed to validate workgroup connection during sync", e)
+                }
                 requestLatestSession(
                     showLoading = false,
                     limit = if (shouldAggressivelySync) {

@@ -61,6 +61,10 @@ class SessionViewModel(
     private val tokenStore: TokenStore,
     private val workgroupRepository: WorkgroupRepository
 ) : ViewModel() {
+    companion object {
+        private const val RESUME_STALE_CONNECTION_TIMEOUT_MS = 20_000L
+    }
+
     private var latestSessions: List<Session> = emptyList()
     private var latestPreviewMap: Map<String, Message> = emptyMap()
     private var stablePreviewMap: Map<String, Message> = emptyMap()
@@ -195,6 +199,32 @@ class SessionViewModel(
                 },
                 onFailure = { e -> _uiState.update { it.copy(isLoading = false, error = e.message) } }
             )
+        }
+    }
+
+    fun onResume() {
+        viewModelScope.launch {
+            try {
+                webSocket.ensureHealthyConnection(
+                    reason = "session-list-resume",
+                    staleTimeoutMs = RESUME_STALE_CONNECTION_TIMEOUT_MS
+                )
+            } catch (_: Exception) {
+            }
+
+            if (webSocket.connectionState.value == RelayWebSocket.ConnectionState.CONNECTED) {
+                webSocket.send(
+                    Envelope(
+                        id = UUID.randomUUID().toString(),
+                        event = Events.PROJECT_LIST_REQUEST,
+                        ts = System.currentTimeMillis()
+                    )
+                )
+                messageRepository.requestProjectSyncs(repository.getSessions())
+                refreshWorkgroups(showLoading = false)
+            } else if (latestSessions.isEmpty()) {
+                repository.syncFromServer(force = true)
+            }
         }
     }
 

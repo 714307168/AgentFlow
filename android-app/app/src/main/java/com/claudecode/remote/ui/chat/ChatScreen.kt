@@ -93,6 +93,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.core.content.FileProvider
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.LifecycleOwner
 import com.claudecode.remote.R
 import com.claudecode.remote.UiPresenceTracker
 import com.claudecode.remote.data.model.Message
@@ -126,6 +129,7 @@ fun ChatScreen(
     onNavigateBack: () -> Unit
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = context as? LifecycleOwner
     val uiState by viewModel.uiState.collectAsState()
     val conversationListState = remember(projectId) { LazyListState() }
     val activityListState = remember(projectId) { LazyListState() }
@@ -196,6 +200,22 @@ fun ChatScreen(
         uiPresenceTracker.setActiveProject(projectId)
         onDispose {
             uiPresenceTracker.setActiveProject(null)
+        }
+    }
+
+    DisposableEffect(lifecycleOwner, projectId) {
+        if (lifecycleOwner == null) {
+            onDispose { }
+        } else {
+            val observer = LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_RESUME) {
+                    viewModel.onResume()
+                }
+            }
+            lifecycleOwner.lifecycle.addObserver(observer)
+            onDispose {
+                lifecycleOwner.lifecycle.removeObserver(observer)
+            }
         }
     }
 

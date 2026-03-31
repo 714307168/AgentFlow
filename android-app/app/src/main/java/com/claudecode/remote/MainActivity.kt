@@ -443,6 +443,22 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        if (appContainer.tokenStore.shouldAutoStartRelay()) {
+            lifecycleScope.launch {
+                try {
+                    appContainer.relayWebSocket.ensureHealthyConnection(
+                        reason = "activity-resume",
+                        staleTimeoutMs = RESUME_STALE_CONNECTION_TIMEOUT_MS
+                    )
+                } catch (e: Exception) {
+                    CrashLogger.logError("MainActivity", "Failed to verify relay connection on resume", e)
+                }
+            }
+        }
+    }
+
     override fun onStop() {
         appContainer.uiPresenceTracker.setAppInForeground(false)
         super.onStop()
@@ -473,5 +489,9 @@ class MainActivity : ComponentActivity() {
         config.setLocale(locale)
         @Suppress("DEPRECATION")
         resources.updateConfiguration(config, resources.displayMetrics)
+    }
+
+    companion object {
+        private const val RESUME_STALE_CONNECTION_TIMEOUT_MS = 20_000L
     }
 }

@@ -92,7 +92,10 @@ class RelayWebSocket(
         e2eEnabled = enabled
     }
 
-    suspend fun ensureHealthyConnection(reason: String = "health-check") {
+    suspend fun ensureHealthyConnection(
+        reason: String = "health-check",
+        staleTimeoutMs: Long = STALE_CONNECTION_TIMEOUT_MS
+    ) {
         connectionMutex.withLock {
             val token = tokenStore.getToken()
             val deviceId = tokenStore.getDeviceId()
@@ -116,7 +119,7 @@ class RelayWebSocket(
                 ConnectionState.CONNECTED -> {
                     val now = System.currentTimeMillis()
                     val staleForMs = now - lastInboundAtMs
-                    if (lastInboundAtMs > 0L && staleForMs <= STALE_CONNECTION_TIMEOUT_MS) {
+                    if (lastInboundAtMs > 0L && staleForMs <= staleTimeoutMs) {
                         send(
                             Envelope(
                                 id = UUID.randomUUID().toString(),

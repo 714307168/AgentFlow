@@ -27,12 +27,14 @@ private const val MESSAGE_PAGE_SIZE = 30
 private const val INITIAL_SYNC_PAGE_SIZE = 80
 private const val INCREMENTAL_SYNC_PAGE_SIZE = 32
 private const val ACTIVE_SYNC_OVERLAP_COUNT = 8
-private const val ACTIVE_SYNC_POLL_MS = 15_000L
-private const val IDLE_SYNC_POLL_MS = 45_000L
-private const val ACTIVE_SYNC_BURST_MS = 4_000L
-private const val SYNC_TRIGGER_DEBOUNCE_MS = 900L
+private const val ACTIVE_SYNC_POLL_MS = 5_000L
+private const val IDLE_SYNC_POLL_MS = 15_000L
+private const val ACTIVE_SYNC_BURST_MS = 8_000L
+private const val SYNC_TRIGGER_DEBOUNCE_MS = 250L
 private const val OLDER_HISTORY_REQUEST_TIMEOUT_MS = 6_000L
 private const val SNAPSHOT_PERSIST_THROTTLE_MS = 1_200L
+private const val RESUME_STALE_CONNECTION_TIMEOUT_MS = 20_000L
+private const val ACTIVE_SYNC_STALE_CONNECTION_TIMEOUT_MS = 20_000L
 
 data class ConversationItem(
     val id: String,
@@ -490,6 +492,31 @@ class ChatViewModel(
                 recentOverlapCount = ACTIVE_SYNC_OVERLAP_COUNT,
                 limit = if (hasCachedConversation) MESSAGE_PAGE_SIZE else INITIAL_SYNC_PAGE_SIZE
             )
+        }
+    }
+
+    fun onResume() {
+        val state = _uiState.value
+        if (state.projectId.isBlank()) {
+            return
+        }
+        markSyncBurst()
+        viewModelScope.launch {
+            try {
+                webSocket.ensureHealthyConnection(
+                    reason = "chat-resume:${state.projectId}",
+                    staleTimeoutMs = RESUME_STALE_CONNECTION_TIMEOUT_MS
+                )
+            } catch (e: Exception) {
+                CrashLogger.logError("ChatViewModel", "Error restoring chat connection on resume", e)
+            }
+
+            if (webSocket.connectionState.value == RelayWebSocket.ConnectionState.CONNECTED) {
+                requestProjectSyncNow(
+                    recentOverlapCount = ACTIVE_SYNC_OVERLAP_COUNT,
+                    limit = if (state.messages.isNotEmpty()) MESSAGE_PAGE_SIZE else INITIAL_SYNC_PAGE_SIZE
+                )
+            }
         }
     }
 
@@ -987,6 +1014,14 @@ class ChatViewModel(
                     break
                 }
                 if (webSocket.connectionState.value == RelayWebSocket.ConnectionState.CONNECTED) {
+                    try {
+                        webSocket.ensureHealthyConnection(
+                            reason = "chat-active-sync:${state.projectId}",
+                            staleTimeoutMs = ACTIVE_SYNC_STALE_CONNECTION_TIMEOUT_MS
+                        )
+                    } catch (e: Exception) {
+                        CrashLogger.logError("ChatViewModel", "Error validating chat connection during active sync", e)
+                    }
                     val now = System.currentTimeMillis()
                     val shouldAggressivelySync = state.isRunning ||
                         state.isSending ||
