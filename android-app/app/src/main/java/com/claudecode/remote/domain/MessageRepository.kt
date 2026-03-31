@@ -362,7 +362,8 @@ class MessageRepository(
                 type = if (normalizedAttachments.isNotEmpty()) MessageType.FILE else MessageType.TEXT,
                 attachments = normalizedAttachments,
                 timestamp = optimisticTimestamp
-            )
+            ),
+            conversationId = previousSession?.activeConversationId
         )
         applyOptimisticRuntimeState(
             projectId = projectId,
@@ -409,7 +410,8 @@ class MessageRepository(
                         type = if (optimisticAttachments.isNotEmpty()) MessageType.FILE else MessageType.TEXT,
                         attachments = optimisticAttachments,
                         timestamp = envelope.ts
-                    )
+                    ),
+                    conversationId = previousSession?.activeConversationId
                 )
                 webSocket.send(envelope, targetAgentId = agentId)
                 runCatching {
@@ -806,8 +808,10 @@ class MessageRepository(
     suspend fun getSessionForProjectSnapshot(projectId: String): Session? =
         sessionDao.getSessionByProjectId(projectId)?.toSession()
 
-    private suspend fun addMessage(message: Message) {
-        messageDao.insertMessage(message.toEntity())
+    private suspend fun addMessage(message: Message, conversationId: String? = null) {
+        val resolvedConversationId = conversationId?.trim()?.takeIf { it.isNotEmpty() }
+            ?: sessionDao.getSessionByProjectId(message.projectId)?.activeConversationId?.trim()?.takeIf { it.isNotEmpty() }
+        messageDao.insertMessage(message.toEntity(resolvedConversationId))
     }
 
     private suspend fun applyProjectSyncDelta(
