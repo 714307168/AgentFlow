@@ -858,7 +858,7 @@ class MessageRepository(
                 messageDao.insertMessage(mergeMessageEntity(existing, entity))
             }
 
-            messageDao.pruneProjectMessages(projectId, MAX_PROJECT_MESSAGES)
+            pruneProjectMessageCache(projectId, conversationId)
             val nextLastSyncSeq = when {
                 requestBeforeSeq != null -> maxOf(currentLastSeq, highestSeq)
                 rawItems.isEmpty() && !truncated -> maxOf(currentLastSeq, latestSeq)
@@ -1029,7 +1029,7 @@ class MessageRepository(
                 val existing = messageDao.getMessageById(entity.id)
                 messageDao.insertMessage(mergeMessageEntity(existing, entity))
             }
-            messageDao.pruneProjectMessages(projectId, MAX_PROJECT_MESSAGES)
+            pruneProjectMessageCache(projectId, activeConversationId)
             sessionDao.updateLastSyncSeq(projectId, currentLastSeq + messages.size)
         }
     }
@@ -1108,6 +1108,22 @@ class MessageRepository(
         conversationId?.trim().orEmpty(),
         itemId?.trim().orEmpty()
     ).joinToString(separator = "::")
+
+    private suspend fun pruneProjectMessageCache(
+        projectId: String,
+        activeConversationId: String?
+    ) {
+        val preservedConversationId = activeConversationId?.trim()?.takeIf { it.isNotEmpty() }
+        if (preservedConversationId == null) {
+            messageDao.pruneProjectMessages(projectId, MAX_PROJECT_MESSAGES)
+            return
+        }
+        messageDao.pruneInactiveConversationMessages(
+            projectId = projectId,
+            activeConversationId = preservedConversationId,
+            keepCount = MAX_PROJECT_MESSAGES
+        )
+    }
 
     private fun normalizeAttachment(attachment: MessageAttachment): MessageAttachment {
         val inferredKind = when {
