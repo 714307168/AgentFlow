@@ -79,6 +79,27 @@ function normalizeRoleMention(value: string): string {
   return value.trim().toLowerCase().replace(/[\s_-]+/g, "");
 }
 
+function buildMemberMentionTokens(member: WorkgroupMember): string[] {
+  const tokens = new Set<string>();
+  const name = member.name.trim();
+  if (name) {
+    tokens.add(name.toLowerCase());
+    tokens.add(normalizeRoleMention(name));
+  }
+
+  if (member.role === "project_manager") {
+    [
+      "pm",
+      "pmagent",
+      "projectmanager",
+      "manager",
+      "项目经理",
+    ].forEach((token) => tokens.add(normalizeRoleMention(token)));
+  }
+
+  return Array.from(tokens).filter(Boolean);
+}
+
 function buildMessageLabel(message: WorkgroupCollaborationMessage): string {
   if (message.senderType === "member") {
     const role = message.memberRole ? ` (${message.memberRole})` : "";
@@ -450,7 +471,8 @@ export default class WorkgroupCollaborationService extends EventEmitter {
 
     const matchedMembers = new Map<string, WorkgroupMember>();
     for (const member of boundMembers) {
-      if (normalizedContent.includes(`@${member.name.trim().toLowerCase()}`)) {
+      const mentionTokens = buildMemberMentionTokens(member);
+      if (mentionTokens.some((token) => normalizedContent.includes(`@${token}`))) {
         matchedMembers.set(member.id, member);
       }
     }
