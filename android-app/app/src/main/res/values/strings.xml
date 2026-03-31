@@ -120,6 +120,7 @@
     <string name="chat_download_attachment">Download</string>
     <string name="chat_open_attachment">Open</string>
     <string name="chat_downloading_attachment">Downloading...</string>
+    <string name="chat_message_copied">Message copied</string>
     <string name="chat_stop_task">Stop task</string>
     <string name="chat_conversations_title">Conversations</string>
     <string name="chat_new_conversation">New conversation</string>

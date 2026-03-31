@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.widget.Toast
 import androidx.compose.animation.animateContentSize
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -17,6 +18,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -84,8 +87,10 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -129,6 +134,7 @@ fun ChatScreen(
     onNavigateBack: () -> Unit
 ) {
     val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
     val lifecycleOwner = context as? LifecycleOwner
     val uiState by viewModel.uiState.collectAsState()
     val conversationListState = remember(projectId) { LazyListState() }
@@ -564,6 +570,14 @@ fun ChatScreen(
                                         MessageBubble(
                                             message = message,
                                             downloadingAttachmentIds = uiState.downloadingAttachmentIds,
+                                            onCopyMessage = { content ->
+                                                clipboardManager.setText(AnnotatedString(content))
+                                                Toast.makeText(
+                                                    context,
+                                                    context.getString(R.string.chat_message_copied),
+                                                    Toast.LENGTH_SHORT
+                                                ).show()
+                                            },
                                             onAttachmentAction = { attachment ->
                                                 handleAttachmentAction(
                                                     context = context,
@@ -1105,9 +1119,11 @@ private fun RuntimeNoticeBanner(uiState: ChatUiState) {
 }
 
 @Composable
+@OptIn(ExperimentalFoundationApi::class)
 private fun MessageBubble(
     message: Message,
     downloadingAttachmentIds: Set<String>,
+    onCopyMessage: (String) -> Unit,
     onAttachmentAction: (MessageAttachment) -> Unit,
     onImageClick: (MessageAttachment) -> Unit
 ) {
@@ -1137,6 +1153,7 @@ private fun MessageBubble(
     }
     val alignment = if (isUser) Alignment.End else Alignment.Start
     val activityDisplay = if (isActivity) parseActivityDisplay(message.content) else null
+    val canCopyMessage = message.content.isNotBlank()
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -1153,7 +1170,13 @@ private fun MessageBubble(
             tonalElevation = if (isUser) 0.dp else 2.dp,
             shadowElevation = if (isUser) 2.dp else 3.dp,
             border = BorderStroke(1.dp, borderColor),
-            modifier = Modifier.widthIn(max = 332.dp)
+            modifier = Modifier
+                .widthIn(max = 332.dp)
+                .combinedClickable(
+                    enabled = canCopyMessage,
+                    onClick = {},
+                    onLongClick = { onCopyMessage(message.content) }
+                )
         ) {
             Column(
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
@@ -1247,6 +1270,11 @@ private fun MessageBubble(
                             BlinkingCursor(color = textColor)
                         }
                     }
+                    Text(
+                        text = formatTimestamp(message.timestamp),
+                        color = textColor.copy(alpha = 0.64f),
+                        style = MaterialTheme.typography.labelSmall
+                    )
                 }
             }
         }

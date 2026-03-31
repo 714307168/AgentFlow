@@ -1,7 +1,10 @@
 package com.claudecode.remote.ui.workgroup
 
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -49,8 +52,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -70,6 +75,7 @@ fun WorkgroupChatScreen(
     onNavigateBack: () -> Unit
 ) {
     val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
     val uiState by viewModel.uiState.collectAsState()
     val listState = rememberLazyListState()
     val lifecycleOwner = context as? LifecycleOwner
@@ -216,7 +222,17 @@ fun WorkgroupChatScreen(
                                     }
                                 }
                                 items(uiState.messages, key = { it.id }) { message ->
-                                    WorkgroupMessageBubble(message = message)
+                                    WorkgroupMessageBubble(
+                                        message = message,
+                                        onCopyMessage = { content ->
+                                            clipboardManager.setText(AnnotatedString(content))
+                                            Toast.makeText(
+                                                context,
+                                                context.getString(R.string.chat_message_copied),
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
+                                    )
                                 }
                             }
                         }
@@ -531,10 +547,15 @@ private fun HeaderChip(
 }
 
 @Composable
-private fun WorkgroupMessageBubble(message: WorkgroupMessage) {
+@OptIn(ExperimentalFoundationApi::class)
+private fun WorkgroupMessageBubble(
+    message: WorkgroupMessage,
+    onCopyMessage: (String) -> Unit
+) {
     val isUser = message.senderType == "user"
     val isSystem = message.senderType == "system"
     val isError = message.senderType == "error"
+    val canCopyMessage = message.content.isNotBlank()
 
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -563,7 +584,13 @@ private fun WorkgroupMessageBubble(message: WorkgroupMessage) {
                 bottomEnd = if (isUser) 6.dp else 18.dp
             ),
             tonalElevation = if (message.status == "streaming") 3.dp else 0.dp,
-            modifier = Modifier.fillMaxWidth(0.9f)
+            modifier = Modifier
+                .fillMaxWidth(0.9f)
+                .combinedClickable(
+                    enabled = canCopyMessage,
+                    onClick = {},
+                    onLongClick = { onCopyMessage(message.content) }
+                )
         ) {
             Column(
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
