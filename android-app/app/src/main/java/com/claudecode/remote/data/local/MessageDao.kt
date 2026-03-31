@@ -181,26 +181,6 @@ interface MessageDao {
     )
     suspend fun pruneProjectMessages(projectId: String, keepCount: Int)
 
-    @Query(
-        """
-        DELETE FROM messages
-        WHERE projectId = :projectId
-          AND COALESCE(conversationId, '') <> COALESCE(:activeConversationId, '')
-          AND id NOT IN (
-            SELECT id FROM messages
-            WHERE projectId = :projectId
-              AND COALESCE(conversationId, '') <> COALESCE(:activeConversationId, '')
-            ORDER BY syncSeq DESC, timestamp DESC, id DESC
-            LIMIT :keepCount
-          )
-        """
-    )
-    suspend fun pruneInactiveConversationMessages(
-        projectId: String,
-        activeConversationId: String?,
-        keepCount: Int
-    )
-
     @Query("DELETE FROM messages")
     suspend fun deleteAllMessages()
 }

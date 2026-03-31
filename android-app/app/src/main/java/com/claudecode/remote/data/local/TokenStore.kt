@@ -122,6 +122,22 @@ class TokenStore(context: Context) {
         prefs.edit().remove(projectDraftKey(projectId)).apply()
     }
 
+    fun saveProjectChatSnapshot(projectId: String, snapshotJson: String) {
+        val key = projectChatSnapshotKey(projectId)
+        if (snapshotJson.isBlank()) {
+            prefs.edit().remove(key).apply()
+        } else {
+            prefs.edit().putString(key, snapshotJson).apply()
+        }
+    }
+
+    fun getProjectChatSnapshot(projectId: String): String? =
+        prefs.getString(projectChatSnapshotKey(projectId), null)
+
+    fun clearProjectChatSnapshot(projectId: String) {
+        prefs.edit().remove(projectChatSnapshotKey(projectId)).apply()
+    }
+
     fun saveCollapsedSessionGroups(groupKeys: Set<String>) {
         prefs.edit().putStringSet(KEY_COLLAPSED_SESSION_GROUPS, groupKeys.toSet()).apply()
     }
@@ -166,5 +182,6 @@ class TokenStore(context: Context) {
         private const val KEY_JOINED_WORKGROUP_AGENT_IDS = "joined_workgroup_agent_ids"
 
         private fun projectDraftKey(projectId: String): String = "draft_$projectId"
+        private fun projectChatSnapshotKey(projectId: String): String = "chat_snapshot_$projectId"
     }
 }

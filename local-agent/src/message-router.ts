@@ -450,6 +450,7 @@ class MessageRouter {
       limit?: number;
       action?: string;
       conversation_id?: string;
+      item_id?: string;
       run_id?: string;
       project_updates?: {
         group_name?: string | null;
@@ -457,10 +458,18 @@ class MessageRouter {
         cli_model?: string | null;
         project_prompt?: string | null;
       };
+      known_items?: Array<{
+        id?: string;
+        content_md5?: string;
+        attachments_md5?: string;
+      }>;
     } | undefined;
     const action = typeof payloadObject?.action === "string" ? payloadObject.action.trim().toLowerCase() : "";
     const requestedConversationId = typeof payloadObject?.conversation_id === "string"
       ? payloadObject.conversation_id.trim()
+      : "";
+    const requestedItemId = typeof payloadObject?.item_id === "string"
+      ? payloadObject.item_id.trim()
       : "";
     const requestedRunId = typeof payloadObject?.run_id === "string"
       ? payloadObject.run_id.trim()
@@ -498,11 +507,22 @@ class MessageRouter {
       afterSeq,
       beforeSeq,
       limit,
+      itemId: requestedItemId || undefined,
     });
     const payload = buildSessionSyncPayload(snapshot, delta, {
       afterSeq,
       beforeSeq,
       limit,
+      fullItemId: action === SessionSyncActions.FETCH_ITEM_DETAIL ? requestedItemId : undefined,
+      knownItems: Array.isArray(payloadObject?.known_items)
+        ? payloadObject.known_items
+            .map((item) => ({
+              id: String(item?.id ?? "").trim(),
+              content_md5: typeof item?.content_md5 === "string" ? item.content_md5.trim() : undefined,
+              attachments_md5: typeof item?.attachments_md5 === "string" ? item.attachments_md5.trim() : undefined,
+            }))
+            .filter((item) => Boolean(item.id))
+        : [],
     });
     this.relayClient.send({
       id: uuidv4(),

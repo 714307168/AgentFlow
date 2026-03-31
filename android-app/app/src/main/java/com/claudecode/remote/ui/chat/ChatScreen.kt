@@ -116,9 +116,6 @@ private enum class ChatPane {
     QUEUE
 }
 
-private const val HISTORY_TOP_TRIGGER_OFFSET_PX = 72
-private const val CONVERSATION_HISTORY_HEADER_ITEMS = 1
-
 @Composable
 fun ChatScreen(
     projectId: String,
@@ -175,34 +172,22 @@ fun ChatScreen(
             }
         }
             .distinctUntilChanged()
-            .collect { listPosition ->
-                val (index, offset) = listPosition ?: return@collect
-                when (selectedPane) {
-                    ChatPane.CONVERSATION -> {
-                        if (
-                            uiState.hasMoreHistory &&
-                            !uiState.isLoadingOlder &&
-                            hasReachedHistoryTop(
-                                firstVisibleIndex = index,
-                                firstVisibleOffset = offset,
-                                leadingItems = CONVERSATION_HISTORY_HEADER_ITEMS
-                            )
-                        ) {
-                            viewModel.loadOlderMessages()
+            .collect { state ->
+                val (index, offset) = state ?: return@collect
+                if (index == 0 && offset <= 24) {
+                    when (selectedPane) {
+                        ChatPane.CONVERSATION -> {
+                            if (uiState.hasMoreHistory && !uiState.isLoadingOlder) {
+                                viewModel.loadOlderMessages()
+                            }
                         }
-                    }
-                    ChatPane.ACTIVITY -> {
-                        if (
-                            uiState.hasMoreActivityHistory &&
-                            hasReachedHistoryTop(
-                                firstVisibleIndex = index,
-                                firstVisibleOffset = offset
-                            )
-                        ) {
-                            viewModel.loadOlderActivityMessages()
+                        ChatPane.ACTIVITY -> {
+                            if (uiState.hasMoreActivityHistory) {
+                                viewModel.loadOlderActivityMessages()
+                            }
                         }
+                        ChatPane.QUEUE -> Unit
                     }
-                    ChatPane.QUEUE -> Unit
                 }
             }
     }
@@ -513,15 +498,7 @@ fun ChatScreen(
                             RuntimeNoticeBanner(uiState = uiState)
                         }
 
-                        val shouldShowConversationList =
-                            selectedPane == ChatPane.CONVERSATION &&
-                                (
-                                    uiState.messages.isNotEmpty() ||
-                                        uiState.hasMoreHistory ||
-                                        uiState.isLoadingOlder
-                                    )
-
-                        if (selectedPane == ChatPane.CONVERSATION && !shouldShowConversationList) {
+                        if (selectedPane == ChatPane.CONVERSATION && uiState.messages.isEmpty()) {
                             ChatEmptyState(
                                 title = stringResource(R.string.no_messages),
                                 detail = stringResource(R.string.chat_pane_conversation_hint)
@@ -547,20 +524,11 @@ fun ChatScreen(
                                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp),
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                if (selectedPane == ChatPane.CONVERSATION && (uiState.hasMoreHistory || uiState.isLoadingOlder)) {
+                                if (selectedPane == ChatPane.CONVERSATION && uiState.isLoadingOlder) {
                                     item(key = "loading-older") {
                                         ChatHistoryBanner(
-                                            text = if (uiState.isLoadingOlder) {
-                                                stringResource(R.string.chat_loading_older_safe)
-                                            } else {
-                                                stringResource(R.string.chat_history_hint)
-                                            },
-                                            loading = uiState.isLoadingOlder,
-                                            onLoadOlder = if (uiState.isLoadingOlder) {
-                                                null
-                                            } else {
-                                                { viewModel.loadOlderMessages() }
-                                            }
+                                            text = stringResource(R.string.chat_loading_older),
+                                            loading = true
                                         )
                                     }
                                 }
@@ -831,8 +799,7 @@ private fun ChatPaneSummaryStrip(
 @Composable
 private fun ChatHistoryBanner(
     text: String,
-    loading: Boolean,
-    onLoadOlder: (() -> Unit)? = null
+    loading: Boolean
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f),
@@ -844,44 +811,22 @@ private fun ChatHistoryBanner(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 12.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
-                modifier = Modifier.weight(1f, fill = false),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                if (loading) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(14.dp),
-                        strokeWidth = 2.dp
-                    )
-                }
-                Text(
-                    text = text,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+            if (loading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(14.dp),
+                    strokeWidth = 2.dp
                 )
             }
-            if (!loading && onLoadOlder != null) {
-                TextButton(onClick = onLoadOlder) {
-                    Text(stringResource(R.string.workgroups_load_older))
-                }
-            }
+            Text(
+                text = text,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
-}
-
-private fun hasReachedHistoryTop(
-    firstVisibleIndex: Int,
-    firstVisibleOffset: Int,
-    leadingItems: Int = 0
-): Boolean {
-    if (firstVisibleIndex < leadingItems) {
-        return true
-    }
-    return firstVisibleIndex == leadingItems && firstVisibleOffset <= HISTORY_TOP_TRIGGER_OFFSET_PX
 }
 
 @Composable
