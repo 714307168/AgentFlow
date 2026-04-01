@@ -58,6 +58,7 @@ import com.claudecode.remote.ui.theme.RemoteTheme
 import com.claudecode.remote.ui.workgroup.WorkgroupChatScreen
 import com.claudecode.remote.ui.workgroup.WorkgroupChatViewModel
 import com.claudecode.remote.util.CrashLogger
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.Locale
 
@@ -461,6 +462,7 @@ class MainActivity : ComponentActivity() {
                         forceReconnect = shouldForceReconnect,
                         staleTimeoutMs = RESUME_STALE_CONNECTION_TIMEOUT_MS
                     )
+                    syncForegroundData("activity-resume")
                 } catch (e: Exception) {
                     CrashLogger.logError("MainActivity", "Failed to verify relay connection on resume", e)
                 }
@@ -547,6 +549,66 @@ class MainActivity : ComponentActivity() {
             reason = reason,
             staleTimeoutMs = staleTimeoutMs
         )
+    }
+
+    private suspend fun syncForegroundData(reason: String) {
+        val sessionRepository = appContainer.sessionRepository
+        val messageRepository = appContainer.messageRepository
+        val workgroupRepository = appContainer.workgroupRepository
+        val webSocket = appContainer.relayWebSocket
+
+        sessionRepository.syncFromServer(force = true).onFailure { error ->
+            CrashLogger.logError(
+                "MainActivity",
+                "Failed to refresh session catalog on foreground: $reason",
+                error as? Exception ?: Exception(error)
+            )
+        }
+
+        val sessions = sessionRepository.getSessions()
+        if (sessions.isEmpty()) {
+            workgroupRepository.retainAgentIds(emptyList())
+            return
+        }
+
+        for (attempt in 0 until 8) {
+            if (webSocket.connectionState.value == com.claudecode.remote.data.remote.RelayWebSocket.ConnectionState.CONNECTED) {
+                break
+            }
+            delay(500)
+        }
+
+        if (webSocket.connectionState.value != com.claudecode.remote.data.remote.RelayWebSocket.ConnectionState.CONNECTED) {
+            CrashLogger.logInfo("MainActivity", "Skipping foreground project sync because relay is not connected: $reason")
+            return
+        }
+
+        runCatching {
+            messageRepository.requestProjectSyncs(sessions)
+        }.onFailure { error ->
+            CrashLogger.logError(
+                "MainActivity",
+                "Failed to request project syncs on foreground: $reason",
+                error as? Exception ?: Exception(error)
+            )
+        }
+
+        val trackedAgentIds = workgroupRepository.resolveTrackedAgentIds(
+            sessions.map { it.agentId.trim() }.filter { it.isNotEmpty() }.distinct().sorted()
+        )
+        runCatching {
+            if (trackedAgentIds.isEmpty()) {
+                workgroupRepository.retainAgentIds(emptyList())
+            } else {
+                workgroupRepository.refresh(trackedAgentIds, force = true)
+            }
+        }.onFailure { error ->
+            CrashLogger.logError(
+                "MainActivity",
+                "Failed to refresh workgroups on foreground: $reason",
+                error as? Exception ?: Exception(error)
+            )
+        }
     }
 
     companion object {
