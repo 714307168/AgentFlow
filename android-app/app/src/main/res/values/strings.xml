@@ -80,6 +80,8 @@
     <string name="settings_update_error">Update failed. Try again later.</string>
     <string name="settings_crash_log_title">Crash Log</string>
     <string name="settings_no_crash_logs">No crash logs found.</string>
+    <string name="settings_upload_log">Upload Log</string>
+    <string name="settings_uploading_log">Uploading...</string>
     <string name="settings_clear">Clear</string>
     <string name="settings_clear_all">Clear All</string>
     <string name="settings_close">Close</string>

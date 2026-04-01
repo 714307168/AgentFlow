@@ -9,6 +9,7 @@ import com.claudecode.remote.data.remote.AuthSessionManager
 import com.claudecode.remote.data.remote.RelayApi
 import com.claudecode.remote.data.remote.RelayWebSocket
 import com.claudecode.remote.domain.MessageRepository
+import com.claudecode.remote.domain.MobileLogRepository
 import com.claudecode.remote.domain.SessionRepository
 import com.claudecode.remote.domain.WorkgroupRepository
 import com.claudecode.remote.update.AppUpdateManager
@@ -78,6 +79,12 @@ class AppContainer(private val appContext: Context) {
         context = appContext,
         tokenStore = tokenStore,
         relayApiProvider = { relayApi }
+    )
+
+    val mobileLogRepository = MobileLogRepository(
+        relayApiProvider = { relayApi },
+        authSessionManager = authSessionManager,
+        tokenStore = tokenStore
     )
 
     fun updateServerUrl(rawUrl: String) {

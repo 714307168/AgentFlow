@@ -62,6 +62,12 @@ interface RelayApi {
         @Query("workgroup_id") workgroupId: String? = null
     ): WorkgroupRegistryMembersResponse
 
+    @POST("api/device/logs")
+    suspend fun uploadDeviceLog(
+        @Header("Authorization") auth: String,
+        @Body request: DeviceLogUploadRequest
+    ): DeviceLogUploadResponse
+
     @POST("api/workgroups/registry/join")
     suspend fun joinWorkgroupRegistry(
         @Header("Authorization") auth: String,
@@ -126,6 +132,25 @@ data class WakeupResponse(val status: String)
 data class SyncResponse(
     @SerialName("agent_id") val agentId: String,
     val projects: List<ProjectInfo>
+)
+
+@Serializable
+data class DeviceLogUploadRequest(
+    @SerialName("file_name") val fileName: String,
+    val content: String,
+    @SerialName("app_version") val appVersion: String? = null,
+    @SerialName("app_build") val appBuild: Int? = null,
+    @SerialName("device_model") val deviceModel: String? = null,
+    @SerialName("client_time") val clientTime: String? = null,
+    val source: String = "android",
+    @SerialName("connection_note") val connectionNote: String? = null
+)
+
+@Serializable
+data class DeviceLogUploadResponse(
+    val success: Boolean = false,
+    @SerialName("log_id") val logId: String? = null,
+    @SerialName("uploaded_at") val uploadedAt: String? = null
 )
 
 @Serializable

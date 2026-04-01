@@ -404,6 +404,33 @@ class MainActivity : ComponentActivity() {
                                         }
                                     }
                                 },
+                                onUploadCrashLog = { fileName, content ->
+                                    val baseUrl = (tokenStore.getServerUrl() ?: "").trim().trimEnd('/')
+                                    appContainer.mobileLogRepository.uploadLog(
+                                        fileName = fileName,
+                                        content = content,
+                                        connectionNote = "Uploaded from Android settings diagnostics."
+                                    ).map { response ->
+                                        val uploadId = response.logId?.trim().orEmpty()
+                                        val uploadedAt = response.uploadedAt?.trim().orEmpty()
+                                        buildString {
+                                            append("日志已上传到服务端")
+                                            if (uploadId.isNotEmpty()) {
+                                                append("，ID: ")
+                                                append(uploadId)
+                                            }
+                                            if (uploadedAt.isNotEmpty()) {
+                                                append("，时间: ")
+                                                append(uploadedAt)
+                                            }
+                                            if (baseUrl.isNotEmpty()) {
+                                                append("。后台查看路径: ")
+                                                append(baseUrl)
+                                                append("/admin/mobile-logs")
+                                            }
+                                        }
+                                    }
+                                },
                                 onCheckForUpdates = {
                                     coroutineScope.launch { appUpdateManager.checkForUpdates(manual = true) }
                                 },

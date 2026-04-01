@@ -52,6 +52,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -72,6 +73,7 @@ import com.claudecode.remote.update.AppUpdateStatus
 import com.claudecode.remote.util.CrashLogFileInfo
 import com.claudecode.remote.util.CrashLogger
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -100,6 +102,7 @@ fun SettingsScreen(
     initialState: SettingsState,
     onSaveConnection: (serverUrl: String, deviceId: String) -> Unit,
     onLogin: (serverUrl: String, username: String, password: String, deviceId: String) -> Unit,
+    onUploadCrashLog: suspend (fileName: String, content: String) -> Result<String>,
     onE2EEnabledChange: (Boolean) -> Unit,
     onAutoUpdateCheckChange: (Boolean) -> Unit,
     onAutoUpdateDownloadChange: (Boolean) -> Unit,
@@ -504,7 +507,10 @@ fun SettingsScreen(
     }
 
     if (showLogDialog) {
-        CrashLogDialog(onDismiss = { showLogDialog = false })
+        CrashLogDialog(
+            onDismiss = { showLogDialog = false },
+            onUploadCrashLog = onUploadCrashLog
+        )
     }
 }
 
@@ -779,7 +785,11 @@ private fun SettingsSection(
 }
 
 @Composable
-private fun CrashLogDialog(onDismiss: () -> Unit) {
+private fun CrashLogDialog(
+    onDismiss: () -> Unit,
+    onUploadCrashLog: suspend (fileName: String, content: String) -> Result<String>
+) {
+    val coroutineScope = rememberCoroutineScope()
     var refreshToken by remember { mutableStateOf(0) }
     val logFiles by produceState(initialValue = emptyList<CrashLogFileInfo>(), refreshToken) {
         value = withContext(Dispatchers.IO) {
@@ -787,6 +797,8 @@ private fun CrashLogDialog(onDismiss: () -> Unit) {
         }
     }
     var selectedFileName by remember(refreshToken) { mutableStateOf<String?>(null) }
+    var uploadMessage by remember { mutableStateOf<String?>(null) }
+    var isUploading by remember { mutableStateOf(false) }
 
     LaunchedEffect(logFiles) {
         if (selectedFileName == null || logFiles.none { it.name == selectedFileName }) {
@@ -826,6 +838,20 @@ private fun CrashLogDialog(onDismiss: () -> Unit) {
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                uploadMessage?.takeIf { it.isNotBlank() }?.let { message ->
+                    Surface(
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = message,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
+                        )
+                    }
+                }
                 if (logFiles.isEmpty()) {
                     Surface(
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
@@ -899,7 +925,33 @@ private fun CrashLogDialog(onDismiss: () -> Unit) {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedButton(
                         onClick = {
+                            val fileName = selectedFileName ?: return@OutlinedButton
+                            coroutineScope.launch {
+                                isUploading = true
+                                uploadMessage = null
+                                uploadMessage = onUploadCrashLog(fileName, logContent)
+                                    .fold(
+                                        onSuccess = { it },
+                                        onFailure = { it.message ?: "Upload failed" }
+                                    )
+                                isUploading = false
+                            }
+                        },
+                        enabled = !isUploading && selectedFileName != null && logContent.isNotBlank(),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            if (isUploading) {
+                                stringResource(R.string.settings_uploading_log)
+                            } else {
+                                stringResource(R.string.settings_upload_log)
+                            }
+                        )
+                    }
+                    OutlinedButton(
+                        onClick = {
                             CrashLogger.clearAllLogs()
+                            uploadMessage = null
                             refreshToken += 1
                         },
                         modifier = Modifier.weight(1f)
