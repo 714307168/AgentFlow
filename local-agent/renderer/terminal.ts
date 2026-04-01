@@ -423,6 +423,7 @@ const state: {
   groupOrder: string[];
   collapsedGroups: Set<string>;
   forceDockScroll: WorkspaceView | null;
+  lastRenderedMessagesViewportKey: string | null;
   hint: HintState;
   attachmentPreview: AttachmentPreviewState | null;
 } = {
@@ -453,6 +454,7 @@ const state: {
   groupOrder: [],
   collapsedGroups: new Set<string>(),
   forceDockScroll: null,
+  lastRenderedMessagesViewportKey: null,
   hint: {
     key: "terminal.hint.default",
     fallback: "Press Enter to send, Shift+Enter for a new line. Conversation stays in front, with Activity, CLI, and Queue one tab away.",
@@ -984,6 +986,16 @@ function getCurrentWorkspaceKey(): string | null {
   }
   if (state.workgroupId) {
     return getWorkgroupWorkspaceKey(state.workgroupId);
+  }
+  return null;
+}
+
+function getCurrentMessagesViewportKey(): string | null {
+  if (state.workgroupId) {
+    return `workgroup:${state.workgroupId}`;
+  }
+  if (state.projectId) {
+    return `project:${state.projectId}:conversation:${getCurrentSession()?.activeConversationId ?? "default"}`;
   }
   return null;
 }
@@ -2838,6 +2850,8 @@ function renderMessages(): void {
   }
 
   const forceScroll = state.forceDockScroll === "messages";
+  const messagesViewportKey = getCurrentMessagesViewportKey();
+  const firstRenderForViewport = Boolean(messagesViewportKey) && state.lastRenderedMessagesViewportKey !== messagesViewportKey;
   const workgroup = getCurrentWorkgroup();
   const workgroupSession = getCurrentWorkgroupSession();
   if (workgroup) {
@@ -2861,6 +2875,7 @@ function renderMessages(): void {
     }
 
     const stickToBottom = forceScroll
+      || firstRenderForViewport
       || elements.messages.scrollHeight - elements.messages.scrollTop - elements.messages.clientHeight < 80;
 
     const markup = [
@@ -2903,6 +2918,7 @@ function renderMessages(): void {
     if (stickToBottom) {
       elements.messages.scrollTop = elements.messages.scrollHeight;
     }
+    state.lastRenderedMessagesViewportKey = messagesViewportKey;
     if (forceScroll) {
       state.forceDockScroll = null;
     }
@@ -2953,6 +2969,7 @@ function renderMessages(): void {
   }
 
   const stickToBottom = forceScroll
+    || firstRenderForViewport
     || elements.messages.scrollHeight - elements.messages.scrollTop - elements.messages.clientHeight < 80;
 
   const markup = [
@@ -2991,6 +3008,7 @@ function renderMessages(): void {
   if (stickToBottom) {
     elements.messages.scrollTop = elements.messages.scrollHeight;
   }
+  state.lastRenderedMessagesViewportKey = messagesViewportKey;
   if (forceScroll) {
     state.forceDockScroll = null;
   }
