@@ -469,6 +469,8 @@ let messageSearchTimer: number | null = null;
 let projectListRenderTimer: number | null = null;
 let workspaceRenderTimer: number | null = null;
 let projectSearchTimer: number | null = null;
+let pendingMessagesScrollFrame: number | null = null;
+let pendingMessagesScrollTimeout: number | null = null;
 const historyAutoloadTimers: Partial<Record<"messages" | "activities" | "cli", number>> = {};
 let lastConversationSelectSignature = "";
 let lastProjectCatalogSignature = "";
@@ -998,6 +1000,37 @@ function getCurrentMessagesViewportKey(): string | null {
     return `project:${state.projectId}:conversation:${getCurrentSession()?.activeConversationId ?? "default"}`;
   }
   return null;
+}
+
+function scrollMessagesToBottom(): void {
+  if (!elements.messages) {
+    return;
+  }
+  elements.messages.scrollTop = elements.messages.scrollHeight;
+}
+
+function scheduleMessagesScrollToBottom(): void {
+  if (pendingMessagesScrollFrame !== null) {
+    window.cancelAnimationFrame(pendingMessagesScrollFrame);
+    pendingMessagesScrollFrame = null;
+  }
+  if (pendingMessagesScrollTimeout !== null) {
+    window.clearTimeout(pendingMessagesScrollTimeout);
+    pendingMessagesScrollTimeout = null;
+  }
+
+  scrollMessagesToBottom();
+  pendingMessagesScrollFrame = window.requestAnimationFrame(() => {
+    scrollMessagesToBottom();
+    pendingMessagesScrollFrame = window.requestAnimationFrame(() => {
+      scrollMessagesToBottom();
+      pendingMessagesScrollFrame = null;
+    });
+  });
+  pendingMessagesScrollTimeout = window.setTimeout(() => {
+    scrollMessagesToBottom();
+    pendingMessagesScrollTimeout = null;
+  }, 80);
 }
 
 function persistWorkspaceDraft(workspaceKey: string | null): void {
@@ -2916,7 +2949,7 @@ function renderMessages(): void {
     }
 
     if (stickToBottom) {
-      elements.messages.scrollTop = elements.messages.scrollHeight;
+      scheduleMessagesScrollToBottom();
     }
     state.lastRenderedMessagesViewportKey = messagesViewportKey;
     if (forceScroll) {
@@ -3006,7 +3039,7 @@ function renderMessages(): void {
   }
 
   if (stickToBottom) {
-    elements.messages.scrollTop = elements.messages.scrollHeight;
+    scheduleMessagesScrollToBottom();
   }
   state.lastRenderedMessagesViewportKey = messagesViewportKey;
   if (forceScroll) {
