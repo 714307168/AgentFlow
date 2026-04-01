@@ -372,6 +372,7 @@ const elements = {
   cliView: document.getElementById("cliView"),
   queueView: document.getElementById("queueView"),
   messages: document.getElementById("messages"),
+  messagesJumpButton: document.getElementById("messagesJumpButton") as HTMLButtonElement | null,
   messageSearchInput: document.getElementById("messageSearchInput") as HTMLInputElement | null,
   activityList: document.getElementById("activityList"),
   composerForm: document.getElementById("composerForm") as HTMLFormElement | null,
@@ -791,6 +792,17 @@ function formatTime(timestamp: number): string {
   });
 }
 
+function formatDateTime(timestamp: number): string {
+  return new Date(timestamp).toLocaleString(getLocale(), {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
 function formatRelativeTime(timestamp: number): string {
   if (!Number.isFinite(timestamp) || timestamp <= 0) {
     return inlineText("Just now", "刚刚");
@@ -1002,11 +1014,34 @@ function getCurrentMessagesViewportKey(): string | null {
   return null;
 }
 
+function focusComposerAtEnd(): void {
+  window.requestAnimationFrame(() => {
+    const input = elements.composerInput;
+    if (!input) {
+      return;
+    }
+    input.focus();
+    const caret = input.value.length;
+    input.setSelectionRange(caret, caret);
+  });
+}
+
+function syncComposerInputHeight(): void {
+  const input = elements.composerInput;
+  if (!input) {
+    return;
+  }
+  input.style.height = "auto";
+  input.style.height = `${Math.min(input.scrollHeight, 220)}px`;
+  input.style.overflowY = input.scrollHeight > 220 ? "auto" : "hidden";
+}
+
 function scrollMessagesToBottom(): void {
   if (!elements.messages) {
     return;
   }
   elements.messages.scrollTop = elements.messages.scrollHeight;
+  updateMessagesJumpButtonVisibility();
 }
 
 function scheduleMessagesScrollToBottom(): void {
@@ -1031,6 +1066,74 @@ function scheduleMessagesScrollToBottom(): void {
     scrollMessagesToBottom();
     pendingMessagesScrollTimeout = null;
   }, 80);
+}
+
+function isMessagesNearBottom(): boolean {
+  if (!elements.messages) {
+    return true;
+  }
+  return elements.messages.scrollHeight - elements.messages.scrollTop - elements.messages.clientHeight < 80;
+}
+
+function updateMessagesJumpButtonVisibility(): void {
+  if (!elements.messagesJumpButton) {
+    return;
+  }
+  const hasSelection = Boolean(state.projectId || state.workgroupId);
+  const shouldShow = hasSelection && !isMessagesNearBottom();
+  elements.messagesJumpButton.classList.toggle("hidden", !shouldShow);
+}
+
+function getVisibleMessageContentById(messageId: string): string {
+  if (state.workgroupId) {
+    const message = getVisibleWorkgroupMessages().find((entry) => entry.id === messageId);
+    return message?.content ?? "";
+  }
+  const message = getVisibleProjectMessages().find((entry) => entry.id === messageId);
+  return message?.content ?? "";
+}
+
+async function copyTextToClipboard(value: string): Promise<boolean> {
+  const text = value.trim();
+  if (!text) {
+    return false;
+  }
+
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    const fallback = document.createElement("textarea");
+    fallback.value = text;
+    fallback.setAttribute("readonly", "true");
+    fallback.style.position = "fixed";
+    fallback.style.opacity = "0";
+    fallback.style.pointerEvents = "none";
+    document.body.appendChild(fallback);
+    fallback.focus();
+    fallback.select();
+    try {
+      return document.execCommand("copy");
+    } finally {
+      fallback.remove();
+    }
+  }
+}
+
+async function copyVisibleMessage(messageId: string): Promise<void> {
+  const content = getVisibleMessageContentById(messageId);
+  if (!content.trim()) {
+    setHintText(inlineText("Nothing to copy from this message.", "这条消息没有可复制的内容。"), true);
+    return;
+  }
+
+  const copied = await copyTextToClipboard(content);
+  setHintText(
+    copied
+      ? inlineText("Message copied to clipboard.", "消息已复制到剪贴板。")
+      : inlineText("Failed to copy the message.", "复制消息失败。"),
+    !copied,
+  );
 }
 
 function persistWorkspaceDraft(workspaceKey: string | null): void {
@@ -1065,6 +1168,7 @@ function restoreWorkspaceDraft(workspaceKey: string | null): void {
   }
   state.pendingAttachments = draft ? cloneAttachmentRefs(draft.attachments) : [];
   state.attachmentPreview = null;
+  syncComposerInputHeight();
   renderPendingAttachments();
 }
 
@@ -2023,6 +2127,11 @@ function applyStaticI18n(): void {
     elements.attachFileBtn.textContent = label;
     elements.attachFileBtn.title = label;
   }
+  if (elements.messagesJumpButton) {
+    const label = inlineText("Latest", "最新消息");
+    elements.messagesJumpButton.textContent = label;
+    elements.messagesJumpButton.title = inlineText("Jump to the latest message", "跳转到最新消息");
+  }
   if (elements.composerInput) {
     elements.composerInput.placeholder = msg(
       "terminal.promptPlaceholder",
@@ -2892,6 +3001,7 @@ function renderMessages(): void {
     const messages = getVisibleWorkgroupMessages();
     if (!workgroupSession || messages.length === 0) {
       clearHistoryAutoloadTimer("messages");
+      updateMessagesJumpButtonVisibility();
       const markup = formatEmptyState(
         state.messageSearchQuery.trim()
           ? inlineText("No matching messages", "没有匹配的消息")
@@ -2928,6 +3038,9 @@ function renderMessages(): void {
         const content = message.content.trim() || (message.status === "streaming"
           ? inlineText("Responding...", "正在回复...")
           : inlineText("No content", "暂无内容"));
+        const actionButton = message.content.trim()
+          ? `<button class="message-action-button" type="button" data-copy-message-id="${escapeHtml(message.id)}">${escapeHtml(inlineText("Copy", "复制"))}</button>`
+          : "";
 
         return [
           `<article class="message-card ${escapeHtml(cardRole)}">`,
@@ -2935,7 +3048,8 @@ function renderMessages(): void {
           '<div class="message-meta">',
           `<span class="role-badge ${escapeHtml(cardRole)}">${escapeHtml(senderBadge)}</span>`,
           `<span class="source-badge">${escapeHtml(sourceBadge)}</span>`,
-          `<span class="message-time">${escapeHtml(formatTime(message.updatedAt || message.createdAt))}</span>`,
+          `<span class="message-time" title="${escapeHtml(formatDateTime(message.updatedAt || message.createdAt))}">${escapeHtml(formatTime(message.updatedAt || message.createdAt))}</span>`,
+          actionButton,
           "</div>",
           `<div class="message-content${message.status === "streaming" ? " streaming" : ""}">${highlightText(content, state.messageSearchQuery)}</div>`,
           "</div>",
@@ -2950,6 +3064,8 @@ function renderMessages(): void {
 
     if (stickToBottom) {
       scheduleMessagesScrollToBottom();
+    } else {
+      updateMessagesJumpButtonVisibility();
     }
     state.lastRenderedMessagesViewportKey = messagesViewportKey;
     if (forceScroll) {
@@ -2968,6 +3084,7 @@ function renderMessages(): void {
 
   if (!project) {
     clearHistoryAutoloadTimer("messages");
+    updateMessagesJumpButtonVisibility();
     const markup = formatEmptyState(
       msg("terminal.empty.selectProjectTitle", "No project selected"),
       msg("terminal.empty.selectProjectDetail", "Choose a project from the left sidebar to view messages."),
@@ -2983,6 +3100,7 @@ function renderMessages(): void {
   const messages = getVisibleProjectMessages();
   if (!session || messages.length === 0) {
     clearHistoryAutoloadTimer("messages");
+    updateMessagesJumpButtonVisibility();
     const markup = formatEmptyState(
       state.messageSearchQuery.trim()
         ? inlineText("No matching messages", "没有匹配的消息")
@@ -3013,6 +3131,9 @@ function renderMessages(): void {
       const sourceBadge = message.role === "user"
         ? translateSource(message.source)
         : providerLabel(message.provider ?? session.provider);
+      const actionButton = message.content.trim()
+        ? `<button class="message-action-button" type="button" data-copy-message-id="${escapeHtml(message.id)}">${escapeHtml(inlineText("Copy", "复制"))}</button>`
+        : "";
 
       return [
         `<article class="message-card ${escapeHtml(message.role)}">`,
@@ -3020,7 +3141,8 @@ function renderMessages(): void {
         '<div class="message-meta">',
         `<span class="role-badge ${escapeHtml(message.role)}">${escapeHtml(translateRole(message.role))}</span>`,
         `<span class="source-badge">${escapeHtml(sourceBadge)}</span>`,
-        `<span class="message-time">${escapeHtml(formatTime(message.updatedAt || message.createdAt))}</span>`,
+        `<span class="message-time" title="${escapeHtml(formatDateTime(message.updatedAt || message.createdAt))}">${escapeHtml(formatTime(message.updatedAt || message.createdAt))}</span>`,
+        actionButton,
         "</div>",
         message.attachments && message.attachments.length > 0
           ? `<div class="message-attachments">${message.attachments.map((attachment) => renderAttachmentCardView(attachment)).join("")}</div>`
@@ -3040,6 +3162,8 @@ function renderMessages(): void {
 
   if (stickToBottom) {
     scheduleMessagesScrollToBottom();
+  } else {
+    updateMessagesJumpButtonVisibility();
   }
   state.lastRenderedMessagesViewportKey = messagesViewportKey;
   if (forceScroll) {
@@ -3606,6 +3730,7 @@ async function selectProject(projectId: string): Promise<void> {
     scheduleMessageSearch();
   }
   render();
+  focusComposerAtEnd();
 }
 
 async function selectWorkgroup(workgroupId: string): Promise<void> {
@@ -3622,6 +3747,7 @@ async function selectWorkgroup(workgroupId: string): Promise<void> {
     scheduleMessageSearch();
   }
   render();
+  focusComposerAtEnd();
 }
 
 function clearMessageSearchResults(): void {
@@ -4287,6 +4413,7 @@ elements.composerInput?.addEventListener("keydown", (event) => {
 
 elements.composerInput?.addEventListener("input", () => {
   persistWorkspaceDraft(getCurrentWorkspaceKey());
+  syncComposerInputHeight();
   refreshMentionSuggestions();
 });
 
@@ -4486,6 +4613,12 @@ elements.attachmentTray?.addEventListener("click", (event) => {
 
 elements.messages?.addEventListener("click", (event) => {
   const target = event.target instanceof Element ? event.target : null;
+  const copyButton = target?.closest("[data-copy-message-id]") as HTMLElement | null;
+  const messageId = copyButton?.dataset.copyMessageId;
+  if (messageId) {
+    void copyVisibleMessage(messageId);
+    return;
+  }
   const previewTrigger = target?.closest("[data-preview-attachment]") as HTMLElement | null;
   const attachmentId = previewTrigger?.dataset.previewAttachment;
   if (!attachmentId) {
@@ -4548,7 +4681,9 @@ elements.conversationSelect?.addEventListener("change", async (event) => {
   });
   if (!result.success) {
     setHintText(result.error ?? inlineText("Failed to switch conversation.", "Failed to switch conversation."), true);
+    return;
   }
+  focusComposerAtEnd();
 });
 
 elements.newConversationBtn?.addEventListener("click", async () => {
@@ -4562,12 +4697,18 @@ elements.newConversationBtn?.addEventListener("click", async () => {
     return;
   }
   setHintText(inlineText("Started a new conversation.", "Started a new conversation."), false);
+  focusComposerAtEnd();
 });
 
 elements.messages?.addEventListener("scroll", () => {
+  updateMessagesJumpButtonVisibility();
   if (elements.messages && elements.messages.scrollTop <= 24) {
     void loadOlderHistory("messages");
   }
+});
+
+elements.messagesJumpButton?.addEventListener("click", () => {
+  scheduleMessagesScrollToBottom();
 });
 
 elements.activityList?.addEventListener("scroll", () => {
@@ -4655,8 +4796,76 @@ bindClick("closeBtn", () => {
 });
 
 document.addEventListener("keydown", (event) => {
+  const activeElement = document.activeElement as HTMLElement | null;
+  const isEditableTarget = activeElement instanceof HTMLInputElement
+    || activeElement instanceof HTMLTextAreaElement
+    || Boolean(activeElement?.isContentEditable);
+
+  if ((event.ctrlKey || event.metaKey) && !event.shiftKey && event.key.toLowerCase() === "f") {
+    event.preventDefault();
+    elements.messageSearchInput?.focus();
+    elements.messageSearchInput?.select();
+    return;
+  }
+
+  if ((event.ctrlKey || event.metaKey) && !event.shiftKey && event.key.toLowerCase() === "k") {
+    event.preventDefault();
+    elements.projectSearchInput?.focus();
+    elements.projectSearchInput?.select();
+    return;
+  }
+
+  if ((event.ctrlKey || event.metaKey) && !event.shiftKey && event.key.toLowerCase() === "j") {
+    event.preventDefault();
+    scheduleMessagesScrollToBottom();
+    return;
+  }
+
   if (event.key === "Escape" && state.attachmentPreview) {
     closeAttachmentPreview();
+    return;
+  }
+
+  if (event.key === "Escape" && mentionState.items.length > 0) {
+    hideMentionSuggestions();
+    return;
+  }
+
+  if (event.key === "Escape" && activeElement === elements.messageSearchInput) {
+    const messageSearchInput = elements.messageSearchInput;
+    if (!messageSearchInput) {
+      return;
+    }
+    if (messageSearchInput.value.trim()) {
+      messageSearchInput.value = "";
+      state.messageSearchQuery = "";
+      clearMessageSearchResults();
+      renderPanelOnly();
+    } else {
+      focusComposerAtEnd();
+    }
+    return;
+  }
+
+  if (event.key === "Escape" && activeElement === elements.projectSearchInput) {
+    const projectSearchInput = elements.projectSearchInput;
+    if (!projectSearchInput) {
+      return;
+    }
+    if (projectSearchInput.value.trim()) {
+      projectSearchInput.value = "";
+      state.projectSearchQuery = "";
+      scheduleProjectSearchRender();
+    } else {
+      focusComposerAtEnd();
+    }
+    return;
+  }
+
+  if (!isEditableTarget && event.key === "/") {
+    event.preventDefault();
+    elements.messageSearchInput?.focus();
+    elements.messageSearchInput?.select();
   }
 });
 
@@ -4664,4 +4873,5 @@ hydrateProjectGroupState();
 void loadI18n();
 void syncProjects();
 void syncWorkgroups();
+syncComposerInputHeight();
 render();

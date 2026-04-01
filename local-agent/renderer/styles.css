@@ -574,6 +574,7 @@ body {
   display: flex;
   flex: 1 1 auto;
   min-height: 0;
+  position: relative;
 }
 
 .detail-dock {
@@ -1107,6 +1108,42 @@ body {
   overflow-y: auto;
 }
 
+.messages-jump-button {
+  align-items: center;
+  backdrop-filter: blur(12px);
+  background: rgba(6, 18, 28, 0.92);
+  border: 1px solid rgba(93, 208, 255, 0.26);
+  border-radius: 999px;
+  bottom: 18px;
+  box-shadow: 0 18px 34px rgba(0, 0, 0, 0.26);
+  color: #ddf7ff;
+  cursor: pointer;
+  display: inline-flex;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  justify-content: center;
+  min-height: 34px;
+  min-width: 86px;
+  padding: 0 14px;
+  position: absolute;
+  right: 24px;
+  transition: opacity 140ms ease, transform 140ms ease, border-color 140ms ease, background 140ms ease;
+  z-index: 4;
+}
+
+.messages-jump-button:hover {
+  background: rgba(8, 24, 36, 0.96);
+  border-color: rgba(93, 208, 255, 0.4);
+  transform: translateY(-1px);
+}
+
+.messages-jump-button.hidden {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(8px);
+}
+
 .empty-state {
   align-items: flex-start;
   background: linear-gradient(180deg, rgba(93, 208, 255, 0.08), rgba(93, 208, 255, 0.02));
@@ -1495,6 +1532,33 @@ body[data-provider="claude"] .message-card.assistant .message-shell {
   font-size: 12px;
 }
 
+.message-time {
+  margin-right: auto;
+}
+
+.message-action-button {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  color: var(--text-soft);
+  cursor: pointer;
+  display: inline-flex;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  justify-content: center;
+  min-height: 28px;
+  padding: 0 10px;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.message-action-button:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
 .message-attachments {
   display: flex;
   flex-wrap: wrap;
@@ -1808,8 +1872,9 @@ body.lightbox-open {
   line-height: 1.55;
   min-height: 72px;
   outline: none;
+  overflow-y: hidden;
   padding: 10px 12px;
-  resize: vertical;
+  resize: none;
   transition: border-color 120ms ease, box-shadow 120ms ease, background 120ms ease;
 }
 
