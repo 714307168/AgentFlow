@@ -444,7 +444,7 @@ private fun SessionHeader(
                 HeaderActionButton(
                     icon = Icons.Default.Refresh,
                     contentDescription = stringResource(R.string.action_refresh),
-                    enabled = connectionState == RelayWebSocket.ConnectionState.CONNECTED && !isRefreshing,
+                    enabled = !isRefreshing,
                     tint = MaterialTheme.colorScheme.onSurface,
                     onClick = onRefresh
                 )

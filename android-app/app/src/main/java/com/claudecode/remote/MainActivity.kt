@@ -108,6 +108,7 @@ class MainActivity : ComponentActivity() {
                         repository = sessionRepository,
                         messageRepository = messageRepository,
                         webSocket = relayWebSocket,
+                        authSessionManager = appContainer.authSessionManager,
                         tokenStore = tokenStore,
                         workgroupRepository = workgroupRepository
                     )

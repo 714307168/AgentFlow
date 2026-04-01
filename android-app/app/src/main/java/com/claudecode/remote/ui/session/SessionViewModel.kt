@@ -10,6 +10,7 @@ import com.claudecode.remote.data.model.Message
 import com.claudecode.remote.data.model.Session
 import com.claudecode.remote.data.model.Workgroup
 import com.claudecode.remote.data.model.WorkgroupSession
+import com.claudecode.remote.data.remote.AuthSessionManager
 import com.claudecode.remote.data.remote.RelayWebSocket
 import com.claudecode.remote.domain.MessageRepository
 import com.claudecode.remote.domain.SessionRepository
@@ -58,11 +59,14 @@ class SessionViewModel(
     private val repository: SessionRepository,
     private val messageRepository: MessageRepository,
     private val webSocket: RelayWebSocket,
+    private val authSessionManager: AuthSessionManager,
     private val tokenStore: TokenStore,
     private val workgroupRepository: WorkgroupRepository
 ) : ViewModel() {
     companion object {
         private const val RESUME_STALE_CONNECTION_TIMEOUT_MS = 20_000L
+        private const val MANUAL_REFRESH_CONNECTION_WAIT_MS = 4_000L
+        private const val MANUAL_REFRESH_CONNECTION_POLL_MS = 250L
     }
 
     private var latestSessions: List<Session> = emptyList()
@@ -180,6 +184,46 @@ class SessionViewModel(
     fun syncFromDesktop() {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true) }
+            val deviceId = tokenStore.getDeviceId()?.trim().orEmpty()
+            val previousToken = tokenStore.getToken()?.trim().orEmpty()
+            var tokenChanged = false
+
+            if (deviceId.isNotEmpty() && tokenStore.hasSavedCredentials()) {
+                authSessionManager.ensureValidToken(
+                    clientId = deviceId,
+                    forceRefresh = true
+                ).onSuccess { refreshedToken ->
+                    val normalized = refreshedToken.trim()
+                    tokenChanged = normalized.isNotEmpty() && normalized != previousToken
+                }.onFailure { error ->
+                    _uiState.update { it.copy(error = error.message ?: "Failed to refresh relay token") }
+                }
+            }
+
+            if (deviceId.isNotEmpty()) {
+                try {
+                    if (tokenChanged || webSocket.connectionState.value != RelayWebSocket.ConnectionState.CONNECTED) {
+                        webSocket.forceReconnect("manual-session-refresh")
+                    } else {
+                        webSocket.ensureHealthyConnection(
+                            reason = "manual-session-refresh",
+                            staleTimeoutMs = RESUME_STALE_CONNECTION_TIMEOUT_MS
+                        )
+                    }
+                } catch (error: Exception) {
+                    _uiState.update { it.copy(error = error.message ?: "Failed to reconnect relay") }
+                }
+            }
+
+            var waitedMs = 0L
+            while (
+                waitedMs < MANUAL_REFRESH_CONNECTION_WAIT_MS &&
+                webSocket.connectionState.value != RelayWebSocket.ConnectionState.CONNECTED
+            ) {
+                delay(MANUAL_REFRESH_CONNECTION_POLL_MS)
+                waitedMs += MANUAL_REFRESH_CONNECTION_POLL_MS
+            }
+
             if (webSocket.connectionState.value == RelayWebSocket.ConnectionState.CONNECTED) {
                 webSocket.send(
                     Envelope(
@@ -194,7 +238,7 @@ class SessionViewModel(
                 onSuccess = {
                     if (webSocket.connectionState.value == RelayWebSocket.ConnectionState.CONNECTED) {
                         messageRepository.requestProjectSyncs(repository.getSessions())
-                        refreshWorkgroups(showLoading = false)
+                        refreshWorkgroups(showLoading = false, force = true)
                     }
                     _uiState.update { it.copy(isLoading = false) }
                 },
@@ -253,7 +297,7 @@ class SessionViewModel(
         }
     }
 
-    private suspend fun refreshWorkgroups(showLoading: Boolean) {
+    private suspend fun refreshWorkgroups(showLoading: Boolean, force: Boolean = false) {
         val trackedAgentIds = workgroupRepository.resolveTrackedAgentIds(
             repository.getSessions()
             .map { it.agentId.trim() }
@@ -268,7 +312,7 @@ class SessionViewModel(
         if (showLoading) {
             _uiState.update { it.copy(isLoading = true) }
         }
-        workgroupRepository.refresh(trackedAgentIds)
+        workgroupRepository.refresh(trackedAgentIds, force = force)
     }
 
     private fun rebuildSessionItems(queryOverride: String? = null) {
