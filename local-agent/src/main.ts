@@ -257,6 +257,7 @@ let lastWorkgroupCollaborationRelayPayloadHash = "";
 const REMOTE_PROJECT_CATALOG_REFRESH_MIN_INTERVAL_MS = 5_000;
 const REMOTE_WORKGROUP_CATALOG_REFRESH_MIN_INTERVAL_MS = 15_000;
 const RELAY_HEALTH_CHECK_INTERVAL_MS = 15_000;
+const RELAY_MAINTENANCE_INTERVAL_MS = 60_000;
 const RELAY_STALE_CONNECTION_TIMEOUT_MS = 75_000;
 const RELAY_RECOVERY_COOLDOWN_MS = 45_000;
 const RELAY_FORCE_RECOVERY_AFTER_MS = 90_000;
@@ -264,6 +265,7 @@ let lastRemoteProjectCatalogRefreshAt = 0;
 let remoteProjectCatalogRefreshTimer: NodeJS.Timeout | null = null;
 let lastRemoteWorkgroupCatalogRefreshAt = 0;
 let relayHealthCheckTimer: NodeJS.Timeout | null = null;
+let relayMaintenanceTimer: NodeJS.Timeout | null = null;
 let lastAgentRelayRecoveryAt = 0;
 let lastControllerRelayRecoveryAt = 0;
 
@@ -2150,6 +2152,26 @@ function startRelayHealthChecks(): void {
   relayHealthCheckTimer = setInterval(() => {
     runRelayHealthCheck("periodic");
   }, RELAY_HEALTH_CHECK_INTERVAL_MS);
+}
+
+function runRelayMaintenanceTask(reason: string): void {
+  void refreshAgentToken(false);
+  void refreshControllerToken(false);
+  runRelayHealthCheck(reason);
+
+  if (controllerRelayClient?.isConnected()) {
+    requestRemoteProjectCatalogRefresh();
+  }
+  void refreshRemoteWorkgroupCatalog(false);
+}
+
+function startRelayMaintenanceTask(): void {
+  if (relayMaintenanceTimer) {
+    clearInterval(relayMaintenanceTimer);
+  }
+  relayMaintenanceTimer = setInterval(() => {
+    runRelayMaintenanceTask("periodic");
+  }, RELAY_MAINTENANCE_INTERVAL_MS);
 }
 
 function requestRemoteProjectCatalogRefresh(): void {
@@ -4158,15 +4180,13 @@ app.whenReady().then(async () => {
   scheduleTokenRefresh();
   scheduleControllerTokenRefresh();
   startRelayHealthChecks();
+  startRelayMaintenanceTask();
+  runRelayMaintenanceTask("startup");
   powerMonitor.on("resume", () => {
-    void refreshAgentToken(false);
-    void refreshControllerToken(false);
-    runRelayHealthCheck("power-resume");
+    runRelayMaintenanceTask("power-resume");
   });
   powerMonitor.on("unlock-screen", () => {
-    void refreshAgentToken(false);
-    void refreshControllerToken(false);
-    runRelayHealthCheck("unlock-screen");
+    runRelayMaintenanceTask("unlock-screen");
   });
   updateManager.start();
 
@@ -4195,6 +4215,10 @@ app.on("before-quit", () => {
   if (relayHealthCheckTimer) {
     clearInterval(relayHealthCheckTimer);
     relayHealthCheckTimer = null;
+  }
+  if (relayMaintenanceTimer) {
+    clearInterval(relayMaintenanceTimer);
+    relayMaintenanceTimer = null;
   }
   if (relayClient) relayClient.disconnect();
   if (controllerRelayClient) controllerRelayClient.disconnect();
