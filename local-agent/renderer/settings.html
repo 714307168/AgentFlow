@@ -1688,7 +1688,7 @@
       }
       try {
         paneLoadState.projectsPromise = (async () => {
-          const projects = await api.getProjects({ refreshRemote: false });
+          const projects = await api.getProjects({ refreshRemote: force });
           latestProjectCatalog = Array.isArray(projects) ? projects : [];
           paneLoadState.projectsLoaded = true;
           paneLoadState.projectsDirty = false;
@@ -2078,7 +2078,7 @@
       try {
         paneLoadState.workgroupsPromise = (async () => {
           if (force || !paneLoadState.projectsLoaded || paneLoadState.projectsDirty) {
-            const projects = await api.getProjects({ refreshRemote: false });
+            const projects = await api.getProjects({ refreshRemote: force });
             latestProjectCatalog = Array.isArray(projects) ? projects : [];
             paneLoadState.projectsLoaded = true;
             paneLoadState.projectsDirty = false;
@@ -2792,8 +2792,20 @@
           const e2e = await api.getE2EStatus();
           document.getElementById("pubkey").textContent = e2e.publicKey || "—";
           paneLoadState.accessDirty = true;
-          await Promise.all([updateConnectionStatus(), updateLoginStatus(), loadAccessGrants({ force: true })]);
+          paneLoadState.projectsDirty = true;
+          paneLoadState.workgroupsDirty = true;
+          await Promise.all([
+            updateConnectionStatus(),
+            updateLoginStatus(),
+            loadAccessGrants({ force: true }),
+            refreshProjectPaneData(true),
+          ]);
         }, 1000);
+        setTimeout(() => {
+          paneLoadState.projectsDirty = true;
+          paneLoadState.workgroupsDirty = true;
+          void refreshProjectPaneData(true);
+        }, 3500);
       } catch (error) {
         showStatus(msg("settings.saveFailed", "Failed: {error}", { error: getErrorMessage(error) }), true);
       }

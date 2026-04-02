@@ -258,16 +258,20 @@ const REMOTE_PROJECT_CATALOG_REFRESH_MIN_INTERVAL_MS = 5_000;
 const REMOTE_WORKGROUP_CATALOG_REFRESH_MIN_INTERVAL_MS = 15_000;
 const RELAY_HEALTH_CHECK_INTERVAL_MS = 15_000;
 const RELAY_MAINTENANCE_INTERVAL_MS = 60_000;
+const RELAY_FOLLOW_UP_REFRESH_DELAYS_MS = [300, 1_500, 5_000] as const;
 const RELAY_STALE_CONNECTION_TIMEOUT_MS = 75_000;
 const RELAY_RECOVERY_COOLDOWN_MS = 45_000;
 const RELAY_FORCE_RECOVERY_AFTER_MS = 90_000;
+const ACTIVE_REMOTE_PROJECT_SYNC_MIN_INTERVAL_MS = 3_000;
 let lastRemoteProjectCatalogRefreshAt = 0;
 let remoteProjectCatalogRefreshTimer: NodeJS.Timeout | null = null;
 let lastRemoteWorkgroupCatalogRefreshAt = 0;
 let relayHealthCheckTimer: NodeJS.Timeout | null = null;
 let relayMaintenanceTimer: NodeJS.Timeout | null = null;
+let lastActiveRemoteProjectSyncAt = 0;
 let lastAgentRelayRecoveryAt = 0;
 let lastControllerRelayRecoveryAt = 0;
+const relayFollowUpRefreshTimers = new Set<NodeJS.Timeout>();
 
 function clampTimeoutDelayMs(delayMs: number): number {
   if (!Number.isFinite(delayMs)) {
@@ -2174,6 +2178,54 @@ function startRelayMaintenanceTask(): void {
   }, RELAY_MAINTENANCE_INTERVAL_MS);
 }
 
+function clearRelayFollowUpRefreshTimers(): void {
+  for (const timer of relayFollowUpRefreshTimers) {
+    clearTimeout(timer);
+  }
+  relayFollowUpRefreshTimers.clear();
+}
+
+function requestActiveRemoteProjectSync(_reason: string, force: boolean = false): void {
+  const projectId = activeWorkspaceProjectId?.trim() ?? "";
+  if (!projectId || !isRemoteProject(projectId) || !remoteSessionStore) {
+    return;
+  }
+
+  const now = Date.now();
+  if (!force && now - lastActiveRemoteProjectSyncAt < ACTIVE_REMOTE_PROJECT_SYNC_MIN_INTERVAL_MS) {
+    return;
+  }
+
+  lastActiveRemoteProjectSyncAt = now;
+  remoteSessionStore.requestSessionSync(projectId, { limit: 30 });
+}
+
+async function runRelayFollowUpRefresh(_reason: string): Promise<void> {
+  ensureRemoteRelayReady(loadConfig());
+
+  if (remoteProjectCatalogRefreshTimer) {
+    clearTimeout(remoteProjectCatalogRefreshTimer);
+    remoteProjectCatalogRefreshTimer = null;
+  }
+  lastRemoteProjectCatalogRefreshAt = 0;
+  lastRemoteWorkgroupCatalogRefreshAt = 0;
+
+  requestRemoteProjectCatalogRefresh();
+  await refreshRemoteWorkgroupCatalog(true);
+  requestActiveRemoteProjectSync("follow-up", true);
+}
+
+function scheduleRelayFollowUpRefreshes(reason: string): void {
+  clearRelayFollowUpRefreshTimers();
+  for (const delayMs of RELAY_FOLLOW_UP_REFRESH_DELAYS_MS) {
+    const timer = setTimeout(() => {
+      relayFollowUpRefreshTimers.delete(timer);
+      void runRelayFollowUpRefresh(`${reason}:${delayMs}`);
+    }, delayMs);
+    relayFollowUpRefreshTimers.add(timer);
+  }
+}
+
 function requestRemoteProjectCatalogRefresh(): void {
   if (!remoteSessionStore || !controllerRelayClient) {
     return;
@@ -2710,6 +2762,7 @@ function initRemoteRelay(config: AgentConfig): void {
   remoteSessionStore.on("projects-changed", () => {
     broadcastProjectsChanged();
     updateWindowTitles();
+    requestActiveRemoteProjectSync("remote-projects-changed");
   });
   remoteSessionStore.on("snapshot", (projectId: string, snapshot: ProjectSessionSnapshot) => {
     syncWorkgroupTasksForProjectSnapshot(snapshot);
@@ -2735,6 +2788,7 @@ function initRemoteRelay(config: AgentConfig): void {
     scheduleRemoteProjectCatalogRefresh(1_500);
     scheduleRemoteProjectCatalogRefresh(5_000);
     void refreshRemoteWorkgroupCatalog(true);
+    scheduleRelayFollowUpRefreshes("controller-authenticated");
   });
   controllerRelayClient.on("disconnected", () => {
     updateTrayTooltip();
@@ -3200,6 +3254,8 @@ ipcMain.handle("set-e2e-enabled", (_event, enabled: boolean) => {
 ipcMain.handle("reconnect-relay", async () => {
   await refreshAgentToken(false);
   await refreshControllerToken(false);
+  clearRelayFollowUpRefreshTimers();
+  lastActiveRemoteProjectSyncAt = 0;
   if (relayClient) {
     relayClient.disconnect();
   }
@@ -3211,6 +3267,7 @@ ipcMain.handle("reconnect-relay", async () => {
   const config = loadConfig();
   initRelay(config);
   ensureRemoteRelayReady(config);
+  scheduleRelayFollowUpRefreshes("manual-reconnect");
   return true;
 });
 
@@ -4220,6 +4277,7 @@ app.on("before-quit", () => {
     clearInterval(relayMaintenanceTimer);
     relayMaintenanceTimer = null;
   }
+  clearRelayFollowUpRefreshTimers();
   if (relayClient) relayClient.disconnect();
   if (controllerRelayClient) controllerRelayClient.disconnect();
   updateManager.stop();
