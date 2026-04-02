@@ -201,9 +201,19 @@ class RelayConnectionService : Service() {
         runCatching {
             val syncResult = container.sessionRepository.syncFromServer(force = true)
             if (syncResult.isSuccess) {
+                val sessions = container.sessionRepository.getSessions()
                 container.messageRepository.requestProjectSyncs(
-                    container.sessionRepository.getSessions()
+                    sessions = sessions,
+                    bypassDedupe = true
                 )
+                val trackedAgentIds = container.workgroupRepository.resolveTrackedAgentIds(
+                    sessions.map { it.agentId.trim() }.filter { it.isNotEmpty() }.distinct().sorted()
+                )
+                if (trackedAgentIds.isEmpty()) {
+                    container.workgroupRepository.retainAgentIds(emptyList())
+                } else {
+                    container.workgroupRepository.refresh(trackedAgentIds, force = true)
+                }
             }
         }.onFailure { error ->
             CrashLogger.logError(

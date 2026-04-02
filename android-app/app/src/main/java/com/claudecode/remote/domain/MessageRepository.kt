@@ -242,12 +242,20 @@ class MessageRepository(
         )
     }
 
-    suspend fun requestProjectSyncs(sessions: List<Session>) {
+    suspend fun requestProjectSyncs(
+        sessions: List<Session>,
+        bypassDedupe: Boolean = false
+    ) {
         sessions
             .distinctBy { "${it.agentId.trim()}::${it.projectId.trim()}" }
             .forEach { session ->
             if (session.projectId.isNotBlank()) {
-                requestProjectSync(session.projectId, session.agentId, limit = DEFAULT_SYNC_LIMIT)
+                requestProjectSync(
+                    projectId = session.projectId,
+                    agentId = session.agentId,
+                    limit = DEFAULT_SYNC_LIMIT,
+                    bypassDedupe = bypassDedupe
+                )
             }
         }
     }

@@ -58,6 +58,7 @@ import com.claudecode.remote.ui.theme.RemoteTheme
 import com.claudecode.remote.ui.workgroup.WorkgroupChatScreen
 import com.claudecode.remote.ui.workgroup.WorkgroupChatViewModel
 import com.claudecode.remote.util.CrashLogger
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.Locale
@@ -71,6 +72,7 @@ private data class BottomNavItem(
 class MainActivity : ComponentActivity() {
     private lateinit var appContainer: AppContainer
     private var lastStoppedAtMs: Long = 0L
+    private val foregroundRecoveryJobs = mutableSetOf<Job>()
 
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -463,45 +465,54 @@ class MainActivity : ComponentActivity() {
         appContainer.uiPresenceTracker.setAppInForeground(true)
         if (appContainer.tokenStore.shouldAutoStartRelay()) {
             RelayConnectionService.start(applicationContext)
-            lifecycleScope.launch {
-                try {
-                    restoreRelayConnectionOnForeground(
-                        reason = "activity-start",
-                        forceReconnect = false,
-                        staleTimeoutMs = RESUME_STALE_CONNECTION_TIMEOUT_MS
-                    )
-                } catch (e: Exception) {
-                    CrashLogger.logError("MainActivity", "Failed to restore relay connection on foreground", e)
-                }
-            }
         }
     }
 
     override fun onResume() {
         super.onResume()
         if (appContainer.tokenStore.shouldAutoStartRelay()) {
-            lifecycleScope.launch {
-                try {
-                    val now = System.currentTimeMillis()
-                    val shouldForceReconnect = lastStoppedAtMs > 0L &&
-                        now - lastStoppedAtMs >= FOREGROUND_FORCE_RECONNECT_THRESHOLD_MS
-                    restoreRelayConnectionOnForeground(
-                        reason = "activity-resume",
-                        forceReconnect = shouldForceReconnect,
-                        staleTimeoutMs = RESUME_STALE_CONNECTION_TIMEOUT_MS
-                    )
-                    syncForegroundData("activity-resume")
-                } catch (e: Exception) {
-                    CrashLogger.logError("MainActivity", "Failed to verify relay connection on resume", e)
-                }
-            }
+            val now = System.currentTimeMillis()
+            val shouldForceReconnect = lastStoppedAtMs > 0L &&
+                now - lastStoppedAtMs >= FOREGROUND_FORCE_RECONNECT_THRESHOLD_MS
+            scheduleForegroundRecoveryPasses("activity-resume", shouldForceReconnect)
         }
     }
 
     override fun onStop() {
         appContainer.uiPresenceTracker.setAppInForeground(false)
         lastStoppedAtMs = System.currentTimeMillis()
+        clearForegroundRecoveryJobs()
         super.onStop()
+    }
+
+    private fun clearForegroundRecoveryJobs() {
+        foregroundRecoveryJobs.forEach { job -> job.cancel() }
+        foregroundRecoveryJobs.clear()
+    }
+
+    private fun scheduleForegroundRecoveryPasses(reason: String, forceReconnectInitial: Boolean) {
+        clearForegroundRecoveryJobs()
+        FOREGROUND_RECOVERY_DELAYS_MS.forEachIndexed { index, delayMs ->
+            val job = lifecycleScope.launch {
+                if (delayMs > 0L) {
+                    delay(delayMs)
+                }
+                try {
+                    restoreRelayConnectionOnForeground(
+                        reason = "$reason:$delayMs",
+                        forceReconnect = forceReconnectInitial && index == 0,
+                        staleTimeoutMs = RESUME_STALE_CONNECTION_TIMEOUT_MS
+                    )
+                    syncForegroundData("$reason:$delayMs")
+                } catch (e: Exception) {
+                    CrashLogger.logError("MainActivity", "Failed to verify relay connection on resume", e)
+                }
+            }
+            foregroundRecoveryJobs += job
+            job.invokeOnCompletion {
+                foregroundRecoveryJobs.remove(job)
+            }
+        }
     }
 
     private fun requestNotificationPermissionIfNeeded() {
@@ -599,11 +610,13 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        for (attempt in 0 until 8) {
+        var waitedMs = 0L
+        while (waitedMs < FOREGROUND_SYNC_CONNECTION_WAIT_MS) {
             if (webSocket.connectionState.value == com.claudecode.remote.data.remote.RelayWebSocket.ConnectionState.CONNECTED) {
                 break
             }
             delay(500)
+            waitedMs += 500L
         }
 
         if (webSocket.connectionState.value != com.claudecode.remote.data.remote.RelayWebSocket.ConnectionState.CONNECTED) {
@@ -612,7 +625,7 @@ class MainActivity : ComponentActivity() {
         }
 
         runCatching {
-            messageRepository.requestProjectSyncs(sessions)
+            messageRepository.requestProjectSyncs(sessions, bypassDedupe = true)
         }.onFailure { error ->
             CrashLogger.logError(
                 "MainActivity",
@@ -642,5 +655,7 @@ class MainActivity : ComponentActivity() {
     companion object {
         private const val RESUME_STALE_CONNECTION_TIMEOUT_MS = 20_000L
         private const val FOREGROUND_FORCE_RECONNECT_THRESHOLD_MS = 30_000L
+        private const val FOREGROUND_SYNC_CONNECTION_WAIT_MS = 6_000L
+        private val FOREGROUND_RECOVERY_DELAYS_MS = longArrayOf(0L, 1_500L, 5_000L)
     }
 }
