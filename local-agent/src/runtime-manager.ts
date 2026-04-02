@@ -133,6 +133,7 @@ const MAX_CLI_TRACE_ENTRIES = 60;
 const MAX_CLI_TRACE_TOTAL_CHARS = 24_000;
 const MAX_CLI_TRACE_ENTRY_CHARS = 1_200;
 const DEFAULT_HISTORY_PAGE_SIZE = 30;
+const MAX_ACTIVITY_HISTORY_ENTRIES = 30;
 const SNAPSHOT_EMIT_INTERVAL_MS = 120;
 const CODEX_EXIT_CODE_1_MAX_RETRIES = 3;
 const CODEX_EXIT_CODE_1_RETRY_DELAY_MS = 1_500;
@@ -2203,7 +2204,13 @@ class RuntimeManager extends EventEmitter {
   }
 
   private trimActivities(state: ProjectState): void {
-    void state;
+    if (state.activities.length > MAX_ACTIVITY_HISTORY_ENTRIES) {
+      state.activities.splice(0, state.activities.length - MAX_ACTIVITY_HISTORY_ENTRIES);
+    }
+    const activeConversation = this.getConversationById(state, state.activeConversationId);
+    if (activeConversation && activeConversation.activities.length > MAX_ACTIVITY_HISTORY_ENTRIES) {
+      activeConversation.activities.splice(0, activeConversation.activities.length - MAX_ACTIVITY_HISTORY_ENTRIES);
+    }
   }
 
   private trimCliTrace(state: ProjectState): void {

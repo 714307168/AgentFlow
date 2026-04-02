@@ -124,6 +124,7 @@ interface LegacyRuntimeStoreSchema {
 
 const HISTORY_DIR_NAME = "runtime-history";
 const MAX_SYNC_ITEMS = 200;
+const MAX_PERSISTED_ACTIVITY_ENTRIES = 30;
 
 class SessionHistoryStore {
   private readonly historyDir: string;
@@ -290,6 +291,7 @@ class SessionHistoryStore {
       conversation.activities.push(normalized);
       conversation.activities.sort((left, right) => left.createdAt - right.createdAt || left.updatedAt - right.updatedAt);
     }
+    this.trimActivities(conversation);
     conversation.updatedAt = Date.now();
     this.scheduleWrite(projectId);
   }
@@ -650,6 +652,7 @@ class SessionHistoryStore {
         .map((activity, index) => this.normalizeActivityEntry(activity as SessionActivity | PersistedSessionActivity, index, createdAt, seenActivityIds))
         .filter((activity): activity is PersistedSessionActivity => activity !== null)
         .sort((left, right) => left.createdAt - right.createdAt || left.updatedAt - right.updatedAt || left.syncSeq - right.syncSeq)
+        .slice(-MAX_PERSISTED_ACTIVITY_ENTRIES)
       : [];
     const cliTrace = Array.isArray(input?.cliTrace)
       ? input.cliTrace
@@ -940,6 +943,12 @@ class SessionHistoryStore {
       (total, conversation) => total + conversation.messages.length + conversation.activities.length + conversation.cliTrace.length,
       0,
     );
+  }
+
+  private trimActivities(conversation: PersistedConversationState): void {
+    if (conversation.activities.length > MAX_PERSISTED_ACTIVITY_ENTRIES) {
+      conversation.activities.splice(0, conversation.activities.length - MAX_PERSISTED_ACTIVITY_ENTRIES);
+    }
   }
 }
 
