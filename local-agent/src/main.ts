@@ -6,7 +6,7 @@ import Store from "electron-store";
 import { v4 as uuidv4 } from "uuid";
 import { createAppIcon, createTrayIcon } from "./app-icon";
 import appLogger from "./app-logger";
-import RelayClient from "./relay-client";
+import RelayClient, { RelayConnectionSnapshot } from "./relay-client";
 import MessageRouter from "./message-router";
 import projectStore, { normalizeProjectGroupName, Project } from "./project-store";
 import ptyManager from "./pty-manager";
@@ -256,12 +256,16 @@ const WORKGROUP_COLLABORATION_RELAY_DEBOUNCE_MS = 200;
 let lastWorkgroupCollaborationRelayPayloadHash = "";
 const REMOTE_PROJECT_CATALOG_REFRESH_MIN_INTERVAL_MS = 5_000;
 const REMOTE_WORKGROUP_CATALOG_REFRESH_MIN_INTERVAL_MS = 15_000;
-const RELAY_HEALTH_CHECK_INTERVAL_MS = 30_000;
+const RELAY_HEALTH_CHECK_INTERVAL_MS = 15_000;
 const RELAY_STALE_CONNECTION_TIMEOUT_MS = 75_000;
+const RELAY_RECOVERY_COOLDOWN_MS = 45_000;
+const RELAY_FORCE_RECOVERY_AFTER_MS = 90_000;
 let lastRemoteProjectCatalogRefreshAt = 0;
 let remoteProjectCatalogRefreshTimer: NodeJS.Timeout | null = null;
 let lastRemoteWorkgroupCatalogRefreshAt = 0;
 let relayHealthCheckTimer: NodeJS.Timeout | null = null;
+let lastAgentRelayRecoveryAt = 0;
+let lastControllerRelayRecoveryAt = 0;
 
 function clampTimeoutDelayMs(delayMs: number): number {
   if (!Number.isFinite(delayMs)) {
@@ -709,8 +713,182 @@ function updateTrayTooltip(): void {
     return;
   }
 
-  const tooltip = relayClient?.isConnected() ? t("tray.connected") : t("tray.disconnected");
+  const tooltip = buildConnectionStatusSnapshot().state === "connected"
+    ? t("tray.connected")
+    : t("tray.disconnected");
   tray.setToolTip(tooltip);
+}
+
+function formatMonitorRelativeTime(timestamp: number): string {
+  if (!Number.isFinite(timestamp) || timestamp <= 0) {
+    return getLang() === "zh" ? "暂无" : "n/a";
+  }
+
+  const diffMs = Math.max(0, Date.now() - timestamp);
+  if (diffMs < 60_000) {
+    const seconds = Math.max(1, Math.floor(diffMs / 1000));
+    return getLang() === "zh" ? `${seconds} 秒前` : `${seconds}s ago`;
+  }
+  if (diffMs < 3_600_000) {
+    const minutes = Math.max(1, Math.floor(diffMs / 60_000));
+    return getLang() === "zh" ? `${minutes} 分钟前` : `${minutes}m ago`;
+  }
+  const hours = Math.max(1, Math.floor(diffMs / 3_600_000));
+  return getLang() === "zh" ? `${hours} 小时前` : `${hours}h ago`;
+}
+
+function toUiConnectionState(snapshot: RelayConnectionSnapshot | null, enabled: boolean): "connected" | "connecting" | "disconnected" {
+  if (!enabled || !snapshot) {
+    return "disconnected";
+  }
+  if (snapshot.state === "connected") {
+    return "connected";
+  }
+  if (snapshot.state === "connecting" || snapshot.state === "authenticating" || snapshot.state === "reconnecting") {
+    return "connecting";
+  }
+  return "disconnected";
+}
+
+function buildRelayMonitorEntry(
+  label: string,
+  client: RelayClient | null,
+  enabled: boolean,
+  disconnectedFallback: string,
+) {
+  const snapshot = client?.getConnectionSnapshot() ?? null;
+  const uiState = toUiConnectionState(snapshot, enabled);
+  const lang = getLang();
+  const stateLabelMap = {
+    connected: lang === "zh" ? "已连接" : "Connected",
+    connecting: lang === "zh" ? "重连中" : "Reconnecting",
+    disconnected: lang === "zh" ? "未连接" : "Disconnected",
+  } as const;
+
+  if (!enabled) {
+    return {
+      label,
+      enabled: false,
+      state: "disconnected" as const,
+      text: lang === "zh" ? `${label}：未启用` : `${label}: disabled`,
+      detail: disconnectedFallback,
+    };
+  }
+
+  if (!snapshot) {
+    return {
+      label,
+      enabled: true,
+      state: "disconnected" as const,
+      text: lang === "zh" ? `${label}：客户端未启动` : `${label}: client unavailable`,
+      detail: disconnectedFallback,
+    };
+  }
+
+  const detailParts: string[] = [];
+  if (snapshot.lastInboundAt > 0) {
+    detailParts.push(
+      lang === "zh"
+        ? `最近活动 ${formatMonitorRelativeTime(snapshot.lastInboundAt)}`
+        : `last activity ${formatMonitorRelativeTime(snapshot.lastInboundAt)}`,
+    );
+  }
+  if (snapshot.reconnectAttemptCount > 0) {
+    detailParts.push(
+      lang === "zh"
+        ? `重连 ${snapshot.reconnectAttemptCount} 次`
+        : `retries ${snapshot.reconnectAttemptCount}`,
+    );
+  }
+  if (snapshot.pendingQueueSize > 0) {
+    detailParts.push(
+      lang === "zh"
+        ? `待发送 ${snapshot.pendingQueueSize}`
+        : `queued ${snapshot.pendingQueueSize}`,
+    );
+  }
+  if (snapshot.lastErrorMessage.trim()) {
+    detailParts.push(snapshot.lastErrorMessage.trim());
+  }
+
+  return {
+    label,
+    enabled: true,
+    state: uiState,
+    text: `${label}: ${stateLabelMap[uiState]}`,
+    detail: detailParts.join(" · ") || disconnectedFallback,
+    snapshot,
+  };
+}
+
+function buildConnectionStatusSnapshot() {
+  const config = loadConfig();
+  const agentEnabled = Boolean(config.agentId?.trim() && config.token?.trim());
+  const controllerEnabled = Boolean(
+    config.username?.trim()
+    && config.password?.trim()
+    && config.agentId?.trim()
+    && config.controllerToken?.trim(),
+  );
+
+  const agent = buildRelayMonitorEntry(
+    getLang() === "zh" ? "桌面主连接" : "Desktop relay",
+    relayClient,
+    agentEnabled,
+    getLang() === "zh" ? "等待登录或重新连接。" : "Waiting for login or reconnect.",
+  );
+  const controller = buildRelayMonitorEntry(
+    getLang() === "zh" ? "远程同步连接" : "Remote sync relay",
+    controllerRelayClient,
+    controllerEnabled,
+    getLang() === "zh" ? "远程同步未启用。" : "Remote sync is not enabled.",
+  );
+
+  const state: "connected" | "connecting" | "disconnected" =
+    agent.state === "connected" && (controller.state === "connected" || !controller.enabled)
+      ? "connected"
+      : (agent.state === "connecting" || controller.state === "connecting")
+        ? "connecting"
+        : "disconnected";
+
+  const detail = [agent.text, agent.detail, controller.text, controller.detail].join("\n");
+  return {
+    state,
+    detail,
+    monitoredAt: Date.now(),
+    agent,
+    controller,
+  };
+}
+
+function shouldThrottleRecovery(lastRecoveryAt: number): boolean {
+  return lastRecoveryAt > 0 && Date.now() - lastRecoveryAt < RELAY_RECOVERY_COOLDOWN_MS;
+}
+
+function maybeRecoverRelayClient(
+  snapshot: RelayConnectionSnapshot | null,
+  lastRecoveryAt: number,
+  recover: (reason: string) => Promise<void>,
+  reason: string,
+): number {
+  if (!snapshot || shouldThrottleRecovery(lastRecoveryAt)) {
+    return lastRecoveryAt;
+  }
+
+  const disconnectedForMs = snapshot.lastDisconnectedAt > 0 ? Date.now() - snapshot.lastDisconnectedAt : 0;
+  const authStalledForMs = snapshot.state === "authenticating" && snapshot.lastConnectedAt > 0
+    ? Date.now() - snapshot.lastConnectedAt
+    : 0;
+  const shouldRecover = disconnectedForMs >= RELAY_FORCE_RECOVERY_AFTER_MS
+    || authStalledForMs >= RELAY_STALE_CONNECTION_TIMEOUT_MS
+    || snapshot.consecutiveFailureCount >= 3;
+  if (!shouldRecover) {
+    return lastRecoveryAt;
+  }
+
+  const nextRecoveryAt = Date.now();
+  void recover(`watchdog-${reason}`);
+  return nextRecoveryAt;
 }
 
 function updateWindowTitles(): void {
@@ -1951,6 +2129,18 @@ async function recoverControllerRelayAuthentication(reason: string): Promise<voi
 function runRelayHealthCheck(reason: string): void {
   relayClient?.ensureHealthyConnection(`agent:${reason}`, RELAY_STALE_CONNECTION_TIMEOUT_MS);
   controllerRelayClient?.ensureHealthyConnection(`controller:${reason}`, RELAY_STALE_CONNECTION_TIMEOUT_MS);
+  lastAgentRelayRecoveryAt = maybeRecoverRelayClient(
+    relayClient?.getConnectionSnapshot() ?? null,
+    lastAgentRelayRecoveryAt,
+    recoverAgentRelayAuthentication,
+    `agent-${reason}`,
+  );
+  lastControllerRelayRecoveryAt = maybeRecoverRelayClient(
+    controllerRelayClient?.getConnectionSnapshot() ?? null,
+    lastControllerRelayRecoveryAt,
+    recoverControllerRelayAuthentication,
+    `controller-${reason}`,
+  );
 }
 
 function startRelayHealthChecks(): void {
@@ -2299,6 +2489,7 @@ function createWorkspaceWindow(): BrowserWindow {
   });
 
   win.on("focus", () => {
+    runRelayHealthCheck("workspace-focus");
     requestRemoteProjectCatalogRefresh();
     void refreshRemoteWorkgroupCatalog(true);
   });
@@ -2423,6 +2614,9 @@ function initRelay(config: AgentConfig): void {
     updateTrayTooltip();
     scheduleTokenRefresh();
   });
+  relayClient.on("connection-state-changed", () => {
+    updateTrayTooltip();
+  });
 
   relayClient.on("authenticated", () => {
     syncProjectCatalog(loadConfig().agentId);
@@ -2511,6 +2705,7 @@ function initRemoteRelay(config: AgentConfig): void {
   });
 
   controllerRelayClient.on("connected", () => {
+    updateTrayTooltip();
     scheduleControllerTokenRefresh();
   });
   controllerRelayClient.on("authenticated", () => {
@@ -2520,7 +2715,7 @@ function initRemoteRelay(config: AgentConfig): void {
     void refreshRemoteWorkgroupCatalog(true);
   });
   controllerRelayClient.on("disconnected", () => {
-    void 0;
+    updateTrayTooltip();
   });
   controllerRelayClient.on("auth-failed", () => {
     void recoverControllerRelayAuthentication("controller-auth-failed");
@@ -2531,6 +2726,9 @@ function initRemoteRelay(config: AgentConfig): void {
   });
   controllerRelayClient.on("error", () => {
     void 0;
+  });
+  controllerRelayClient.on("connection-state-changed", () => {
+    updateTrayTooltip();
   });
   controllerRelayClient.connect();
 }
@@ -3168,15 +3366,7 @@ ipcMain.handle("download-available-update", async () => updateManager.downloadAv
 ipcMain.handle("install-downloaded-update", async () => updateManager.installDownloadedUpdate());
 
 ipcMain.handle("get-connection-status", () => {
-  if (!relayClient) {
-    return { state: "disconnected" };
-  }
-
-  const isConnected = relayClient.isConnected();
-
-  return {
-    state: isConnected ? "connected" : "disconnected"
-  };
+  return buildConnectionStatusSnapshot();
 });
 
 ipcMain.handle("open-project", (_event, projectId: string) => {

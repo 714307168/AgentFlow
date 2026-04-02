@@ -315,6 +315,19 @@
     .connection-status.connected .status-dot { background: var(--success); }
     .connection-status.connecting .status-dot { background: var(--warning); }
     .connection-status.disconnected .status-dot { background: var(--error); }
+    .connection-status-detail {
+      margin-top: 10px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: var(--panel-2);
+      color: var(--muted);
+      font-family: "SF Mono", Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.6;
+      padding: 12px 14px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
     .project-list {
       display: grid;
       gap: 12px;
@@ -574,6 +587,7 @@
         <span class="save-indicator" id="saveIndicator"><span id="savedText">Saved</span></span>
       </div>
     </div>
+    <div class="connection-status-detail" id="connectionStatusDetail">Waiting for monitoring data...</div>
 
     <div class="settings-shell">
       <aside class="settings-nav">
@@ -1451,6 +1465,7 @@
         const status = await api.getConnectionStatus();
         const statusEl = document.getElementById("connectionStatus");
         const textEl = document.getElementById("statusText");
+        const detailEl = document.getElementById("connectionStatusDetail");
         statusEl.className = "connection-status " + status.state;
         const statusTexts = {
           connected: msg("settings.status.connected", "Connected"),
@@ -1458,6 +1473,9 @@
           disconnected: msg("settings.status.disconnected", "Disconnected"),
         };
         textEl.textContent = statusTexts[status.state] || statusTexts.disconnected;
+        if (detailEl) {
+          detailEl.textContent = status.detail || inlineText("No monitoring detail yet.", "暂无监测详情。");
+        }
       } catch (error) {
         console.error("Failed to get connection status:", error);
       } finally {

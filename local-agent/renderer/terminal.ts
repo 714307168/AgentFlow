@@ -425,6 +425,7 @@ const state: {
   collapsedGroups: Set<string>;
   forceDockScroll: WorkspaceView | null;
   lastRenderedMessagesViewportKey: string | null;
+  lastRenderedActivityViewportKey: string | null;
   hint: HintState;
   attachmentPreview: AttachmentPreviewState | null;
 } = {
@@ -456,6 +457,7 @@ const state: {
   collapsedGroups: new Set<string>(),
   forceDockScroll: null,
   lastRenderedMessagesViewportKey: null,
+  lastRenderedActivityViewportKey: null,
   hint: {
     key: "terminal.hint.default",
     fallback: "Press Enter to send, Shift+Enter for a new line. Conversation stays in front, with Activity, CLI, and Queue one tab away.",
@@ -472,6 +474,8 @@ let workspaceRenderTimer: number | null = null;
 let projectSearchTimer: number | null = null;
 let pendingMessagesScrollFrame: number | null = null;
 let pendingMessagesScrollTimeout: number | null = null;
+let pendingActivityScrollFrame: number | null = null;
+let pendingActivityScrollTimeout: number | null = null;
 const historyAutoloadTimers: Partial<Record<"messages" | "activities" | "cli", number>> = {};
 let lastConversationSelectSignature = "";
 let lastProjectCatalogSignature = "";
@@ -1014,6 +1018,13 @@ function getCurrentMessagesViewportKey(): string | null {
   return null;
 }
 
+function getCurrentActivityViewportKey(): string | null {
+  if (!state.projectId) {
+    return null;
+  }
+  return `project:${state.projectId}:activity:${getCurrentSession()?.activeConversationId ?? "default"}`;
+}
+
 function focusComposerAtEnd(): void {
   window.requestAnimationFrame(() => {
     const input = elements.composerInput;
@@ -1065,6 +1076,37 @@ function scheduleMessagesScrollToBottom(): void {
   pendingMessagesScrollTimeout = window.setTimeout(() => {
     scrollMessagesToBottom();
     pendingMessagesScrollTimeout = null;
+  }, 80);
+}
+
+function scrollActivitiesToBottom(): void {
+  if (!elements.activityList) {
+    return;
+  }
+  elements.activityList.scrollTop = elements.activityList.scrollHeight;
+}
+
+function scheduleActivitiesScrollToBottom(): void {
+  if (pendingActivityScrollFrame !== null) {
+    window.cancelAnimationFrame(pendingActivityScrollFrame);
+    pendingActivityScrollFrame = null;
+  }
+  if (pendingActivityScrollTimeout !== null) {
+    window.clearTimeout(pendingActivityScrollTimeout);
+    pendingActivityScrollTimeout = null;
+  }
+
+  scrollActivitiesToBottom();
+  pendingActivityScrollFrame = window.requestAnimationFrame(() => {
+    scrollActivitiesToBottom();
+    pendingActivityScrollFrame = window.requestAnimationFrame(() => {
+      scrollActivitiesToBottom();
+      pendingActivityScrollFrame = null;
+    });
+  });
+  pendingActivityScrollTimeout = window.setTimeout(() => {
+    scrollActivitiesToBottom();
+    pendingActivityScrollTimeout = null;
   }, 80);
 }
 
@@ -3209,7 +3251,9 @@ function renderActivities(): void {
   }
 
   const forceScroll = state.forceDockScroll === "activity";
-  const stickToBottom = forceScroll || shouldStickToBottom(elements.activityList);
+  const activityViewportKey = getCurrentActivityViewportKey();
+  const firstRenderForViewport = Boolean(activityViewportKey) && state.lastRenderedActivityViewportKey !== activityViewportKey;
+  const stickToBottom = forceScroll || firstRenderForViewport || shouldStickToBottom(elements.activityList);
 
   const markup = [
     historyState?.hasMoreActivities ? `<div class="history-loader">${escapeHtml(inlineText("Scroll up to load earlier activity", "向上滚动加载更早的活动"))}</div>` : "",
@@ -3234,8 +3278,9 @@ function renderActivities(): void {
   }
 
   if (stickToBottom) {
-    elements.activityList.scrollTop = elements.activityList.scrollHeight;
+    scheduleActivitiesScrollToBottom();
   }
+  state.lastRenderedActivityViewportKey = activityViewportKey;
   if (historyState?.hasMoreActivities) {
     scheduleHistoryAutoload("activities");
   } else {
