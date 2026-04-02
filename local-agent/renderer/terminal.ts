@@ -373,6 +373,7 @@ const elements = {
   queueView: document.getElementById("queueView"),
   messages: document.getElementById("messages"),
   messagesJumpButton: document.getElementById("messagesJumpButton") as HTMLButtonElement | null,
+  activityJumpButton: document.getElementById("activityJumpButton") as HTMLButtonElement | null,
   messageSearchInput: document.getElementById("messageSearchInput") as HTMLInputElement | null,
   activityList: document.getElementById("activityList"),
   composerForm: document.getElementById("composerForm") as HTMLFormElement | null,
@@ -1126,6 +1127,21 @@ function updateMessagesJumpButtonVisibility(): void {
   elements.messagesJumpButton.classList.toggle("hidden", !shouldShow);
 }
 
+function isActivityNearBottom(): boolean {
+  if (!elements.activityList) {
+    return true;
+  }
+  return elements.activityList.scrollHeight - elements.activityList.scrollTop - elements.activityList.clientHeight < 80;
+}
+
+function updateActivityJumpButtonVisibility(): void {
+  if (!elements.activityJumpButton) {
+    return;
+  }
+  const shouldShow = state.activeView === "activity" && Boolean(state.projectId) && !isActivityNearBottom();
+  elements.activityJumpButton.classList.toggle("hidden", !shouldShow);
+}
+
 function getVisibleMessageContentById(messageId: string): string {
   if (state.workgroupId) {
     const message = getVisibleWorkgroupMessages().find((entry) => entry.id === messageId);
@@ -1174,6 +1190,30 @@ async function copyVisibleMessage(messageId: string): Promise<void> {
     copied
       ? inlineText("Message copied to clipboard.", "消息已复制到剪贴板。")
       : inlineText("Failed to copy the message.", "复制消息失败。"),
+    !copied,
+  );
+}
+
+function getVisibleActivityDetailById(activityId: string): string {
+  const activity = getDisplayedActivities().find((entry) => entry.id === activityId);
+  if (!activity) {
+    return "";
+  }
+  return [activity.title, activity.detail].filter((entry) => entry.trim()).join("\n\n");
+}
+
+async function copyVisibleActivity(activityId: string): Promise<void> {
+  const content = getVisibleActivityDetailById(activityId);
+  if (!content.trim()) {
+    setHintText(inlineText("Nothing to copy from this activity.", "这条活动没有可复制的内容。"), true);
+    return;
+  }
+
+  const copied = await copyTextToClipboard(content);
+  setHintText(
+    copied
+      ? inlineText("Activity copied to clipboard.", "活动内容已复制到剪贴板。")
+      : inlineText("Failed to copy the activity.", "复制活动内容失败。"),
     !copied,
   );
 }
@@ -2173,6 +2213,11 @@ function applyStaticI18n(): void {
     const label = inlineText("Latest", "最新消息");
     elements.messagesJumpButton.textContent = label;
     elements.messagesJumpButton.title = inlineText("Jump to the latest message", "跳转到最新消息");
+  }
+  if (elements.activityJumpButton) {
+    const label = inlineText("Latest", "最新活动");
+    elements.activityJumpButton.textContent = label;
+    elements.activityJumpButton.title = inlineText("Jump to the latest activity", "跳转到最新活动");
   }
   if (elements.composerInput) {
     elements.composerInput.placeholder = msg(
@@ -3227,6 +3272,7 @@ function renderActivities(): void {
 
   if (!state.projectId) {
     clearHistoryAutoloadTimer("activities");
+    updateActivityJumpButtonVisibility();
     const markup = formatEmptyState(
       msg("terminal.empty.selectProjectTitle", "No project selected"),
       msg("terminal.empty.selectProjectDetail", "Choose a project from the left sidebar to view messages."),
@@ -3243,6 +3289,7 @@ function renderActivities(): void {
   if (!session || activities.length === 0) {
     const markup = renderDockBlank();
     clearHistoryAutoloadTimer("activities");
+    updateActivityJumpButtonVisibility();
     if (renderSignatures.activities !== markup) {
       renderSignatures.activities = markup;
       elements.activityList.innerHTML = markup;
@@ -3264,7 +3311,8 @@ function renderActivities(): void {
       '<div class="activity-meta">',
       `<span class="kind-badge ${escapeHtml(activity.kind)}">${escapeHtml(translateKind(activity.kind))}</span>`,
       `<span class="status-badge ${escapeHtml(activity.status)}">${escapeHtml(translateActivityStatus(activity.status))}</span>`,
-      `<span class="activity-time">${escapeHtml(formatTime(activity.createdAt || activity.updatedAt))}</span>`,
+      `<span class="activity-time" title="${escapeHtml(formatDateTime(activity.createdAt || activity.updatedAt))}">${escapeHtml(formatTime(activity.createdAt || activity.updatedAt))}</span>`,
+      `<button class="message-action-button" type="button" data-copy-activity-id="${escapeHtml(activity.id)}">${escapeHtml(inlineText("Copy", "复制"))}</button>`,
       "</div>",
       `<div class="activity-title">${escapeHtml(activity.title || msg("terminal.activity.fallbackTitle", "Activity"))}</div>`,
       `<div class="activity-detail">${escapeHtml(activity.detail)}</div>`,
@@ -3279,6 +3327,8 @@ function renderActivities(): void {
 
   if (stickToBottom) {
     scheduleActivitiesScrollToBottom();
+  } else {
+    updateActivityJumpButtonVisibility();
   }
   state.lastRenderedActivityViewportKey = activityViewportKey;
   if (historyState?.hasMoreActivities) {
@@ -4673,6 +4723,17 @@ elements.messages?.addEventListener("click", (event) => {
   void openAttachmentPreview(attachmentId);
 });
 
+elements.activityList?.addEventListener("click", (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  const copyButton = target?.closest("[data-copy-activity-id]") as HTMLElement | null;
+  const activityId = copyButton?.dataset.copyActivityId;
+  if (!activityId) {
+    return;
+  }
+
+  void copyVisibleActivity(activityId);
+});
+
 elements.attachmentLightbox?.addEventListener("click", (event) => {
   const target = event.target instanceof Element ? event.target : null;
   if (!target) {
@@ -4757,9 +4818,14 @@ elements.messagesJumpButton?.addEventListener("click", () => {
 });
 
 elements.activityList?.addEventListener("scroll", () => {
+  updateActivityJumpButtonVisibility();
   if (elements.activityList && elements.activityList.scrollTop <= 24) {
     void loadOlderHistory("activities");
   }
+});
+
+elements.activityJumpButton?.addEventListener("click", () => {
+  scheduleActivitiesScrollToBottom();
 });
 
 elements.cliTrace?.addEventListener("scroll", () => {

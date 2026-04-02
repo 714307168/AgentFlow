@@ -603,6 +603,10 @@ body {
   flex-direction: column;
 }
 
+.activity-view-shell {
+  position: relative;
+}
+
 .ghost-button,
 .primary-button,
 .danger-button {
@@ -1108,7 +1112,8 @@ body {
   overflow-y: auto;
 }
 
-.messages-jump-button {
+.messages-jump-button,
+.activity-jump-button {
   align-items: center;
   backdrop-filter: blur(12px);
   background: rgba(6, 18, 28, 0.92);
@@ -1132,13 +1137,15 @@ body {
   z-index: 4;
 }
 
-.messages-jump-button:hover {
+.messages-jump-button:hover,
+.activity-jump-button:hover {
   background: rgba(8, 24, 36, 0.96);
   border-color: rgba(93, 208, 255, 0.4);
   transform: translateY(-1px);
 }
 
-.messages-jump-button.hidden {
+.messages-jump-button.hidden,
+.activity-jump-button.hidden {
   opacity: 0;
   pointer-events: none;
   transform: translateY(8px);
@@ -1532,7 +1539,8 @@ body[data-provider="claude"] .message-card.assistant .message-shell {
   font-size: 12px;
 }
 
-.message-time {
+.message-time,
+.activity-time {
   margin-right: auto;
 }
 
