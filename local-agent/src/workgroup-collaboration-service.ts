@@ -142,6 +142,12 @@ interface RemoteDispatchResolution {
   content?: string;
 }
 
+interface DispatchAttemptResult {
+  memberName: string;
+  accepted: boolean;
+  reason?: string;
+}
+
 export default class WorkgroupCollaborationService extends EventEmitter {
   private readonly activeDispatchesByWorkgroup = new Map<string, Map<string, ActiveDispatchRecord>>();
 
@@ -302,12 +308,17 @@ export default class WorkgroupCollaborationService extends EventEmitter {
     const session = this.getSession(workgroup.id);
 
     void Promise.all(selection.targets.map(async (member) => {
-      await this.dispatchToMember(workgroup, member, recentMessages, userMessage);
+      return await this.dispatchToMember(workgroup, member, recentMessages, userMessage);
     })).catch((error) => {
       appLogger.warn("workgroup-collaboration", "Async dispatch after user message failed", {
         workgroupId: workgroup.id,
         error: error instanceof Error ? error.message : String(error),
       });
+    }).then((results) => {
+      if (!Array.isArray(results) || results.length <= 1) {
+        return;
+      }
+      this.appendDispatchSummary(workgroup.id, userMessage.id, results);
     });
 
     return {
@@ -613,22 +624,25 @@ export default class WorkgroupCollaborationService extends EventEmitter {
     member: WorkgroupMember,
     recentMessages: WorkgroupCollaborationMessage[],
     userMessage: WorkgroupCollaborationMessage,
-  ): Promise<void> {
+  ): Promise<DispatchAttemptResult> {
     const projectId = member.projectId?.trim() ?? "";
     if (!projectId) {
-      this.appendDispatchError(workgroup.id, member, "Member has no bound project.");
-      return;
+      const reason = "Member has no bound project.";
+      this.appendDispatchError(workgroup.id, member, reason);
+      return { memberName: member.name, accepted: false, reason };
     }
 
     const project = this.options.getBoundProject(projectId);
     if (!project) {
-      this.appendDispatchError(workgroup.id, member, "Bound project is unavailable.");
-      return;
+      const reason = "Bound project is unavailable.";
+      this.appendDispatchError(workgroup.id, member, reason);
+      return { memberName: member.name, accepted: false, reason };
     }
 
     if (project.kind === "remote" && !project.online) {
-      this.appendDispatchError(workgroup.id, member, "Remote member project is offline.");
-      return;
+      const reason = "Remote member project is offline.";
+      this.appendDispatchError(workgroup.id, member, reason);
+      return { memberName: member.name, accepted: false, reason };
     }
 
     const runId = uuidv4();
@@ -702,8 +716,9 @@ export default class WorkgroupCollaborationService extends EventEmitter {
     if (project.kind === "remote") {
       const remoteSessionStore = this.options.getRemoteSessionStore();
       if (!remoteSessionStore) {
-        handleError("Remote controller is unavailable.");
-        return;
+        const reason = "Remote controller is unavailable.";
+        handleError(reason);
+        return { memberName: member.name, accepted: false, reason };
       }
 
       const result = await remoteSessionStore.sendPrompt(project.id, prompt, undefined, {
@@ -713,9 +728,11 @@ export default class WorkgroupCollaborationService extends EventEmitter {
         onError: handleError,
       });
       if (!result.success) {
-        handleError(result.error ?? "Remote dispatch failed.");
+        const reason = result.error ?? "Remote dispatch failed.";
+        handleError(reason);
+        return { memberName: member.name, accepted: false, reason };
       }
-      return;
+      return { memberName: member.name, accepted: true };
     }
 
     this.options.runtimeManager.enqueueMessage({
@@ -729,6 +746,7 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       onDone: handleDone,
       onError: handleError,
     });
+    return { memberName: member.name, accepted: true };
   }
 
   private async dispatchMemberHandoffs(
@@ -798,6 +816,42 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       projectId: normalizeText(member.projectId),
       projectKind: member.projectKind ?? null,
       content: error,
+      status: "done",
+    });
+    this.emitSnapshot(workgroupId);
+    this.emitSummaries();
+  }
+
+  private appendDispatchSummary(
+    workgroupId: string,
+    triggerMessageId: string,
+    results: DispatchAttemptResult[],
+  ): void {
+    const failed = results.filter((entry) => !entry.accepted);
+    if (failed.length === 0) {
+      return;
+    }
+    const acceptedCount = results.length - failed.length;
+    const failedMembers = failed.map((entry) => `@${entry.memberName}`).join(", ");
+    const reasonSummary = failed
+      .map((entry) => `${entry.memberName}: ${entry.reason ?? "dispatch failed"}`)
+      .join(" | ");
+
+    const payload = acceptedCount <= 0
+      ? {
+          senderType: "error" as const,
+          content: `Delivery failed: no member accepted this message. ${reasonSummary}`.trim(),
+        }
+      : {
+          senderType: "system" as const,
+          content: `Delivery partial: ${acceptedCount}/${results.length} members accepted. Failed: ${failedMembers}`.trim(),
+        };
+
+    workgroupCollaborationStore.appendMessage(workgroupId, {
+      senderType: payload.senderType,
+      senderName: "System",
+      triggerMessageId,
+      content: payload.content,
       status: "done",
     });
     this.emitSnapshot(workgroupId);
