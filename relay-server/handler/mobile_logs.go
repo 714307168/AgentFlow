@@ -483,6 +483,10 @@ func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string) 
 	errorCount := 0
 	warningCount := 0
 	recentErrors := make([]string, 0, 6)
+	schedulerFailedCount := 0
+	schedulerRetryLoopCount := 0
+	schedulerFailureExamples := make([]string, 0, 3)
+	schedulerRetryExamples := make([]string, 0, 3)
 
 	type signalPattern struct {
 		code           string
@@ -628,6 +632,24 @@ func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string) 
 			warningCount++
 		}
 
+		if strings.Contains(lowerLine, "scheduled task failed.") {
+			schedulerFailedCount++
+			if len(schedulerFailureExamples) < 3 {
+				schedulerFailureExamples = append(schedulerFailureExamples, line)
+			}
+			if strings.Contains(lowerLine, "retrycount") || strings.Contains(lowerLine, "retryrunat") {
+				schedulerRetryLoopCount++
+				if len(schedulerRetryExamples) < 3 {
+					schedulerRetryExamples = append(schedulerRetryExamples, line)
+				}
+			}
+		} else if strings.Contains(lowerLine, "retrycount") || strings.Contains(lowerLine, "retryrunat") {
+			schedulerRetryLoopCount++
+			if len(schedulerRetryExamples) < 3 {
+				schedulerRetryExamples = append(schedulerRetryExamples, line)
+			}
+		}
+
 		for _, pattern := range patterns {
 			matched := false
 			for _, token := range pattern.matches {
@@ -659,6 +681,30 @@ func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string) 
 			Count:          acc.count,
 			Recommendation: pattern.recommendation,
 			Examples:       acc.examples,
+		})
+	}
+
+	if schedulerFailedCount > 0 {
+		signals = append(signals, mobileLogSignal{
+			Code:           "desktop_scheduled_task_failures",
+			Title:          "Desktop scheduled task failures detected",
+			Count:          schedulerFailedCount,
+			Recommendation: "Inspect scheduler taskId/runId pairs, the task payload, and the downstream runtime path. If failures cluster after acceptance, compare retryCount and the next retryRunAt to confirm whether the task is recovering or stuck.",
+			Examples:       schedulerFailureExamples,
+		})
+	}
+
+	if schedulerRetryLoopCount > 0 {
+		examples := schedulerRetryExamples
+		if len(examples) == 0 {
+			examples = schedulerFailureExamples
+		}
+		signals = append(signals, mobileLogSignal{
+			Code:           "desktop_scheduled_task_retry_loops",
+			Title:          "Desktop scheduled task retry loop detected",
+			Count:          schedulerRetryLoopCount,
+			Recommendation: "Check whether the same scheduled task keeps failing with increasing retryCount or a moving retryRunAt. Repeated retries usually mean the runtime path is broken even though the scheduler itself is alive.",
+			Examples:       examples,
 		})
 	}
 

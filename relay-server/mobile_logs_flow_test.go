@@ -133,11 +133,11 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 		"source":       "android",
 	}, http.StatusOK, nil)
 	doJSONWithBearer(t, http.DefaultClient, http.MethodPost, server.URL+"/api/device/logs", deviceLogin.Token, map[string]any{
-		"file_name":      "desktop-20260402.log",
-		"content":        "[2026-04-02T11:00:00.000Z] WARN [RelayClient] Reconnecting stalled socket during health-check; state=connecting staleForMs=91234 trace_id=trace-desktop-003 workgroup_id=desktop-workgroup\n[2026-04-02T11:00:01.000Z] INFO [RelayClient] Reconnecting in 1000ms...\n[2026-04-02T11:00:02.000Z] WARN [message-router] Project message run failed after acceptance. trace_id=trace-desktop-003 workgroup_id=desktop-workgroup\n[2026-04-02T11:00:03.000Z] ERROR [workgroup] Delivery failed: no member accepted this message. qa: Remote dispatch failed. trace_id=trace-desktop-003 workgroup_id=desktop-workgroup\n",
-		"app_version":    "1.1.102",
-		"device_model":   "Desktop Test Host",
-		"source":         "desktop",
+		"file_name":       "desktop-20260402.log",
+		"content":         "[2026-04-02T11:00:00.000Z] WARN [RelayClient] Reconnecting stalled socket during health-check; state=connecting staleForMs=91234 trace_id=trace-desktop-003 workgroup_id=desktop-workgroup\n[2026-04-02T11:00:01.000Z] INFO [RelayClient] Reconnecting in 1000ms...\n[2026-04-02T11:00:02.000Z] WARN [message-router] Project message run failed after acceptance. trace_id=trace-desktop-003 workgroup_id=desktop-workgroup\n[2026-04-02T11:00:03.000Z] ERROR [workgroup] Delivery failed: no member accepted this message. qa: Remote dispatch failed. trace_id=trace-desktop-003 workgroup_id=desktop-workgroup\n[2026-04-02T11:00:04.000Z] INFO [scheduler] Queued scheduled task. taskId=task-1 projectId=p-desktop runId=run-1 trigger=scheduled scheduleType=daily trace_id=trace-desktop-003 workgroup_id=desktop-workgroup\n[2026-04-02T11:00:05.000Z] INFO [scheduler] Scheduled task started running. taskId=task-1 projectId=p-desktop runId=run-1 trace_id=trace-desktop-003 workgroup_id=desktop-workgroup\n[2026-04-02T11:00:06.000Z] WARN [scheduler] Scheduled task failed. taskId=task-1 projectId=p-desktop trigger=scheduled error=relay timeout retryCount=1 maxRetries=3 retryRunAt=2026-04-02T11:05:06.000Z trace_id=trace-desktop-003 workgroup_id=desktop-workgroup\n",
+		"app_version":     "1.1.102",
+		"device_model":    "Desktop Test Host",
+		"source":          "desktop",
 		"connection_note": "host=test-host; agent=connected; controller=connected",
 	}, http.StatusOK, nil)
 
@@ -259,6 +259,12 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 	}
 	if !hasSignalCode(desktopAnalysis.Signals, "desktop_dispatch_breaks") {
 		t.Fatalf("expected desktop dispatch break signal, got %+v", desktopAnalysis.Signals)
+	}
+	if !hasSignalCode(desktopAnalysis.Signals, "desktop_scheduled_task_failures") {
+		t.Fatalf("expected desktop scheduled task failure signal, got %+v", desktopAnalysis.Signals)
+	}
+	if !hasSignalCode(desktopAnalysis.Signals, "desktop_scheduled_task_retry_loops") {
+		t.Fatalf("expected desktop scheduled task retry loop signal, got %+v", desktopAnalysis.Signals)
 	}
 }
 
