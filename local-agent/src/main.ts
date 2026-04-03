@@ -479,6 +479,7 @@ const runtimeManager = new RuntimeManager(() => ({
   getProjectPrompt,
   getProviderEnvironment: (provider) => getProviderEnvironment(provider),
   shouldResumeConversation: (projectId) => !isWorkgroupPmProjectId(projectId),
+  shouldPersistProjectHistory: (projectId) => !isWorkgroupPmProjectId(projectId),
   updateProject: (projectId, updates) => {
     projectStore.update(projectId, updates);
   },
@@ -943,9 +944,9 @@ function playCompletionSound(): void {
   }
 }
 
-runtimeManager.on("snapshot", (projectId: string, snapshot: ProjectSessionSnapshot) => {
+runtimeManager.on("snapshot", (_projectId: string, snapshot: ProjectSessionSnapshot) => {
   syncWorkgroupTasksForProjectSnapshot(snapshot);
-  if (workspaceWindow && !workspaceWindow.isDestroyed()) {
+  if (!isWorkgroupPmProjectId(snapshot.projectId) && workspaceWindow && !workspaceWindow.isDestroyed()) {
     workspaceWindow.webContents.send("project-session-snapshot", snapshot);
   }
   broadcastSessionSync(snapshot);
@@ -990,6 +991,9 @@ function broadcastProjectsChanged(): void {
 }
 
 function broadcastProjectSnapshot(projectId: string): void {
+  if (isWorkgroupPmProjectId(projectId)) {
+    return;
+  }
   const snapshot = getProjectSnapshot(projectId);
   if (!snapshot) {
     return;

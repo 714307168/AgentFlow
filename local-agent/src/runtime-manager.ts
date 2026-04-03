@@ -37,6 +37,7 @@ export interface RuntimeConfig {
   getProjectPrompt?: (projectId: string) => string | null;
   getProviderEnvironment?: (provider: CliProvider) => Record<string, string>;
   shouldResumeConversation?: (projectId: string, provider: CliProvider) => boolean;
+  shouldPersistProjectHistory?: (projectId: string) => boolean;
   updateProject: (projectId: string, updates: { cliModel?: string | null }) => void;
   onProjectConfigChanged?: (projectId: string) => void;
   captureProjectScreenshot?: (projectId: string) => Promise<RunAttachment>;
@@ -289,10 +290,20 @@ class RuntimeManager extends EventEmitter {
   }
 
   getLatestSyncSeq(projectId: string): number {
+    if (!this.shouldPersistProjectHistory(projectId)) {
+      return 0;
+    }
     return this.historyStore.getLatestSeq(projectId);
   }
 
   buildSyncDelta(projectId: string, request: number | ProjectSyncRequest = 0) {
+    if (!this.shouldPersistProjectHistory(projectId)) {
+      return {
+        latestSeq: 0,
+        items: [],
+        truncated: false,
+      };
+    }
     return this.historyStore.buildSyncDelta(projectId, request);
   }
 
@@ -471,12 +482,23 @@ class RuntimeManager extends EventEmitter {
 
   repairChatHistory(projectId?: string | null): ChatHistoryRepairSummary {
     const normalizedProjectId = projectId?.trim() || null;
-    const targetProjectIds = normalizedProjectId
-      ? [normalizedProjectId]
-      : Array.from(new Set([
-          ...this.historyStore.listProjectIds(),
-          ...this.states.keys(),
-        ])).sort((left, right) => left.localeCompare(right));
+    const targetProjectIds = (
+      normalizedProjectId
+        ? [normalizedProjectId]
+        : Array.from(new Set([
+            ...this.historyStore.listProjectIds(),
+            ...this.states.keys(),
+          ])).sort((left, right) => left.localeCompare(right))
+    ).filter((projectIdToRepair) => this.shouldPersistProjectHistory(projectIdToRepair));
+
+    if (targetProjectIds.length === 0) {
+      return {
+        scanned: 0,
+        repaired: 0,
+        reset: 0,
+        results: [],
+      };
+    }
 
     const repairedResults = new Map<string, ChatHistoryRepairSummary["results"][number]>();
     for (const projectIdToRepair of targetProjectIds) {
@@ -1308,7 +1330,7 @@ class RuntimeManager extends EventEmitter {
     });
     this.trimCliTrace(state);
     const latestEntry = state.cliTrace[state.cliTrace.length - 1];
-    if (latestEntry) {
+    if (latestEntry && this.shouldPersistProjectHistory(state.projectId)) {
       this.historyStore.appendCliTrace(state.projectId, state.activeConversationId, latestEntry);
     }
     appLogger.info("runtime", normalized, {
@@ -1335,6 +1357,10 @@ class RuntimeManager extends EventEmitter {
 
   private shouldResumeConversation(projectId: string, provider: CliProvider): boolean {
     return this.getConfig().shouldResumeConversation?.(projectId, provider) ?? true;
+  }
+
+  private shouldPersistProjectHistory(projectId: string): boolean {
+    return this.getConfig().shouldPersistProjectHistory?.(projectId) ?? true;
   }
 
   private shouldRetryCodexExitCode1(error: unknown, attempt: number): boolean {
@@ -1395,7 +1421,9 @@ class RuntimeManager extends EventEmitter {
     message.updatedAt = Date.now();
     message.status = "streaming";
     this.trimMessages(state);
-    this.historyStore.upsertMessage(state.projectId, state.activeConversationId, message);
+    if (this.shouldPersistProjectHistory(state.projectId)) {
+      this.historyStore.upsertMessage(state.projectId, state.activeConversationId, message);
+    }
     this.emitSnapshot(state.projectId);
   }
 
@@ -1417,7 +1445,9 @@ class RuntimeManager extends EventEmitter {
       existing.updatedAt = Date.now();
       existing.status = "done";
       this.trimMessages(state);
-      this.historyStore.upsertMessage(state.projectId, state.activeConversationId, existing);
+      if (this.shouldPersistProjectHistory(state.projectId)) {
+        this.historyStore.upsertMessage(state.projectId, state.activeConversationId, existing);
+      }
       this.emitSnapshot(state.projectId);
       return;
     }
@@ -1438,7 +1468,9 @@ class RuntimeManager extends EventEmitter {
   private addMessage(state: ProjectState, message: SessionMessage): void {
     state.messages.push(message);
     this.trimMessages(state);
-    this.historyStore.upsertMessage(state.projectId, state.activeConversationId, message);
+    if (this.shouldPersistProjectHistory(state.projectId)) {
+      this.historyStore.upsertMessage(state.projectId, state.activeConversationId, message);
+    }
     this.emitSnapshot(state.projectId);
   }
 
@@ -1474,14 +1506,18 @@ class RuntimeManager extends EventEmitter {
       message.status = patch.status;
     }
     message.updatedAt = Date.now();
-    this.historyStore.upsertMessage(state.projectId, state.activeConversationId, message);
+    if (this.shouldPersistProjectHistory(state.projectId)) {
+      this.historyStore.upsertMessage(state.projectId, state.activeConversationId, message);
+    }
     this.emitSnapshot(state.projectId);
   }
 
   private addActivity(state: ProjectState, activity: SessionActivity): string {
     state.activities.push(activity);
     this.trimActivities(state);
-    this.historyStore.upsertActivity(state.projectId, state.activeConversationId, activity);
+    if (this.shouldPersistProjectHistory(state.projectId)) {
+      this.historyStore.upsertActivity(state.projectId, state.activeConversationId, activity);
+    }
     this.emitSnapshot(state.projectId);
     return activity.id;
   }
@@ -1506,7 +1542,9 @@ class RuntimeManager extends EventEmitter {
       activity.meta = patch.meta;
     }
     activity.updatedAt = Date.now();
-    this.historyStore.upsertActivity(state.projectId, state.activeConversationId, activity);
+    if (this.shouldPersistProjectHistory(state.projectId)) {
+      this.historyStore.upsertActivity(state.projectId, state.activeConversationId, activity);
+    }
     this.emitSnapshot(state.projectId);
   }
 
@@ -1518,7 +1556,9 @@ class RuntimeManager extends EventEmitter {
 
     activity.detail += chunk;
     activity.updatedAt = Date.now();
-    this.historyStore.upsertActivity(state.projectId, state.activeConversationId, activity);
+    if (this.shouldPersistProjectHistory(state.projectId)) {
+      this.historyStore.upsertActivity(state.projectId, state.activeConversationId, activity);
+    }
     this.emitSnapshot(state.projectId);
   }
 
@@ -1548,7 +1588,9 @@ class RuntimeManager extends EventEmitter {
         activity.detail = detail;
       }
       activity.updatedAt = Date.now();
-      this.historyStore.upsertActivity(state.projectId, state.activeConversationId, activity);
+      if (this.shouldPersistProjectHistory(state.projectId)) {
+        this.historyStore.upsertActivity(state.projectId, state.activeConversationId, activity);
+      }
     }
 
     this.emitSnapshot(state.projectId);
@@ -2003,6 +2045,9 @@ class RuntimeManager extends EventEmitter {
 
   private rebuildProjectHistoryStore(state: ProjectState): void {
     this.historyStore.clearProject(state.projectId);
+    if (!this.shouldPersistProjectHistory(state.projectId)) {
+      return;
+    }
     for (const conversation of state.conversations) {
       this.historyStore.upsertConversationMeta(state.projectId, {
         conversationId: conversation.id,
@@ -2026,6 +2071,10 @@ class RuntimeManager extends EventEmitter {
 
   private restorePersistedStates(): void {
     for (const { projectId, state: snapshot } of this.historyStore.getAllProjects()) {
+      if (!this.shouldPersistProjectHistory(projectId)) {
+        this.historyStore.clearProject(projectId);
+        continue;
+      }
       const restoredQueue = (snapshot.queue ?? [])
         .filter((entry) => entry.source === "desktop")
         .map((entry) => ({
@@ -2130,24 +2179,26 @@ class RuntimeManager extends EventEmitter {
     const state = this.states.get(projectId);
     if (state) {
       this.syncActiveConversationMeta(state);
-      const activeConversation = this.getActiveConversation(state);
-      this.historyStore.updateProjectMeta(projectId, {
-        queue: state.queue
-          .filter((entry) => entry.source === "desktop")
-          .map((entry) => ({
-            runId: entry.runId,
-            cwd: entry.cwd,
-            prompt: entry.prompt,
-            attachments: this.cloneAttachments(entry.attachments),
-            source: entry.source,
-            queuedAt: entry.queuedAt,
-          })),
-        activeConversationId: state.activeConversationId,
-        claudeSessionId: state.claudeSessionId,
-        codexThreadId: state.codexThreadId,
-        conversationCreatedAt: activeConversation?.createdAt ?? null,
-        conversationUpdatedAt: activeConversation?.updatedAt ?? Date.now(),
-      });
+      if (this.shouldPersistProjectHistory(projectId)) {
+        const activeConversation = this.getActiveConversation(state);
+        this.historyStore.updateProjectMeta(projectId, {
+          queue: state.queue
+            .filter((entry) => entry.source === "desktop")
+            .map((entry) => ({
+              runId: entry.runId,
+              cwd: entry.cwd,
+              prompt: entry.prompt,
+              attachments: this.cloneAttachments(entry.attachments),
+              source: entry.source,
+              queuedAt: entry.queuedAt,
+            })),
+          activeConversationId: state.activeConversationId,
+          claudeSessionId: state.claudeSessionId,
+          codexThreadId: state.codexThreadId,
+          conversationCreatedAt: activeConversation?.createdAt ?? null,
+          conversationUpdatedAt: activeConversation?.updatedAt ?? Date.now(),
+        });
+      }
     }
     this.scheduleSnapshotEmit(projectId);
   }
