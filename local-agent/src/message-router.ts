@@ -14,6 +14,7 @@ interface MessageRouterOptions {
   revealProjectWindow?: (projectId: string, projectName: string) => void;
   revealWakeupWindow?: () => void;
   runtimeManager?: RuntimeManager;
+  flushProjectSessionSyncNow?: (projectId: string) => void;
   getDefaultCliProvider?: () => CliProvider;
   syncProjectCatalog?: () => void;
   onProjectsChanged?: () => void;
@@ -208,6 +209,7 @@ class MessageRouter {
         });
       },
     });
+    this.options.flushProjectSessionSyncNow?.(projectId);
   }
 
   private handleProjectBind(env: Envelope): void {

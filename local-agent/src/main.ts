@@ -1842,7 +1842,7 @@ function syncWorkgroupTasksForProjectSnapshot(snapshot: ProjectSessionSnapshot):
   }
 }
 
-function broadcastSessionSync(snapshot: ProjectSessionSnapshot): void {
+function broadcastSessionSync(snapshot: ProjectSessionSnapshot, immediate = false): void {
   if (isWorkgroupPmProjectId(snapshot.projectId)) {
     clearRelaySyncState(snapshot.projectId);
     return;
@@ -1853,12 +1853,7 @@ function broadcastSessionSync(snapshot: ProjectSessionSnapshot): void {
   }
 
   pendingRelaySyncSnapshotsByProject.set(snapshot.projectId, snapshot);
-  const existingTimer = relaySyncTimersByProject.get(snapshot.projectId);
-  if (existingTimer) {
-    clearTimeout(existingTimer);
-  }
-
-  relaySyncTimersByProject.set(snapshot.projectId, setTimeout(() => {
+  const flush = () => {
     relaySyncTimersByProject.delete(snapshot.projectId);
     const latestSnapshot = pendingRelaySyncSnapshotsByProject.get(snapshot.projectId);
     if (!latestSnapshot || !relayClient || !relayClient.isConnected()) {
@@ -1884,7 +1879,18 @@ function broadcastSessionSync(snapshot: ProjectSessionSnapshot): void {
       ts: Date.now(),
       payload,
     });
-  }, RELAY_SYNC_DEBOUNCE_MS));
+  };
+
+  const existingTimer = relaySyncTimersByProject.get(snapshot.projectId);
+  if (existingTimer) {
+    clearTimeout(existingTimer);
+  }
+  if (immediate) {
+    flush();
+    return;
+  }
+
+  relaySyncTimersByProject.set(snapshot.projectId, setTimeout(flush, RELAY_SYNC_DEBOUNCE_MS));
 }
 
 function clearRelaySyncState(projectId?: string): void {
@@ -2662,6 +2668,10 @@ function initRelay(config: AgentConfig): void {
   );
   new MessageRouter(relayClient, {
     runtimeManager,
+    flushProjectSessionSyncNow: (projectId: string) => {
+      const snapshot = runtimeManager.getSnapshot(projectId);
+      broadcastSessionSync(snapshot, true);
+    },
     getDefaultCliProvider,
     syncProjectCatalog: () => syncProjectCatalog(loadConfig().agentId),
     getWorkgroupRelayPayload: () => buildWorkgroupRelayPayload(),
