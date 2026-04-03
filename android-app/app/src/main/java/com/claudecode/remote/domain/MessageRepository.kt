@@ -354,11 +354,11 @@ class MessageRepository(
         content: String,
         attachments: List<MessageAttachment> = emptyList(),
         agentId: String? = null
-    ) = withContext(Dispatchers.IO) {
+    ): String = withContext(Dispatchers.IO) {
         val normalizedAttachments = attachments.map(::normalizeAttachment)
         val trimmedContent = content.trim()
         if (trimmedContent.isEmpty() && normalizedAttachments.isEmpty()) {
-            return@withContext
+            return@withContext ""
         }
 
         ensureSendReady(projectId, agentId, "message-send")
@@ -442,6 +442,7 @@ class MessageRepository(
                     )
                 }
             }
+            runId
         } catch (error: Exception) {
             messageDao.deleteMessageById(runId)
             previousSession?.let { sessionDao.insertSession(it) }

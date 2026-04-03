@@ -36,6 +36,7 @@ private const val SNAPSHOT_PERSIST_THROTTLE_MS = 1_200L
 private const val RESUME_STALE_CONNECTION_TIMEOUT_MS = 20_000L
 private const val ACTIVE_SYNC_STALE_CONNECTION_TIMEOUT_MS = 20_000L
 private val POST_SEND_SYNC_DELAYS_MS = longArrayOf(0L, 1_200L, 4_000L, 9_000L)
+private const val SEND_FEEDBACK_TIMEOUT_MS = 12_000L
 
 data class ConversationItem(
     val id: String,
@@ -153,6 +154,8 @@ class ChatViewModel(
     private var lastSnapshotPersistAtMs: Long = 0L
     private var lastPersistedSnapshotJson: String? = null
     private val postSendSyncJobs = mutableListOf<Job>()
+    private var pendingSendFeedbackRunId: String? = null
+    private var pendingSendFeedbackTimeoutJob: Job? = null
 
     private fun restorePersistedSnapshot(projectId: String): PersistedChatSnapshot? =
         tokenStore.getProjectChatSnapshot(projectId)
@@ -318,6 +321,9 @@ class ChatViewModel(
         pendingOlderHistoryRequest = null
         projectBootstrapJob?.cancel()
         cancelPostSendSyncNudges()
+        pendingSendFeedbackRunId = null
+        pendingSendFeedbackTimeoutJob?.cancel()
+        pendingSendFeedbackTimeoutJob = null
         lastPersistedSnapshotJson = null
         val persistedSnapshot = restorePersistedSnapshot(projectId)
         allMessages = persistedSnapshot?.messages ?: emptyList()
@@ -407,6 +413,7 @@ class ChatViewModel(
                         )
                     )
                 }
+                maybeResolvePendingSendFeedback()
                 persistCurrentProjectSnapshot(force = true)
             } catch (e: Exception) {
                 CrashLogger.logError("ChatViewModel", "Error hydrating cached project state", e)
@@ -450,6 +457,7 @@ class ChatViewModel(
                     if ((session?.isRunning == true) || (session?.queuedCount ?: 0) > 0) {
                         markSyncBurst()
                     }
+                    maybeResolvePendingSendFeedback()
                     persistCurrentProjectSnapshot()
                 }
             } catch (e: Exception) {
@@ -466,6 +474,7 @@ class ChatViewModel(
                     reconcilePendingOlderHistory(previousMessages, messages)
                     publishVisibleMessages()
                     maybeLoadMoreConversationHistory()
+                    maybeResolvePendingSendFeedback()
                 }
             } catch (e: Exception) {
                 CrashLogger.logError("ChatViewModel", "Error collecting messages", e)
@@ -481,6 +490,7 @@ class ChatViewModel(
                             message.type == com.claudecode.remote.data.model.MessageType.ACTIVITY
                     }
                     publishVisibleActivityMessages()
+                    maybeResolvePendingSendFeedback()
                 }
             } catch (e: Exception) {
                 CrashLogger.logError("ChatViewModel", "Error collecting activity messages", e)
@@ -721,16 +731,22 @@ class ChatViewModel(
 
         viewModelScope.launch {
             try {
-                messageRepository.sendMessage(
+                val runId = messageRepository.sendMessage(
                     projectId = state.projectId,
                     content = textSnapshot,
                     attachments = attachmentSnapshot,
                     agentId = state.agentId
                 )
+                if (runId.isNotBlank()) {
+                    trackPendingSendFeedback(runId)
+                } else {
+                    _uiState.update { it.copy(isSending = false) }
+                }
                 schedulePostSendSyncNudges()
             } catch (e: Exception) {
                 CrashLogger.logError("ChatViewModel", "Error sending message", e)
                 tokenStore.saveDraft(state.projectId, textSnapshot)
+                clearPendingSendFeedback()
                 _uiState.update {
                     it.copy(
                         inputText = textSnapshot,
@@ -742,9 +758,57 @@ class ChatViewModel(
                         currentStartedAt = state.currentStartedAt
                     )
                 }
-            } finally {
+            }
+        }
+    }
+
+    private fun trackPendingSendFeedback(runId: String) {
+        pendingSendFeedbackRunId = runId
+        pendingSendFeedbackTimeoutJob?.cancel()
+        pendingSendFeedbackTimeoutJob = viewModelScope.launch {
+            kotlinx.coroutines.delay(SEND_FEEDBACK_TIMEOUT_MS)
+            if (pendingSendFeedbackRunId == runId) {
+                pendingSendFeedbackRunId = null
                 _uiState.update { it.copy(isSending = false) }
             }
+        }
+    }
+
+    private fun clearPendingSendFeedback(runId: String? = pendingSendFeedbackRunId) {
+        val targetRunId = runId?.trim().orEmpty()
+        if (targetRunId.isNotEmpty() && pendingSendFeedbackRunId != targetRunId) {
+            return
+        }
+        pendingSendFeedbackRunId = null
+        pendingSendFeedbackTimeoutJob?.cancel()
+        pendingSendFeedbackTimeoutJob = null
+        _uiState.update { current ->
+            if (!current.isSending) {
+                current
+            } else {
+                current.copy(isSending = false)
+            }
+        }
+    }
+
+    private fun maybeResolvePendingSendFeedback() {
+        val runId = pendingSendFeedbackRunId?.trim().orEmpty()
+        if (runId.isEmpty()) {
+            return
+        }
+        val assistantStreamId = "$runId:assistant"
+        val state = _uiState.value
+        val hasQueueAck = state.queueItems.any { !it.isPlaceholder && it.runId == runId }
+        val hasSyncedUserMessage = state.messages.any { message ->
+            message.id == runId && message.syncSeq > 0L
+        }
+        val hasAssistantResponse = state.messages.any { message ->
+            message.id == assistantStreamId || message.streamId == assistantStreamId
+        } || state.activityMessages.any { message ->
+            message.id == assistantStreamId || message.streamId == assistantStreamId
+        }
+        if (hasQueueAck || hasSyncedUserMessage || hasAssistantResponse) {
+            clearPendingSendFeedback(runId)
         }
     }
 
@@ -1101,6 +1165,7 @@ class ChatViewModel(
         olderHistoryTimeoutJob?.cancel()
         projectBootstrapJob?.cancel()
         cancelPostSendSyncNudges()
+        pendingSendFeedbackTimeoutJob?.cancel()
         super.onCleared()
     }
 
