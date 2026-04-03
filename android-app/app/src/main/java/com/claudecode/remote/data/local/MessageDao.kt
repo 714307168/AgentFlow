@@ -137,6 +137,7 @@ interface MessageDao {
         """
         SELECT * FROM messages
         WHERE projectId = :projectId
+          AND source != 'workgroup'
           AND COALESCE(conversationId, '') = COALESCE(:conversationId, '')
           AND syncSeq > 0
           AND (:beforeSeq IS NULL OR syncSeq < :beforeSeq)
@@ -159,6 +160,7 @@ interface MessageDao {
             COUNT(CASE WHEN syncSeq > 0 THEN 1 END) AS messageCount
         FROM messages
         WHERE projectId = :projectId
+          AND source != 'workgroup'
           AND COALESCE(conversationId, '') = COALESCE(:conversationId, '')
         """
     )
@@ -176,13 +178,18 @@ interface MessageDao {
     @Query("DELETE FROM messages WHERE id = :messageId")
     suspend fun deleteMessageById(messageId: String)
 
+    @Query("DELETE FROM messages WHERE source = :source")
+    suspend fun deleteMessagesBySource(source: String): Int
+
     @Query(
         """
         DELETE FROM messages
         WHERE projectId = :projectId
+          AND source != 'workgroup'
           AND id NOT IN (
             SELECT id FROM messages
             WHERE projectId = :projectId
+              AND source != 'workgroup'
             ORDER BY syncSeq DESC, timestamp DESC, id DESC
             LIMIT :keepCount
           )

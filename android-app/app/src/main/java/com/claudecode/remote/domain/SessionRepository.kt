@@ -60,6 +60,7 @@ class SessionRepository(
     suspend fun initialize(): Result<Unit> {
         return try {
             CrashLogger.logInfo("SessionRepository", "Starting initialization")
+            purgeLegacyWorkgroupMessages()
 
             var deviceId = tokenStore.getDeviceId()
             if (deviceId == null) {
@@ -115,6 +116,7 @@ class SessionRepository(
 
         val result = try {
             CrashLogger.logInfo("SessionRepository", "Starting syncFromServer")
+            purgeLegacyWorkgroupMessages()
 
             val deviceId = tokenStore.getDeviceId().orEmpty()
             val token = authSessionManager.ensureValidToken(deviceId).getOrElse { error ->
@@ -270,6 +272,18 @@ class SessionRepository(
 
     private fun cancelPendingOffline(projectId: String) {
         pendingOfflineJobs.remove(projectId)?.cancel()
+    }
+
+    private suspend fun purgeLegacyWorkgroupMessages() {
+        val deletedCount = db.withTransaction {
+            messageDao.deleteMessagesBySource("workgroup")
+        }
+        if (deletedCount > 0) {
+            CrashLogger.logInfo(
+                "SessionRepository",
+                "Purged $deletedCount legacy workgroup messages from project message storage"
+            )
+        }
     }
 
     private fun scheduleOfflineStatus(projectId: String, timestamp: Long) {
