@@ -9,6 +9,7 @@ import { buildSessionSyncPayload } from "./session-sync-payload";
 import { SessionSyncActions } from "./session-sync-actions";
 import { Envelope, Events } from "./types";
 import { createRunAttachmentFromPath, getUniqueAttachmentPath } from "./attachment-utils";
+import appLogger from "./app-logger";
 
 interface MessageRouterOptions {
   revealProjectWindow?: (projectId: string, projectName: string) => void;
@@ -72,6 +73,26 @@ class MessageRouter {
       return provider;
     }
     return fallback;
+  }
+
+  private normalizeTraceId(value: string | null | undefined, fallback: string): string {
+    return value?.trim() || fallback.trim();
+  }
+
+  private logMessageTrace(
+    level: "info" | "warn" | "error",
+    message: string,
+    meta: Record<string, unknown>,
+  ): void {
+    if (level === "warn") {
+      appLogger.warn("message-router", message, meta);
+      return;
+    }
+    if (level === "error") {
+      appLogger.error("message-router", message, meta);
+      return;
+    }
+    appLogger.info("message-router", message, meta);
   }
 
   handleEnvelope(env: Envelope): void {
@@ -145,10 +166,16 @@ class MessageRouter {
     const clientMessageId = typeof payload?.client_message_id === "string" && payload.client_message_id.trim()
       ? payload.client_message_id.trim()
       : env.id;
+    const traceId = this.normalizeTraceId(clientMessageId, env.id);
     const streamId = env.stream_id || `${clientMessageId}:assistant`;
 
     if (!projectId) {
       console.error("[MessageRouter] message.send missing project_id");
+      this.logMessageTrace("error", "Rejected project message.send because project_id was missing.", {
+        traceId,
+        requestId: env.id,
+        streamId,
+      });
       return;
     }
 
@@ -156,13 +183,22 @@ class MessageRouter {
     console.log("[MessageRouter] All projects:", JSON.stringify(projectStore.getAll()));
     if (!project) {
       console.error("[MessageRouter] Unknown project: " + projectId);
+      this.logMessageTrace("error", "Rejected project message.send because the project was unknown.", {
+        traceId,
+        requestId: env.id,
+        projectId,
+        streamId,
+      });
       this.relayClient.send({
         id: uuidv4(),
         event: Events.MESSAGE_ERROR,
         project_id: projectId,
         stream_id: streamId,
         ts: Date.now(),
-        payload: { error: "Project " + projectId + " not found" },
+        payload: {
+          error: "Project " + projectId + " not found",
+          trace_id: traceId,
+        },
       });
       return;
     }
@@ -172,13 +208,22 @@ class MessageRouter {
     const attachments = this.normalizeIncomingAttachments(payload?.attachments);
     this.streamSeq.set(streamId, 0);
     if (!this.options.runtimeManager) {
+      this.logMessageTrace("error", "Rejected project message.send because runtime manager was unavailable.", {
+        traceId,
+        requestId: env.id,
+        projectId,
+        streamId,
+      });
       this.relayClient.send({
         id: uuidv4(),
         event: Events.MESSAGE_ERROR,
         project_id: projectId,
         stream_id: streamId,
         ts: Date.now(),
-        payload: { error: "Runtime manager is not configured" },
+        payload: {
+          error: "Runtime manager is not configured",
+          trace_id: traceId,
+        },
       });
       return;
     }
@@ -187,6 +232,13 @@ class MessageRouter {
     const duplicateAlreadyTracked = snapshot.queue.some((entry) => entry.runId === clientMessageId)
       || snapshot.messages.some((entry) => entry.id === clientMessageId || entry.id === `${clientMessageId}:assistant`);
     if (duplicateAlreadyTracked) {
+      this.logMessageTrace("info", "Accepted duplicate project message.send using existing trace.", {
+        traceId,
+        requestId: env.id,
+        projectId,
+        streamId,
+        duplicate: true,
+      });
       this.relayClient.send({
         id: uuidv4(),
         event: Events.MESSAGE_ACCEPTED,
@@ -197,6 +249,7 @@ class MessageRouter {
           client_message_id: clientMessageId,
           run_id: clientMessageId,
           stream_id: streamId,
+          trace_id: traceId,
           accepted_at: Date.now(),
           duplicate: true,
         },
@@ -205,6 +258,13 @@ class MessageRouter {
       return;
     }
 
+    this.logMessageTrace("info", "Accepted project message.send and queued runtime dispatch.", {
+      traceId,
+      requestId: env.id,
+      projectId,
+      streamId,
+      attachmentCount: attachments.length,
+    });
     this.options.runtimeManager.enqueueMessage({
       projectId,
       cwd: project.path,
@@ -225,13 +285,23 @@ class MessageRouter {
       },
       onError: (error) => {
         this.streamSeq.delete(streamId);
+        this.logMessageTrace("warn", "Project message run failed after acceptance.", {
+          traceId,
+          requestId: env.id,
+          projectId,
+          streamId,
+          error,
+        });
         this.relayClient.send({
           id: uuidv4(),
           event: Events.MESSAGE_ERROR,
           project_id: projectId,
           stream_id: streamId,
           ts: Date.now(),
-          payload: { error },
+          payload: {
+            error,
+            trace_id: traceId,
+          },
         });
       },
     });
@@ -245,6 +315,7 @@ class MessageRouter {
         client_message_id: clientMessageId,
         run_id: clientMessageId,
         stream_id: streamId,
+        trace_id: traceId,
         accepted_at: Date.now(),
       },
     });
@@ -450,13 +521,28 @@ class MessageRouter {
     const workgroupId = String(payload?.workgroup_id ?? "").trim();
     const content = typeof payload?.content === "string" ? payload.content : "";
     const clientMessageId = String(payload?.client_message_id ?? "").trim() || env.id;
+    const traceId = this.normalizeTraceId(clientMessageId, env.id);
 
     let result: { success: boolean; error?: string; session?: unknown };
     if (!workgroupId) {
+      this.logMessageTrace("error", "Rejected workgroup collaboration message because workgroup_id was missing.", {
+        traceId,
+        requestId: env.id,
+      });
       result = { success: false, error: "Workgroup id is required" };
     } else if (!this.options.sendWorkgroupCollaborationMessage) {
+      this.logMessageTrace("error", "Rejected workgroup collaboration message because messaging was unavailable.", {
+        traceId,
+        requestId: env.id,
+        workgroupId,
+      });
       result = { success: false, error: "Workgroup collaboration messaging is unavailable" };
     } else {
+      this.logMessageTrace("info", "Accepted workgroup collaboration message request.", {
+        traceId,
+        requestId: env.id,
+        workgroupId,
+      });
       result = await this.options.sendWorkgroupCollaborationMessage({
         workgroupId,
         content,
@@ -466,6 +552,11 @@ class MessageRouter {
 
     const relayPayload = this.options.getWorkgroupCollaborationRelayPayload?.();
     if (result.success) {
+      this.logMessageTrace("info", "Confirmed workgroup collaboration message acceptance.", {
+        traceId,
+        requestId: env.id,
+        workgroupId,
+      });
       this.relayClient.send({
         id: uuidv4(),
         event: Events.WORKGROUP_COLLABORATION_MESSAGE_ACCEPTED,
@@ -477,11 +568,19 @@ class MessageRouter {
           agent_id: relayPayload?.agent_id ?? "",
           workgroup_id: workgroupId,
           client_message_id: clientMessageId,
+          trace_id: traceId,
           accepted_at: Date.now(),
           session: result.session ?? null,
         },
       });
     }
+    this.logMessageTrace(result.success ? "info" : "warn", "Completed workgroup collaboration message request.", {
+      traceId,
+      requestId: env.id,
+      workgroupId,
+      success: result.success,
+      error: result.error ?? null,
+    });
     this.relayClient.send({
       id: uuidv4(),
       event: Events.WORKGROUP_COLLABORATION_MESSAGE_RESULT,
@@ -493,6 +592,7 @@ class MessageRouter {
         agent_id: relayPayload?.agent_id ?? "",
         workgroup_id: workgroupId,
         client_message_id: clientMessageId,
+        trace_id: traceId,
         success: result.success,
         error: result.error,
         session: result.session ?? null,
