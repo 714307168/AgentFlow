@@ -71,6 +71,7 @@ class MessageRepository(
         private const val MAX_PROJECT_MESSAGES = 1200
         private const val DEFAULT_SYNC_LIMIT = 30
         private const val PROJECT_SYNC_DEDUPE_WINDOW_MS = 750L
+        private const val PROJECT_SYNC_SINGLE_FLIGHT_TIMEOUT_MS = 4_000L
         private const val WAKEUP_THROTTLE_WINDOW_MS = 10_000L
         private const val FILE_CHUNK_SIZE = 64 * 1024
         private const val FILE_UPLOAD_TIMEOUT_MS = 120_000L
@@ -127,6 +128,7 @@ class MessageRepository(
     private val pendingDownloadRequests = ConcurrentHashMap<String, PendingDownloadRequest>()
     private val pendingDownloadTransfers = ConcurrentHashMap<String, PendingDownloadTransfer>()
     private val lastProjectSyncRequestedAt = ConcurrentHashMap<String, Long>()
+    private val inFlightProjectSyncs = ConcurrentHashMap<String, Long>()
     private val lastWakeupRequestedAt = ConcurrentHashMap<String, Long>()
     private val lastFullItemRequestAt = ConcurrentHashMap<String, Long>()
     private val projectSendMutexes = ConcurrentHashMap<String, Mutex>()
@@ -203,43 +205,52 @@ class MessageRepository(
             lastProjectSyncRequestedAt[requestKey] = now
         }
 
-        webSocket.send(
-            Envelope(
-                id = UUID.randomUUID().toString(),
-                event = Events.SESSION_SYNC_REQUEST,
-                projectId = projectId,
-                payload = buildJsonObject {
-                    put("after_seq", JsonPrimitive(afterSeq))
-                    beforeSeq?.takeIf { it > 0L }?.let {
-                        put("before_seq", JsonPrimitive(it))
-                    }
-                    limit?.takeIf { it > 0 }?.let {
-                        put("limit", JsonPrimitive(it))
-                    }
-                    action?.trim()?.takeIf { it.isNotEmpty() }?.let {
-                        put("action", JsonPrimitive(it))
-                    }
-                    effectiveConversationId?.let {
-                        put("conversation_id", JsonPrimitive(it))
-                    }
-                    itemId?.trim()?.takeIf { it.isNotEmpty() }?.let {
-                        put("item_id", JsonPrimitive(it))
-                    }
-                    val knownItems = buildKnownSyncItemPayloads(
-                        projectId = projectId,
-                        conversationId = effectiveConversationId,
-                        afterSeq = afterSeq,
-                        beforeSeq = beforeSeq,
-                        limit = limit ?: DEFAULT_SYNC_LIMIT
-                    )
-                    if (knownItems.isNotEmpty()) {
-                        put("known_items", JsonArray(knownItems))
-                    }
-                },
-                ts = System.currentTimeMillis()
-            ),
-            targetAgentId = agentId
-        )
+        if (!tryStartProjectSyncFlight(requestKey, now)) {
+            return
+        }
+
+        try {
+            webSocket.send(
+                Envelope(
+                    id = UUID.randomUUID().toString(),
+                    event = Events.SESSION_SYNC_REQUEST,
+                    projectId = projectId,
+                    payload = buildJsonObject {
+                        put("after_seq", JsonPrimitive(afterSeq))
+                        beforeSeq?.takeIf { it > 0L }?.let {
+                            put("before_seq", JsonPrimitive(it))
+                        }
+                        limit?.takeIf { it > 0 }?.let {
+                            put("limit", JsonPrimitive(it))
+                        }
+                        action?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                            put("action", JsonPrimitive(it))
+                        }
+                        effectiveConversationId?.let {
+                            put("conversation_id", JsonPrimitive(it))
+                        }
+                        itemId?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                            put("item_id", JsonPrimitive(it))
+                        }
+                        val knownItems = buildKnownSyncItemPayloads(
+                            projectId = projectId,
+                            conversationId = effectiveConversationId,
+                            afterSeq = afterSeq,
+                            beforeSeq = beforeSeq,
+                            limit = limit ?: DEFAULT_SYNC_LIMIT
+                        )
+                        if (knownItems.isNotEmpty()) {
+                            put("known_items", JsonArray(knownItems))
+                        }
+                    },
+                    ts = System.currentTimeMillis()
+                ),
+                targetAgentId = agentId
+            )
+        } catch (error: Exception) {
+            inFlightProjectSyncs.remove(requestKey)
+            throw error
+        }
     }
 
     suspend fun requestProjectSyncs(
@@ -714,6 +725,7 @@ class MessageRepository(
             }
 
             Events.SESSION_SYNC -> {
+                clearProjectSyncFlights(projectId)
                 val payloadObj = envelope.payload?.jsonObject ?: return
                 val provider = payloadObj["provider"]?.jsonPrimitive?.contentOrNull?.trim()
                     .takeUnless { it.isNullOrBlank() } ?: "claude"
@@ -1137,6 +1149,33 @@ class MessageRepository(
         conversationId?.trim().orEmpty(),
         itemId?.trim().orEmpty()
     ).joinToString(separator = "::")
+
+    private fun tryStartProjectSyncFlight(requestKey: String, now: Long): Boolean {
+        clearExpiredProjectSyncFlights(now)
+        val expiresAt = inFlightProjectSyncs[requestKey]
+        if (expiresAt != null && expiresAt > now) {
+            return false
+        }
+        inFlightProjectSyncs[requestKey] = now + PROJECT_SYNC_SINGLE_FLIGHT_TIMEOUT_MS
+        return true
+    }
+
+    private fun clearExpiredProjectSyncFlights(now: Long = System.currentTimeMillis()) {
+        inFlightProjectSyncs.entries.removeIf { (_, expiresAt) ->
+            expiresAt <= now
+        }
+    }
+
+    private fun clearProjectSyncFlights(projectId: String) {
+        val normalizedProjectId = projectId.trim()
+        if (normalizedProjectId.isEmpty()) {
+            return
+        }
+        val prefix = "$normalizedProjectId::"
+        inFlightProjectSyncs.entries.removeIf { (requestKey, _) ->
+            requestKey.startsWith(prefix)
+        }
+    }
 
     private fun normalizeAttachment(attachment: MessageAttachment): MessageAttachment {
         val inferredKind = when {

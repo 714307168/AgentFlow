@@ -64,6 +64,7 @@ class WorkgroupRepository(
 
     private val pendingSessionRequests = ConcurrentHashMap<String, CompletableDeferred<Result<SessionResponse>>>()
     private val pendingSendRequests = ConcurrentHashMap<String, CompletableDeferred<Result<Unit>>>()
+    private val inFlightSessionRequests = ConcurrentHashMap<String, CompletableDeferred<Result<Unit>>>()
     private val lastListRequestedAtByAgent = ConcurrentHashMap<String, Long>()
     private val lastSessionRequestedAt = ConcurrentHashMap<String, Long>()
     private val lastWakeupRequestedAt = ConcurrentHashMap<String, Long>()
@@ -151,47 +152,58 @@ class WorkgroupRepository(
         }
         lastSessionRequestedAt[dedupeKey] = now
 
-        val requestId = UUID.randomUUID().toString()
-        val deferred = CompletableDeferred<Result<SessionResponse>>()
-        pendingSessionRequests[requestId] = deferred
+        val singleFlight = CompletableDeferred<Result<Unit>>()
+        val existingSingleFlight = inFlightSessionRequests.putIfAbsent(dedupeKey, singleFlight)
+        if (existingSingleFlight != null) {
+            return existingSingleFlight.await()
+        }
 
-        ensureSocketReady(normalizedAgentId, "workgroup-session")
-        webSocket.send(
-            Envelope(
-                id = requestId,
-                event = Events.WORKGROUP_COLLABORATION_SESSION_REQUEST,
-                agentId = normalizedAgentId,
-                payload = JsonObject(buildMap {
-                    put("agent_id", JsonPrimitive(normalizedAgentId))
-                    put("workgroup_id", JsonPrimitive(normalizedWorkgroupId))
-                    beforeId?.trim()?.takeIf { it.isNotEmpty() }?.let {
-                        put("before_id", JsonPrimitive(it))
-                    }
-                    put("limit", JsonPrimitive(limit))
-                    val knownItems = buildKnownItems(
-                        agentId = normalizedAgentId,
-                        workgroupId = normalizedWorkgroupId,
-                        beforeId = beforeId,
-                        limit = limit
-                    )
-                    if (knownItems.isNotEmpty()) {
-                        put("known_items", kotlinx.serialization.json.JsonArray(knownItems))
-                    }
-                }),
-                ts = System.currentTimeMillis()
-            ),
-            targetAgentId = normalizedAgentId
-        )
+        var requestId: String? = null
+        val result = try {
+            requestId = UUID.randomUUID().toString()
+            val deferred = CompletableDeferred<Result<SessionResponse>>()
+            pendingSessionRequests[requestId] = deferred
 
-        return try {
+            ensureSocketReady(normalizedAgentId, "workgroup-session")
+            webSocket.send(
+                Envelope(
+                    id = requestId,
+                    event = Events.WORKGROUP_COLLABORATION_SESSION_REQUEST,
+                    agentId = normalizedAgentId,
+                    payload = JsonObject(buildMap {
+                        put("agent_id", JsonPrimitive(normalizedAgentId))
+                        put("workgroup_id", JsonPrimitive(normalizedWorkgroupId))
+                        beforeId?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                            put("before_id", JsonPrimitive(it))
+                        }
+                        put("limit", JsonPrimitive(limit))
+                        val knownItems = buildKnownItems(
+                            agentId = normalizedAgentId,
+                            workgroupId = normalizedWorkgroupId,
+                            beforeId = beforeId,
+                            limit = limit
+                        )
+                        if (knownItems.isNotEmpty()) {
+                            put("known_items", kotlinx.serialization.json.JsonArray(knownItems))
+                        }
+                    }),
+                    ts = System.currentTimeMillis()
+                ),
+                targetAgentId = normalizedAgentId
+            )
+
             withTimeout(REQUEST_TIMEOUT_MS) {
                 deferred.await().map { Unit }
             }
         } catch (error: Exception) {
-            pendingSessionRequests.remove(requestId)
+            requestId?.let { pendingSessionRequests.remove(it) }
             lastSessionRequestedAt.remove(dedupeKey, now)
             Result.failure(error)
         }
+
+        singleFlight.complete(result)
+        inFlightSessionRequests.remove(dedupeKey, singleFlight)
+        return result
     }
 
     suspend fun sendMessage(
