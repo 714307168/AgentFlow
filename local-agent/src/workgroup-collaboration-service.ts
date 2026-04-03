@@ -80,6 +80,95 @@ function normalizeRoleMention(value: string): string {
   return value.trim().toLowerCase().replace(/[\s_-]+/g, "");
 }
 
+interface MentionRange {
+  start: number;
+  end: number;
+}
+
+const PROJECT_MANAGER_MENTION_ALIASES = [
+  "pm",
+  "pmagent",
+  "projectmanager",
+  "manager",
+  "\u9879\u76ee\u7ecf\u7406",
+];
+
+const ROLE_MENTION_ALIASES = new Map<WorkgroupRole, string[]>([
+  ["developer", ["developer", "dev", "\u5f00\u53d1"]],
+  ["qa", ["qa", "test", "deploy", "\u6d4b\u8bd5", "\u90e8\u7f72"]],
+  ["project_manager", PROJECT_MANAGER_MENTION_ALIASES],
+  ["custom", []],
+]);
+
+const EVERYONE_MENTION_ALIASES = ["all", "\u5168\u90e8"];
+
+function isMentionPrefixBoundary(value: string | undefined): boolean {
+  return !value || !/[a-z0-9_]/i.test(value);
+}
+
+function isMentionSuffixBoundary(value: string | undefined): boolean {
+  return !value || !/[a-z0-9_]/i.test(value);
+}
+
+function stripMentionToken(value: string): string {
+  return value.replace(/[.,!?;:)\]>"'\uFF0C\u3002\uFF1F\uFF01\uFF1B\uFF1A\u3001\u3011\u300B\u300D\u300F]+$/g, "").trim();
+}
+
+function findMentionRanges(content: string, token: string): MentionRange[] {
+  const normalizedToken = token.trim().toLowerCase();
+  if (!normalizedToken) {
+    return [];
+  }
+
+  const needle = `@${normalizedToken}`;
+  const ranges: MentionRange[] = [];
+  let cursor = 0;
+  while (cursor < content.length) {
+    const start = content.indexOf(needle, cursor);
+    if (start < 0) {
+      break;
+    }
+    const end = start + needle.length;
+    const prefix = start > 0 ? content[start - 1] : undefined;
+    const suffix = end < content.length ? content[end] : undefined;
+    if (isMentionPrefixBoundary(prefix) && isMentionSuffixBoundary(suffix)) {
+      ranges.push({ start, end });
+    }
+    cursor = start + needle.length;
+  }
+  return ranges;
+}
+
+function extractMentionTokens(content: string, matchedRanges: MentionRange[] = []): string[] {
+  const mentions: string[] = [];
+  const seen = new Set<string>();
+  const pattern = /@([^\s@]+)/g;
+  let match: RegExpExecArray | null = pattern.exec(content);
+
+  while (match) {
+    const start = match.index;
+    const prefix = start > 0 ? content[start - 1] : undefined;
+    if (
+      isMentionPrefixBoundary(prefix)
+      && !matchedRanges.some((range) => start >= range.start && start < range.end)
+    ) {
+      const rawToken = stripMentionToken(match[1] ?? "");
+      const normalizedToken = normalizeRoleMention(rawToken);
+      if (normalizedToken && !seen.has(normalizedToken)) {
+        seen.add(normalizedToken);
+        mentions.push(rawToken);
+      }
+    }
+    match = pattern.exec(content);
+  }
+
+  return mentions;
+}
+
+function isProjectManagerMentionToken(token: string): boolean {
+  return PROJECT_MANAGER_MENTION_ALIASES.includes(normalizeRoleMention(token));
+}
+
 function buildMemberMentionTokens(member: WorkgroupMember): string[] {
   const tokens = new Set<string>();
   const name = member.name.trim();
@@ -89,13 +178,7 @@ function buildMemberMentionTokens(member: WorkgroupMember): string[] {
   }
 
   if (member.role === "project_manager") {
-    [
-      "pm",
-      "pmagent",
-      "projectmanager",
-      "manager",
-      "项目经理",
-    ].forEach((token) => tokens.add(normalizeRoleMention(token)));
+    PROJECT_MANAGER_MENTION_ALIASES.forEach((token) => tokens.add(normalizeRoleMention(token)));
   }
 
   return Array.from(tokens).filter(Boolean);
@@ -119,6 +202,7 @@ function queuePlaceholderText(member: WorkgroupMember): string {
 interface ResolvedTargetSelection {
   targets: WorkgroupMember[];
   mode: "broadcast" | "explicit";
+  unmatchedMentions?: string[];
 }
 
 interface ResolveTargetOptions {
@@ -272,12 +356,6 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       return { success: false, error: "Message cannot be empty" };
     }
 
-    const members = workgroupStore.listMembers(workgroup.id);
-    const selection = this.resolveTargets(workgroup, members, trimmedContent);
-    if (selection.targets.length === 0) {
-      return { success: false, error: "No bound workgroup members available for this message" };
-    }
-
     const normalizedClientMessageId = clientMessageId?.trim() || "";
     if (normalizedClientMessageId) {
       const existingMessage = workgroupCollaborationStore.getMessage(workgroup.id, normalizedClientMessageId);
@@ -290,6 +368,12 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       }
     }
 
+    const members = workgroupStore.listMembers(workgroup.id);
+    const selection = this.resolveTargets(workgroup, members, trimmedContent);
+    if (selection.targets.length === 0 && selection.mode !== "explicit") {
+      return { success: false, error: "No bound workgroup members available for this message" };
+    }
+
     const userMessage = workgroupCollaborationStore.appendMessage(workgroup.id, {
       id: normalizedClientMessageId || undefined,
       senderType: "user",
@@ -297,7 +381,19 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       content: trimmedContent,
       status: "done",
     });
-    this.appendRoutingNote(workgroup.id, selection);
+
+    if (selection.targets.length === 0) {
+      this.appendMentionRoutingFailure(workgroup.id, userMessage.id, selection);
+      this.emitSnapshot(workgroup.id);
+      this.emitSummaries();
+      const session = this.getSession(workgroup.id);
+      return {
+        success: true,
+        session: session ?? undefined,
+      };
+    }
+
+    this.appendRoutingNote(workgroup.id, userMessage.id, selection);
     this.emitSnapshot(workgroup.id);
     this.emitSummaries();
 
@@ -475,6 +571,16 @@ export default class WorkgroupCollaborationService extends EventEmitter {
     content: string,
     options: ResolveTargetOptions = {},
   ): ResolvedTargetSelection {
+    const normalizedContent = content.toLowerCase();
+    const matchedRanges: MentionRange[] = [];
+    const allMentioned = EVERYONE_MENTION_ALIASES.some((alias) => {
+      const ranges = findMentionRanges(normalizedContent, alias);
+      if (ranges.length > 0) {
+        matchedRanges.push(...ranges);
+        return true;
+      }
+      return false;
+    });
     const excludedIds = new Set((options.excludeMemberIds ?? []).map((entry) => entry.trim()).filter(Boolean));
     const boundMembers = members.filter((member) => {
       if (excludedIds.has(member.id)) {
@@ -486,37 +592,50 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       const project = this.options.getBoundProject(member.projectId);
       return Boolean(project);
     });
-    if (boundMembers.length === 0) {
-      return {
-        targets: [],
-        mode: "broadcast",
-      };
-    }
 
-    const normalizedContent = content.toLowerCase();
-    if (/@all\b/.test(normalizedContent) || /@全部/.test(normalizedContent)) {
+    if (allMentioned) {
       return {
         targets: boundMembers,
         mode: "explicit",
+        unmatchedMentions: extractMentionTokens(content, matchedRanges),
+      };
+    }
+
+    if (boundMembers.length === 0) {
+      const unmatchedMentions = extractMentionTokens(content);
+      return {
+        targets: [],
+        mode: unmatchedMentions.length > 0 || options.requireExplicitMention ? "explicit" : "broadcast",
+        unmatchedMentions,
       };
     }
 
     const matchedMembers = new Map<string, WorkgroupMember>();
     for (const member of boundMembers) {
       const mentionTokens = buildMemberMentionTokens(member);
-      if (mentionTokens.some((token) => normalizedContent.includes(`@${token}`))) {
+      const memberMatched = mentionTokens.some((token) => {
+        const ranges = findMentionRanges(normalizedContent, token);
+        if (ranges.length > 0) {
+          matchedRanges.push(...ranges);
+          return true;
+        }
+        return false;
+      });
+      if (memberMatched) {
         matchedMembers.set(member.id, member);
       }
     }
 
-    const mentionAliases = new Map<WorkgroupRole, string[]>([
-      ["developer", ["developer", "dev", "开发"]],
-      ["qa", ["qa", "test", "deploy", "测试", "部署"]],
-      ["project_manager", ["projectmanager", "manager", "pm", "项目经理"]],
-      ["custom", []],
-    ]);
-    for (const [role, aliases] of mentionAliases.entries()) {
-      if (aliases.some((alias) => normalizedContent.includes(`@${alias}`) || normalizedContent.includes(`@${normalizeRoleMention(alias)}`))) {
+    for (const [role, aliases] of ROLE_MENTION_ALIASES.entries()) {
+      const roleMatched = aliases.some((alias) => {
+        const ranges = findMentionRanges(normalizedContent, normalizeRoleMention(alias));
+        if (ranges.length > 0) {
+          matchedRanges.push(...ranges);
+          return true;
+        }
+        return false;
+      });
+      if (roleMatched) {
         for (const member of boundMembers) {
           if (member.role === role) {
             matchedMembers.set(member.id, member);
@@ -525,37 +644,75 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       }
     }
 
-    return matchedMembers.size > 0
-      ? {
-          targets: Array.from(matchedMembers.values()),
-          mode: "explicit",
-        }
-      : (options.requireExplicitMention
-        ? {
-            targets: [],
-            mode: "explicit",
-          }
-        : {
-            targets: boundMembers,
-            mode: "broadcast",
-          });
+    const unmatchedMentions = extractMentionTokens(content, matchedRanges);
+    if (matchedMembers.size > 0) {
+      return {
+        targets: Array.from(matchedMembers.values()),
+        mode: "explicit",
+        unmatchedMentions,
+      };
+    }
+
+    if (unmatchedMentions.length > 0 || options.requireExplicitMention) {
+      return {
+        targets: [],
+        mode: "explicit",
+        unmatchedMentions,
+      };
+    }
+
+    return {
+      targets: boundMembers,
+      mode: "broadcast",
+      unmatchedMentions: [],
+    };
   }
 
-  private appendRoutingNote(workgroupId: string, selection: ResolvedTargetSelection): void {
+  private appendRoutingNote(
+    workgroupId: string,
+    triggerMessageId: string,
+    selection: ResolvedTargetSelection,
+  ): void {
     if (selection.targets.length === 0) {
       return;
     }
 
     const memberMentions = selection.targets.map((member) => `@${member.name}`).join(", ");
-    const content = selection.mode === "explicit"
+    const unmatchedMentions = selection.unmatchedMentions ?? [];
+    const unmatchedSummary = unmatchedMentions.length > 0
+      ? ` Unmatched: ${unmatchedMentions.map((mention) => `@${mention}`).join(", ")}.`
+      : "";
+    const content = (selection.mode === "explicit"
       ? `Notified ${memberMentions}`
       : selection.targets.length === 1
         ? `Sent to ${memberMentions}`
-        : `Broadcast to ${memberMentions}`;
+        : `Broadcast to ${memberMentions}`) + unmatchedSummary;
 
     workgroupCollaborationStore.appendMessage(workgroupId, {
       senderType: "system",
       senderName: "System",
+      triggerMessageId,
+      content,
+      status: "done",
+    });
+  }
+
+  private appendMentionRoutingFailure(
+    workgroupId: string,
+    triggerMessageId: string,
+    selection: ResolvedTargetSelection,
+  ): void {
+    const unmatchedMentions = selection.unmatchedMentions ?? [];
+    const content = unmatchedMentions.length === 0
+      ? "Explicit routing failed: no available bound members matched this message."
+      : unmatchedMentions.length === 1 && isProjectManagerMentionToken(unmatchedMentions[0] ?? "")
+        ? `PM routing failed: no available PM matched @${unmatchedMentions[0]}.`
+        : `Mention routing failed: no member matched ${unmatchedMentions.map((mention) => `@${mention}`).join(", ")}.`;
+
+    workgroupCollaborationStore.appendMessage(workgroupId, {
+      senderType: "error",
+      senderName: "System",
+      triggerMessageId,
       content,
       status: "done",
     });
