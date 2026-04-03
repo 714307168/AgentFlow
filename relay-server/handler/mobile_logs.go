@@ -22,14 +22,16 @@ import (
 const maxMobileLogUploadBytes int64 = 2 << 20
 
 type mobileLogUploadRequest struct {
-	FileName       string `json:"file_name"`
-	Content        string `json:"content"`
-	AppVersion     string `json:"app_version"`
-	AppBuild       int    `json:"app_build"`
-	DeviceModel    string `json:"device_model"`
-	ClientTime     string `json:"client_time"`
-	Source         string `json:"source"`
-	ConnectionNote string `json:"connection_note"`
+	FileName       string   `json:"file_name"`
+	Content        string   `json:"content"`
+	AppVersion     string   `json:"app_version"`
+	AppBuild       int      `json:"app_build"`
+	DeviceModel    string   `json:"device_model"`
+	ClientTime     string   `json:"client_time"`
+	Source         string   `json:"source"`
+	ConnectionNote string   `json:"connection_note"`
+	TraceIDs       []string `json:"trace_ids"`
+	WorkgroupIDs   []string `json:"workgroup_ids"`
 }
 
 type mobileLogUploadResponse struct {
@@ -39,22 +41,24 @@ type mobileLogUploadResponse struct {
 }
 
 type storedMobileLogMetadata struct {
-	ID             string `json:"id"`
-	UserID         int    `json:"user_id"`
-	Username       string `json:"username"`
-	DeviceID       string `json:"device_id"`
-	AgentID        string `json:"agent_id,omitempty"`
-	OriginalName   string `json:"original_name"`
-	StoredFileName string `json:"stored_file_name"`
-	SizeBytes      int64  `json:"size_bytes"`
-	SHA256         string `json:"sha256"`
-	AppVersion     string `json:"app_version,omitempty"`
-	AppBuild       int    `json:"app_build,omitempty"`
-	DeviceModel    string `json:"device_model,omitempty"`
-	ClientTime     string `json:"client_time,omitempty"`
-	Source         string `json:"source,omitempty"`
-	ConnectionNote string `json:"connection_note,omitempty"`
-	UploadedAt     string `json:"uploaded_at"`
+	ID             string   `json:"id"`
+	UserID         int      `json:"user_id"`
+	Username       string   `json:"username"`
+	DeviceID       string   `json:"device_id"`
+	AgentID        string   `json:"agent_id,omitempty"`
+	OriginalName   string   `json:"original_name"`
+	StoredFileName string   `json:"stored_file_name"`
+	SizeBytes      int64    `json:"size_bytes"`
+	SHA256         string   `json:"sha256"`
+	AppVersion     string   `json:"app_version,omitempty"`
+	AppBuild       int      `json:"app_build,omitempty"`
+	DeviceModel    string   `json:"device_model,omitempty"`
+	ClientTime     string   `json:"client_time,omitempty"`
+	Source         string   `json:"source,omitempty"`
+	ConnectionNote string   `json:"connection_note,omitempty"`
+	TraceIDs       []string `json:"trace_ids,omitempty"`
+	WorkgroupIDs   []string `json:"workgroup_ids,omitempty"`
+	UploadedAt     string   `json:"uploaded_at"`
 }
 
 type adminMobileLogListItem struct {
@@ -146,6 +150,17 @@ func DeviceLogUploadHandler(cfg *config.Config, database *db.DB) http.HandlerFun
 		if req.Source == "" {
 			req.Source = "android"
 		}
+		req.TraceIDs = normalizeProvidedLogIDs(req.TraceIDs, 20)
+		req.WorkgroupIDs = normalizeProvidedLogIDs(req.WorkgroupIDs, 20)
+		if len(req.TraceIDs) == 0 || len(req.WorkgroupIDs) == 0 {
+			extractedTraceIDs, extractedWorkgroupIDs := extractTraceAndWorkgroupIDs(req.Content)
+			if len(req.TraceIDs) == 0 {
+				req.TraceIDs = extractedTraceIDs
+			}
+			if len(req.WorkgroupIDs) == 0 {
+				req.WorkgroupIDs = extractedWorkgroupIDs
+			}
+		}
 
 		userID, err := database.GetDeviceUserID(claims.DeviceID)
 		if err != nil {
@@ -197,6 +212,8 @@ func DeviceLogUploadHandler(cfg *config.Config, database *db.DB) http.HandlerFun
 			ClientTime:     strings.TrimSpace(req.ClientTime),
 			Source:         req.Source,
 			ConnectionNote: strings.TrimSpace(req.ConnectionNote),
+			TraceIDs:       req.TraceIDs,
+			WorkgroupIDs:   req.WorkgroupIDs,
 			UploadedAt:     uploadedAt.Format(time.RFC3339),
 		}
 		if err := writeMobileLogMetadata(storageDir, metadata); err != nil {
@@ -245,8 +262,7 @@ func AdminMobileLogsHandler(cfg *config.Config, database *db.DB) http.HandlerFun
 		if remainder == "" {
 			items := make([]adminMobileLogListItem, 0, len(records))
 			for _, record := range records {
-				content, _ := readStoredMobileLogContent(filepath.Join(cfg.DataDir, "mobile-logs"), record)
-				traceIDs, workgroupIDs := extractTraceAndWorkgroupIDs(content)
+				traceIDs, workgroupIDs := resolveStoredMobileLogIDs(filepath.Join(cfg.DataDir, "mobile-logs"), record)
 				items = append(items, adminMobileLogListItem{
 					ID:           record.ID,
 					UserID:       record.UserID,
@@ -277,9 +293,9 @@ func AdminMobileLogsHandler(cfg *config.Config, database *db.DB) http.HandlerFun
 				http.NotFound(w, r)
 				return
 			}
-			_ = record
+			traceIDs, workgroupIDs := mergeStoredAndExtractedIDs(record, content)
 			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(analyzeMobileLog(content))
+			_ = json.NewEncoder(w).Encode(analyzeMobileLog(content, traceIDs, workgroupIDs))
 			return
 		}
 
@@ -393,11 +409,16 @@ func filterStoredMobileLogs(records []storedMobileLogMetadata, storageDir string
 	filtered := make([]storedMobileLogMetadata, 0, len(records))
 
 	for _, record := range records {
-		content, err := readStoredMobileLogContent(storageDir, record)
-		if err != nil {
-			continue
+		var content string
+		var err error
+		needsContent := query != "" || len(record.TraceIDs) == 0 || len(record.WorkgroupIDs) == 0
+		if needsContent {
+			content, err = readStoredMobileLogContent(storageDir, record)
+			if err != nil {
+				continue
+			}
 		}
-		lowerContent := strings.ToLower(content)
+		traceIDs, workgroupIDs := mergeStoredAndExtractedIDs(record, content)
 		if query != "" {
 			haystack := strings.ToLower(strings.Join([]string{
 				record.ID,
@@ -413,10 +434,10 @@ func filterStoredMobileLogs(records []storedMobileLogMetadata, storageDir string
 				continue
 			}
 		}
-		if traceID != "" && !strings.Contains(lowerContent, traceID) {
+		if traceID != "" && !containsNormalizedID(traceIDs, traceID) {
 			continue
 		}
-		if workgroupID != "" && !strings.Contains(lowerContent, workgroupID) {
+		if workgroupID != "" && !containsNormalizedID(workgroupIDs, workgroupID) {
 			continue
 		}
 		filtered = append(filtered, record)
@@ -451,7 +472,7 @@ func randomID() (string, error) {
 	return hex.EncodeToString(buffer), nil
 }
 
-func analyzeMobileLog(content string) mobileLogAnalysisResponse {
+func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string) mobileLogAnalysisResponse {
 	lines := strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n")
 	errorCount := 0
 	warningCount := 0
@@ -580,8 +601,6 @@ func analyzeMobileLog(content string) mobileLogAnalysisResponse {
 		return signals[i].Count > signals[j].Count
 	})
 
-	traceIDs, workgroupIDs := extractTraceAndWorkgroupIDs(content)
-
 	summary := "日志里没有发现明显的连接异常特征。"
 	switch {
 	case len(signals) > 0:
@@ -601,6 +620,99 @@ func analyzeMobileLog(content string) mobileLogAnalysisResponse {
 		TraceIDs:     traceIDs,
 		WorkgroupIDs: workgroupIDs,
 	}
+}
+
+func normalizeProvidedLogIDs(values []string, limit int) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(values))
+	normalized := make([]string, 0, len(values))
+	for _, value := range values {
+		clean := strings.Trim(strings.TrimSpace(value), `"'.,;:()[]{}<>`)
+		if clean == "" {
+			continue
+		}
+		key := strings.ToLower(clean)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		normalized = append(normalized, clean)
+		if limit > 0 && len(normalized) >= limit {
+			break
+		}
+	}
+	if len(normalized) == 0 {
+		return nil
+	}
+	return normalized
+}
+
+func mergeLogIDs(primary []string, secondary []string, limit int) []string {
+	if len(primary) == 0 && len(secondary) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(primary)+len(secondary))
+	merged := make([]string, 0, len(primary)+len(secondary))
+	appendValue := func(value string) bool {
+		clean := strings.Trim(strings.TrimSpace(value), `"'.,;:()[]{}<>`)
+		if clean == "" {
+			return false
+		}
+		key := strings.ToLower(clean)
+		if _, exists := seen[key]; exists {
+			return false
+		}
+		seen[key] = struct{}{}
+		merged = append(merged, clean)
+		return limit > 0 && len(merged) >= limit
+	}
+	for _, value := range primary {
+		if appendValue(value) {
+			return merged
+		}
+	}
+	for _, value := range secondary {
+		if appendValue(value) {
+			return merged
+		}
+	}
+	return merged
+}
+
+func mergeStoredAndExtractedIDs(record storedMobileLogMetadata, content string) ([]string, []string) {
+	if content == "" {
+		return record.TraceIDs, record.WorkgroupIDs
+	}
+	extractedTraceIDs, extractedWorkgroupIDs := extractTraceAndWorkgroupIDs(content)
+	traceIDs := mergeLogIDs(record.TraceIDs, extractedTraceIDs, 20)
+	workgroupIDs := mergeLogIDs(record.WorkgroupIDs, extractedWorkgroupIDs, 20)
+	return traceIDs, workgroupIDs
+}
+
+func resolveStoredMobileLogIDs(storageDir string, record storedMobileLogMetadata) ([]string, []string) {
+	if len(record.TraceIDs) > 0 && len(record.WorkgroupIDs) > 0 {
+		return record.TraceIDs, record.WorkgroupIDs
+	}
+	content, err := readStoredMobileLogContent(storageDir, record)
+	if err != nil {
+		return record.TraceIDs, record.WorkgroupIDs
+	}
+	return mergeStoredAndExtractedIDs(record, content)
+}
+
+func containsNormalizedID(values []string, target string) bool {
+	needle := strings.ToLower(strings.TrimSpace(target))
+	if needle == "" {
+		return true
+	}
+	for _, value := range values {
+		if strings.EqualFold(strings.TrimSpace(value), needle) {
+			return true
+		}
+	}
+	return false
 }
 
 var (

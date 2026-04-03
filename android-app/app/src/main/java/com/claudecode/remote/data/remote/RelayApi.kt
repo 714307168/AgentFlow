@@ -143,7 +143,9 @@ data class DeviceLogUploadRequest(
     @SerialName("device_model") val deviceModel: String? = null,
     @SerialName("client_time") val clientTime: String? = null,
     val source: String = "android",
-    @SerialName("connection_note") val connectionNote: String? = null
+    @SerialName("connection_note") val connectionNote: String? = null,
+    @SerialName("trace_ids") val traceIds: List<String>? = null,
+    @SerialName("workgroup_ids") val workgroupIds: List<String>? = null
 )
 
 @Serializable

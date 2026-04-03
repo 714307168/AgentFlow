@@ -30,9 +30,11 @@ type uploadedMobileLog struct {
 
 type uploadedMobileLogDetail struct {
 	Metadata struct {
-		ID           string `json:"id"`
-		DeviceID     string `json:"device_id"`
-		OriginalName string `json:"original_name"`
+		ID           string   `json:"id"`
+		DeviceID     string   `json:"device_id"`
+		OriginalName string   `json:"original_name"`
+		TraceIDs     []string `json:"trace_ids"`
+		WorkgroupIDs []string `json:"workgroup_ids"`
 	} `json:"metadata"`
 	Content string `json:"content"`
 }
@@ -110,12 +112,14 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 	}
 
 	uploadBody := map[string]any{
-		"file_name":    "app-20260401.log",
-		"content":      "[2026-04-01 18:00:00.000] ERROR [RelayConnectionService] Failed to refresh mobile token after auth error trace_id=trace-alpha-001 workgroup_id=fyzy-workgroup\n[2026-04-01 18:00:01.000] ERROR [MainActivity] Failed to verify relay connection on resume trace_id=trace-alpha-001\n",
-		"app_version":  "1.1.91",
-		"app_build":    75,
-		"device_model": "Pixel Test",
-		"source":       "android",
+		"file_name":     "app-20260401.log",
+		"content":       "[2026-04-01 18:00:00.000] ERROR [RelayConnectionService] Failed to refresh mobile token after auth error trace_id=trace-alpha-001 workgroup_id=fyzy-workgroup\n[2026-04-01 18:00:01.000] ERROR [MainActivity] Failed to verify relay connection on resume trace_id=trace-alpha-001\n",
+		"app_version":   "1.1.91",
+		"app_build":     75,
+		"device_model":  "Pixel Test",
+		"source":        "android",
+		"trace_ids":     []string{"trace-alpha-001", "trace-alpha-001"},
+		"workgroup_ids": []string{"fyzy-workgroup"},
 	}
 	doJSONWithBearer(t, http.DefaultClient, http.MethodPost, server.URL+"/api/device/logs", deviceLogin.Token, uploadBody, http.StatusOK, nil)
 	doJSONWithBearer(t, http.DefaultClient, http.MethodPost, server.URL+"/api/device/logs", deviceLogin.Token, map[string]any{
@@ -181,6 +185,12 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 	doJSON(t, adminClient, http.MethodGet, server.URL+"/admin/api/mobile-logs/"+alphaLog.ID, nil, http.StatusOK, &detail)
 	if !strings.Contains(detail.Content, "Failed to refresh mobile token") {
 		t.Fatalf("unexpected log content: %s", detail.Content)
+	}
+	if len(detail.Metadata.TraceIDs) != 1 || detail.Metadata.TraceIDs[0] != "trace-alpha-001" {
+		t.Fatalf("expected detail metadata to persist trace ids, got %+v", detail.Metadata)
+	}
+	if len(detail.Metadata.WorkgroupIDs) != 1 || detail.Metadata.WorkgroupIDs[0] != "fyzy-workgroup" {
+		t.Fatalf("expected detail metadata to persist workgroup ids, got %+v", detail.Metadata)
 	}
 
 	var analysis uploadedMobileLogAnalysis
