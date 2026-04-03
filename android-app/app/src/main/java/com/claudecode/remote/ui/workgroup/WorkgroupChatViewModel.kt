@@ -117,6 +117,7 @@ class WorkgroupChatViewModel(
                 val envelopeAgentId = envelope.agentId?.trim().orEmpty()
                 val envelopeWorkgroupId = envelope.workgroupId?.trim().orEmpty()
                 when (envelope.event) {
+                    Events.WORKGROUP_COLLABORATION_MESSAGE_ACCEPTED,
                     Events.WORKGROUP_COLLABORATION_SNAPSHOT,
                     Events.WORKGROUP_COLLABORATION_MESSAGE_RESULT,
                     Events.WORKGROUP_COLLABORATION_SESSION -> {

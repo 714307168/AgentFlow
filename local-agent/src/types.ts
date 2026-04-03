@@ -50,6 +50,7 @@ export const Events = {
   WORKGROUP_COLLABORATION_SESSION_REQUEST: "workgroup.collaboration.session.request",
   WORKGROUP_COLLABORATION_SESSION: "workgroup.collaboration.session",
   WORKGROUP_COLLABORATION_MESSAGE_SEND: "workgroup.collaboration.message.send",
+  WORKGROUP_COLLABORATION_MESSAGE_ACCEPTED: "workgroup.collaboration.message.accepted",
   WORKGROUP_COLLABORATION_MESSAGE_RESULT: "workgroup.collaboration.message.result",
   WORKGROUP_COLLABORATION_SNAPSHOT: "workgroup.collaboration.snapshot",
   MESSAGE_SEND:  "message.send",

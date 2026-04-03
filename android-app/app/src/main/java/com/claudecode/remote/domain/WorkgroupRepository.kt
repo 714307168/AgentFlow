@@ -416,6 +416,24 @@ class WorkgroupRepository(
                 )
             }
 
+            Events.WORKGROUP_COLLABORATION_MESSAGE_ACCEPTED -> {
+                val payload = envelope.payload?.jsonObject ?: return
+                val requestId = payload["request_id"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+                payload["session"]?.jsonObject?.let { sessionObject ->
+                    val agentId = payload["agent_id"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+                    applySessionSnapshot(agentId, sessionObject)
+                }
+                if (requestId.isBlank()) {
+                    return
+                }
+                pendingSendRequests.remove(requestId)?.complete(
+                    Result.success(
+                        payload["client_message_id"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+                            .ifBlank { requestId }
+                    )
+                )
+            }
+
             Events.WORKGROUP_COLLABORATION_SNAPSHOT -> {
                 val payload = envelope.payload?.jsonObject ?: return
                 val agentId = payload["agent_id"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()

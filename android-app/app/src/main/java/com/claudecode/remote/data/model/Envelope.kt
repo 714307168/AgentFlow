@@ -38,6 +38,7 @@ object Events {
     const val WORKGROUP_COLLABORATION_SESSION_REQUEST = "workgroup.collaboration.session.request"
     const val WORKGROUP_COLLABORATION_SESSION = "workgroup.collaboration.session"
     const val WORKGROUP_COLLABORATION_MESSAGE_SEND = "workgroup.collaboration.message.send"
+    const val WORKGROUP_COLLABORATION_MESSAGE_ACCEPTED = "workgroup.collaboration.message.accepted"
     const val WORKGROUP_COLLABORATION_MESSAGE_RESULT = "workgroup.collaboration.message.result"
     const val WORKGROUP_COLLABORATION_SNAPSHOT = "workgroup.collaboration.snapshot"
     const val MESSAGE_SEND = "message.send"

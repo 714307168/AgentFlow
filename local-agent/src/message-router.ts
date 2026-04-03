@@ -465,6 +465,23 @@ class MessageRouter {
     }
 
     const relayPayload = this.options.getWorkgroupCollaborationRelayPayload?.();
+    if (result.success) {
+      this.relayClient.send({
+        id: uuidv4(),
+        event: Events.WORKGROUP_COLLABORATION_MESSAGE_ACCEPTED,
+        agent_id: relayPayload?.agent_id ?? "",
+        workgroup_id: workgroupId,
+        ts: Date.now(),
+        payload: {
+          request_id: env.id,
+          agent_id: relayPayload?.agent_id ?? "",
+          workgroup_id: workgroupId,
+          client_message_id: clientMessageId,
+          accepted_at: Date.now(),
+          session: result.session ?? null,
+        },
+      });
+    }
     this.relayClient.send({
       id: uuidv4(),
       event: Events.WORKGROUP_COLLABORATION_MESSAGE_RESULT,
