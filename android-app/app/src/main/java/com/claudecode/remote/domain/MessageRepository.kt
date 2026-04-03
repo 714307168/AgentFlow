@@ -364,7 +364,8 @@ class MessageRepository(
         projectId: String,
         content: String,
         attachments: List<MessageAttachment> = emptyList(),
-        agentId: String? = null
+        agentId: String? = null,
+        clientMessageId: String? = null
     ): String = withContext(Dispatchers.IO) {
         val normalizedAttachments = attachments.map(::normalizeAttachment)
         val trimmedContent = content.trim()
@@ -376,17 +377,20 @@ class MessageRepository(
 
         val previousSession = sessionDao.getSessionByProjectId(projectId)
         val optimisticTimestamp = System.currentTimeMillis()
-        val runId = UUID.randomUUID().toString()
-        val streamId = "$runId:assistant"
+        val stableClientMessageId = clientMessageId?.trim().takeUnless { it.isNullOrEmpty() }
+            ?: UUID.randomUUID().toString()
+        val requestId = UUID.randomUUID().toString()
+        val streamId = "$stableClientMessageId:assistant"
         val optimisticContent = if (trimmedContent.isNotEmpty()) {
             content
         } else {
             buildAttachmentOnlyPrompt(normalizedAttachments)
         }
+        val existingOptimisticMessage = messageDao.getMessageById(stableClientMessageId)
 
         addMessage(
             Message(
-                id = runId,
+                id = stableClientMessageId,
                 projectId = projectId,
                 role = MessageRole.USER,
                 content = optimisticContent,
@@ -410,12 +414,13 @@ class MessageRepository(
                 }
                 val messageContent = if (trimmedContent.isNotEmpty()) content else buildAttachmentOnlyPrompt(uploadedAttachments)
                 val envelope = Envelope(
-                    id = runId,
+                    id = requestId,
                     event = Events.MESSAGE_SEND,
                     projectId = projectId,
                     streamId = streamId,
                     payload = buildJsonObject {
                         put("content", JsonPrimitive(messageContent))
+                        put("client_message_id", JsonPrimitive(stableClientMessageId))
                         if (uploadedAttachments.isNotEmpty()) {
                             put("attachments", JsonArray(uploadedAttachments.map(::attachmentToJson)))
                         }
@@ -432,7 +437,7 @@ class MessageRepository(
 
                 addMessage(
                     Message(
-                        id = envelope.id,
+                        id = stableClientMessageId,
                         projectId = projectId,
                         role = MessageRole.USER,
                         content = messageContent,
@@ -453,9 +458,13 @@ class MessageRepository(
                     )
                 }
             }
-            runId
+            stableClientMessageId
         } catch (error: Exception) {
-            messageDao.deleteMessageById(runId)
+            if (existingOptimisticMessage != null) {
+                messageDao.insertMessage(existingOptimisticMessage)
+            } else {
+                messageDao.deleteMessageById(stableClientMessageId)
+            }
             previousSession?.let { sessionDao.insertSession(it) }
             throw error
         }

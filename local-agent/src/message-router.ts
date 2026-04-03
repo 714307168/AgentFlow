@@ -140,7 +140,11 @@ class MessageRouter {
   private handleMessageSend(env: Envelope): void {
     console.log("[MessageRouter] Received message.send:", JSON.stringify(env));
     const projectId = env.project_id;
-    const streamId = env.stream_id || uuidv4(); // Generate if not provided
+    const payload = env.payload as { content?: string; attachments?: unknown[]; client_message_id?: string } | undefined;
+    const clientMessageId = typeof payload?.client_message_id === "string" && payload.client_message_id.trim()
+      ? payload.client_message_id.trim()
+      : env.id;
+    const streamId = env.stream_id || `${clientMessageId}:assistant`;
 
     if (!projectId) {
       console.error("[MessageRouter] message.send missing project_id");
@@ -163,7 +167,6 @@ class MessageRouter {
     }
 
     this.options.revealProjectWindow?.(projectId, project.name);
-    const payload = env.payload as { content?: string; attachments?: unknown[] } | undefined;
     const content = payload?.content ?? "";
     const attachments = this.normalizeIncomingAttachments(payload?.attachments);
     this.streamSeq.set(streamId, 0);
@@ -179,6 +182,28 @@ class MessageRouter {
       return;
     }
 
+    const snapshot = this.options.runtimeManager.getSnapshot(projectId);
+    const duplicateAlreadyTracked = snapshot.queue.some((entry) => entry.runId === clientMessageId)
+      || snapshot.messages.some((entry) => entry.id === clientMessageId || entry.id === `${clientMessageId}:assistant`);
+    if (duplicateAlreadyTracked) {
+      this.relayClient.send({
+        id: uuidv4(),
+        event: Events.MESSAGE_ACCEPTED,
+        project_id: projectId,
+        stream_id: streamId,
+        ts: Date.now(),
+        payload: {
+          client_message_id: clientMessageId,
+          run_id: clientMessageId,
+          stream_id: streamId,
+          accepted_at: Date.now(),
+          duplicate: true,
+        },
+      });
+      this.options.flushProjectSessionSyncNow?.(projectId);
+      return;
+    }
+
     this.options.runtimeManager.enqueueMessage({
       projectId,
       cwd: project.path,
@@ -186,7 +211,7 @@ class MessageRouter {
       attachments,
       source: "remote",
       queuedAt: env.ts,
-      runId: env.id,
+      runId: clientMessageId,
       responseMessageId: streamId,
       onTextDelta: (chunk) => {
         if (chunk) {
@@ -216,8 +241,8 @@ class MessageRouter {
       stream_id: streamId,
       ts: Date.now(),
       payload: {
-        client_message_id: env.id,
-        run_id: env.id,
+        client_message_id: clientMessageId,
+        run_id: clientMessageId,
         stream_id: streamId,
         accepted_at: Date.now(),
       },

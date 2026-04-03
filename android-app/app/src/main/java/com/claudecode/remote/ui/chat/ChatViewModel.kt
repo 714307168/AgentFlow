@@ -40,6 +40,7 @@ private const val MANUAL_REFRESH_CONNECTION_POLL_MS = 250L
 private val POST_SEND_SYNC_DELAYS_MS = longArrayOf(0L, 1_200L, 4_000L, 9_000L)
 private const val SEND_FEEDBACK_TIMEOUT_MS = 12_000L
 private const val RECENT_SEND_REUSE_WINDOW_MS = 20_000L
+private const val MAX_AUTO_SEND_RETRY_COUNT = 1
 
 data class ConversationItem(
     val id: String,
@@ -139,7 +140,10 @@ class ChatViewModel(
     private data class RecentSendFeedback(
         val runId: String,
         val fingerprint: String,
-        val trackedAtMs: Long
+        val trackedAtMs: Long,
+        val content: String,
+        val attachments: List<MessageAttachment>,
+        val retryCount: Int
     )
 
     private val _uiState = MutableStateFlow(ChatUiState())
@@ -837,7 +841,7 @@ class ChatViewModel(
                     agentId = state.agentId
                 )
                 if (runId.isNotBlank()) {
-                    trackPendingSendFeedback(runId, sendFingerprint)
+                    trackPendingSendFeedback(runId, sendFingerprint, textSnapshot, attachmentSnapshot)
                 } else {
                     _uiState.update { it.copy(isSending = false) }
                 }
@@ -861,11 +865,20 @@ class ChatViewModel(
         }
     }
 
-    private fun trackPendingSendFeedback(runId: String, fingerprint: String) {
+    private fun trackPendingSendFeedback(
+        runId: String,
+        fingerprint: String,
+        content: String,
+        attachments: List<MessageAttachment>,
+        retryCount: Int = 0
+    ) {
         recentSendFeedback = RecentSendFeedback(
             runId = runId,
             fingerprint = fingerprint,
-            trackedAtMs = System.currentTimeMillis()
+            trackedAtMs = System.currentTimeMillis(),
+            content = content,
+            attachments = attachments.map { it.copy() },
+            retryCount = retryCount
         )
         pendingSendFeedbackRunId = runId
         pendingSendFeedbackTimeoutJob?.cancel()
@@ -873,7 +886,12 @@ class ChatViewModel(
             kotlinx.coroutines.delay(SEND_FEEDBACK_TIMEOUT_MS)
             if (pendingSendFeedbackRunId == runId) {
                 pendingSendFeedbackRunId = null
-                _uiState.update { it.copy(isSending = false) }
+                val recent = recentSendFeedback
+                if (recent != null && recent.runId == runId && recent.retryCount < MAX_AUTO_SEND_RETRY_COUNT) {
+                    retryPendingSendFeedback(recent)
+                } else {
+                    _uiState.update { it.copy(isSending = false) }
+                }
             }
         }
     }
@@ -947,30 +965,56 @@ class ChatViewModel(
 
         tokenStore.clearDraft(state.projectId)
         markSyncBurst()
-        _uiState.update {
-            it.copy(
-                inputText = "",
-                pendingAttachments = emptyList(),
-                isSending = true
-            )
+        retryPendingSendFeedback(recent)
+        return true
+    }
+
+    private fun retryPendingSendFeedback(recent: RecentSendFeedback) {
+        val state = _uiState.value
+        if (state.projectId.isBlank()) {
+            _uiState.update { it.copy(isSending = false) }
+            return
         }
-        trackPendingSendFeedback(recentRunId, fingerprint)
-        schedulePostSendSyncNudges()
+
+        markSyncBurst()
+        _uiState.update { current ->
+            current.copy(isSending = true)
+        }
         viewModelScope.launch {
             try {
                 webSocket.ensureHealthyConnection(
-                    reason = "chat-send-reuse:${state.projectId}",
+                    reason = "chat-send-retry:${state.projectId}:${recent.runId}",
                     staleTimeoutMs = RESUME_STALE_CONNECTION_TIMEOUT_MS
                 )
             } catch (e: Exception) {
-                CrashLogger.logError("ChatViewModel", "Error recovering connection for reused send", e)
+                CrashLogger.logError("ChatViewModel", "Error restoring connection for retried send", e)
             }
-            requestProjectSyncNow(
-                recentOverlapCount = ACTIVE_SYNC_OVERLAP_COUNT,
-                limit = INCREMENTAL_SYNC_PAGE_SIZE
-            )
+
+            try {
+                val runId = messageRepository.sendMessage(
+                    projectId = state.projectId,
+                    content = recent.content,
+                    attachments = recent.attachments,
+                    agentId = state.agentId,
+                    clientMessageId = recent.runId
+                )
+                if (runId.isNotBlank()) {
+                    trackPendingSendFeedback(
+                        runId = runId,
+                        fingerprint = recent.fingerprint,
+                        content = recent.content,
+                        attachments = recent.attachments,
+                        retryCount = recent.retryCount + 1
+                    )
+                    schedulePostSendSyncNudges()
+                } else {
+                    _uiState.update { it.copy(isSending = false) }
+                }
+            } catch (e: Exception) {
+                CrashLogger.logError("ChatViewModel", "Error retrying pending send", e)
+                _uiState.update { it.copy(isSending = false) }
+            }
         }
-        return true
     }
 
     private fun clearRecentSendFeedback(runId: String? = recentSendFeedback?.runId) {
