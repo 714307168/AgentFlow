@@ -111,7 +111,7 @@ fun WorkgroupScreen(
                         )
                         IconButton(
                             onClick = { viewModel.refresh() },
-                            enabled = !uiState.isLoading && viewModel.isConnected()
+                            enabled = !uiState.isLoading
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Refresh,

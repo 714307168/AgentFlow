@@ -335,7 +335,7 @@ private fun AgentHeader(
             ) {
                 IconButton(
                     onClick = onRefresh,
-                    enabled = connectionState == RelayWebSocket.ConnectionState.CONNECTED && !isRefreshing,
+                    enabled = !isRefreshing,
                     modifier = Modifier.size(36.dp)
                 ) {
                     Icon(Icons.Default.Refresh, contentDescription = stringResource(R.string.action_refresh))

@@ -28,6 +28,8 @@ private const val WORKGROUP_ACTIVE_SYNC_BURST_MS = 8_000L
 private const val WORKGROUP_SYNC_TRIGGER_DEBOUNCE_MS = 250L
 private const val WORKGROUP_RESUME_STALE_CONNECTION_TIMEOUT_MS = 20_000L
 private const val WORKGROUP_ACTIVE_SYNC_STALE_CONNECTION_TIMEOUT_MS = 20_000L
+private const val WORKGROUP_MANUAL_REFRESH_CONNECTION_WAIT_MS = 4_000L
+private const val WORKGROUP_MANUAL_REFRESH_CONNECTION_POLL_MS = 250L
 private val WORKGROUP_POST_SEND_SYNC_DELAYS_MS = longArrayOf(0L, 1_200L, 4_000L, 9_000L)
 
 data class WorkgroupMentionSuggestion(
@@ -207,11 +209,36 @@ class WorkgroupChatViewModel(
     }
 
     fun refresh() {
-        triggerImmediateSync(
-            debounceMs = 0L,
-            showLoading = true,
-            recentLimit = WORKGROUP_INITIAL_SYNC_PAGE_SIZE
-        )
+        val state = _uiState.value
+        if (state.agentId.isBlank() || state.workgroupId.isBlank()) {
+            return
+        }
+        markSyncBurst()
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true, error = null) }
+            try {
+                webSocket.ensureHealthyConnection(
+                    reason = "manual-workgroup-refresh:${state.agentId}:${state.workgroupId}",
+                    staleTimeoutMs = WORKGROUP_RESUME_STALE_CONNECTION_TIMEOUT_MS
+                )
+            } catch (e: Exception) {
+                CrashLogger.logError("WorkgroupChatViewModel", "Failed to restore workgroup connection on manual refresh", e)
+            }
+
+            var waitedMs = 0L
+            while (
+                waitedMs < WORKGROUP_MANUAL_REFRESH_CONNECTION_WAIT_MS &&
+                webSocket.connectionState.value != RelayWebSocket.ConnectionState.CONNECTED
+            ) {
+                kotlinx.coroutines.delay(WORKGROUP_MANUAL_REFRESH_CONNECTION_POLL_MS)
+                waitedMs += WORKGROUP_MANUAL_REFRESH_CONNECTION_POLL_MS
+            }
+
+            requestLatestSessionNow(
+                showLoading = true,
+                limit = WORKGROUP_INITIAL_SYNC_PAGE_SIZE
+            )
+        }
     }
 
     fun onResume() {

@@ -43,6 +43,12 @@ class AgentHubViewModel(
     private val webSocket: RelayWebSocket,
     private val tokenStore: TokenStore
 ) : ViewModel() {
+    companion object {
+        private const val MANUAL_REFRESH_CONNECTION_WAIT_MS = 4_000L
+        private const val MANUAL_REFRESH_CONNECTION_POLL_MS = 250L
+        private const val MANUAL_REFRESH_STALE_CONNECTION_TIMEOUT_MS = 20_000L
+    }
+
     private val _uiState = MutableStateFlow(
         AgentHubUiState(
             collapsedGroupKeys = tokenStore.getCollapsedAgentGroups()
@@ -158,6 +164,25 @@ class AgentHubViewModel(
     fun refresh() {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
+            try {
+                webSocket.ensureHealthyConnection(
+                    reason = "manual-agent-hub-refresh",
+                    staleTimeoutMs = MANUAL_REFRESH_STALE_CONNECTION_TIMEOUT_MS
+                )
+            } catch (error: Exception) {
+                _uiState.update { it.copy(isLoading = false, error = error.message) }
+                return@launch
+            }
+
+            var waitedMs = 0L
+            while (
+                waitedMs < MANUAL_REFRESH_CONNECTION_WAIT_MS &&
+                webSocket.connectionState.value != RelayWebSocket.ConnectionState.CONNECTED
+            ) {
+                delay(MANUAL_REFRESH_CONNECTION_POLL_MS)
+                waitedMs += MANUAL_REFRESH_CONNECTION_POLL_MS
+            }
+
             if (webSocket.connectionState.value == RelayWebSocket.ConnectionState.CONNECTED) {
                 webSocket.sendProjectListRequest()
                 delay(400)

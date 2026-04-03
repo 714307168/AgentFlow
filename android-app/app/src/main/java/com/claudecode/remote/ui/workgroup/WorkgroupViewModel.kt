@@ -15,7 +15,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+private const val WORKGROUP_MANUAL_REFRESH_CONNECTION_WAIT_MS = 4_000L
+private const val WORKGROUP_MANUAL_REFRESH_CONNECTION_POLL_MS = 250L
+private const val WORKGROUP_MANUAL_REFRESH_STALE_CONNECTION_TIMEOUT_MS = 20_000L
 
 data class WorkgroupUiState(
     val agentWorkgroups: List<AgentWorkgroups> = emptyList(),
@@ -93,17 +98,38 @@ class WorkgroupViewModel(
 
     fun refresh() {
         viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true, error = null) }
             val agentIds = resolveAgentIds(forceSyncIfEmpty = true)
             latestAgentIds = agentIds
             if (agentIds.isEmpty()) {
                 _uiState.update { it.copy(isLoading = false, error = null) }
                 return@launch
             }
-            if (!isConnected()) {
-                _uiState.update { it.copy(isLoading = false, error = null) }
+
+            try {
+                webSocket.ensureHealthyConnection(
+                    reason = "manual-workgroup-list-refresh",
+                    staleTimeoutMs = WORKGROUP_MANUAL_REFRESH_STALE_CONNECTION_TIMEOUT_MS
+                )
+            } catch (error: Exception) {
+                _uiState.update { it.copy(error = error.message, isLoading = false) }
                 return@launch
             }
-            requestWorkgroups(agentIds, showLoading = true, force = true)
+
+            var waitedMs = 0L
+            while (
+                waitedMs < WORKGROUP_MANUAL_REFRESH_CONNECTION_WAIT_MS &&
+                !isConnected()
+            ) {
+                delay(WORKGROUP_MANUAL_REFRESH_CONNECTION_POLL_MS)
+                waitedMs += WORKGROUP_MANUAL_REFRESH_CONNECTION_POLL_MS
+            }
+
+            if (!isConnected()) {
+                _uiState.update { it.copy(isLoading = false) }
+                return@launch
+            }
+            requestWorkgroups(agentIds, showLoading = false, force = true)
         }
     }
 

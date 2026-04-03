@@ -302,7 +302,7 @@ private fun WorkgroupChatHeader(
                         overflow = TextOverflow.Ellipsis
                     )
                 }
-                IconButton(onClick = onRefresh, enabled = uiState.isConnected && !uiState.isLoading) {
+                IconButton(onClick = onRefresh, enabled = !uiState.isLoading) {
                     Icon(
                         imageVector = Icons.Default.Refresh,
                         contentDescription = stringResource(R.string.action_refresh)
