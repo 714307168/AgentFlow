@@ -75,6 +75,14 @@ class LocalScheduler {
       lastRunStatus: "running",
       lastError: null,
     });
+    scheduledTaskStore.appendEvent(task.id, {
+      runId,
+      level: "info",
+      message: "Task execution started.",
+      meta: {
+        state: "running",
+      },
+    });
     appLogger.info("scheduler", "Scheduled task started running.", {
       taskId: task.id,
       projectId: task.projectId,
@@ -147,6 +155,17 @@ class LocalScheduler {
         activeRunId: nextActiveRunId,
         nextRunAt,
       });
+      if (nextStatus === "error" && task.lastRunStatus !== "error") {
+        scheduledTaskStore.appendEvent(task.id, {
+          runId: task.activeRunId ?? null,
+          level: "error",
+          message: nextError || "Scheduled task stopped unexpectedly.",
+          meta: {
+            reason,
+            state: "recovered-error",
+          },
+        });
+      }
       changed = true;
     }
 
@@ -170,6 +189,16 @@ class LocalScheduler {
       lastError: null,
       activeRunId: runId,
       nextRunAt: null,
+    });
+    scheduledTaskStore.appendEvent(latestTask.id, {
+      runId,
+      level: "info",
+      message: trigger === "manual" ? "Task queued manually." : "Task queued by scheduler.",
+      meta: {
+        trigger,
+        scheduleType: latestTask.scheduleType,
+        retryCount: latestTask.retryCount ?? 0,
+      },
     });
     this.config.onTasksChanged?.();
     appLogger.info("scheduler", "Queued scheduled task.", {
@@ -205,6 +234,17 @@ class LocalScheduler {
         lastError: result.success ? null : (result.message?.trim() || "Scheduled task failed."),
         retryCount: 0,
         nextRunAt,
+      });
+      scheduledTaskStore.appendEvent(persisted.id, {
+        runId,
+        level: "info",
+        message: "Task completed successfully.",
+        meta: {
+          trigger,
+          nextRunAt,
+          disabled: shouldDisable,
+          scheduleType: persisted.scheduleType,
+        },
       });
       appLogger.info("scheduler", "Scheduled task finished.", {
         taskId: persisted.id,
@@ -246,6 +286,19 @@ class LocalScheduler {
         lastError: shouldRetry ? `${message} Retrying automatically.` : message,
         retryCount: shouldRetry ? nextRetryCount : 0,
         nextRunAt,
+      });
+      scheduledTaskStore.appendEvent(persisted.id, {
+        runId,
+        level: "error",
+        message: shouldRetry ? `${message} Retrying automatically.` : message,
+        meta: {
+          trigger,
+          retryCount: shouldRetry ? nextRetryCount : 0,
+          maxRetries,
+          retryRunAt,
+          nextRunAt,
+          scheduleType: persisted.scheduleType,
+        },
       });
       appLogger.warn("scheduler", "Scheduled task failed.", {
         taskId: persisted.id,

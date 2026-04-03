@@ -3,6 +3,16 @@ import { v4 as uuidv4 } from "uuid";
 
 export type ScheduledTaskScheduleType = "once" | "delay" | "daily" | "weekly";
 export type ScheduledTaskLastStatus = "idle" | "queued" | "running" | "success" | "error";
+export type ScheduledTaskEventLevel = "info" | "error";
+
+export interface ScheduledTaskEvent {
+  id: string;
+  runId?: string | null;
+  level: ScheduledTaskEventLevel;
+  message: string;
+  createdAt: number;
+  meta?: Record<string, string | number | boolean | null>;
+}
 
 export interface ScheduledTask {
   id: string;
@@ -24,6 +34,7 @@ export interface ScheduledTask {
   maxRetries?: number | null;
   retryDelayMinutes?: number | null;
   nextRunAt?: number | null;
+  recentEvents?: ScheduledTaskEvent[];
   createdAt: number;
   updatedAt: number;
 }
@@ -31,6 +42,8 @@ export interface ScheduledTask {
 interface ScheduledTaskStoreSchema {
   tasks: ScheduledTask[];
 }
+
+const MAX_SCHEDULED_TASK_EVENTS = 20;
 
 function normalizeNullableText(value: string | null | undefined): string | null {
   const normalized = String(value ?? "").trim();
@@ -103,6 +116,39 @@ function normalizeLastStatus(value: string | null | undefined): ScheduledTaskLas
     default:
       return "idle";
   }
+}
+
+function normalizeEventLevel(value: string | null | undefined): ScheduledTaskEventLevel {
+  return value === "error" ? "error" : "info";
+}
+
+function normalizeTaskEvent(event: ScheduledTaskEvent): ScheduledTaskEvent {
+  const normalizedMessage = String(event.message ?? "").trim();
+  return {
+    id: String(event.id ?? "").trim() || uuidv4(),
+    runId: normalizeNullableText(event.runId),
+    level: normalizeEventLevel(event.level),
+    message: normalizedMessage || "Scheduled task event",
+    createdAt: normalizeTimestamp(event.createdAt) ?? Date.now(),
+    meta: event.meta && typeof event.meta === "object"
+      ? Object.fromEntries(
+          Object.entries(event.meta)
+            .filter(([key]) => String(key ?? "").trim())
+            .map(([key, value]) => [String(key).trim(), value ?? null]),
+        )
+      : undefined,
+  };
+}
+
+function normalizeTaskEvents(events: ScheduledTaskEvent[] | null | undefined): ScheduledTaskEvent[] {
+  if (!Array.isArray(events) || events.length === 0) {
+    return [];
+  }
+  return events
+    .filter((event): event is ScheduledTaskEvent => Boolean(event) && typeof event === "object")
+    .map((event) => normalizeTaskEvent(event))
+    .sort((left, right) => right.createdAt - left.createdAt)
+    .slice(0, MAX_SCHEDULED_TASK_EVENTS);
 }
 
 export function computeScheduledTaskNextRunAt(
@@ -203,6 +249,7 @@ class ScheduledTaskStore {
         maxRetries: normalizeRetryCount(task.maxRetries),
         retryDelayMinutes: normalizePositiveInteger(task.retryDelayMinutes),
         nextRunAt: normalizeTimestamp(task.nextRunAt),
+        recentEvents: normalizeTaskEvents(task.recentEvents),
         createdAt: normalizeTimestamp(task.createdAt) ?? Date.now(),
         updatedAt: normalizeTimestamp(task.updatedAt) ?? Date.now(),
       }))
@@ -253,6 +300,7 @@ class ScheduledTaskStore {
       maxRetries: input.maxRetries !== undefined ? normalizeRetryCount(input.maxRetries) : (existing?.maxRetries ?? 0),
       retryDelayMinutes: input.retryDelayMinutes !== undefined ? normalizePositiveInteger(input.retryDelayMinutes) : (existing?.retryDelayMinutes ?? 5),
       nextRunAt: input.nextRunAt !== undefined ? normalizeTimestamp(input.nextRunAt) : (existing?.nextRunAt ?? null),
+      recentEvents: input.recentEvents !== undefined ? normalizeTaskEvents(input.recentEvents) : normalizeTaskEvents(existing?.recentEvents),
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     };
@@ -272,6 +320,30 @@ class ScheduledTaskStore {
 
   removeTasksByProjectId(projectId: string): void {
     this.store.set("tasks", this.listTasks().filter((task) => task.projectId !== projectId));
+  }
+
+  appendEvent(
+    taskId: string,
+    event: Omit<ScheduledTaskEvent, "id" | "createdAt"> & { id?: string; createdAt?: number | null },
+  ): ScheduledTask | null {
+    const task = this.getTaskById(taskId);
+    if (!task) {
+      return null;
+    }
+
+    const nextEvent = normalizeTaskEvent({
+      id: event.id ?? uuidv4(),
+      runId: event.runId ?? null,
+      level: event.level,
+      message: event.message,
+      createdAt: event.createdAt ?? Date.now(),
+      meta: event.meta,
+    });
+
+    return this.saveTask({
+      ...task,
+      recentEvents: [nextEvent, ...(task.recentEvents ?? [])].slice(0, MAX_SCHEDULED_TASK_EVENTS),
+    });
   }
 }
 

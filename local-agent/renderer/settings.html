@@ -918,7 +918,7 @@
 
           <div class="section">
             <div class="section-title" id="scheduledTasksSection">Scheduled Tasks</div>
-            <div class="section-subtitle" id="scheduledTasksHint">Run a saved prompt on this desktop for a local project. V1 supports one-time, daily, and weekly schedules.</div>
+            <div class="section-subtitle" id="scheduledTasksHint">Run a saved prompt on this desktop for a local project. V1 supports one-time, delay, daily, and weekly schedules.</div>
             <div class="split-grid">
               <div class="workgroup-card">
                 <div class="workgroup-card-title" id="scheduledTaskFormTitle">Task Profile</div>
@@ -1947,6 +1947,14 @@
             ${task.prompt ? `<div class="workgroup-subtext" style="margin-top: 6px;">${escapeHtml(task.prompt)}</div>` : ""}
             ${task.lastError ? `<div class="workgroup-subtext" style="margin-top: 6px;">${escapeHtml(task.lastError)}</div>` : ""}
             ${Number(task.maxRetries || 0) > 0 ? `<div class="workgroup-subtext" style="margin-top: 6px;">${escapeHtml(inlineText(`Retry delay: ${Number(task.retryDelayMinutes || 5)} minute(s)`, `重试间隔：${Number(task.retryDelayMinutes || 5)} 分钟`))}</div>` : ""}
+            ${Array.isArray(task.recentEvents) && task.recentEvents.length > 0 ? `
+              <div class="workgroup-subtext" style="margin-top: 8px;">${escapeHtml(inlineText("Recent Events", "最近事件"))}</div>
+              <div class="workgroup-subtext">${task.recentEvents.slice(0, 4).map((event) => {
+                const timeLabel = formatDateTimeLabel(event?.createdAt);
+                const runLabel = event?.runId ? ` · run=${event.runId}` : "";
+                return `${timeLabel} · ${event?.message || ""}${runLabel}`;
+              }).map((line) => escapeHtml(line)).join("<br>")}</div>
+            ` : ""}
           </div>
           <div class="project-actions">
             <button class="btn-primary btn-small" onclick="runScheduledTaskNow('${task.id}')">${escapeHtml(inlineText("Run Now", "立即执行"))}</button>
