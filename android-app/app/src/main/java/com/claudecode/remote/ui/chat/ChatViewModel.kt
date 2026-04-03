@@ -37,6 +37,7 @@ private const val RESUME_STALE_CONNECTION_TIMEOUT_MS = 20_000L
 private const val ACTIVE_SYNC_STALE_CONNECTION_TIMEOUT_MS = 20_000L
 private val POST_SEND_SYNC_DELAYS_MS = longArrayOf(0L, 1_200L, 4_000L, 9_000L)
 private const val SEND_FEEDBACK_TIMEOUT_MS = 12_000L
+private const val RECENT_SEND_REUSE_WINDOW_MS = 20_000L
 
 data class ConversationItem(
     val id: String,
@@ -133,6 +134,12 @@ class ChatViewModel(
         val autoTriggered: Boolean
     )
 
+    private data class RecentSendFeedback(
+        val runId: String,
+        val fingerprint: String,
+        val trackedAtMs: Long
+    )
+
     private val _uiState = MutableStateFlow(ChatUiState())
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
 
@@ -156,6 +163,7 @@ class ChatViewModel(
     private val postSendSyncJobs = mutableListOf<Job>()
     private var pendingSendFeedbackRunId: String? = null
     private var pendingSendFeedbackTimeoutJob: Job? = null
+    private var recentSendFeedback: RecentSendFeedback? = null
 
     private fun restorePersistedSnapshot(projectId: String): PersistedChatSnapshot? =
         tokenStore.getProjectChatSnapshot(projectId)
@@ -324,6 +332,7 @@ class ChatViewModel(
         pendingSendFeedbackRunId = null
         pendingSendFeedbackTimeoutJob?.cancel()
         pendingSendFeedbackTimeoutJob = null
+        recentSendFeedback = null
         lastPersistedSnapshotJson = null
         val persistedSnapshot = restorePersistedSnapshot(projectId)
         allMessages = persistedSnapshot?.messages ?: emptyList()
@@ -711,6 +720,10 @@ class ChatViewModel(
         if (textSnapshot.trim().isEmpty() && attachmentSnapshot.isEmpty()) {
             return
         }
+        val sendFingerprint = buildSendFingerprint(textSnapshot, attachmentSnapshot)
+        if (reuseRecentPendingSendIfNeeded(state, sendFingerprint)) {
+            return
+        }
         val optimisticPrompt = buildOptimisticPromptPreview(textSnapshot, attachmentSnapshot)
         val optimisticStartedAt = System.currentTimeMillis()
 
@@ -738,7 +751,7 @@ class ChatViewModel(
                     agentId = state.agentId
                 )
                 if (runId.isNotBlank()) {
-                    trackPendingSendFeedback(runId)
+                    trackPendingSendFeedback(runId, sendFingerprint)
                 } else {
                     _uiState.update { it.copy(isSending = false) }
                 }
@@ -746,7 +759,7 @@ class ChatViewModel(
             } catch (e: Exception) {
                 CrashLogger.logError("ChatViewModel", "Error sending message", e)
                 tokenStore.saveDraft(state.projectId, textSnapshot)
-                clearPendingSendFeedback()
+                clearPendingSendFeedback(clearRecent = true)
                 _uiState.update {
                     it.copy(
                         inputText = textSnapshot,
@@ -762,7 +775,12 @@ class ChatViewModel(
         }
     }
 
-    private fun trackPendingSendFeedback(runId: String) {
+    private fun trackPendingSendFeedback(runId: String, fingerprint: String) {
+        recentSendFeedback = RecentSendFeedback(
+            runId = runId,
+            fingerprint = fingerprint,
+            trackedAtMs = System.currentTimeMillis()
+        )
         pendingSendFeedbackRunId = runId
         pendingSendFeedbackTimeoutJob?.cancel()
         pendingSendFeedbackTimeoutJob = viewModelScope.launch {
@@ -774,7 +792,10 @@ class ChatViewModel(
         }
     }
 
-    private fun clearPendingSendFeedback(runId: String? = pendingSendFeedbackRunId) {
+    private fun clearPendingSendFeedback(
+        runId: String? = pendingSendFeedbackRunId,
+        clearRecent: Boolean = false
+    ) {
         val targetRunId = runId?.trim().orEmpty()
         if (targetRunId.isNotEmpty() && pendingSendFeedbackRunId != targetRunId) {
             return
@@ -782,6 +803,9 @@ class ChatViewModel(
         pendingSendFeedbackRunId = null
         pendingSendFeedbackTimeoutJob?.cancel()
         pendingSendFeedbackTimeoutJob = null
+        if (clearRecent) {
+            clearRecentSendFeedback(targetRunId)
+        }
         _uiState.update { current ->
             if (!current.isSending) {
                 current
@@ -792,10 +816,9 @@ class ChatViewModel(
     }
 
     private fun maybeResolvePendingSendFeedback() {
-        val runId = pendingSendFeedbackRunId?.trim().orEmpty()
-        if (runId.isEmpty()) {
-            return
-        }
+        val runId = pendingSendFeedbackRunId?.trim().takeUnless { it.isNullOrEmpty() }
+            ?: recentSendFeedback?.runId?.trim().takeUnless { it.isNullOrEmpty() }
+            ?: return
         val assistantStreamId = "$runId:assistant"
         val state = _uiState.value
         val hasQueueAck = state.queueItems.any { !it.isPlaceholder && it.runId == runId }
@@ -808,8 +831,90 @@ class ChatViewModel(
             message.id == assistantStreamId || message.streamId == assistantStreamId
         }
         if (hasQueueAck || hasSyncedUserMessage || hasAssistantResponse) {
-            clearPendingSendFeedback(runId)
+            if (pendingSendFeedbackRunId == runId) {
+                clearPendingSendFeedback(runId, clearRecent = true)
+            } else {
+                clearRecentSendFeedback(runId)
+            }
         }
+    }
+
+    private fun reuseRecentPendingSendIfNeeded(
+        state: ChatUiState,
+        fingerprint: String
+    ): Boolean {
+        val recent = recentSendFeedback ?: return false
+        val recentRunId = recent.runId.trim()
+        if (recentRunId.isEmpty()) {
+            recentSendFeedback = null
+            return false
+        }
+
+        val now = System.currentTimeMillis()
+        if (now - recent.trackedAtMs > RECENT_SEND_REUSE_WINDOW_MS) {
+            clearRecentSendFeedback(recentRunId)
+            return false
+        }
+        if (recent.fingerprint != fingerprint) {
+            return false
+        }
+
+        tokenStore.clearDraft(state.projectId)
+        markSyncBurst()
+        _uiState.update {
+            it.copy(
+                inputText = "",
+                pendingAttachments = emptyList(),
+                isSending = true
+            )
+        }
+        trackPendingSendFeedback(recentRunId, fingerprint)
+        schedulePostSendSyncNudges()
+        viewModelScope.launch {
+            try {
+                webSocket.ensureHealthyConnection(
+                    reason = "chat-send-reuse:${state.projectId}",
+                    staleTimeoutMs = RESUME_STALE_CONNECTION_TIMEOUT_MS
+                )
+            } catch (e: Exception) {
+                CrashLogger.logError("ChatViewModel", "Error recovering connection for reused send", e)
+            }
+            requestProjectSyncNow(
+                recentOverlapCount = ACTIVE_SYNC_OVERLAP_COUNT,
+                limit = INCREMENTAL_SYNC_PAGE_SIZE
+            )
+        }
+        return true
+    }
+
+    private fun clearRecentSendFeedback(runId: String? = recentSendFeedback?.runId) {
+        val targetRunId = runId?.trim().orEmpty()
+        if (targetRunId.isEmpty()) {
+            recentSendFeedback = null
+            return
+        }
+        if (recentSendFeedback?.runId == targetRunId) {
+            recentSendFeedback = null
+        }
+    }
+
+    private fun buildSendFingerprint(
+        content: String,
+        attachments: List<MessageAttachment>
+    ): String {
+        val normalizedContent = content.trim()
+        val attachmentFingerprint = attachments.joinToString(separator = "\n") { attachment ->
+            listOf(
+                attachment.id,
+                attachment.name,
+                attachment.size.toString(),
+                attachment.kind,
+                attachment.mimeType,
+                attachment.localUri.orEmpty(),
+                attachment.filePath.orEmpty()
+            ).joinToString(separator = "\u0001")
+        }
+        return listOf(normalizedContent, attachmentFingerprint).joinToString(separator = "\u0002")
     }
 
     private fun buildOptimisticPromptPreview(
@@ -1166,6 +1271,7 @@ class ChatViewModel(
         projectBootstrapJob?.cancel()
         cancelPostSendSyncNudges()
         pendingSendFeedbackTimeoutJob?.cancel()
+        recentSendFeedback = null
         super.onCleared()
     }
 
