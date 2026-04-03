@@ -134,7 +134,7 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 	}, http.StatusOK, nil)
 	doJSONWithBearer(t, http.DefaultClient, http.MethodPost, server.URL+"/api/device/logs", deviceLogin.Token, map[string]any{
 		"file_name":      "desktop-20260402.log",
-		"content":        "[2026-04-02T11:00:00.000Z] {\"level\":\"error\",\"scope\":\"message-router\",\"message\":\"Dispatch failed trace_id=trace-desktop-003 workgroup_id=desktop-workgroup\"}\n",
+		"content":        "[2026-04-02T11:00:00.000Z] WARN [RelayClient] Reconnecting stalled socket during health-check; state=connecting staleForMs=91234 trace_id=trace-desktop-003 workgroup_id=desktop-workgroup\n[2026-04-02T11:00:01.000Z] INFO [RelayClient] Reconnecting in 1000ms...\n[2026-04-02T11:00:02.000Z] WARN [message-router] Project message run failed after acceptance. trace_id=trace-desktop-003 workgroup_id=desktop-workgroup\n[2026-04-02T11:00:03.000Z] ERROR [workgroup] Delivery failed: no member accepted this message. qa: Remote dispatch failed. trace_id=trace-desktop-003 workgroup_id=desktop-workgroup\n",
 		"app_version":    "1.1.102",
 		"device_model":   "Desktop Test Host",
 		"source":         "desktop",
@@ -250,6 +250,15 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 	doJSON(t, adminClient, http.MethodGet, server.URL+"/admin/api/mobile-logs?source=desktop", nil, http.StatusOK, &sourceFiltered)
 	if len(sourceFiltered) != 1 || sourceFiltered[0].ID != desktopLog.ID {
 		t.Fatalf("expected source filter to return desktop log, got %+v", sourceFiltered)
+	}
+
+	var desktopAnalysis uploadedMobileLogAnalysis
+	doJSON(t, adminClient, http.MethodGet, server.URL+"/admin/api/mobile-logs/"+desktopLog.ID+"/analysis", nil, http.StatusOK, &desktopAnalysis)
+	if !hasSignalCode(desktopAnalysis.Signals, "desktop_relay_recovery_loops") {
+		t.Fatalf("expected desktop relay recovery signal, got %+v", desktopAnalysis.Signals)
+	}
+	if !hasSignalCode(desktopAnalysis.Signals, "desktop_dispatch_breaks") {
+		t.Fatalf("expected desktop dispatch break signal, got %+v", desktopAnalysis.Signals)
 	}
 }
 

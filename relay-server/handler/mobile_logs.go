@@ -568,6 +568,29 @@ func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string) 
 			},
 		},
 		{
+			code:           "desktop_relay_recovery_loops",
+			title:          "Desktop relay recovery loop detected",
+			recommendation: "Inspect stale-socket recovery, reconnect backoff, and whether the desktop stayed connected but unauthenticated. If these cluster together, focus on relay health checks and controller token refresh during desktop resume.",
+			matches: []string{
+				"reconnecting stalled socket during",
+				"reconnecting unauthenticated socket during",
+				"reconnecting stale socket during",
+				"reconnecting in ",
+			},
+		},
+		{
+			code:           "desktop_dispatch_breaks",
+			title:          "Desktop accepted work but execution broke later",
+			recommendation: "Trace the chain after acceptance. Check whether the desktop queued the run, then failed during runtime dispatch, member dispatch, or post-accept execution.",
+			matches: []string{
+				"project message run failed after acceptance",
+				"local dispatch failed",
+				"remote dispatch failed",
+				"delivery failed: no member accepted this message",
+				"delivery partial:",
+			},
+		},
+		{
 			code:           "envelope_parse_failures",
 			title:          "消息包解析失败",
 			recommendation: "如果有 parse envelope 失败，要检查服务端 payload 结构和客户端版本是否匹配。",
