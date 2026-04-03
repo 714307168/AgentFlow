@@ -1509,6 +1509,30 @@ function ensurePmMember(workgroup: Workgroup): WorkgroupMember {
     workgroup.planWorkspacePath ?? getDefaultWorkgroupPlanPath(workgroup.id),
   );
   const pmProjectId = getWorkgroupPmProjectId(workgroup.id);
+  const manualPmMembers = workgroupStore
+    .listMembers(workgroup.id)
+    .filter((member) => member.role === "project_manager" && member.kind !== "pm" && member.projectId !== pmProjectId);
+  for (const manualPmMember of manualPmMembers) {
+    workgroupStore.saveMember({
+      ...manualPmMember,
+      id: manualPmMember.id,
+      workgroupId: workgroup.id,
+      name: manualPmMember.name,
+      role: "custom",
+      kind: "project",
+      projectId: manualPmMember.projectId ?? null,
+      projectName: manualPmMember.projectName ?? null,
+      projectPath: manualPmMember.projectPath ?? null,
+      projectKind: manualPmMember.projectKind ?? null,
+      allowedPaths: manualPmMember.allowedPaths,
+      systemPrompt: manualPmMember.systemPrompt ?? null,
+    });
+    appLogger.warn("workgroup", "Converted manual project_manager member to custom role to preserve PM uniqueness.", {
+      workgroupId: workgroup.id,
+      memberId: manualPmMember.id,
+      memberName: manualPmMember.name,
+    });
+  }
   const matchingPmMembers = workgroupStore
     .listMembers(workgroup.id)
     .filter((member) => member.kind === "pm" || member.projectId === pmProjectId);
@@ -4114,6 +4138,9 @@ ipcMain.handle("save-workgroup-member", (_event, data: {
   const name = String(data?.name ?? "").trim();
   if (!name) {
     return { success: false, error: "Member name is required" };
+  }
+  if (data.role === "project_manager") {
+    return { success: false, error: "Project Manager is reserved for the virtual PM Agent." };
   }
 
   const projectId = typeof data?.projectId === "string" && data.projectId.trim() ? data.projectId.trim() : null;

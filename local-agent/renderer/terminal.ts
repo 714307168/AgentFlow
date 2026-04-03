@@ -4270,6 +4270,14 @@ function getMentionableMembers(): MentionSuggestionItem[] {
       kind: "role",
       searchText: "qa test deploy",
     },
+    {
+      key: "role:project_manager",
+      token: "pm",
+      label: "pm",
+      role: "project_manager",
+      kind: "role",
+      searchText: "pm project manager manager",
+    },
     ...members,
   ];
 }
