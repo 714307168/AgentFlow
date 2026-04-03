@@ -113,7 +113,7 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 
 	uploadBody := map[string]any{
 		"file_name":     "app-20260401.log",
-		"content":       "[2026-04-01 18:00:00.000] ERROR [RelayConnectionService] Failed to refresh mobile token after auth error trace_id=trace-alpha-001 workgroup_id=fyzy-workgroup\n[2026-04-01 18:00:01.000] ERROR [MainActivity] Failed to verify relay connection on resume trace_id=trace-alpha-001\n",
+		"content":       "[2026-04-01 18:00:00.000] ERROR [RelayConnectionService] Failed to refresh mobile token after auth error trace_id=trace-alpha-001 workgroup_id=fyzy-workgroup\n[2026-04-01 18:00:01.000] ERROR [MainActivity] Failed to verify relay connection on resume trace_id=trace-alpha-001\n[2026-04-01 18:00:02.000] INFO [MessageRepository] Detected incomplete local sync for projectId=p1 conversationId=conv-1 storedAfterSeq=88 earliest=0 latest=70 count=12; forcing full resync\n[2026-04-01 18:00:03.000] INFO [MessageRepository] Requesting sync backfill for projectId=p1 afterSeq=66 beforeSeq=82 lowerBound=67\n[2026-04-01 18:00:04.000] ERROR [WorkgroupChatViewModel] Failed to validate workgroup connection during sync\n[2026-04-01 18:00:05.000] ERROR [ChatViewModel] Error retrying pending send\n[2026-04-01 18:00:06.000] INFO [MessageRouter] Accepted duplicate project message.send using existing trace.\n",
 		"app_version":   "1.1.91",
 		"app_build":     75,
 		"device_model":  "Pixel Test",
@@ -207,6 +207,15 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 	if len(analysis.WorkgroupIDs) == 0 || analysis.WorkgroupIDs[0] != "fyzy-workgroup" {
 		t.Fatalf("expected analysis to expose workgroup ids, got %+v", analysis)
 	}
+	if !hasSignalCode(analysis.Signals, "project_sync_gap_recovery") {
+		t.Fatalf("expected project sync gap recovery signal, got %+v", analysis.Signals)
+	}
+	if !hasSignalCode(analysis.Signals, "workgroup_sync_failures") {
+		t.Fatalf("expected workgroup sync failure signal, got %+v", analysis.Signals)
+	}
+	if !hasSignalCode(analysis.Signals, "send_ack_retry_loops") {
+		t.Fatalf("expected send ack / retry loop signal, got %+v", analysis.Signals)
+	}
 
 	var traceFiltered []uploadedMobileLog
 	doJSON(t, adminClient, http.MethodGet, server.URL+"/admin/api/mobile-logs?trace_id=trace-alpha-001", nil, http.StatusOK, &traceFiltered)
@@ -219,6 +228,18 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 	if len(workgroupFiltered) != 1 || workgroupFiltered[0].ID != betaLog.ID {
 		t.Fatalf("expected workgroup filter to return second log, got %+v", workgroupFiltered)
 	}
+}
+
+func hasSignalCode(signals []struct {
+	Code  string `json:"code"`
+	Count int    `json:"count"`
+}, code string) bool {
+	for _, signal := range signals {
+		if signal.Code == code {
+			return true
+		}
+	}
+	return false
 }
 
 func doJSONWithBearer(t *testing.T, client *http.Client, method, url, token string, body any, wantStatus int, out any) {

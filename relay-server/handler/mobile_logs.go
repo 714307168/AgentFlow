@@ -526,6 +526,42 @@ func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string) 
 			},
 		},
 		{
+			code:           "project_sync_gap_recovery",
+			title:          "Project sync gap recovery is unstable",
+			recommendation: "Inspect session.sync windows, backfill requests, and item-detail fetches. Repeated gap recovery usually means local bounds are stale or the relay resumed without a clean incremental baseline.",
+			matches: []string{
+				"detected incomplete local sync",
+				"requesting sync backfill",
+				"error requesting full sync item",
+				"desktop sync contained no parsable messages",
+				"failed to parse sync item",
+			},
+		},
+		{
+			code:           "workgroup_sync_failures",
+			title:          "Workgroup session recovery is failing",
+			recommendation: "Focus on workgroup refresh recovery, active sync validation, and send-result envelopes. If these cluster around foreground or resume, treat relay health and workgroup snapshot refresh as one chain.",
+			matches: []string{
+				"failed to restore workgroup connection during refresh recovery",
+				"failed to validate workgroup connection during sync",
+				"failed to send workgroup message",
+				"workgroup session unavailable",
+				"workgroup message failed",
+			},
+		},
+		{
+			code:           "send_ack_retry_loops",
+			title:          "Send acknowledgement or retry loop detected",
+			recommendation: "Check whether message.accepted arrived in time, whether the client retried with the same clientMessageId, and whether the desktop accepted a duplicate send instead of starting a second run.",
+			matches: []string{
+				"error restoring connection for retried send",
+				"error retrying pending send",
+				"failed to send; queueing for retry",
+				"accepted duplicate project message.send using existing trace",
+				"accepted duplicate workgroup collaboration message",
+			},
+		},
+		{
 			code:           "envelope_parse_failures",
 			title:          "消息包解析失败",
 			recommendation: "如果有 parse envelope 失败，要检查服务端 payload 结构和客户端版本是否匹配。",
