@@ -1,6 +1,7 @@
 import { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, dialog, safeStorage, clipboard, desktopCapturer, screen, shell, powerMonitor } from "electron";
 import "./user-data-bootstrap";
 import * as fs from "fs";
+import * as os from "os";
 import * as path from "path";
 import Store from "electron-store";
 import { v4 as uuidv4 } from "uuid";
@@ -258,6 +259,11 @@ const REMOTE_PROJECT_CATALOG_REFRESH_MIN_INTERVAL_MS = 5_000;
 const REMOTE_WORKGROUP_CATALOG_REFRESH_MIN_INTERVAL_MS = 15_000;
 const RELAY_HEALTH_CHECK_INTERVAL_MS = 15_000;
 const RELAY_MAINTENANCE_INTERVAL_MS = 60_000;
+const MAX_DESKTOP_LOG_UPLOAD_BYTES = 1_600_000;
+const MAX_DESKTOP_LOG_FILES = 4;
+const MAX_DESKTOP_LOG_EXTRACTED_IDS = 20;
+const DESKTOP_LOG_TRACE_ID_PATTERN = /(?:trace[_-]?id["=: ]+|traceId["=: ]+)([a-z0-9:-]{6,})/ig;
+const DESKTOP_LOG_WORKGROUP_ID_PATTERN = /(?:workgroup[_-]?id["=: ]+|workgroupId["=: ]+)([a-z0-9._:-]{3,})/ig;
 const RELAY_FOLLOW_UP_REFRESH_DELAYS_MS = [300, 1_500, 5_000] as const;
 const RELAY_STALE_CONNECTION_TIMEOUT_MS = 75_000;
 const RELAY_RECOVERY_COOLDOWN_MS = 45_000;
@@ -366,6 +372,216 @@ function toHttpBaseUrl(rawUrl: string): string {
   }
 
   return `http://${trimmed.replace(/\/ws$/, "")}`;
+}
+
+function buildDesktopLogConnectionNote(fileCount: number): string {
+  const parts = [
+    `host=${os.hostname()}`,
+    `platform=${process.platform}`,
+    `release=${os.release()}`,
+    `files=${fileCount}`,
+  ];
+  const agentSnapshot = relayClient?.getConnectionSnapshot();
+  const controllerSnapshot = controllerRelayClient?.getConnectionSnapshot();
+  if (agentSnapshot) {
+    parts.push(`agent=${agentSnapshot.state}`);
+  }
+  if (controllerSnapshot) {
+    parts.push(`controller=${controllerSnapshot.state}`);
+  }
+  return parts.join("; ");
+}
+
+function extractDesktopLogIds(content: string, pattern: RegExp): string[] | undefined {
+  const values = new Set<string>();
+  pattern.lastIndex = 0;
+  for (const match of content.matchAll(pattern)) {
+    const rawValue = match[1] ?? "";
+    const value = rawValue.trim().replace(/^[\"'.,;:()[\]{}<>]+|[\"'.,;:()[\]{}<>]+$/g, "");
+    if (!value) {
+      continue;
+    }
+    values.add(value);
+    if (values.size >= MAX_DESKTOP_LOG_EXTRACTED_IDS) {
+      break;
+    }
+  }
+  return values.size > 0 ? Array.from(values) : undefined;
+}
+
+function buildDesktopLogUploadSegment(fileName: string, content: string, remainingBytes: number): { segment: string; bytes: number } | null {
+  const header = `===== ${fileName} =====\n`;
+  const headerBytes = Buffer.byteLength(header, "utf8");
+  if (headerBytes >= remainingBytes) {
+    return null;
+  }
+
+  const normalizedContent = content.replace(/\r\n/g, "\n").trim();
+  const contentBytes = Buffer.byteLength(normalizedContent, "utf8");
+  const availableContentBytes = remainingBytes - headerBytes;
+  let finalContent = normalizedContent;
+  if (contentBytes > availableContentBytes) {
+    const truncationPrefix = "... earlier desktop log content omitted ...\n";
+    const truncationBytes = Buffer.byteLength(truncationPrefix, "utf8");
+    const encodedContent = Buffer.from(normalizedContent, "utf8");
+    if (availableContentBytes > truncationBytes + 32) {
+      const tailBytes = availableContentBytes - truncationBytes;
+      const truncated = encodedContent
+        .slice(-tailBytes)
+        .toString("utf8")
+        .trimStart();
+      finalContent = `${truncationPrefix}${truncated}`;
+    } else {
+      finalContent = encodedContent
+        .slice(-availableContentBytes)
+        .toString("utf8")
+        .trimStart();
+    }
+  }
+
+  const segment = `${header}${finalContent}\n`;
+  return {
+    segment,
+    bytes: Buffer.byteLength(segment, "utf8"),
+  };
+}
+
+async function buildDesktopLogUploadPayload(): Promise<{
+  fileName: string;
+  content: string;
+  appVersion: string;
+  appBuild: number;
+  deviceModel: string;
+  clientTime: string;
+  source: "desktop";
+  connectionNote: string;
+  traceIds?: string[];
+  workgroupIds?: string[];
+}> {
+  await appLogger.flush();
+  const logDirectory = appLogger.getLogDirectory();
+  if (!fs.existsSync(logDirectory)) {
+    throw new Error("No local desktop logs found. Enable log saving first.");
+  }
+
+  const logFiles = fs.readdirSync(logDirectory, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith(".log"))
+    .map((entry) => {
+      const filePath = path.join(logDirectory, entry.name);
+      const stats = fs.statSync(filePath);
+      return {
+        name: entry.name,
+        path: filePath,
+        mtimeMs: stats.mtimeMs,
+      };
+    })
+    .sort((left, right) => right.mtimeMs - left.mtimeMs)
+    .slice(0, MAX_DESKTOP_LOG_FILES);
+
+  if (logFiles.length === 0) {
+    throw new Error("No local desktop logs found. Enable log saving first.");
+  }
+
+  let remainingBytes = MAX_DESKTOP_LOG_UPLOAD_BYTES;
+  const selectedSegments: string[] = [];
+  let selectedCount = 0;
+  for (const file of logFiles) {
+    const rawContent = fs.readFileSync(file.path, "utf8");
+    if (!rawContent.trim()) {
+      continue;
+    }
+    const segment = buildDesktopLogUploadSegment(file.name, rawContent, remainingBytes);
+    if (!segment) {
+      continue;
+    }
+    remainingBytes -= segment.bytes;
+    selectedSegments.unshift(segment.segment);
+    selectedCount += 1;
+    if (remainingBytes <= 256) {
+      break;
+    }
+  }
+
+  const combinedContent = selectedSegments.join("\n").trim();
+  if (!combinedContent) {
+    throw new Error("Desktop log files are empty.");
+  }
+
+  return {
+    fileName: `desktop-logs-${new Date().toISOString().replace(/[:.]/g, "-")}.log`,
+    content: combinedContent,
+    appVersion: app.getVersion(),
+    appBuild: 0,
+    deviceModel: `${os.hostname()} (${process.platform} ${os.release()})`,
+    clientTime: new Date().toISOString(),
+    source: "desktop",
+    connectionNote: buildDesktopLogConnectionNote(selectedCount),
+    traceIds: extractDesktopLogIds(combinedContent, DESKTOP_LOG_TRACE_ID_PATTERN),
+    workgroupIds: extractDesktopLogIds(combinedContent, DESKTOP_LOG_WORKGROUP_ID_PATTERN),
+  };
+}
+
+async function uploadDesktopLogs(): Promise<{ success: boolean; error?: string; logId?: string; uploadedAt?: string }> {
+  try {
+    const config = loadConfig();
+    if (!config.serverUrl.trim()) {
+      return { success: false, error: "Server URL is not configured." };
+    }
+
+    const payload = await buildDesktopLogUploadPayload();
+    const refreshed = await refreshControllerToken(false);
+    const nextConfig = loadConfig();
+    const token = nextConfig.controllerToken?.trim() ?? "";
+    if (!refreshed || !token) {
+      return { success: false, error: "Desktop device token is unavailable. Re-login and retry." };
+    }
+
+    const response = await fetch(`${toHttpBaseUrl(nextConfig.serverUrl)}/api/device/logs`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        file_name: payload.fileName,
+        content: payload.content,
+        app_version: payload.appVersion,
+        app_build: payload.appBuild,
+        device_model: payload.deviceModel,
+        client_time: payload.clientTime,
+        source: payload.source,
+        connection_note: payload.connectionNote,
+        trace_ids: payload.traceIds,
+        workgroup_ids: payload.workgroupIds,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = (await response.text()).trim();
+      return { success: false, error: errorText || response.statusText || "Desktop log upload failed." };
+    }
+
+    const result = await response.json() as { success?: boolean; log_id?: string; uploaded_at?: string };
+    if (!result.success || !result.log_id) {
+      return { success: false, error: "Desktop log upload failed." };
+    }
+
+    appLogger.info("diagnostics", "Uploaded desktop logs for remote analysis.", {
+      logId: result.log_id,
+      traceIds: payload.traceIds,
+      workgroupIds: payload.workgroupIds,
+    });
+    return {
+      success: true,
+      logId: result.log_id,
+      uploadedAt: result.uploaded_at,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
 
 function isTokenExpiringSoon(expiresAt?: string, nowMs: number = Date.now()): boolean {
@@ -3424,6 +3640,10 @@ ipcMain.handle("open-local-data-root", async (_event, rawPath?: string | null) =
     success: !errorMessage,
     error: errorMessage || undefined,
   };
+});
+
+ipcMain.handle("upload-desktop-logs", async () => {
+  return uploadDesktopLogs();
 });
 
 ipcMain.handle("change-local-data-root", async (_event, rawPath?: string | null) => {

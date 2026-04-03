@@ -104,6 +104,7 @@ type mobileLogAnalysisResponse struct {
 
 type mobileLogFilter struct {
 	Query       string
+	Source      string
 	TraceID     string
 	WorkgroupID string
 }
@@ -252,10 +253,11 @@ func AdminMobileLogsHandler(cfg *config.Config, database *db.DB) http.HandlerFun
 		records = filterMobileLogsForAdmin(records, session)
 		filter := mobileLogFilter{
 			Query:       strings.TrimSpace(r.URL.Query().Get("q")),
+			Source:      strings.TrimSpace(r.URL.Query().Get("source")),
 			TraceID:     strings.TrimSpace(r.URL.Query().Get("trace_id")),
 			WorkgroupID: strings.TrimSpace(r.URL.Query().Get("workgroup_id")),
 		}
-		if filter.Query != "" || filter.TraceID != "" || filter.WorkgroupID != "" {
+		if filter.Query != "" || filter.Source != "" || filter.TraceID != "" || filter.WorkgroupID != "" {
 			records = filterStoredMobileLogs(records, filepath.Join(cfg.DataDir, "mobile-logs"), filter)
 		}
 
@@ -399,11 +401,12 @@ func readStoredMobileLogContent(storageDir string, record storedMobileLogMetadat
 }
 
 func filterStoredMobileLogs(records []storedMobileLogMetadata, storageDir string, filter mobileLogFilter) []storedMobileLogMetadata {
-	if filter.Query == "" && filter.TraceID == "" && filter.WorkgroupID == "" {
+	if filter.Query == "" && filter.Source == "" && filter.TraceID == "" && filter.WorkgroupID == "" {
 		return records
 	}
 
 	query := strings.ToLower(strings.TrimSpace(filter.Query))
+	source := strings.ToLower(strings.TrimSpace(filter.Source))
 	traceID := strings.ToLower(strings.TrimSpace(filter.TraceID))
 	workgroupID := strings.ToLower(strings.TrimSpace(filter.WorkgroupID))
 	filtered := make([]storedMobileLogMetadata, 0, len(records))
@@ -433,6 +436,9 @@ func filterStoredMobileLogs(records []storedMobileLogMetadata, storageDir string
 			if !strings.Contains(haystack, query) {
 				continue
 			}
+		}
+		if source != "" && strings.ToLower(strings.TrimSpace(record.Source)) != source {
+			continue
 		}
 		if traceID != "" && !containsNormalizedID(traceIDs, traceID) {
 			continue
@@ -961,10 +967,15 @@ const mobileLogsAdminHTML = `<!DOCTYPE html>
   <div class="shell">
     <div class="topbar">
       <div>
-        <h1>Mobile Logs</h1>
-        <p>Uploaded mobile logs can be filtered by text, trace_id, and workgroup_id for faster diagnosis.</p>
+        <h1>Device Logs</h1>
+        <p>Uploaded Android and desktop logs can be filtered by text, source, trace_id, and workgroup_id for faster diagnosis.</p>
         <div class="filters">
           <input type="text" id="queryInput" placeholder="Search text, device, user, or error">
+          <select id="sourceInput">
+            <option value="">All sources</option>
+            <option value="android">Android</option>
+            <option value="desktop">Desktop</option>
+          </select>
           <input type="text" id="traceInput" placeholder="Filter by trace_id">
           <input type="text" id="workgroupInput" placeholder="Filter by workgroup_id">
         </div>
@@ -977,7 +988,7 @@ const mobileLogsAdminHTML = `<!DOCTYPE html>
     <div class="content">
       <section class="card list-panel">
         <h2 style="margin:0 0 6px;">Uploaded Logs</h2>
-        <p class="muted" style="margin:0 0 14px;">Newest first. Use the extracted trace and workgroup chips to pivot quickly.</p>
+        <p class="muted" style="margin:0 0 14px;">Newest first. Source, trace, and workgroup chips help pivot quickly.</p>
         <div class="list" id="logList"></div>
       </section>
       <section class="card detail-panel">
@@ -999,6 +1010,7 @@ const state = {
   analysis: null,
   filters: {
     q: "",
+    source: "",
     trace_id: "",
     workgroup_id: "",
   },
@@ -1030,6 +1042,7 @@ function fmtBytes(value) {
 function buildListUrl() {
   const params = new URLSearchParams();
   if (state.filters.q) params.set("q", state.filters.q);
+  if (state.filters.source) params.set("source", state.filters.source);
   if (state.filters.trace_id) params.set("trace_id", state.filters.trace_id);
   if (state.filters.workgroup_id) params.set("workgroup_id", state.filters.workgroup_id);
   const query = params.toString();
@@ -1065,7 +1078,7 @@ function bindFilterChipHandlers(root) {
 function renderList() {
   const root = document.getElementById("logList");
   if (!Array.isArray(state.logs) || state.logs.length === 0) {
-    root.innerHTML = '<div class="empty">No uploaded mobile logs matched the current filter.</div>';
+    root.innerHTML = '<div class="empty">No uploaded device logs matched the current filter.</div>';
     return;
   }
   root.innerHTML = state.logs.map((item) => {
@@ -1073,7 +1086,7 @@ function renderList() {
     return '<button type="button" class="item ' + active + '" data-id="' + esc(item.id) + '">' +
       '<div><strong>' + esc(item.original_name || item.id) + '</strong></div>' +
       '<div class="muted">User ' + esc(item.username) + ' ? Device ' + esc(item.device_id) + '</div>' +
-      '<div class="muted">' + esc(item.app_version || "-") + ' ? ' + esc(item.uploaded_at || "-") + '</div>' +
+      '<div class="muted">' + esc((item.source || "-").toUpperCase()) + ' ? ' + esc(item.app_version || "-") + ' ? ' + esc(item.uploaded_at || "-") + '</div>' +
       (Array.isArray(item.trace_ids) && item.trace_ids.length > 0 ? '<div class="muted">trace_id · ' + esc(item.trace_ids[0]) + '</div>' : '') +
       (Array.isArray(item.workgroup_ids) && item.workgroup_ids.length > 0 ? '<div class="muted">workgroup_id · ' + esc(item.workgroup_ids[0]) + '</div>' : '') +
       '<div class="muted">' + esc(fmtBytes(item.size_bytes)) + '</div>' +
@@ -1097,6 +1110,7 @@ function renderMeta() {
     '<div><div class="meta-label">User</div><div>' + esc(meta.username) + ' (#' + esc(meta.user_id) + ')</div></div>' +
     '<div><div class="meta-label">Device</div><div class="mono">' + esc(meta.device_id) + '</div></div>' +
     '<div><div class="meta-label">Agent</div><div class="mono">' + esc(meta.agent_id || "-") + '</div></div>' +
+    '<div><div class="meta-label">Source</div><div>' + esc((meta.source || "-").toUpperCase()) + '</div></div>' +
     '<div><div class="meta-label">Trace IDs</div><div>' + renderChips((state.analysis && state.analysis.trace_ids) || [], "trace_id") + '</div></div>' +
     '<div><div class="meta-label">Workgroup IDs</div><div>' + renderChips((state.analysis && state.analysis.workgroup_ids) || [], "workgroup_id") + '</div></div>' +
     '<div><div class="meta-label">App Version</div><div>' + esc(meta.app_version || "-") + (meta.app_build ? ' (build ' + esc(meta.app_build) + ')' : '') + '</div></div>' +
@@ -1171,6 +1185,10 @@ async function refresh() {
 document.getElementById('refreshBtn').addEventListener('click', () => { void refresh(); });
 document.getElementById('queryInput').addEventListener('change', (event) => {
   state.filters.q = event.target.value.trim();
+  void refresh();
+});
+document.getElementById('sourceInput').addEventListener('change', (event) => {
+  state.filters.source = event.target.value.trim();
   void refresh();
 });
 document.getElementById('traceInput').addEventListener('change', (event) => {

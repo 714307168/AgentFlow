@@ -32,6 +32,10 @@ class AppLogger {
     return this.enabled;
   }
 
+  async flush(): Promise<void> {
+    await this.writeChain;
+  }
+
   getLogDirectory(): string {
     return path.join(app.getPath("userData"), "logs");
   }

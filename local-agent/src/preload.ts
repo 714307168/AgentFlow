@@ -123,6 +123,7 @@ contextBridge.exposeInMainWorld('claudeAgent', {
   },
   getAppSettings: () => ipcRenderer.invoke('get-app-settings'),
   setAppSettings: (settings: Record<string, boolean | number>) => ipcRenderer.invoke('set-app-settings', settings),
+  uploadDesktopLogs: () => ipcRenderer.invoke('upload-desktop-logs'),
   pickLocalDataRoot: (currentPath?: string | null) => ipcRenderer.invoke('pick-local-data-root', currentPath),
   openLocalDataRoot: (currentPath?: string | null) => ipcRenderer.invoke('open-local-data-root', currentPath),
   changeLocalDataRoot: (nextPath?: string | null) => ipcRenderer.invoke('change-local-data-root', nextPath),
