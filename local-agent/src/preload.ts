@@ -33,6 +33,22 @@ contextBridge.exposeInMainWorld('claudeAgent', {
   getAttachmentImageData: (data: { path?: string | null }) => ipcRenderer.invoke('get-attachment-image-data', data),
   stopProjectRun: (projectId: string) => ipcRenderer.invoke('stop-project-run', projectId),
   removeQueuedProjectPrompt: (data: { projectId: string; runId: string }) => ipcRenderer.invoke('remove-queued-project-prompt', data),
+  listScheduledTasks: () => ipcRenderer.invoke('list-scheduled-tasks'),
+  saveScheduledTask: (data: {
+    id?: string;
+    projectId: string;
+    name: string;
+    prompt: string;
+    scheduleType?: 'once' | 'daily';
+    runAt?: number | null;
+    dailyTime?: string | null;
+    enabled?: boolean;
+  }) => ipcRenderer.invoke('save-scheduled-task', data),
+  deleteScheduledTask: (taskId: string) => ipcRenderer.invoke('delete-scheduled-task', taskId),
+  runScheduledTaskNow: (taskId: string) => ipcRenderer.invoke('run-scheduled-task-now', taskId),
+  onScheduledTasksChanged: (callback: (tasks: unknown[]) => void) => {
+    ipcRenderer.on('scheduled-tasks-changed', (_event, tasks: unknown[]) => callback(tasks));
+  },
   listWorkgroups: () => ipcRenderer.invoke('list-workgroups'),
   listWorkgroupCollaborations: () => ipcRenderer.invoke('list-workgroup-collaborations'),
   getWorkgroupCollaborationSession: (workgroupId: string) => ipcRenderer.invoke('get-workgroup-collaboration-session', workgroupId),

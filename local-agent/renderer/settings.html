@@ -158,6 +158,8 @@
     }
     input[type="text"],
     input[type="password"],
+    input[type="datetime-local"],
+    input[type="time"],
     textarea,
     select {
       width: 100%;
@@ -170,6 +172,8 @@
     }
     input[type="text"]:focus,
     input[type="password"]:focus,
+    input[type="datetime-local"]:focus,
+    input[type="time"]:focus,
     textarea:focus,
     select:focus {
       border-color: var(--accent);
@@ -913,6 +917,62 @@
           </div>
 
           <div class="section">
+            <div class="section-title" id="scheduledTasksSection">Scheduled Tasks</div>
+            <div class="section-subtitle" id="scheduledTasksHint">Run a saved prompt on this desktop for a local project. V1 supports one-time and daily schedules.</div>
+            <div class="split-grid">
+              <div class="workgroup-card">
+                <div class="workgroup-card-title" id="scheduledTaskFormTitle">Task Profile</div>
+                <div class="field">
+                  <label id="scheduledTaskProjectLabel">Local Project</label>
+                  <select id="scheduledTaskProject"></select>
+                </div>
+                <div class="field">
+                  <label id="scheduledTaskNameLabel">Task Name</label>
+                  <input type="text" id="scheduledTaskName" placeholder="Daily health check">
+                </div>
+                <div class="field">
+                  <label id="scheduledTaskTypeLabel">Schedule Type</label>
+                  <select id="scheduledTaskType">
+                    <option value="once">One Time</option>
+                    <option value="daily">Daily</option>
+                  </select>
+                </div>
+                <div class="field" id="scheduledTaskRunAtField">
+                  <label id="scheduledTaskRunAtLabel">Run At</label>
+                  <input type="datetime-local" id="scheduledTaskRunAt">
+                </div>
+                <div class="field" id="scheduledTaskDailyTimeField" style="display:none;">
+                  <label id="scheduledTaskDailyTimeLabel">Daily Time</label>
+                  <input type="time" id="scheduledTaskDailyTime">
+                </div>
+                <div class="field">
+                  <label id="scheduledTaskPromptLabel">Prompt</label>
+                  <textarea id="scheduledTaskPrompt" rows="6" placeholder="Check the current branch, run the smoke test, and summarize anything abnormal."></textarea>
+                </div>
+                <div class="toggle-row">
+                  <div class="toggle-copy">
+                    <label id="scheduledTaskEnabledLabel" for="scheduledTaskEnabled">Enabled</label>
+                    <div class="toggle-help" id="scheduledTaskEnabledHint">Disabled tasks stay saved locally but will not auto-trigger.</div>
+                  </div>
+                  <div class="toggle">
+                    <input type="checkbox" id="scheduledTaskEnabled" checked>
+                    <span class="slider"></span>
+                  </div>
+                </div>
+                <div class="btn-row">
+                  <button class="btn-primary btn-small" id="saveScheduledTaskBtn">Save Task</button>
+                  <button class="btn-secondary btn-small" id="resetScheduledTaskBtn">Reset</button>
+                  <button class="btn-secondary btn-small" id="refreshScheduledTaskBtn">Refresh</button>
+                </div>
+              </div>
+              <div class="workgroup-card">
+                <div class="workgroup-card-title" id="scheduledTaskListTitle">Task List</div>
+                <div class="project-list" id="scheduledTaskList" data-empty-message="No scheduled tasks yet."></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="section">
             <div class="section-title" id="updatesSection">Updates</div>
             <div class="toggle-row">
               <div class="toggle-copy">
@@ -1039,6 +1099,7 @@
     let latestUpdateState = null;
     let latestAccessState = null;
     let latestProjectCatalog = [];
+    let latestScheduledTasks = [];
     let latestWorkgroups = [];
     let latestWorkgroupRegistryResults = [];
     const latestWorkgroupRegistryMembersById = new Map();
@@ -1046,6 +1107,8 @@
       accessIncoming: "",
       accessControllable: "",
       projects: "",
+      scheduledTaskProjects: "",
+      scheduledTasks: "",
       workgroupProjectPicker: "",
       workgroupProjectOptions: "",
       workgroupTaskAssignees: "",
@@ -1055,6 +1118,7 @@
       workgroupRegistry: "",
     };
     let currentWorkgroupId = "";
+    let editingScheduledTaskId = null;
     let editingWorkgroupId = null;
     let editingMemberId = null;
     let editingTaskId = null;
@@ -1070,6 +1134,9 @@
       projectsLoaded: false,
       projectsDirty: true,
       projectsPromise: null,
+      scheduledTasksLoaded: false,
+      scheduledTasksDirty: true,
+      scheduledTasksPromise: null,
       workgroupsLoaded: false,
       workgroupsDirty: true,
       workgroupsPromise: null,
@@ -1133,6 +1200,10 @@
       }
       if (normalizedPane === "project") {
         await refreshProjectPaneData();
+        return;
+      }
+      if (normalizedPane === "system") {
+        await loadScheduledTasks();
       }
     }
 
@@ -1342,6 +1413,35 @@
       document.getElementById("saveCacheSettingsBtn").textContent = inlineText("Save Cache Policy", "保存缓存策略");
       document.getElementById("repairChatHistoryBtn").textContent = inlineText("Repair Chat History", "修复聊天记录");
       document.getElementById("clearHistoryCacheBtn").textContent = inlineText("Clear Local History Cache", "清理本地历史缓存");
+      document.getElementById("scheduledTasksSection").textContent = inlineText("Scheduled Tasks", "定时任务");
+      document.getElementById("scheduledTasksHint").textContent = inlineText(
+        "Run a saved prompt on this desktop for a local project. V1 supports one-time and daily schedules.",
+        "在当前桌面端为本地项目定时执行保存好的提示词。第一版先支持单次和每日任务。"
+      );
+      document.getElementById("scheduledTaskFormTitle").textContent = inlineText("Task Profile", "任务配置");
+      document.getElementById("scheduledTaskProjectLabel").textContent = inlineText("Local Project", "本地项目");
+      document.getElementById("scheduledTaskNameLabel").textContent = inlineText("Task Name", "任务名称");
+      document.getElementById("scheduledTaskName").placeholder = inlineText("Daily health check", "每日健康检查");
+      document.getElementById("scheduledTaskTypeLabel").textContent = inlineText("Schedule Type", "调度类型");
+      document.getElementById("scheduledTaskType").options[0].text = inlineText("One Time", "单次");
+      document.getElementById("scheduledTaskType").options[1].text = inlineText("Daily", "每日");
+      document.getElementById("scheduledTaskRunAtLabel").textContent = inlineText("Run At", "执行时间");
+      document.getElementById("scheduledTaskDailyTimeLabel").textContent = inlineText("Daily Time", "每日时间");
+      document.getElementById("scheduledTaskPromptLabel").textContent = inlineText("Prompt", "提示词");
+      document.getElementById("scheduledTaskPrompt").placeholder = inlineText(
+        "Check the current branch, run the smoke test, and summarize anything abnormal.",
+        "检查当前分支，执行冒烟测试，并总结任何异常。"
+      );
+      document.getElementById("scheduledTaskEnabledLabel").textContent = inlineText("Enabled", "启用");
+      document.getElementById("scheduledTaskEnabledHint").textContent = inlineText(
+        "Disabled tasks stay saved locally but will not auto-trigger.",
+        "关闭后任务会继续保存在本地，但不会自动触发。"
+      );
+      document.getElementById("saveScheduledTaskBtn").textContent = inlineText("Save Task", "保存任务");
+      document.getElementById("resetScheduledTaskBtn").textContent = inlineText("Reset", "重置");
+      document.getElementById("refreshScheduledTaskBtn").textContent = inlineText("Refresh", "刷新");
+      document.getElementById("scheduledTaskListTitle").textContent = inlineText("Task List", "任务列表");
+      document.getElementById("scheduledTaskList").setAttribute("data-empty-message", inlineText("No scheduled tasks yet.", "还没有定时任务。"));
       document.getElementById("updatesSection").textContent = inlineText("Updates", "更新");
       document.getElementById("autoUpdateCheckLabel").textContent = inlineText("Automatically check for updates", "自动检查更新");
       document.getElementById("autoUpdateCheckHint").textContent = inlineText(
@@ -1630,6 +1730,294 @@
       if (renderSignatures.projects !== markup) {
         renderSignatures.projects = markup;
         listEl.innerHTML = markup;
+      }
+    }
+
+    function getLocalProjectsForScheduledTasks() {
+      return sortProjectsForWorkgroups(latestProjectCatalog).filter((project) => !project?.isRemote);
+    }
+
+    function renderScheduledTaskProjectOptions(selectedProjectId = "", fallbackLabel = "") {
+      const selectEl = document.getElementById("scheduledTaskProject");
+      const selectedId = String(selectedProjectId || "");
+      const projects = getLocalProjectsForScheduledTasks();
+      if (!projects.length) {
+        const markup = selectedId
+          ? `<option value="${escapeHtml(selectedId)}" selected>${escapeHtml(fallbackLabel || selectedId)}</option>`
+          : `<option value="">${escapeHtml(inlineText("No local projects yet", "还没有本地项目"))}</option>`;
+        if (renderSignatures.scheduledTaskProjects !== markup) {
+          renderSignatures.scheduledTaskProjects = markup;
+          selectEl.innerHTML = markup;
+        }
+        selectEl.disabled = true;
+        return;
+      }
+
+      selectEl.disabled = false;
+      const options = projects.map((project) => (
+        `<option value="${escapeHtml(project.id)}"${project.id === selectedId ? " selected" : ""}>${escapeHtml(project.name)}</option>`
+      ));
+      if (selectedId && !projects.some((project) => project.id === selectedId)) {
+        options.push(`<option value="${escapeHtml(selectedId)}" selected>${escapeHtml(fallbackLabel || selectedId)}</option>`);
+      }
+      const markup = options.join("");
+      if (renderSignatures.scheduledTaskProjects !== markup) {
+        renderSignatures.scheduledTaskProjects = markup;
+        selectEl.innerHTML = markup;
+      }
+      if (!selectedId && projects[0]) {
+        selectEl.value = projects[0].id;
+      }
+    }
+
+    function syncScheduledTaskTypeFields() {
+      const type = document.getElementById("scheduledTaskType").value || "once";
+      document.getElementById("scheduledTaskRunAtField").style.display = type === "daily" ? "none" : "";
+      document.getElementById("scheduledTaskDailyTimeField").style.display = type === "daily" ? "" : "none";
+    }
+
+    function formatLocalDateTimeInput(value) {
+      const numeric = Number(value || 0);
+      if (!Number.isFinite(numeric) || numeric <= 0) {
+        return "";
+      }
+      const date = new Date(numeric);
+      const pad = (part) => String(part).padStart(2, "0");
+      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+    }
+
+    function formatDateTimeLabel(value) {
+      const numeric = Number(value || 0);
+      if (!Number.isFinite(numeric) || numeric <= 0) {
+        return inlineText("Not scheduled", "未计划");
+      }
+      return new Date(numeric).toLocaleString(currentLang === "zh" ? "zh-CN" : undefined, {
+        hour12: false,
+      });
+    }
+
+    function getScheduledTaskStatusLabel(status) {
+      switch (status) {
+        case "queued":
+          return inlineText("Queued / Running", "排队中 / 执行中");
+        case "success":
+          return inlineText("Success", "成功");
+        case "error":
+          return inlineText("Error", "失败");
+        default:
+          return inlineText("Idle", "空闲");
+      }
+    }
+
+    function getScheduledTaskStatusClass(status) {
+      switch (status) {
+        case "queued":
+          return "assigned";
+        case "success":
+          return "done";
+        case "error":
+          return "error";
+        default:
+          return "todo";
+      }
+    }
+
+    function getScheduledTaskScheduleLabel(task) {
+      if ((task?.scheduleType || "once") === "daily") {
+        return inlineText(`Daily ${task?.dailyTime || "--:--"}`, `每日 ${task?.dailyTime || "--:--"}`);
+      }
+      return inlineText(`One time at ${formatDateTimeLabel(task?.runAt)}`, `单次 ${formatDateTimeLabel(task?.runAt)}`);
+    }
+
+    function resetScheduledTaskForm(task) {
+      editingScheduledTaskId = task?.id || null;
+      renderScheduledTaskProjectOptions(
+        task?.projectId || "",
+        task?.projectName || inlineText("Missing project", "项目不存在")
+      );
+      document.getElementById("scheduledTaskName").value = task?.name || "";
+      document.getElementById("scheduledTaskType").value = task?.scheduleType || "once";
+      document.getElementById("scheduledTaskRunAt").value = formatLocalDateTimeInput(
+        task?.runAt || (Date.now() + 30 * 60 * 1000)
+      );
+      document.getElementById("scheduledTaskDailyTime").value = task?.dailyTime || "09:00";
+      document.getElementById("scheduledTaskPrompt").value = task?.prompt || "";
+      document.getElementById("scheduledTaskEnabled").checked = task ? task.enabled !== false : true;
+      syncScheduledTaskTypeFields();
+      document.getElementById("saveScheduledTaskBtn").disabled = document.getElementById("scheduledTaskProject").disabled;
+    }
+
+    function renderScheduledTasks() {
+      const listEl = document.getElementById("scheduledTaskList");
+      if (!latestScheduledTasks.length) {
+        if (renderSignatures.scheduledTasks !== "") {
+          renderSignatures.scheduledTasks = "";
+          listEl.innerHTML = "";
+        }
+        return;
+      }
+
+      const markup = latestScheduledTasks.map((task) => `
+        <div class="project-item">
+          <div class="project-info">
+            <div class="project-name">${escapeHtml(task.name || "")}</div>
+            <div class="workgroup-inline-meta">
+              <span class="workgroup-pill status-${escapeHtml(getScheduledTaskStatusClass(task.lastRunStatus || "idle"))}">${escapeHtml(getScheduledTaskStatusLabel(task.lastRunStatus || "idle"))}</span>
+              <span class="workgroup-pill">${escapeHtml(task.enabled === false ? inlineText("Disabled", "已关闭") : inlineText("Enabled", "已启用"))}</span>
+              <span class="workgroup-pill">${escapeHtml(task.projectName || inlineText("Missing project", "项目不存在"))}</span>
+            </div>
+            <div class="workgroup-subtext">${escapeHtml(getScheduledTaskScheduleLabel(task))}</div>
+            <div class="workgroup-subtext">${escapeHtml(inlineText(`Next run: ${formatDateTimeLabel(task.nextRunAt)}`, `下次执行：${formatDateTimeLabel(task.nextRunAt)}`))}</div>
+            <div class="workgroup-subtext">${escapeHtml(inlineText(`Last run: ${formatDateTimeLabel(task.lastRunAt)}`, `上次执行：${formatDateTimeLabel(task.lastRunAt)}`))}</div>
+            ${task.projectPath ? `<div class="project-path">${escapeHtml(task.projectPath)}</div>` : ""}
+            ${task.prompt ? `<div class="workgroup-subtext" style="margin-top: 6px;">${escapeHtml(task.prompt)}</div>` : ""}
+            ${task.lastError ? `<div class="workgroup-subtext" style="margin-top: 6px;">${escapeHtml(task.lastError)}</div>` : ""}
+          </div>
+          <div class="project-actions">
+            <button class="btn-primary btn-small" onclick="runScheduledTaskNow('${task.id}')">${escapeHtml(inlineText("Run Now", "立即执行"))}</button>
+            <button class="btn-secondary btn-small" onclick="editScheduledTask('${task.id}')">${escapeHtml(inlineText("Edit", "编辑"))}</button>
+            <button class="btn-danger btn-small" onclick="deleteScheduledTask('${task.id}')">${escapeHtml(inlineText("Delete", "删除"))}</button>
+          </div>
+        </div>
+      `).join("");
+      if (renderSignatures.scheduledTasks !== markup) {
+        renderSignatures.scheduledTasks = markup;
+        listEl.innerHTML = markup;
+      }
+    }
+
+    async function loadScheduledTasks(options = {}) {
+      const force = options.force === true;
+      if (!force && paneLoadState.scheduledTasksPromise) {
+        await paneLoadState.scheduledTasksPromise;
+        if (paneLoadState.scheduledTasksLoaded) {
+          renderScheduledTasks();
+        }
+        return;
+      }
+      if (!force && paneLoadState.scheduledTasksLoaded && !paneLoadState.scheduledTasksDirty) {
+        renderScheduledTasks();
+        return;
+      }
+
+      try {
+        paneLoadState.scheduledTasksPromise = (async () => {
+          if (force || !paneLoadState.projectsLoaded || paneLoadState.projectsDirty) {
+            const projects = await api.getProjects({ refreshRemote: force });
+            latestProjectCatalog = Array.isArray(projects) ? projects : [];
+            paneLoadState.projectsLoaded = true;
+            paneLoadState.projectsDirty = false;
+          }
+          const result = await api.listScheduledTasks();
+          latestScheduledTasks = Array.isArray(result?.tasks) ? result.tasks : [];
+          paneLoadState.scheduledTasksLoaded = true;
+          paneLoadState.scheduledTasksDirty = false;
+        })();
+        await paneLoadState.scheduledTasksPromise;
+        renderScheduledTasks();
+        const editingTask = latestScheduledTasks.find((task) => task.id === editingScheduledTaskId) || null;
+        resetScheduledTaskForm(editingTask);
+      } catch (error) {
+        console.error("Failed to load scheduled tasks:", error);
+      } finally {
+        paneLoadState.scheduledTasksPromise = null;
+      }
+    }
+
+    function editScheduledTask(taskId) {
+      const task = latestScheduledTasks.find((entry) => entry.id === taskId);
+      if (!task) {
+        showStatus(inlineText("Scheduled task not found.", "定时任务不存在。"), true);
+        return;
+      }
+      resetScheduledTaskForm(task);
+      document.getElementById("scheduledTaskName").focus();
+    }
+
+    async function saveScheduledTask() {
+      const projectId = document.getElementById("scheduledTaskProject").value || "";
+      const name = document.getElementById("scheduledTaskName").value.trim();
+      const scheduleType = document.getElementById("scheduledTaskType").value || "once";
+      const runAtInput = document.getElementById("scheduledTaskRunAt").value.trim();
+      const dailyTime = document.getElementById("scheduledTaskDailyTime").value.trim();
+      const prompt = document.getElementById("scheduledTaskPrompt").value.trim();
+      const enabled = document.getElementById("scheduledTaskEnabled").checked;
+
+      if (!projectId) {
+        showStatus(inlineText("Choose a local project first.", "请先选择本地项目。"), true);
+        return;
+      }
+      if (!name) {
+        showStatus(inlineText("Task name is required.", "任务名称不能为空。"), true);
+        return;
+      }
+      if (!prompt) {
+        showStatus(inlineText("Task prompt is required.", "任务提示词不能为空。"), true);
+        return;
+      }
+      if (scheduleType === "once" && !runAtInput) {
+        showStatus(inlineText("Choose the run time for the one-time task.", "请选择单次任务执行时间。"), true);
+        return;
+      }
+      if (scheduleType === "daily" && !dailyTime) {
+        showStatus(inlineText("Choose the daily execution time.", "请选择每日执行时间。"), true);
+        return;
+      }
+
+      try {
+        const result = await api.saveScheduledTask({
+          id: editingScheduledTaskId || undefined,
+          projectId,
+          name,
+          prompt,
+          scheduleType,
+          runAt: scheduleType === "once" ? Date.parse(runAtInput) : null,
+          dailyTime: scheduleType === "daily" ? dailyTime : null,
+          enabled,
+        });
+        if (!result?.success) {
+          showStatus(result?.error || inlineText("Failed to save scheduled task.", "保存定时任务失败。"), true);
+          return;
+        }
+        paneLoadState.scheduledTasksDirty = true;
+        await loadScheduledTasks({ force: true });
+        flashSaved();
+      } catch (error) {
+        showStatus(getErrorMessage(error), true);
+      }
+    }
+
+    async function deleteScheduledTask(taskId) {
+      try {
+        const result = await api.deleteScheduledTask(taskId);
+        if (!result?.success) {
+          showStatus(result?.error || inlineText("Failed to delete scheduled task.", "删除定时任务失败。"), true);
+          return;
+        }
+        if (editingScheduledTaskId === taskId) {
+          editingScheduledTaskId = null;
+        }
+        paneLoadState.scheduledTasksDirty = true;
+        await loadScheduledTasks({ force: true });
+        flashSaved();
+      } catch (error) {
+        showStatus(getErrorMessage(error), true);
+      }
+    }
+
+    async function runScheduledTaskNow(taskId) {
+      try {
+        const result = await api.runScheduledTaskNow(taskId);
+        if (!result?.success) {
+          showStatus(result?.error || inlineText("Failed to run the scheduled task.", "立即执行定时任务失败。"), true);
+          return;
+        }
+        paneLoadState.scheduledTasksDirty = true;
+        await loadScheduledTasks({ force: true });
+        showStatus(inlineText("Scheduled task queued.", "定时任务已入队。"), false);
+        flashSaved();
+      } catch (error) {
+        showStatus(getErrorMessage(error), true);
       }
     }
 
@@ -2523,6 +2911,11 @@
       if (paneLoadState.workgroupsLoaded) {
         renderWorkgroups();
       }
+      if (paneLoadState.scheduledTasksLoaded) {
+        renderScheduledTasks();
+        const editingTask = latestScheduledTasks.find((task) => task.id === editingScheduledTaskId) || null;
+        resetScheduledTaskForm(editingTask);
+      }
       if (paneLoadState.accessLoaded) {
         renderAccessGrants(latestAccessState);
       }
@@ -2759,6 +3152,25 @@
       } catch (error) {
         showStatus(getErrorMessage(error), true);
       }
+    });
+
+    document.getElementById("scheduledTaskType").addEventListener("change", () => {
+      syncScheduledTaskTypeFields();
+    });
+
+    document.getElementById("saveScheduledTaskBtn").addEventListener("click", () => {
+      void saveScheduledTask();
+    });
+
+    document.getElementById("resetScheduledTaskBtn").addEventListener("click", () => {
+      const editingTask = latestScheduledTasks.find((task) => task.id === editingScheduledTaskId) || null;
+      resetScheduledTaskForm(editingTask);
+    });
+
+    document.getElementById("refreshScheduledTaskBtn").addEventListener("click", async () => {
+      paneLoadState.scheduledTasksDirty = true;
+      await loadScheduledTasks({ force: true });
+      flashSaved();
     });
 
     document.getElementById("repairChatHistoryBtn").addEventListener("click", async () => {
@@ -2999,6 +3411,21 @@
     if (typeof api.onProjectsChanged === "function") {
       api.onProjectsChanged(() => {
         scheduleProjectPaneRefresh(true);
+        paneLoadState.scheduledTasksDirty = true;
+        if (activeSettingsPane === "system") {
+          void loadScheduledTasks({ force: true });
+        }
+      });
+    }
+
+    if (typeof api.onScheduledTasksChanged === "function") {
+      api.onScheduledTasksChanged((tasks) => {
+        latestScheduledTasks = Array.isArray(tasks) ? tasks : [];
+        paneLoadState.scheduledTasksLoaded = true;
+        paneLoadState.scheduledTasksDirty = false;
+        renderScheduledTasks();
+        const editingTask = latestScheduledTasks.find((task) => task.id === editingScheduledTaskId) || null;
+        resetScheduledTaskForm(editingTask);
       });
     }
 

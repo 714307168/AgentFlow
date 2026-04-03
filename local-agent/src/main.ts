@@ -13,7 +13,14 @@ import projectStore, { normalizeProjectGroupName, Project } from "./project-stor
 import ptyManager from "./pty-manager";
 import RemoteSessionStore, { RemoteProjectRecord } from "./remote-session-store";
 import RemoteWorkgroupStore, { RemoteWorkgroupRegistryRecord, parseCompositeWorkgroupId } from "./remote-workgroup-store";
+import LocalScheduler from "./local-scheduler";
 import RuntimeManager, { CliProvider, ProjectSessionSnapshot, RunAttachment } from "./runtime-manager";
+import scheduledTaskStore, {
+  computeScheduledTaskNextRunAt,
+  normalizeDailyTime,
+  ScheduledTask,
+  ScheduledTaskScheduleType,
+} from "./scheduled-task-store";
 import workgroupStore, { Workgroup, WorkgroupMember, WorkgroupRole, WorkgroupTask, WorkgroupTaskStatus } from "./workgroup-store";
 import WorkgroupCollaborationService, {
   CollaborationBoundProject,
@@ -123,6 +130,12 @@ interface WorkgroupView extends Workgroup {
   members: WorkgroupMemberView[];
   tasks: WorkgroupTaskView[];
   selectedProjectIds: string[];
+}
+
+interface ScheduledTaskView extends ScheduledTask {
+  projectName: string | null;
+  projectPath: string | null;
+  projectMissing: boolean;
 }
 
 interface WorkgroupRegistryRecord {
@@ -712,6 +725,12 @@ const runtimeManager = new RuntimeManager(() => ({
   captureProjectScreenshot: async (projectId) => captureProjectScreenshot(projectId),
 }));
 runtimeManager.pruneHistoryCache(appSettingsStore.get("historyRetentionDays") as number);
+const localScheduler = new LocalScheduler({
+  executeTask: async (task) => executeScheduledTask(task),
+  onTasksChanged: () => {
+    broadcastScheduledTasksChanged();
+  },
+});
 const workgroupCollaborationService = new WorkgroupCollaborationService({
   runtimeManager,
   getBoundProject: (projectId: string): CollaborationBoundProject | null => {
@@ -775,6 +794,53 @@ async function captureProjectScreenshot(projectId: string): Promise<RunAttachmen
       format: "jpeg",
       jpegQuality: 78,
     }),
+  });
+}
+
+function buildScheduledTaskPrompt(task: ScheduledTask, project: Project): string {
+  const scheduleLabel = task.scheduleType === "daily"
+    ? `daily ${task.dailyTime ?? "--:--"}`
+    : `once ${task.runAt ? new Date(task.runAt).toLocaleString() : "unspecified"}`;
+  return [
+    `[Scheduled Task] ${task.name}`,
+    `Project: ${project.name}`,
+    `Schedule: ${scheduleLabel}`,
+    "",
+    task.prompt.trim(),
+  ].join("\n");
+}
+
+async function executeScheduledTask(task: ScheduledTask): Promise<{ success: boolean; message?: string | null }> {
+  const project = getLocalProjectById(task.projectId);
+  if (!project) {
+    return { success: false, message: "Bound local project was not found." };
+  }
+  const projectPath = String(project.path ?? "").trim();
+  if (!projectPath) {
+    return { success: false, message: "Bound local project path is empty." };
+  }
+  if (!fs.existsSync(projectPath)) {
+    return { success: false, message: `Bound local project path does not exist: ${projectPath}` };
+  }
+
+  return await new Promise((resolve) => {
+    let settled = false;
+    const settle = (result: { success: boolean; message?: string | null }) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      resolve(result);
+    };
+
+    runtimeManager.enqueueMessage({
+      projectId: project.id,
+      cwd: project.path,
+      prompt: buildScheduledTaskPrompt(task, project),
+      source: "desktop",
+      onDone: () => settle({ success: true, message: "Scheduled task completed." }),
+      onError: (error) => settle({ success: false, message: error || "Scheduled task failed." }),
+    });
   });
 }
 
@@ -1204,6 +1270,7 @@ function broadcastProjectsChanged(): void {
 
   broadcastWorkgroupsChanged();
   broadcastWorkgroupCollaborationSummaries();
+  broadcastScheduledTasksChanged();
 }
 
 function broadcastProjectSnapshot(projectId: string): void {
@@ -1229,8 +1296,30 @@ function getProjectById(projectId: string): (Project & { isRemote?: false }) | R
   return getAllProjects().find((project) => project.id === projectId);
 }
 
+function getLocalProjectById(projectId: string): Project | undefined {
+  return projectStore.getById(projectId);
+}
+
 function isRemoteProject(projectId: string): boolean {
   return remoteSessionStore?.hasProject(projectId) ?? false;
+}
+
+function listSerializedScheduledTasks(): ScheduledTaskView[] {
+  return scheduledTaskStore.listTasks().map((task) => {
+    const project = getLocalProjectById(task.projectId);
+    return {
+      ...task,
+      projectName: project?.name ?? null,
+      projectPath: project?.path ?? null,
+      projectMissing: !project,
+    };
+  });
+}
+
+function broadcastScheduledTasksChanged(): void {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("scheduled-tasks-changed", listSerializedScheduledTasks());
+  }
 }
 
 function getProjectSnapshot(projectId: string): ProjectSessionSnapshot | null {
@@ -3248,6 +3337,7 @@ ipcMain.handle("add-project", async (_event, data: {
   // Bind to server
   syncProjectCatalog(config.agentId);
 
+  localScheduler.syncTasks("add-project");
   rebuildTrayMenu();
   broadcastProjectsChanged();
   broadcastProjectSnapshot(projectId);
@@ -3305,6 +3395,7 @@ ipcMain.handle(
     if (updatedProject) {
       syncProjectCatalog(updatedProject.agentId || loadConfig().agentId);
     }
+    localScheduler.syncTasks("update-project");
     rebuildTrayMenu();
     broadcastProjectsChanged();
     broadcastProjectSnapshot(data.projectId);
@@ -3316,6 +3407,7 @@ ipcMain.handle(
 ipcMain.handle("delete-project", (_event, projectId: string) => {
   const project = projectStore.getById(projectId);
   projectStore.remove(projectId);
+  scheduledTaskStore.removeTasksByProjectId(projectId);
   runtimeManager.clearProject(projectId);
   clearRelaySyncState(projectId);
 
@@ -3334,6 +3426,7 @@ ipcMain.handle("delete-project", (_event, projectId: string) => {
   if (project) {
     syncProjectCatalog(project.agentId || loadConfig().agentId);
   }
+  localScheduler.syncTasks("delete-project");
   broadcastProjectsChanged();
   updateWindowTitles();
   return { success: true };
@@ -3990,6 +4083,96 @@ ipcMain.handle("remove-queued-project-prompt", (_event, data: { projectId: strin
 });
 
 // 窗口控制
+ipcMain.handle("list-scheduled-tasks", () => {
+  return {
+    success: true,
+    tasks: listSerializedScheduledTasks(),
+  };
+});
+
+ipcMain.handle("save-scheduled-task", (_event, data: {
+  id?: string;
+  projectId: string;
+  name: string;
+  prompt: string;
+  scheduleType?: ScheduledTaskScheduleType;
+  runAt?: number | null;
+  dailyTime?: string | null;
+  enabled?: boolean;
+}) => {
+  const project = getLocalProjectById(String(data?.projectId ?? "").trim());
+  if (!project) {
+    return { success: false, error: "Bound local project not found." };
+  }
+
+  const name = String(data?.name ?? "").trim();
+  const prompt = String(data?.prompt ?? "").trim();
+  if (!name) {
+    return { success: false, error: "Task name is required." };
+  }
+  if (!prompt) {
+    return { success: false, error: "Task prompt is required." };
+  }
+
+  const existing = typeof data?.id === "string" && data.id.trim()
+    ? scheduledTaskStore.getTaskById(data.id.trim())
+    : null;
+  const scheduleType: ScheduledTaskScheduleType = data?.scheduleType === "daily" ? "daily" : "once";
+  const enabled = data?.enabled !== false;
+  const runAt = scheduleType === "once"
+    ? (Number.isFinite(Number(data?.runAt)) && Number(data?.runAt) > 0 ? Math.trunc(Number(data?.runAt)) : null)
+    : null;
+  const dailyTime = scheduleType === "daily" ? normalizeDailyTime(data?.dailyTime) : null;
+
+  if (scheduleType === "once" && !runAt) {
+    return { success: false, error: "Choose a valid run time for the one-time task." };
+  }
+  if (scheduleType === "daily" && !dailyTime) {
+    return { success: false, error: "Choose a valid daily time in HH:mm format." };
+  }
+
+  const task = scheduledTaskStore.saveTask({
+    id: existing?.id || (typeof data?.id === "string" ? data.id.trim() : undefined),
+    projectId: project.id,
+    name,
+    prompt,
+    scheduleType,
+    runAt,
+    dailyTime,
+    enabled,
+    lastRunAt: existing?.lastRunAt ?? null,
+    lastRunStatus: existing?.lastRunStatus ?? "idle",
+    lastError: existing?.lastError ?? null,
+    nextRunAt: computeScheduledTaskNextRunAt({
+      scheduleType,
+      enabled,
+      runAt,
+      dailyTime,
+      lastRunAt: existing?.lastRunAt ?? null,
+    }),
+  });
+  localScheduler.syncTasks("save-scheduled-task");
+  return {
+    success: true,
+    task: listSerializedScheduledTasks().find((entry) => entry.id === task.id) ?? null,
+  };
+});
+
+ipcMain.handle("delete-scheduled-task", (_event, taskId: string) => {
+  const task = scheduledTaskStore.getTaskById(String(taskId ?? "").trim());
+  if (!task) {
+    return { success: false, error: "Scheduled task not found." };
+  }
+
+  scheduledTaskStore.removeTask(task.id);
+  localScheduler.syncTasks("delete-scheduled-task");
+  return { success: true };
+});
+
+ipcMain.handle("run-scheduled-task-now", async (_event, taskId: string) => {
+  return await localScheduler.runTaskNow(String(taskId ?? "").trim());
+});
+
 ipcMain.handle("list-workgroups", () => {
   return {
     success: true,
@@ -4504,6 +4687,7 @@ app.whenReady().then(async () => {
   startRelayHealthChecks();
   startRelayMaintenanceTask();
   runRelayMaintenanceTask("startup");
+  localScheduler.start();
   powerMonitor.on("resume", () => {
     runRelayMaintenanceTask("power-resume");
   });
@@ -4545,6 +4729,7 @@ app.on("before-quit", () => {
   clearRelayFollowUpRefreshTimers();
   if (relayClient) relayClient.disconnect();
   if (controllerRelayClient) controllerRelayClient.disconnect();
+  localScheduler.stop();
   updateManager.stop();
   runtimeManager.dispose();
   for (const project of projectStore.getAll()) {
