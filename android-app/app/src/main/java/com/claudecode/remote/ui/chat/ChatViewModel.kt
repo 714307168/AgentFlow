@@ -35,6 +35,8 @@ private const val OLDER_HISTORY_REQUEST_TIMEOUT_MS = 6_000L
 private const val SNAPSHOT_PERSIST_THROTTLE_MS = 1_200L
 private const val RESUME_STALE_CONNECTION_TIMEOUT_MS = 20_000L
 private const val ACTIVE_SYNC_STALE_CONNECTION_TIMEOUT_MS = 20_000L
+private const val MANUAL_REFRESH_CONNECTION_WAIT_MS = 4_000L
+private const val MANUAL_REFRESH_CONNECTION_POLL_MS = 250L
 private val POST_SEND_SYNC_DELAYS_MS = longArrayOf(0L, 1_200L, 4_000L, 9_000L)
 private const val SEND_FEEDBACK_TIMEOUT_MS = 12_000L
 private const val RECENT_SEND_REUSE_WINDOW_MS = 20_000L
@@ -539,6 +541,38 @@ class ChatViewModel(
                     limit = if (state.messages.isNotEmpty()) MESSAGE_PAGE_SIZE else INITIAL_SYNC_PAGE_SIZE
                 )
             }
+        }
+    }
+
+    fun refresh() {
+        val state = _uiState.value
+        if (state.projectId.isBlank()) {
+            return
+        }
+        markSyncBurst()
+        viewModelScope.launch {
+            try {
+                webSocket.ensureHealthyConnection(
+                    reason = "manual-chat-refresh:${state.projectId}",
+                    staleTimeoutMs = RESUME_STALE_CONNECTION_TIMEOUT_MS
+                )
+            } catch (e: Exception) {
+                CrashLogger.logError("ChatViewModel", "Error restoring chat connection on manual refresh", e)
+            }
+
+            var waitedMs = 0L
+            while (
+                waitedMs < MANUAL_REFRESH_CONNECTION_WAIT_MS &&
+                webSocket.connectionState.value != RelayWebSocket.ConnectionState.CONNECTED
+            ) {
+                kotlinx.coroutines.delay(MANUAL_REFRESH_CONNECTION_POLL_MS)
+                waitedMs += MANUAL_REFRESH_CONNECTION_POLL_MS
+            }
+
+            requestProjectSyncNow(
+                recentOverlapCount = ACTIVE_SYNC_OVERLAP_COUNT,
+                limit = if (state.messages.isNotEmpty()) MESSAGE_PAGE_SIZE else INITIAL_SYNC_PAGE_SIZE
+            )
         }
     }
 

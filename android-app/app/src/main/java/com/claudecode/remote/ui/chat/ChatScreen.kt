@@ -52,6 +52,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -496,12 +497,14 @@ fun ChatScreen(
                     runtimeText = runtimeLabel(uiState),
                     runtimeTone = runtimeColor(uiState),
                     onNavigateBack = onNavigateBack,
+                    onRefresh = viewModel::refresh,
                     onOpenConversations = { showConversationDialog = true },
                     onChangeModel = {
                         modelInput = uiState.cliModel
                         showModelDialog = true
                     },
                     conversationEnabled = uiState.isConnected,
+                    refreshEnabled = !uiState.isSwitchingConversation,
                     modelEnabled = uiState.isConnected && !uiState.isSending
                 )
 
@@ -902,9 +905,11 @@ private fun ChatHeader(
     runtimeText: String,
     runtimeTone: Color,
     onNavigateBack: () -> Unit,
+    onRefresh: () -> Unit,
     onOpenConversations: () -> Unit,
     onChangeModel: () -> Unit,
     conversationEnabled: Boolean,
+    refreshEnabled: Boolean,
     modelEnabled: Boolean
 ) {
     Surface(
@@ -964,6 +969,13 @@ private fun ChatHeader(
                 }
             }
 
+            ChatHeaderButton(
+                icon = Icons.Default.Refresh,
+                contentDescription = stringResource(R.string.action_refresh),
+                enabled = refreshEnabled,
+                tint = MaterialTheme.colorScheme.onSurface,
+                onClick = onRefresh
+            )
             ChatHeaderButton(
                 icon = Icons.Default.History,
                 contentDescription = stringResource(R.string.chat_conversations_title),

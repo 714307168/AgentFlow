@@ -22,8 +22,8 @@ android {
         applicationId = "com.claudecode.remote"
         minSdk = 26
         targetSdk = 34
-        versionCode = 80
-        versionName = "1.1.96"
+        versionCode = 81
+        versionName = "1.1.97"
     }
     buildFeatures {
         compose = true
