@@ -413,6 +413,10 @@ class MessageRepository(
                     uploadAttachment(projectId, attachment, agentId)
                 }
                 val messageContent = if (trimmedContent.isNotEmpty()) content else buildAttachmentOnlyPrompt(uploadedAttachments)
+                CrashLogger.logInfo(
+                    "MessageRepository",
+                    "Preparing message.send projectId=$projectId requestId=$requestId clientMessageId=$stableClientMessageId streamId=$streamId attachments=${uploadedAttachments.size} retry=${clientMessageId != null}"
+                )
                 val envelope = Envelope(
                     id = requestId,
                     event = Events.MESSAGE_SEND,
@@ -448,6 +452,10 @@ class MessageRepository(
                     conversationId = previousSession?.activeConversationId
                 )
                 webSocket.send(envelope, targetAgentId = agentId)
+                CrashLogger.logInfo(
+                    "MessageRepository",
+                    "Sent message.send envelope projectId=$projectId requestId=$requestId clientMessageId=$stableClientMessageId streamId=$streamId targetAgentId=${agentId?.trim().orEmpty().ifEmpty { "none" }}"
+                )
                 runCatching {
                     requestProjectSync(
                         projectId = projectId,
@@ -455,6 +463,16 @@ class MessageRepository(
                         limit = DEFAULT_SYNC_LIMIT,
                         shouldWakeAgent = false,
                         bypassDedupe = true
+                    )
+                    CrashLogger.logInfo(
+                        "MessageRepository",
+                        "Requested immediate post-send sync projectId=$projectId clientMessageId=$stableClientMessageId"
+                    )
+                }.onFailure { error ->
+                    CrashLogger.logError(
+                        "MessageRepository",
+                        "Failed to request immediate post-send sync for projectId=$projectId clientMessageId=$stableClientMessageId",
+                        error as? Exception ?: Exception(error)
                     )
                 }
             }
@@ -564,6 +582,10 @@ class MessageRepository(
 
             Events.MESSAGE_DONE -> {
                 val streamId = envelope.streamId ?: return
+                CrashLogger.logInfo(
+                    "MessageRepository",
+                    "Received message.done projectId=$projectId streamId=$streamId traceId=$streamId"
+                )
                 val buffer = streamBuffers[streamId]
                 if (buffer != null) {
                     buffer.isDone = true
@@ -596,6 +618,12 @@ class MessageRepository(
 
             Events.MESSAGE_ERROR -> {
                 val streamId = envelope.streamId
+                if (!streamId.isNullOrBlank()) {
+                    CrashLogger.logWarn(
+                        "MessageRepository",
+                        "Received message.error projectId=$projectId streamId=$streamId traceId=$streamId"
+                    )
+                }
                 if (streamId != null) {
                     streamBuffers.remove(streamId)
                     val existingMessage = messageDao.getMessageById(streamId)

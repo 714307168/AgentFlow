@@ -5,6 +5,7 @@ import com.claudecode.remote.data.crypto.E2ECrypto
 import com.claudecode.remote.data.local.TokenStore
 import com.claudecode.remote.data.model.Envelope
 import com.claudecode.remote.data.model.Events
+import com.claudecode.remote.util.CrashLogger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -154,6 +155,10 @@ class RelayWebSocket(
                         tag,
                         "Recovering stalled WebSocket state=${_connectionState.value} reason=$reason staleForMs=$staleForMs reconnectActive=$reconnectActive"
                     )
+                    CrashLogger.logWarn(
+                        tag,
+                        "Recovering stalled WebSocket state=${_connectionState.value} reason=$reason staleForMs=$staleForMs reconnectActive=$reconnectActive queued=${pendingOutgoingQueueSize()}"
+                    )
                     reconnectJob?.cancel()
                     reconnectJob = null
                     stopPing()
@@ -180,6 +185,10 @@ class RelayWebSocket(
                     }
 
                     Log.w(tag, "Forcing WebSocket reconnect reason=$reason staleForMs=$staleForMs")
+                    CrashLogger.logWarn(
+                        tag,
+                        "Forcing WebSocket reconnect reason=$reason staleForMs=$staleForMs queued=${pendingOutgoingQueueSize()}"
+                    )
                     reconnectJob?.cancel()
                     reconnectJob = null
                     stopPing()
@@ -229,6 +238,10 @@ class RelayWebSocket(
             }
 
             Log.w(tag, "Force reconnecting WebSocket reason=$reason")
+            CrashLogger.logWarn(
+                tag,
+                "Force reconnecting WebSocket reason=$reason queued=${pendingOutgoingQueueSize()}"
+            )
             reconnectJob?.cancel()
             reconnectJob = null
             stopPing()
@@ -314,6 +327,10 @@ class RelayWebSocket(
                     isAuthenticated = true
                     _errorMessage.value = null
                     Log.d(tag, "Authentication successful generation=$generation")
+                    CrashLogger.logInfo(
+                        tag,
+                        "Relay authentication succeeded generation=$generation lastSeq=$lastSeq queued=${pendingOutgoingQueueSize()}"
+                    )
                     extractAgentId(envelope)?.let(::ensureRoomKey)
                     flushPendingOutgoingEnvelopes()
                 }
@@ -339,6 +356,11 @@ class RelayWebSocket(
                 return
             }
             Log.e(tag, "WebSocket failure generation=$generation response=${response?.code}", t)
+            CrashLogger.logWarn(
+                tag,
+                "WebSocket failure generation=$generation response=${response?.code ?: 0} queued=${pendingOutgoingQueueSize()} message=${t.message.orEmpty()}",
+                t as? Exception
+            )
             isAuthenticated = false
             _errorMessage.value = buildDisplayableFailureMessage(t, response)
             _connectionState.value = ConnectionState.RECONNECTING
@@ -351,6 +373,10 @@ class RelayWebSocket(
                 return
             }
             Log.d(tag, "WebSocket closed generation=$generation code=$code reason=$reason")
+            CrashLogger.logWarn(
+                tag,
+                "WebSocket closed generation=$generation code=$code reason=${reason.ifBlank { "none" }} queued=${pendingOutgoingQueueSize()}"
+            )
             isAuthenticated = false
             if (code != 1000) {
                 val normalizedReason = reason.trim()
@@ -408,10 +434,19 @@ class RelayWebSocket(
             val accepted = socket.send(text)
             if (!accepted) {
                 Log.w(tag, "Socket rejected send event=${envelope.event}; queueing for retry")
+                CrashLogger.logWarn(
+                    tag,
+                    "Socket rejected send event=${envelope.event} projectId=${envelope.projectId.orEmpty()} streamId=${envelope.streamId.orEmpty()} queued=${pendingOutgoingQueueSize() + 1}"
+                )
                 queueOutgoingEnvelope(envelope, targetAgentId)
             }
         } catch (e: Exception) {
             Log.e(tag, "Failed to send envelope", e)
+            CrashLogger.logError(
+                tag,
+                "Failed to send envelope event=${envelope.event} projectId=${envelope.projectId.orEmpty()} streamId=${envelope.streamId.orEmpty()}",
+                e
+            )
             if (!isAuthEvent(envelope.event)) {
                 queueOutgoingEnvelope(envelope, targetAgentId)
             }
@@ -724,6 +759,10 @@ class RelayWebSocket(
             }
         }
         Log.w(tag, "Queued outgoing envelope event=${envelope.event} while socket unavailable or unauthenticated")
+        CrashLogger.logWarn(
+            tag,
+            "Queued outgoing envelope event=${envelope.event} projectId=${envelope.projectId.orEmpty()} streamId=${envelope.streamId.orEmpty()} targetAgentId=${targetAgentId?.trim().orEmpty().ifEmpty { "none" }} queued=${pendingOutgoingQueueSize()}"
+        )
         scope.launch {
             runCatching {
                 ensureHealthyConnection(reason = "queued-send:${envelope.event}")
@@ -742,10 +781,19 @@ class RelayWebSocket(
             pendingOutgoingEnvelopes.clear()
             ready
         }
+        if (queuedEnvelopes.isNotEmpty()) {
+            CrashLogger.logInfo(
+                tag,
+                "Flushing queued outgoing envelopes count=${queuedEnvelopes.size}"
+            )
+        }
         queuedEnvelopes.forEach { queuedEnvelope ->
             send(queuedEnvelope.envelope, targetAgentId = queuedEnvelope.targetAgentId)
         }
     }
+
+    private fun pendingOutgoingQueueSize(): Int =
+        synchronized(pendingOutgoingEnvelopes) { pendingOutgoingEnvelopes.size }
 
     private fun isCurrentSocket(generation: Long, candidate: WebSocket): Boolean =
         generation == connectionGeneration && candidate == webSocket

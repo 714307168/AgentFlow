@@ -615,6 +615,10 @@ class ChatViewModel(
             return
         }
 
+        CrashLogger.logInfo(
+            "ChatViewModel",
+            "Resolved pending send feedback from message.accepted runId=$acceptedRunId traceId=$acceptedRunId"
+        )
         pendingSendFeedbackRunId = null
         pendingSendFeedbackTimeoutJob?.cancel()
         pendingSendFeedbackTimeoutJob = null
@@ -880,6 +884,10 @@ class ChatViewModel(
             attachments = attachments.map { it.copy() },
             retryCount = retryCount
         )
+        CrashLogger.logInfo(
+            "ChatViewModel",
+            "Tracking pending send feedback runId=$runId retryCount=$retryCount attachments=${attachments.size}"
+        )
         pendingSendFeedbackRunId = runId
         pendingSendFeedbackTimeoutJob?.cancel()
         pendingSendFeedbackTimeoutJob = viewModelScope.launch {
@@ -888,8 +896,16 @@ class ChatViewModel(
                 pendingSendFeedbackRunId = null
                 val recent = recentSendFeedback
                 if (recent != null && recent.runId == runId && recent.retryCount < MAX_AUTO_SEND_RETRY_COUNT) {
+                    CrashLogger.logWarn(
+                        "ChatViewModel",
+                        "Pending send feedback timed out; retrying runId=$runId retryCount=${recent.retryCount}"
+                    )
                     retryPendingSendFeedback(recent)
                 } else {
+                    CrashLogger.logWarn(
+                        "ChatViewModel",
+                        "Pending send feedback timed out with no more retries runId=$runId"
+                    )
                     _uiState.update { it.copy(isSending = false) }
                 }
             }
@@ -935,6 +951,15 @@ class ChatViewModel(
             message.id == assistantStreamId || message.streamId == assistantStreamId
         }
         if (hasQueueAck || hasSyncedUserMessage || hasAssistantResponse) {
+            val resolutionSource = when {
+                hasQueueAck -> "queue-ack"
+                hasSyncedUserMessage -> "synced-user-message"
+                else -> "assistant-response"
+            }
+            CrashLogger.logInfo(
+                "ChatViewModel",
+                "Resolved pending send feedback runId=$runId source=$resolutionSource"
+            )
             if (pendingSendFeedbackRunId == runId) {
                 clearPendingSendFeedback(runId, clearRecent = true)
             } else {
@@ -963,6 +988,10 @@ class ChatViewModel(
             return false
         }
 
+        CrashLogger.logWarn(
+            "ChatViewModel",
+            "Reusing recent pending send feedback runId=$recentRunId because the same message was sent again"
+        )
         tokenStore.clearDraft(state.projectId)
         markSyncBurst()
         retryPendingSendFeedback(recent)
@@ -981,6 +1010,10 @@ class ChatViewModel(
             current.copy(isSending = true)
         }
         viewModelScope.launch {
+            CrashLogger.logWarn(
+                "ChatViewModel",
+                "Retrying pending send runId=${recent.runId} nextRetry=${recent.retryCount + 1}"
+            )
             try {
                 webSocket.ensureHealthyConnection(
                     reason = "chat-send-retry:${state.projectId}:${recent.runId}",

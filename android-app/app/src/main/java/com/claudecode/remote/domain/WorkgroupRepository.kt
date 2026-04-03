@@ -14,6 +14,7 @@ import com.claudecode.remote.data.remote.JoinWorkgroupRegistryRequest
 import com.claudecode.remote.data.remote.RelayApi
 import com.claudecode.remote.data.remote.RelayWebSocket
 import com.claudecode.remote.data.remote.WakeupRequest
+import com.claudecode.remote.util.CrashLogger
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -231,6 +232,10 @@ class WorkgroupRepository(
         val deferred = CompletableDeferred<Result<String>>()
         pendingSendRequests[requestId] = deferred
 
+        CrashLogger.logInfo(
+            "WorkgroupRepository",
+            "Sending workgroup message request agentId=$normalizedAgentId workgroupId=$normalizedWorkgroupId requestId=$requestId clientMessageId=$stableClientMessageId retryCount=$retryCount"
+        )
         ensureSocketReady(normalizedAgentId, "workgroup-send")
         webSocket.send(
             Envelope(
@@ -254,7 +259,16 @@ class WorkgroupRepository(
             withTimeout(MESSAGE_REQUEST_TIMEOUT_MS) { deferred.await() }
         } catch (error: Exception) {
             pendingSendRequests.remove(requestId)
+            CrashLogger.logWarn(
+                "WorkgroupRepository",
+                "Timed out waiting for workgroup message acknowledgement agentId=$normalizedAgentId workgroupId=$normalizedWorkgroupId requestId=$requestId clientMessageId=$stableClientMessageId retryCount=$retryCount",
+                error as? Exception
+            )
             if (retryCount < MAX_SEND_RETRY_COUNT) {
+                CrashLogger.logWarn(
+                    "WorkgroupRepository",
+                    "Retrying workgroup message send agentId=$normalizedAgentId workgroupId=$normalizedWorkgroupId clientMessageId=$stableClientMessageId nextRetry=${retryCount + 1}"
+                )
                 sendMessage(
                     agentId = normalizedAgentId,
                     workgroupId = normalizedWorkgroupId,
@@ -392,6 +406,9 @@ class WorkgroupRepository(
             Events.WORKGROUP_COLLABORATION_MESSAGE_RESULT -> {
                 val payload = envelope.payload?.jsonObject ?: return
                 val requestId = payload["request_id"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+                val workgroupId = payload["workgroup_id"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+                val clientMessageId = payload["client_message_id"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+                val success = payload["success"]?.jsonPrimitive?.booleanOrNull == true
                 payload["session"]?.jsonObject?.let { sessionObject ->
                     val agentId = payload["agent_id"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
                     applySessionSnapshot(agentId, sessionObject)
@@ -399,8 +416,19 @@ class WorkgroupRepository(
                 if (requestId.isBlank()) {
                     return
                 }
+                if (success) {
+                    CrashLogger.logInfo(
+                        "WorkgroupRepository",
+                        "Received workgroup message result success workgroupId=$workgroupId requestId=$requestId clientMessageId=$clientMessageId"
+                    )
+                } else {
+                    CrashLogger.logWarn(
+                        "WorkgroupRepository",
+                        "Received workgroup message result failure workgroupId=$workgroupId requestId=$requestId clientMessageId=$clientMessageId error=${payload["error"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()}"
+                    )
+                }
                 pendingSendRequests.remove(requestId)?.complete(
-                    if (payload["success"]?.jsonPrimitive?.booleanOrNull == true) {
+                    if (success) {
                         Result.success(
                             payload["client_message_id"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
                                 .ifBlank { requestId }
@@ -419,6 +447,8 @@ class WorkgroupRepository(
             Events.WORKGROUP_COLLABORATION_MESSAGE_ACCEPTED -> {
                 val payload = envelope.payload?.jsonObject ?: return
                 val requestId = payload["request_id"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+                val workgroupId = payload["workgroup_id"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+                val clientMessageId = payload["client_message_id"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
                 payload["session"]?.jsonObject?.let { sessionObject ->
                     val agentId = payload["agent_id"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
                     applySessionSnapshot(agentId, sessionObject)
@@ -426,6 +456,10 @@ class WorkgroupRepository(
                 if (requestId.isBlank()) {
                     return
                 }
+                CrashLogger.logInfo(
+                    "WorkgroupRepository",
+                    "Received workgroup message.accepted workgroupId=$workgroupId requestId=$requestId clientMessageId=$clientMessageId"
+                )
                 pendingSendRequests.remove(requestId)?.complete(
                     Result.success(
                         payload["client_message_id"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()

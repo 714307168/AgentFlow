@@ -94,6 +94,23 @@ object CrashLogger {
         appendToLog(getSessionLogFile(), logEntry)
     }
 
+    fun logWarn(tag: String, message: String, throwable: Throwable? = null) {
+        Log.w(tag, message, throwable)
+        if (!shouldPersist()) {
+            return
+        }
+
+        val logEntry = buildString {
+            appendLine("[${timestampNow()}] WARN [$tag] $message")
+            if (throwable != null) {
+                appendLine(throwable.stackTraceToStringCompat())
+            }
+            appendLine()
+        }
+
+        appendToLog(getSessionLogFile(), logEntry)
+    }
+
     fun logInfo(tag: String, message: String) {
         Log.i(tag, message)
         if (!shouldPersist()) {
