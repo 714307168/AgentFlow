@@ -207,6 +207,14 @@ function summarizeMessageContent(content: string, maxLength = 160): string {
   return `${normalized.slice(0, Math.max(0, maxLength - 3))}...`;
 }
 
+function formatMentionList(mentions: string[]): string {
+  return mentions.map((mention) => `@${mention}`).join(", ");
+}
+
+function formatMemberMentionList(members: Pick<WorkgroupMember, "name">[]): string {
+  return formatMentionList(members.map((member) => member.name));
+}
+
 interface ResolvedTargetSelection {
   targets: WorkgroupMember[];
   mode: "broadcast" | "explicit";
@@ -770,16 +778,16 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       return;
     }
 
-    const memberMentions = selection.targets.map((member) => `@${member.name}`).join(", ");
+    const memberMentions = formatMemberMentionList(selection.targets);
     const unmatchedMentions = selection.unmatchedMentions ?? [];
     const unmatchedSummary = unmatchedMentions.length > 0
-      ? ` Unmatched: ${unmatchedMentions.map((mention) => `@${mention}`).join(", ")}.`
+      ? ` Unmatched: ${formatMentionList(unmatchedMentions)}.`
       : "";
     const content = (selection.mode === "explicit"
-      ? `Notified ${memberMentions}`
+      ? `Routing queued for ${memberMentions}`
       : selection.targets.length === 1
-        ? `Sent to ${memberMentions}`
-        : `Broadcast to ${memberMentions}`) + unmatchedSummary;
+        ? `Queued for ${memberMentions}`
+        : `Broadcast queued for ${memberMentions}`) + unmatchedSummary;
 
     workgroupCollaborationStore.appendMessage(workgroupId, {
       senderType: "system",
@@ -800,13 +808,55 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       ? "Explicit routing failed: no available bound members matched this message."
       : unmatchedMentions.length === 1 && isProjectManagerMentionToken(unmatchedMentions[0] ?? "")
         ? `PM routing failed: no available PM matched @${unmatchedMentions[0]}.`
-        : `Mention routing failed: no member matched ${unmatchedMentions.map((mention) => `@${mention}`).join(", ")}.`;
+        : `Mention routing failed: no member matched ${formatMentionList(unmatchedMentions)}.`;
 
     workgroupCollaborationStore.appendMessage(workgroupId, {
       senderType: "error",
       senderName: "System",
       triggerMessageId,
       content,
+      status: "done",
+    });
+  }
+
+  private appendHandoffRoutingFailure(
+    workgroupId: string,
+    triggerMessageId: string,
+    sender: WorkgroupMember,
+    unmatchedMentions: string[],
+  ): void {
+    const content = unmatchedMentions.length === 0
+      ? `Handoff from @${sender.name} failed: no eligible member could be routed.`
+      : `Handoff from @${sender.name} failed: no member matched ${formatMentionList(unmatchedMentions)}.`;
+
+    workgroupCollaborationStore.appendMessage(workgroupId, {
+      senderType: "error",
+      senderName: "System",
+      triggerMessageId,
+      content,
+      status: "done",
+    });
+  }
+
+  private appendHandoffSkipNote(
+    workgroupId: string,
+    triggerMessageId: string,
+    sender: WorkgroupMember,
+    skippedTargets: WorkgroupMember[],
+    unmatchedMentions: string[],
+  ): void {
+    const skippedSummary = skippedTargets.length === 1
+      ? `${formatMemberMentionList(skippedTargets)} already handled this request`
+      : `${formatMemberMentionList(skippedTargets)} already handled this request`;
+    const unmatchedSummary = unmatchedMentions.length > 0
+      ? ` Unmatched: ${formatMentionList(unmatchedMentions)}.`
+      : "";
+
+    workgroupCollaborationStore.appendMessage(workgroupId, {
+      senderType: "system",
+      senderName: "System",
+      triggerMessageId,
+      content: `Handoff from @${sender.name} skipped: ${skippedSummary}.${unmatchedSummary}`,
       status: "done",
     });
   }
@@ -1122,18 +1172,56 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       requireExplicitMention: true,
       excludeMemberIds: [sender.id],
     });
+    const unmatchedMentions = selection.unmatchedMentions ?? [];
+    const hasExplicitMention = selection.targets.length > 0
+      || unmatchedMentions.length > 0
+      || EVERYONE_MENTION_ALIASES.some((alias) => findMentionRanges(sourceMessage.content.toLowerCase(), alias).length > 0);
+    const rootTriggerMessageId = this.resolveRootTriggerMessageId(workgroup.id, sourceMessage);
     if (selection.targets.length === 0) {
+      if (!hasExplicitMention) {
+        return;
+      }
+      this.appendHandoffRoutingFailure(workgroup.id, sourceMessage.id, sender, unmatchedMentions);
+      this.logWorkgroupEvent(
+        "warn",
+        "Failed workgroup member handoff because no targets could be routed.",
+        this.buildWorkgroupLogMeta(workgroup, {
+          traceId: rootTriggerMessageId ?? sourceMessage.id,
+          triggerMessageId: sourceMessage.id,
+          senderMemberId: sender.id,
+          senderMemberName: sender.name,
+          unmatchedMentions,
+        }),
+      );
+      this.emitSnapshot(workgroup.id);
+      this.emitSummaries();
       return;
     }
 
-    const rootTriggerMessageId = this.resolveRootTriggerMessageId(workgroup.id, sourceMessage);
     const alreadyHandledMemberIds = rootTriggerMessageId
       ? this.collectHandledMemberIdsForRoot(workgroup.id, rootTriggerMessageId)
       : new Set<string>();
     alreadyHandledMemberIds.delete(sender.id);
 
     const filteredTargets = selection.targets.filter((member) => !alreadyHandledMemberIds.has(member.id));
+    const skippedTargets = selection.targets.filter((member) => alreadyHandledMemberIds.has(member.id));
     if (filteredTargets.length === 0) {
+      this.appendHandoffSkipNote(workgroup.id, sourceMessage.id, sender, skippedTargets, unmatchedMentions);
+      this.logWorkgroupEvent(
+        "info",
+        "Skipped workgroup member handoff because all routed targets were already handled.",
+        this.buildWorkgroupLogMeta(workgroup, {
+          traceId: rootTriggerMessageId ?? sourceMessage.id,
+          triggerMessageId: sourceMessage.id,
+          senderMemberId: sender.id,
+          senderMemberName: sender.name,
+          skippedMemberIds: skippedTargets.map((member) => member.id),
+          skippedMemberNames: skippedTargets.map((member) => member.name),
+          unmatchedMentions,
+        }),
+      );
+      this.emitSnapshot(workgroup.id);
+      this.emitSummaries();
       return;
     }
 
@@ -1141,7 +1229,7 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       senderType: "system",
       senderName: "System",
       triggerMessageId: sourceMessage.id,
-      content: `Handoff from @${sender.name} to ${filteredTargets.map((member) => `@${member.name}`).join(", ")}`,
+      content: `Handoff queued from @${sender.name} to ${formatMemberMentionList(filteredTargets)}${unmatchedMentions.length > 0 ? ` Unmatched: ${formatMentionList(unmatchedMentions)}.` : ""}${skippedTargets.length > 0 ? ` Skipped: ${formatMemberMentionList(skippedTargets)} already handled this request.` : ""}`,
       status: "done",
     });
     this.logWorkgroupEvent(
@@ -1155,6 +1243,9 @@ export default class WorkgroupCollaborationService extends EventEmitter {
         senderMemberName: sender.name,
         targetMemberIds: filteredTargets.map((member) => member.id),
         targetMemberNames: filteredTargets.map((member) => member.name),
+        skippedMemberIds: skippedTargets.map((member) => member.id),
+        skippedMemberNames: skippedTargets.map((member) => member.name),
+        unmatchedMentions,
       }),
     );
     this.emitSnapshot(workgroup.id);
