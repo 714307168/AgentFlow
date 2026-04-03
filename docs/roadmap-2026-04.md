@@ -97,7 +97,7 @@
 
 - 阶段一完成度约 `92%`
 - 阶段二完成度约 `86%`
-- 阶段三完成度约 `25%`
+- 阶段三完成度约 `38%`
 - 阶段四完成度约 `0%`
 
 ### 已完成
@@ -122,6 +122,7 @@
 - 桌面端已补 workgroup 发送链路日志：用户消息受理、显式路由失败、成员 dispatch accepted / done / error、handoff 与 dispatch summary 现在都可追踪
 - 桌面端已继续收口协作组 handoff 文案：未匹配、已处理跳过、部分命中都能在协作组线程内明确看到
 - 桌面端已统一项目私聊与协作组消息回执的 `trace_id`：accepted / result / error 与本地 message-router 日志现在可共用同一追踪键
+- 服务端 mobile logs 分析页已补 `trace_id` / `workgroup_id` 提取与筛选，管理员可按 workgroup 检索并从分析结果一键回查同链路日志
 
 ### 进行中
 
@@ -130,8 +131,8 @@
 ### 下一刀
 
 1. 协作组与私聊在存储和同步边界上的进一步隔离
-2. 日志上传后的服务端分析视图补 workgroup 检索入口
-3. trace_id 在手机端日志与服务端分析页继续透传
+2. trace_id 在手机端日志与服务端分析页继续透传
+3. mobile logs 分析页补更多 workgroup / sync 异常规则
 
 ## 5. 后续顺序
 

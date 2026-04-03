@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -57,19 +58,21 @@ type storedMobileLogMetadata struct {
 }
 
 type adminMobileLogListItem struct {
-	ID           string `json:"id"`
-	UserID       int    `json:"user_id"`
-	Username     string `json:"username"`
-	DeviceID     string `json:"device_id"`
-	AgentID      string `json:"agent_id,omitempty"`
-	OriginalName string `json:"original_name"`
-	SizeBytes    int64  `json:"size_bytes"`
-	AppVersion   string `json:"app_version,omitempty"`
-	AppBuild     int    `json:"app_build,omitempty"`
-	DeviceModel  string `json:"device_model,omitempty"`
-	ClientTime   string `json:"client_time,omitempty"`
-	Source       string `json:"source,omitempty"`
-	UploadedAt   string `json:"uploaded_at"`
+	ID           string   `json:"id"`
+	UserID       int      `json:"user_id"`
+	Username     string   `json:"username"`
+	DeviceID     string   `json:"device_id"`
+	AgentID      string   `json:"agent_id,omitempty"`
+	OriginalName string   `json:"original_name"`
+	SizeBytes    int64    `json:"size_bytes"`
+	AppVersion   string   `json:"app_version,omitempty"`
+	AppBuild     int      `json:"app_build,omitempty"`
+	DeviceModel  string   `json:"device_model,omitempty"`
+	ClientTime   string   `json:"client_time,omitempty"`
+	Source       string   `json:"source,omitempty"`
+	UploadedAt   string   `json:"uploaded_at"`
+	TraceIDs     []string `json:"trace_ids,omitempty"`
+	WorkgroupIDs []string `json:"workgroup_ids,omitempty"`
 }
 
 type adminMobileLogDetailResponse struct {
@@ -91,6 +94,14 @@ type mobileLogAnalysisResponse struct {
 	WarningCount int               `json:"warning_count"`
 	Signals      []mobileLogSignal `json:"signals"`
 	RecentErrors []string          `json:"recent_errors"`
+	TraceIDs     []string          `json:"trace_ids,omitempty"`
+	WorkgroupIDs []string          `json:"workgroup_ids,omitempty"`
+}
+
+type mobileLogFilter struct {
+	Query       string
+	TraceID     string
+	WorkgroupID string
 }
 
 func DeviceLogUploadHandler(cfg *config.Config, database *db.DB) http.HandlerFunc {
@@ -222,10 +233,20 @@ func AdminMobileLogsHandler(cfg *config.Config, database *db.DB) http.HandlerFun
 			return
 		}
 		records = filterMobileLogsForAdmin(records, session)
+		filter := mobileLogFilter{
+			Query:       strings.TrimSpace(r.URL.Query().Get("q")),
+			TraceID:     strings.TrimSpace(r.URL.Query().Get("trace_id")),
+			WorkgroupID: strings.TrimSpace(r.URL.Query().Get("workgroup_id")),
+		}
+		if filter.Query != "" || filter.TraceID != "" || filter.WorkgroupID != "" {
+			records = filterStoredMobileLogs(records, filepath.Join(cfg.DataDir, "mobile-logs"), filter)
+		}
 
 		if remainder == "" {
 			items := make([]adminMobileLogListItem, 0, len(records))
 			for _, record := range records {
+				content, _ := readStoredMobileLogContent(filepath.Join(cfg.DataDir, "mobile-logs"), record)
+				traceIDs, workgroupIDs := extractTraceAndWorkgroupIDs(content)
 				items = append(items, adminMobileLogListItem{
 					ID:           record.ID,
 					UserID:       record.UserID,
@@ -240,6 +261,8 @@ func AdminMobileLogsHandler(cfg *config.Config, database *db.DB) http.HandlerFun
 					ClientTime:   record.ClientTime,
 					Source:       record.Source,
 					UploadedAt:   record.UploadedAt,
+					TraceIDs:     traceIDs,
+					WorkgroupIDs: workgroupIDs,
 				})
 			}
 			w.Header().Set("Content-Type", "application/json")
@@ -342,13 +365,64 @@ func findStoredMobileLog(records []storedMobileLogMetadata, storageDir, logID st
 		if record.ID != logID {
 			continue
 		}
-		content, err := os.ReadFile(filepath.Join(storageDir, record.StoredFileName))
+		content, err := readStoredMobileLogContent(storageDir, record)
 		if err != nil {
 			return storedMobileLogMetadata{}, "", false
 		}
-		return record, string(content), true
+		return record, content, true
 	}
 	return storedMobileLogMetadata{}, "", false
+}
+
+func readStoredMobileLogContent(storageDir string, record storedMobileLogMetadata) (string, error) {
+	content, err := os.ReadFile(filepath.Join(storageDir, record.StoredFileName))
+	if err != nil {
+		return "", err
+	}
+	return string(content), nil
+}
+
+func filterStoredMobileLogs(records []storedMobileLogMetadata, storageDir string, filter mobileLogFilter) []storedMobileLogMetadata {
+	if filter.Query == "" && filter.TraceID == "" && filter.WorkgroupID == "" {
+		return records
+	}
+
+	query := strings.ToLower(strings.TrimSpace(filter.Query))
+	traceID := strings.ToLower(strings.TrimSpace(filter.TraceID))
+	workgroupID := strings.ToLower(strings.TrimSpace(filter.WorkgroupID))
+	filtered := make([]storedMobileLogMetadata, 0, len(records))
+
+	for _, record := range records {
+		content, err := readStoredMobileLogContent(storageDir, record)
+		if err != nil {
+			continue
+		}
+		lowerContent := strings.ToLower(content)
+		if query != "" {
+			haystack := strings.ToLower(strings.Join([]string{
+				record.ID,
+				record.Username,
+				record.DeviceID,
+				record.AgentID,
+				record.OriginalName,
+				record.Source,
+				record.ConnectionNote,
+				content,
+			}, "\n"))
+			if !strings.Contains(haystack, query) {
+				continue
+			}
+		}
+		if traceID != "" && !strings.Contains(lowerContent, traceID) {
+			continue
+		}
+		if workgroupID != "" && !strings.Contains(lowerContent, workgroupID) {
+			continue
+		}
+		filtered = append(filtered, record)
+	}
+
+	return filtered
 }
 
 func sanitizeOriginalName(name string) string {
@@ -506,6 +580,8 @@ func analyzeMobileLog(content string) mobileLogAnalysisResponse {
 		return signals[i].Count > signals[j].Count
 	})
 
+	traceIDs, workgroupIDs := extractTraceAndWorkgroupIDs(content)
+
 	summary := "日志里没有发现明显的连接异常特征。"
 	switch {
 	case len(signals) > 0:
@@ -522,7 +598,46 @@ func analyzeMobileLog(content string) mobileLogAnalysisResponse {
 		WarningCount: warningCount,
 		Signals:      signals,
 		RecentErrors: recentErrors,
+		TraceIDs:     traceIDs,
+		WorkgroupIDs: workgroupIDs,
 	}
+}
+
+var (
+	traceIDPattern     = regexp.MustCompile(`(?i)(?:trace[_-]?id["=: ]+|traceId["=: ]+)([a-z0-9:-]{6,})`)
+	workgroupIDPattern = regexp.MustCompile(`(?i)(?:workgroup[_-]?id["=: ]+|workgroupId["=: ]+)([a-z0-9._:-]{3,})`)
+)
+
+func extractTraceAndWorkgroupIDs(content string) ([]string, []string) {
+	traceIDs := collectUniqueMatches(traceIDPattern, content)
+	workgroupIDs := collectUniqueMatches(workgroupIDPattern, content)
+	return traceIDs, workgroupIDs
+}
+
+func collectUniqueMatches(pattern *regexp.Regexp, content string) []string {
+	matches := pattern.FindAllStringSubmatch(content, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]struct{}, len(matches))
+	values := make([]string, 0, len(matches))
+	for _, match := range matches {
+		if len(match) < 2 {
+			continue
+		}
+		value := strings.Trim(strings.TrimSpace(match[1]), `"'.,;:()[]{}<>`)
+		if value == "" {
+			continue
+		}
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		values = append(values, value)
+	}
+	sort.Strings(values)
+	return values
 }
 
 const mobileLogsAdminHTML = `<!DOCTYPE html>
@@ -563,7 +678,7 @@ const mobileLogsAdminHTML = `<!DOCTYPE html>
   .topbar {
     display: flex;
     justify-content: space-between;
-    align-items: center;
+    align-items: flex-start;
     gap: 12px;
     padding: 22px 26px;
     background: rgba(255,252,248,0.95);
@@ -571,6 +686,21 @@ const mobileLogsAdminHTML = `<!DOCTYPE html>
   }
   .topbar p { margin: 4px 0 0; color: var(--muted); }
   .actions { display: flex; gap: 10px; flex-wrap: wrap; }
+  .filters {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    margin-top: 14px;
+  }
+  .filters input {
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 14px;
+    border: 1px solid rgba(111,87,55,0.16);
+    background: rgba(255,255,255,0.72);
+    font: inherit;
+    color: var(--text);
+  }
   .btn, button {
     border: 0;
     border-radius: 999px;
@@ -649,6 +779,22 @@ const mobileLogsAdminHTML = `<!DOCTYPE html>
     padding-left: 12px;
     margin-bottom: 12px;
   }
+  .chips {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+  }
+  .chip {
+    padding: 6px 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(111,87,55,0.16);
+    background: rgba(255,255,255,0.72);
+    font-size: 12px;
+  }
+  .chip.actionable {
+    cursor: pointer;
+  }
   .empty {
     padding: 28px 16px;
     text-align: center;
@@ -659,6 +805,7 @@ const mobileLogsAdminHTML = `<!DOCTYPE html>
     .content { grid-template-columns: 1fr; padding: 16px; }
     .meta-grid { grid-template-columns: 1fr; }
     .topbar { flex-direction: column; align-items: flex-start; }
+    .filters { grid-template-columns: 1fr; width: 100%; }
   }
 </style>
 </head>
@@ -667,7 +814,12 @@ const mobileLogsAdminHTML = `<!DOCTYPE html>
     <div class="topbar">
       <div>
         <h1>Mobile Logs</h1>
-        <p>手机端上传的连接与同步日志会集中保存在这里，可直接查看并分析异常信号。</p>
+        <p>Uploaded mobile logs can be filtered by text, trace_id, and workgroup_id for faster diagnosis.</p>
+        <div class="filters">
+          <input type="text" id="queryInput" placeholder="Search text, device, user, or error">
+          <input type="text" id="traceInput" placeholder="Filter by trace_id">
+          <input type="text" id="workgroupInput" placeholder="Filter by workgroup_id">
+        </div>
       </div>
       <div class="actions">
         <a class="btn ghost" href="/admin">Back to Admin</a>
@@ -677,13 +829,13 @@ const mobileLogsAdminHTML = `<!DOCTYPE html>
     <div class="content">
       <section class="card list-panel">
         <h2 style="margin:0 0 6px;">Uploaded Logs</h2>
-        <p class="muted" style="margin:0 0 14px;">按上传时间倒序显示。</p>
+        <p class="muted" style="margin:0 0 14px;">Newest first. Use the extracted trace and workgroup chips to pivot quickly.</p>
         <div class="list" id="logList"></div>
       </section>
       <section class="card detail-panel">
         <div>
           <h2 style="margin:0 0 6px;">Details</h2>
-          <p class="muted" style="margin:0;">元信息、自动分析和原始日志会一起显示。</p>
+          <p class="muted" style="margin:0;">Metadata, extracted identifiers, automated analysis, and raw log content are shown together.</p>
         </div>
         <div class="pane" id="metaPane"><div class="empty">Select a log from the left list.</div></div>
         <div class="pane" id="analysisPane"></div>
@@ -697,6 +849,11 @@ const state = {
   selectedId: "",
   detail: null,
   analysis: null,
+  filters: {
+    q: "",
+    trace_id: "",
+    workgroup_id: "",
+  },
 };
 
 async function api(url) {
@@ -722,18 +879,55 @@ function fmtBytes(value) {
   return (size / (1024 * 1024)).toFixed(2) + " MB";
 }
 
+function buildListUrl() {
+  const params = new URLSearchParams();
+  if (state.filters.q) params.set("q", state.filters.q);
+  if (state.filters.trace_id) params.set("trace_id", state.filters.trace_id);
+  if (state.filters.workgroup_id) params.set("workgroup_id", state.filters.workgroup_id);
+  const query = params.toString();
+  return "/admin/api/mobile-logs" + (query ? ("?" + query) : "");
+}
+
+function renderChips(values, kind) {
+  if (!Array.isArray(values) || values.length === 0) {
+    return '<div class="muted">-</div>';
+  }
+  return '<div class="chips">' + values.map((value) =>
+    '<button type="button" class="chip actionable" data-filter-kind="' + esc(kind) + '" data-filter-value="' + esc(value) + '">' + esc(value) + '</button>'
+  ).join("") + '</div>';
+}
+
+function bindFilterChipHandlers(root) {
+  root.querySelectorAll("[data-filter-kind]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const kind = button.getAttribute("data-filter-kind");
+      const value = button.getAttribute("data-filter-value") || "";
+      if (kind === "trace_id") {
+        state.filters.trace_id = value;
+        document.getElementById("traceInput").value = value;
+      } else if (kind === "workgroup_id") {
+        state.filters.workgroup_id = value;
+        document.getElementById("workgroupInput").value = value;
+      }
+      await refresh();
+    });
+  });
+}
+
 function renderList() {
   const root = document.getElementById("logList");
   if (!Array.isArray(state.logs) || state.logs.length === 0) {
-    root.innerHTML = '<div class="empty">No uploaded mobile logs yet.</div>';
+    root.innerHTML = '<div class="empty">No uploaded mobile logs matched the current filter.</div>';
     return;
   }
   root.innerHTML = state.logs.map((item) => {
     const active = item.id === state.selectedId ? "active" : "";
     return '<button type="button" class="item ' + active + '" data-id="' + esc(item.id) + '">' +
       '<div><strong>' + esc(item.original_name || item.id) + '</strong></div>' +
-      '<div class="muted">User ' + esc(item.username) + ' · Device ' + esc(item.device_id) + '</div>' +
-      '<div class="muted">' + esc(item.app_version || "-") + ' · ' + esc(item.uploaded_at || "-") + '</div>' +
+      '<div class="muted">User ' + esc(item.username) + ' ? Device ' + esc(item.device_id) + '</div>' +
+      '<div class="muted">' + esc(item.app_version || "-") + ' ? ' + esc(item.uploaded_at || "-") + '</div>' +
+      (Array.isArray(item.trace_ids) && item.trace_ids.length > 0 ? '<div class="muted">trace_id · ' + esc(item.trace_ids[0]) + '</div>' : '') +
+      (Array.isArray(item.workgroup_ids) && item.workgroup_ids.length > 0 ? '<div class="muted">workgroup_id · ' + esc(item.workgroup_ids[0]) + '</div>' : '') +
       '<div class="muted">' + esc(fmtBytes(item.size_bytes)) + '</div>' +
       '</button>';
   }).join("");
@@ -755,11 +949,14 @@ function renderMeta() {
     '<div><div class="meta-label">User</div><div>' + esc(meta.username) + ' (#' + esc(meta.user_id) + ')</div></div>' +
     '<div><div class="meta-label">Device</div><div class="mono">' + esc(meta.device_id) + '</div></div>' +
     '<div><div class="meta-label">Agent</div><div class="mono">' + esc(meta.agent_id || "-") + '</div></div>' +
+    '<div><div class="meta-label">Trace IDs</div><div>' + renderChips((state.analysis && state.analysis.trace_ids) || [], "trace_id") + '</div></div>' +
+    '<div><div class="meta-label">Workgroup IDs</div><div>' + renderChips((state.analysis && state.analysis.workgroup_ids) || [], "workgroup_id") + '</div></div>' +
     '<div><div class="meta-label">App Version</div><div>' + esc(meta.app_version || "-") + (meta.app_build ? ' (build ' + esc(meta.app_build) + ')' : '') + '</div></div>' +
     '<div><div class="meta-label">Device Model</div><div>' + esc(meta.device_model || "-") + '</div></div>' +
     '<div><div class="meta-label">Client Time</div><div>' + esc(meta.client_time || "-") + '</div></div>' +
     '<div><div class="meta-label">Original File</div><div>' + esc(meta.original_name) + '</div></div>' +
-    '<div><div class="meta-label">Size / SHA256</div><div class="mono">' + esc(fmtBytes(meta.size_bytes)) + '\n' + esc(meta.sha256) + '</div></div>' +
+    '<div><div class="meta-label">Size / SHA256</div><div class="mono">' + esc(fmtBytes(meta.size_bytes)) + '
+' + esc(meta.sha256) + '</div></div>' +
     '</div>';
 }
 
@@ -773,15 +970,19 @@ function renderAnalysis() {
   const recentErrors = Array.isArray(state.analysis.recent_errors) ? state.analysis.recent_errors : [];
   pane.innerHTML =
     '<div><strong>Summary</strong><div style="margin-top:6px;">' + esc(state.analysis.summary || "-") + '</div></div>' +
-    '<div class="muted" style="margin-top:8px;">Errors: ' + esc(state.analysis.error_count || 0) + ' · Warnings: ' + esc(state.analysis.warning_count || 0) + '</div>' +
+    '<div class="muted" style="margin-top:8px;">Errors: ' + esc(state.analysis.error_count || 0) + ' ? Warnings: ' + esc(state.analysis.warning_count || 0) + '</div>' +
+    '<div style="margin-top:8px;"><strong>Trace IDs</strong>' + renderChips(state.analysis.trace_ids || [], "trace_id") + '</div>' +
+    '<div style="margin-top:8px;"><strong>Workgroup IDs</strong>' + renderChips(state.analysis.workgroup_ids || [], "workgroup_id") + '</div>' +
     (signals.length === 0 ? '<div class="empty">No high-confidence diagnostic signal matched.</div>' : signals.map((signal) =>
       '<div class="signal">' +
-      '<div><strong>' + esc(signal.title) + '</strong> · ' + esc(signal.count) + '</div>' +
+      '<div><strong>' + esc(signal.title) + '</strong> ? ' + esc(signal.count) + '</div>' +
       '<div class="muted" style="margin:4px 0 8px;">' + esc(signal.recommendation) + '</div>' +
-      '<div class="mono">' + esc((signal.examples || []).join("\n")) + '</div>' +
+      '<div class="mono">' + esc((signal.examples || []).join("
+")) + '</div>' +
       '</div>'
     ).join("")) +
-    (recentErrors.length === 0 ? '' : '<div><strong>Recent Errors</strong><div class="mono" style="margin-top:6px;">' + esc(recentErrors.join("\n")) + '</div></div>');
+    (recentErrors.length === 0 ? '' : '<div><strong>Recent Errors</strong><div class="mono" style="margin-top:6px;">' + esc(recentErrors.join("
+")) + '</div></div>');
 }
 
 function renderContent() {
@@ -796,10 +997,14 @@ async function selectLog(id) {
   renderMeta();
   renderAnalysis();
   renderContent();
+  bindFilterChipHandlers(document);
 }
 
 async function refresh() {
-  state.logs = await api('/admin/api/mobile-logs');
+  state.logs = await api(buildListUrl());
+  if (state.selectedId && !state.logs.some((item) => item.id === state.selectedId)) {
+    state.selectedId = "";
+  }
   if (!state.selectedId && state.logs.length > 0) {
     state.selectedId = state.logs[0].id;
   }
@@ -816,6 +1021,18 @@ async function refresh() {
 }
 
 document.getElementById('refreshBtn').addEventListener('click', () => { void refresh(); });
+document.getElementById('queryInput').addEventListener('change', (event) => {
+  state.filters.q = event.target.value.trim();
+  void refresh();
+});
+document.getElementById('traceInput').addEventListener('change', (event) => {
+  state.filters.trace_id = event.target.value.trim();
+  void refresh();
+});
+document.getElementById('workgroupInput').addEventListener('change', (event) => {
+  state.filters.workgroup_id = event.target.value.trim();
+  void refresh();
+});
 void refresh();
 </script>
 </body>

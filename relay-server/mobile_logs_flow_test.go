@@ -20,10 +20,12 @@ type deviceLoginResponse struct {
 }
 
 type uploadedMobileLog struct {
-	ID           string `json:"id"`
-	Username     string `json:"username"`
-	DeviceID     string `json:"device_id"`
-	OriginalName string `json:"original_name"`
+	ID           string   `json:"id"`
+	Username     string   `json:"username"`
+	DeviceID     string   `json:"device_id"`
+	OriginalName string   `json:"original_name"`
+	TraceIDs     []string `json:"trace_ids"`
+	WorkgroupIDs []string `json:"workgroup_ids"`
 }
 
 type uploadedMobileLogDetail struct {
@@ -36,9 +38,11 @@ type uploadedMobileLogDetail struct {
 }
 
 type uploadedMobileLogAnalysis struct {
-	Summary    string `json:"summary"`
-	ErrorCount int    `json:"error_count"`
-	Signals    []struct {
+	Summary      string   `json:"summary"`
+	ErrorCount   int      `json:"error_count"`
+	TraceIDs     []string `json:"trace_ids"`
+	WorkgroupIDs []string `json:"workgroup_ids"`
+	Signals      []struct {
 		Code  string `json:"code"`
 		Count int    `json:"count"`
 	} `json:"signals"`
@@ -107,13 +111,21 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 
 	uploadBody := map[string]any{
 		"file_name":    "app-20260401.log",
-		"content":      "[2026-04-01 18:00:00.000] ERROR [RelayConnectionService] Failed to refresh mobile token after auth error\n[2026-04-01 18:00:01.000] ERROR [MainActivity] Failed to verify relay connection on resume\n",
+		"content":      "[2026-04-01 18:00:00.000] ERROR [RelayConnectionService] Failed to refresh mobile token after auth error trace_id=trace-alpha-001 workgroup_id=fyzy-workgroup\n[2026-04-01 18:00:01.000] ERROR [MainActivity] Failed to verify relay connection on resume trace_id=trace-alpha-001\n",
 		"app_version":  "1.1.91",
 		"app_build":    75,
 		"device_model": "Pixel Test",
 		"source":       "android",
 	}
 	doJSONWithBearer(t, http.DefaultClient, http.MethodPost, server.URL+"/api/device/logs", deviceLogin.Token, uploadBody, http.StatusOK, nil)
+	doJSONWithBearer(t, http.DefaultClient, http.MethodPost, server.URL+"/api/device/logs", deviceLogin.Token, map[string]any{
+		"file_name":    "app-20260402.log",
+		"content":      "[2026-04-02 10:00:00.000] WARN [RelayConnectionService] recovering stalled websocket trace_id=trace-beta-002 workgroup_id=other-workgroup\n",
+		"app_version":  "1.1.92",
+		"app_build":    76,
+		"device_model": "Pixel Test",
+		"source":       "android",
+	}, http.StatusOK, nil)
 
 	jar, err := cookiejar.New(nil)
 	if err != nil {
@@ -141,26 +153,61 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 
 	var logs []uploadedMobileLog
 	doJSON(t, adminClient, http.MethodGet, server.URL+"/admin/api/mobile-logs", nil, http.StatusOK, &logs)
-	if len(logs) != 1 {
-		t.Fatalf("expected 1 uploaded mobile log, got %d", len(logs))
+	if len(logs) != 2 {
+		t.Fatalf("expected 2 uploaded mobile logs, got %d", len(logs))
 	}
-	if logs[0].Username != "alice" || logs[0].DeviceID != "device-a" {
-		t.Fatalf("unexpected uploaded log owner: %+v", logs[0])
+
+	var alphaLog uploadedMobileLog
+	var betaLog uploadedMobileLog
+	for _, item := range logs {
+		if item.Username != "alice" || item.DeviceID != "device-a" {
+			t.Fatalf("unexpected uploaded log owner: %+v", item)
+		}
+		if len(item.TraceIDs) > 0 && item.TraceIDs[0] == "trace-alpha-001" {
+			alphaLog = item
+		}
+		if len(item.TraceIDs) > 0 && item.TraceIDs[0] == "trace-beta-002" {
+			betaLog = item
+		}
+	}
+	if alphaLog.ID == "" || betaLog.ID == "" {
+		t.Fatalf("expected both alpha and beta logs in list, got %+v", logs)
+	}
+	if len(alphaLog.WorkgroupIDs) == 0 || alphaLog.WorkgroupIDs[0] != "fyzy-workgroup" {
+		t.Fatalf("expected alpha log to include extracted workgroup ids, got %+v", alphaLog)
 	}
 
 	var detail uploadedMobileLogDetail
-	doJSON(t, adminClient, http.MethodGet, server.URL+"/admin/api/mobile-logs/"+logs[0].ID, nil, http.StatusOK, &detail)
+	doJSON(t, adminClient, http.MethodGet, server.URL+"/admin/api/mobile-logs/"+alphaLog.ID, nil, http.StatusOK, &detail)
 	if !strings.Contains(detail.Content, "Failed to refresh mobile token") {
 		t.Fatalf("unexpected log content: %s", detail.Content)
 	}
 
 	var analysis uploadedMobileLogAnalysis
-	doJSON(t, adminClient, http.MethodGet, server.URL+"/admin/api/mobile-logs/"+logs[0].ID+"/analysis", nil, http.StatusOK, &analysis)
+	doJSON(t, adminClient, http.MethodGet, server.URL+"/admin/api/mobile-logs/"+alphaLog.ID+"/analysis", nil, http.StatusOK, &analysis)
 	if analysis.ErrorCount < 2 {
 		t.Fatalf("expected analysis to count errors, got %+v", analysis)
 	}
 	if len(analysis.Signals) == 0 {
 		t.Fatalf("expected analysis signals, got %+v", analysis)
+	}
+	if len(analysis.TraceIDs) == 0 || analysis.TraceIDs[0] != "trace-alpha-001" {
+		t.Fatalf("expected analysis to expose trace ids, got %+v", analysis)
+	}
+	if len(analysis.WorkgroupIDs) == 0 || analysis.WorkgroupIDs[0] != "fyzy-workgroup" {
+		t.Fatalf("expected analysis to expose workgroup ids, got %+v", analysis)
+	}
+
+	var traceFiltered []uploadedMobileLog
+	doJSON(t, adminClient, http.MethodGet, server.URL+"/admin/api/mobile-logs?trace_id=trace-alpha-001", nil, http.StatusOK, &traceFiltered)
+	if len(traceFiltered) != 1 || traceFiltered[0].ID != alphaLog.ID {
+		t.Fatalf("expected trace filter to return first log, got %+v", traceFiltered)
+	}
+
+	var workgroupFiltered []uploadedMobileLog
+	doJSON(t, adminClient, http.MethodGet, server.URL+"/admin/api/mobile-logs?workgroup_id=other-workgroup", nil, http.StatusOK, &workgroupFiltered)
+	if len(workgroupFiltered) != 1 || workgroupFiltered[0].ID != betaLog.ID {
+		t.Fatalf("expected workgroup filter to return second log, got %+v", workgroupFiltered)
 	}
 }
 
