@@ -1,7 +1,7 @@
 import Store from "electron-store";
 import { v4 as uuidv4 } from "uuid";
 
-export type ScheduledTaskScheduleType = "once" | "daily" | "weekly";
+export type ScheduledTaskScheduleType = "once" | "delay" | "daily" | "weekly";
 export type ScheduledTaskLastStatus = "idle" | "queued" | "running" | "success" | "error";
 
 export interface ScheduledTask {
@@ -11,6 +11,8 @@ export interface ScheduledTask {
   prompt: string;
   scheduleType: ScheduledTaskScheduleType;
   runAt?: number | null;
+  delayMinutes?: number | null;
+  delayStartAt?: number | null;
   dailyTime?: string | null;
   weeklyDay?: number | null;
   enabled: boolean;
@@ -18,6 +20,9 @@ export interface ScheduledTask {
   lastRunAt?: number | null;
   lastRunStatus: ScheduledTaskLastStatus;
   lastError?: string | null;
+  retryCount?: number | null;
+  maxRetries?: number | null;
+  retryDelayMinutes?: number | null;
   nextRunAt?: number | null;
   createdAt: number;
   updatedAt: number;
@@ -41,10 +46,26 @@ function normalizeTimestamp(value: number | null | undefined): number | null {
 }
 
 function normalizeScheduleType(value: string | null | undefined): ScheduledTaskScheduleType {
-  if (value === "daily" || value === "weekly") {
+  if (value === "delay" || value === "daily" || value === "weekly") {
     return value;
   }
   return "once";
+}
+
+function normalizePositiveInteger(value: number | null | undefined): number | null {
+  const numeric = Number(value);
+  if (!Number.isInteger(numeric) || numeric <= 0) {
+    return null;
+  }
+  return numeric;
+}
+
+function normalizeRetryCount(value: number | null | undefined): number {
+  const numeric = Number(value);
+  if (!Number.isInteger(numeric) || numeric < 0) {
+    return 0;
+  }
+  return numeric;
 }
 
 export function normalizeDailyTime(value: string | null | undefined): string | null {
@@ -85,7 +106,7 @@ function normalizeLastStatus(value: string | null | undefined): ScheduledTaskLas
 }
 
 export function computeScheduledTaskNextRunAt(
-  task: Pick<ScheduledTask, "scheduleType" | "enabled" | "runAt" | "dailyTime" | "weeklyDay" | "lastRunAt">,
+  task: Pick<ScheduledTask, "scheduleType" | "enabled" | "runAt" | "delayMinutes" | "delayStartAt" | "dailyTime" | "weeklyDay" | "lastRunAt">,
   now = Date.now(),
 ): number | null {
   if (!task.enabled) {
@@ -99,6 +120,19 @@ export function computeScheduledTaskNextRunAt(
     if (!runAt) {
       return null;
     }
+    if (lastRunAt !== null && lastRunAt >= runAt) {
+      return null;
+    }
+    return runAt;
+  }
+
+  if (scheduleType === "delay") {
+    const delayMinutes = normalizePositiveInteger(task.delayMinutes);
+    const delayStartAt = normalizeTimestamp(task.delayStartAt);
+    if (!delayMinutes || !delayStartAt) {
+      return null;
+    }
+    const runAt = delayStartAt + delayMinutes * 60 * 1000;
     if (lastRunAt !== null && lastRunAt >= runAt) {
       return null;
     }
@@ -156,6 +190,8 @@ class ScheduledTaskStore {
         prompt: String(task.prompt ?? "").trim(),
         scheduleType: normalizeScheduleType(task.scheduleType),
         runAt: normalizeTimestamp(task.runAt),
+        delayMinutes: normalizePositiveInteger(task.delayMinutes),
+        delayStartAt: normalizeTimestamp(task.delayStartAt),
         dailyTime: normalizeDailyTime(task.dailyTime),
         weeklyDay: normalizeWeeklyDay(task.weeklyDay),
         enabled: Boolean(task.enabled),
@@ -163,6 +199,9 @@ class ScheduledTaskStore {
         lastRunAt: normalizeTimestamp(task.lastRunAt),
         lastRunStatus: normalizeLastStatus(task.lastRunStatus),
         lastError: normalizeNullableText(task.lastError),
+        retryCount: normalizeRetryCount(task.retryCount),
+        maxRetries: normalizeRetryCount(task.maxRetries),
+        retryDelayMinutes: normalizePositiveInteger(task.retryDelayMinutes),
         nextRunAt: normalizeTimestamp(task.nextRunAt),
         createdAt: normalizeTimestamp(task.createdAt) ?? Date.now(),
         updatedAt: normalizeTimestamp(task.updatedAt) ?? Date.now(),
@@ -201,6 +240,8 @@ class ScheduledTaskStore {
       prompt: String(input.prompt ?? "").trim(),
       scheduleType: normalizeScheduleType(input.scheduleType),
       runAt: input.runAt !== undefined ? normalizeTimestamp(input.runAt) : (existing?.runAt ?? null),
+      delayMinutes: input.delayMinutes !== undefined ? normalizePositiveInteger(input.delayMinutes) : (existing?.delayMinutes ?? null),
+      delayStartAt: input.delayStartAt !== undefined ? normalizeTimestamp(input.delayStartAt) : (existing?.delayStartAt ?? null),
       dailyTime: input.dailyTime !== undefined ? normalizeDailyTime(input.dailyTime) : (existing?.dailyTime ?? null),
       weeklyDay: input.weeklyDay !== undefined ? normalizeWeeklyDay(input.weeklyDay) : (existing?.weeklyDay ?? null),
       enabled: input.enabled !== undefined ? Boolean(input.enabled) : (existing?.enabled ?? true),
@@ -208,6 +249,9 @@ class ScheduledTaskStore {
       lastRunAt: input.lastRunAt !== undefined ? normalizeTimestamp(input.lastRunAt) : (existing?.lastRunAt ?? null),
       lastRunStatus: input.lastRunStatus !== undefined ? normalizeLastStatus(input.lastRunStatus) : (existing?.lastRunStatus ?? "idle"),
       lastError: input.lastError !== undefined ? normalizeNullableText(input.lastError) : (existing?.lastError ?? null),
+      retryCount: input.retryCount !== undefined ? normalizeRetryCount(input.retryCount) : (existing?.retryCount ?? 0),
+      maxRetries: input.maxRetries !== undefined ? normalizeRetryCount(input.maxRetries) : (existing?.maxRetries ?? 0),
+      retryDelayMinutes: input.retryDelayMinutes !== undefined ? normalizePositiveInteger(input.retryDelayMinutes) : (existing?.retryDelayMinutes ?? 5),
       nextRunAt: input.nextRunAt !== undefined ? normalizeTimestamp(input.nextRunAt) : (existing?.nextRunAt ?? null),
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,

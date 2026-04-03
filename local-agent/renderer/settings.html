@@ -934,6 +934,7 @@
                   <label id="scheduledTaskTypeLabel">Schedule Type</label>
                   <select id="scheduledTaskType">
                     <option value="once">One Time</option>
+                    <option value="delay">Delay</option>
                     <option value="daily">Daily</option>
                     <option value="weekly">Weekly</option>
                   </select>
@@ -941,6 +942,10 @@
                 <div class="field" id="scheduledTaskRunAtField">
                   <label id="scheduledTaskRunAtLabel">Run At</label>
                   <input type="datetime-local" id="scheduledTaskRunAt">
+                </div>
+                <div class="field" id="scheduledTaskDelayField" style="display:none;">
+                  <label id="scheduledTaskDelayLabel">Delay Minutes</label>
+                  <input type="text" id="scheduledTaskDelayMinutes" inputmode="numeric" placeholder="30">
                 </div>
                 <div class="field" id="scheduledTaskDailyTimeField" style="display:none;">
                   <label id="scheduledTaskDailyTimeLabel">Repeat Time</label>
@@ -961,6 +966,16 @@
                 <div class="field">
                   <label id="scheduledTaskPromptLabel">Prompt</label>
                   <textarea id="scheduledTaskPrompt" rows="6" placeholder="Check the current branch, run the smoke test, and summarize anything abnormal."></textarea>
+                </div>
+                <div class="split-grid">
+                  <div class="field">
+                    <label id="scheduledTaskRetryCountLabel">Max Retries</label>
+                    <input type="text" id="scheduledTaskMaxRetries" inputmode="numeric" placeholder="0">
+                  </div>
+                  <div class="field">
+                    <label id="scheduledTaskRetryDelayLabel">Retry Delay (minutes)</label>
+                    <input type="text" id="scheduledTaskRetryDelayMinutes" inputmode="numeric" placeholder="5">
+                  </div>
                 </div>
                 <div class="toggle-row">
                   <div class="toggle-copy">
@@ -1428,8 +1443,8 @@
       document.getElementById("clearHistoryCacheBtn").textContent = inlineText("Clear Local History Cache", "清理本地历史缓存");
       document.getElementById("scheduledTasksSection").textContent = inlineText("Scheduled Tasks", "定时任务");
       document.getElementById("scheduledTasksHint").textContent = inlineText(
-        "Run a saved prompt on this desktop for a local project. V1 supports one-time, daily, and weekly schedules.",
-        "在当前桌面端为本地项目定时执行保存好的提示词。第一版支持单次、每日和每周任务。"
+        "Run a saved prompt on this desktop for a local project. V1 supports one-time, delay, daily, and weekly schedules.",
+        "在当前桌面端为本地项目定时执行保存好的提示词。第一版支持单次、延迟、每日和每周任务。"
       );
       document.getElementById("scheduledTaskFormTitle").textContent = inlineText("Task Profile", "任务配置");
       document.getElementById("scheduledTaskProjectLabel").textContent = inlineText("Local Project", "本地项目");
@@ -1437,9 +1452,12 @@
       document.getElementById("scheduledTaskName").placeholder = inlineText("Daily health check", "每日健康检查");
       document.getElementById("scheduledTaskTypeLabel").textContent = inlineText("Schedule Type", "调度类型");
       document.getElementById("scheduledTaskType").options[0].text = inlineText("One Time", "单次");
-      document.getElementById("scheduledTaskType").options[1].text = inlineText("Daily", "每日");
-      document.getElementById("scheduledTaskType").options[2].text = inlineText("Weekly", "每周");
+      document.getElementById("scheduledTaskType").options[1].text = inlineText("Delay", "延迟");
+      document.getElementById("scheduledTaskType").options[2].text = inlineText("Daily", "每日");
+      document.getElementById("scheduledTaskType").options[3].text = inlineText("Weekly", "每周");
       document.getElementById("scheduledTaskRunAtLabel").textContent = inlineText("Run At", "执行时间");
+      document.getElementById("scheduledTaskDelayLabel").textContent = inlineText("Delay Minutes", "延迟分钟数");
+      document.getElementById("scheduledTaskDelayMinutes").placeholder = inlineText("30", "30");
       document.getElementById("scheduledTaskDailyTimeLabel").textContent = inlineText("Repeat Time", "重复时间");
       document.getElementById("scheduledTaskWeeklyDayLabel").textContent = inlineText("Weekly Day", "每周日期");
       const weeklyDaySelect = document.getElementById("scheduledTaskWeeklyDay");
@@ -1455,6 +1473,10 @@
         "Check the current branch, run the smoke test, and summarize anything abnormal.",
         "检查当前分支，执行冒烟测试，并总结任何异常。"
       );
+      document.getElementById("scheduledTaskRetryCountLabel").textContent = inlineText("Max Retries", "最大重试次数");
+      document.getElementById("scheduledTaskMaxRetries").placeholder = inlineText("0", "0");
+      document.getElementById("scheduledTaskRetryDelayLabel").textContent = inlineText("Retry Delay (minutes)", "重试间隔（分钟）");
+      document.getElementById("scheduledTaskRetryDelayMinutes").placeholder = inlineText("5", "5");
       document.getElementById("scheduledTaskEnabledLabel").textContent = inlineText("Enabled", "启用");
       document.getElementById("scheduledTaskEnabledHint").textContent = inlineText(
         "Disabled tasks stay saved locally but will not auto-trigger.",
@@ -1796,7 +1818,8 @@
     function syncScheduledTaskTypeFields() {
       const type = document.getElementById("scheduledTaskType").value || "once";
       document.getElementById("scheduledTaskRunAtField").style.display = type === "once" ? "" : "none";
-      document.getElementById("scheduledTaskDailyTimeField").style.display = type === "once" ? "none" : "";
+      document.getElementById("scheduledTaskDelayField").style.display = type === "delay" ? "" : "none";
+      document.getElementById("scheduledTaskDailyTimeField").style.display = type === "daily" || type === "weekly" ? "" : "none";
       document.getElementById("scheduledTaskWeeklyDayField").style.display = type === "weekly" ? "" : "none";
     }
 
@@ -1854,6 +1877,9 @@
       if ((task?.scheduleType || "once") === "daily") {
         return inlineText(`Daily ${task?.dailyTime || "--:--"}`, `每日 ${task?.dailyTime || "--:--"}`);
       }
+      if ((task?.scheduleType || "once") === "delay") {
+        return inlineText(`Delay ${task?.delayMinutes || 0} minutes`, `延迟 ${task?.delayMinutes || 0} 分钟`);
+      }
       if ((task?.scheduleType || "once") === "weekly") {
         const labels = [
           inlineText("Sunday", "周日"),
@@ -1881,11 +1907,14 @@
       document.getElementById("scheduledTaskRunAt").value = formatLocalDateTimeInput(
         task?.runAt || (Date.now() + 30 * 60 * 1000)
       );
+      document.getElementById("scheduledTaskDelayMinutes").value = String(Number(task?.delayMinutes || 30));
       document.getElementById("scheduledTaskDailyTime").value = task?.dailyTime || "09:00";
       document.getElementById("scheduledTaskWeeklyDay").value = String(
         Number.isInteger(Number(task?.weeklyDay)) ? Number(task?.weeklyDay) : 1
       );
       document.getElementById("scheduledTaskPrompt").value = task?.prompt || "";
+      document.getElementById("scheduledTaskMaxRetries").value = String(Number(task?.maxRetries || 0));
+      document.getElementById("scheduledTaskRetryDelayMinutes").value = String(Number(task?.retryDelayMinutes || 5));
       document.getElementById("scheduledTaskEnabled").checked = task ? task.enabled !== false : true;
       syncScheduledTaskTypeFields();
       document.getElementById("saveScheduledTaskBtn").disabled = document.getElementById("scheduledTaskProject").disabled;
@@ -1909,6 +1938,7 @@
               <span class="workgroup-pill status-${escapeHtml(getScheduledTaskStatusClass(task.lastRunStatus || "idle"))}">${escapeHtml(getScheduledTaskStatusLabel(task.lastRunStatus || "idle"))}</span>
               <span class="workgroup-pill">${escapeHtml(task.enabled === false ? inlineText("Disabled", "已关闭") : inlineText("Enabled", "已启用"))}</span>
               <span class="workgroup-pill">${escapeHtml(task.projectName || inlineText("Missing project", "项目不存在"))}</span>
+              ${Number(task.maxRetries || 0) > 0 ? `<span class="workgroup-pill">${escapeHtml(inlineText(`Retry ${Number(task.retryCount || 0)}/${Number(task.maxRetries || 0)}`, `重试 ${Number(task.retryCount || 0)}/${Number(task.maxRetries || 0)}`))}</span>` : ""}
             </div>
             <div class="workgroup-subtext">${escapeHtml(getScheduledTaskScheduleLabel(task))}</div>
             <div class="workgroup-subtext">${escapeHtml(inlineText(`Next run: ${formatDateTimeLabel(task.nextRunAt)}`, `下次执行：${formatDateTimeLabel(task.nextRunAt)}`))}</div>
@@ -1916,6 +1946,7 @@
             ${task.projectPath ? `<div class="project-path">${escapeHtml(task.projectPath)}</div>` : ""}
             ${task.prompt ? `<div class="workgroup-subtext" style="margin-top: 6px;">${escapeHtml(task.prompt)}</div>` : ""}
             ${task.lastError ? `<div class="workgroup-subtext" style="margin-top: 6px;">${escapeHtml(task.lastError)}</div>` : ""}
+            ${Number(task.maxRetries || 0) > 0 ? `<div class="workgroup-subtext" style="margin-top: 6px;">${escapeHtml(inlineText(`Retry delay: ${Number(task.retryDelayMinutes || 5)} minute(s)`, `重试间隔：${Number(task.retryDelayMinutes || 5)} 分钟`))}</div>` : ""}
           </div>
           <div class="project-actions">
             <button class="btn-primary btn-small" onclick="runScheduledTaskNow('${task.id}')">${escapeHtml(inlineText("Run Now", "立即执行"))}</button>
@@ -1983,9 +2014,12 @@
       const name = document.getElementById("scheduledTaskName").value.trim();
       const scheduleType = document.getElementById("scheduledTaskType").value || "once";
       const runAtInput = document.getElementById("scheduledTaskRunAt").value.trim();
+      const delayMinutes = document.getElementById("scheduledTaskDelayMinutes").value.trim();
       const dailyTime = document.getElementById("scheduledTaskDailyTime").value.trim();
       const weeklyDay = document.getElementById("scheduledTaskWeeklyDay").value;
       const prompt = document.getElementById("scheduledTaskPrompt").value.trim();
+      const maxRetries = document.getElementById("scheduledTaskMaxRetries").value.trim();
+      const retryDelayMinutes = document.getElementById("scheduledTaskRetryDelayMinutes").value.trim();
       const enabled = document.getElementById("scheduledTaskEnabled").checked;
 
       if (!projectId) {
@@ -2002,6 +2036,10 @@
       }
       if (scheduleType === "once" && !runAtInput) {
         showStatus(inlineText("Choose the run time for the one-time task.", "请选择单次任务执行时间。"), true);
+        return;
+      }
+      if (scheduleType === "delay" && !(Number(delayMinutes) > 0)) {
+        showStatus(inlineText("Choose a valid delay in minutes.", "请选择有效的延迟分钟数。"), true);
         return;
       }
       if (scheduleType === "daily" && !dailyTime) {
@@ -2021,8 +2059,11 @@
           prompt,
           scheduleType,
           runAt: scheduleType === "once" ? Date.parse(runAtInput) : null,
-          dailyTime: scheduleType === "once" ? null : dailyTime,
+          delayMinutes: scheduleType === "delay" ? Number(delayMinutes) : null,
+          dailyTime: scheduleType === "daily" || scheduleType === "weekly" ? dailyTime : null,
           weeklyDay: scheduleType === "weekly" ? Number(weeklyDay) : null,
+          maxRetries: Math.max(0, Number(maxRetries || 0)),
+          retryDelayMinutes: Math.max(1, Number(retryDelayMinutes || 5)),
           enabled,
         });
         if (!result?.success) {

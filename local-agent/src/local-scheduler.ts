@@ -102,24 +102,37 @@ class LocalScheduler {
       let nextStatus = task.lastRunStatus;
       let nextError = task.lastError ?? null;
       let nextActiveRunId = task.activeRunId ?? null;
+      let nextRetryCount = task.retryCount ?? 0;
       if ((task.lastRunStatus === "queued" || task.lastRunStatus === "running") && !this.inFlightTaskIds.has(task.id)) {
         nextStatus = "error";
         nextError = nextError || "Desktop restarted before the scheduled task finished.";
         nextActiveRunId = null;
       }
 
-      const nextRunAt = computeScheduledTaskNextRunAt({
+      const baseNextRunAt = computeScheduledTaskNextRunAt({
         scheduleType: task.scheduleType,
         enabled: task.enabled,
         runAt: task.runAt,
+        delayMinutes: task.delayMinutes,
+        delayStartAt: task.delayStartAt,
         dailyTime: task.dailyTime,
         weeklyDay: task.weeklyDay,
         lastRunAt: task.lastRunAt,
       }, now);
+      const preserveRetryRunAt = nextStatus === "error"
+        && (task.retryCount ?? 0) > 0
+        && task.nextRunAt !== null
+        && task.nextRunAt !== undefined;
+      const nextRunAt = preserveRetryRunAt ? task.nextRunAt ?? null : baseNextRunAt;
+
+      if (nextStatus !== "error" && nextRetryCount !== 0) {
+        nextRetryCount = 0;
+      }
 
       if (
         nextStatus === task.lastRunStatus
         && nextError === (task.lastError ?? null)
+        && nextRetryCount === (task.retryCount ?? 0)
         && nextRunAt === (task.nextRunAt ?? null)
         && nextActiveRunId === (task.activeRunId ?? null)
       ) {
@@ -130,6 +143,7 @@ class LocalScheduler {
         ...task,
         lastRunStatus: nextStatus,
         lastError: nextError,
+        retryCount: nextRetryCount,
         activeRunId: nextActiveRunId,
         nextRunAt,
       });
@@ -174,11 +188,13 @@ class LocalScheduler {
         scheduleType: persisted.scheduleType,
         enabled: persisted.enabled,
         runAt: persisted.runAt,
+        delayMinutes: persisted.delayMinutes,
+        delayStartAt: persisted.delayStartAt,
         dailyTime: persisted.dailyTime,
         weeklyDay: persisted.weeklyDay,
         lastRunAt: completedAt,
       }, completedAt);
-      const shouldDisable = persisted.scheduleType === "once" && nextRunAt === null;
+      const shouldDisable = (persisted.scheduleType === "once" || persisted.scheduleType === "delay") && nextRunAt === null;
 
       scheduledTaskStore.saveTask({
         ...persisted,
@@ -187,6 +203,7 @@ class LocalScheduler {
         lastRunAt: completedAt,
         lastRunStatus: result.success ? "success" : "error",
         lastError: result.success ? null : (result.message?.trim() || "Scheduled task failed."),
+        retryCount: 0,
         nextRunAt,
       });
       appLogger.info("scheduler", "Scheduled task finished.", {
@@ -200,15 +217,24 @@ class LocalScheduler {
     } catch (error) {
       const completedAt = Date.now();
       const persisted = scheduledTaskStore.getTaskById(task.id) ?? latestTask;
-      const nextRunAt = computeScheduledTaskNextRunAt({
+      const baseNextRunAt = computeScheduledTaskNextRunAt({
         scheduleType: persisted.scheduleType,
         enabled: persisted.enabled,
         runAt: persisted.runAt,
+        delayMinutes: persisted.delayMinutes,
+        delayStartAt: persisted.delayStartAt,
         dailyTime: persisted.dailyTime,
         weeklyDay: persisted.weeklyDay,
         lastRunAt: completedAt,
       }, completedAt);
-      const shouldDisable = persisted.scheduleType === "once" && nextRunAt === null;
+      const nextRetryCount = (persisted.retryCount ?? 0) + 1;
+      const maxRetries = Math.max(0, persisted.maxRetries ?? 0);
+      const retryDelayMinutes = Math.max(1, persisted.retryDelayMinutes ?? 5);
+      const shouldRetry = nextRetryCount <= maxRetries;
+      const retryRunAt = shouldRetry ? completedAt + retryDelayMinutes * 60 * 1000 : null;
+      const nextRunAt = retryRunAt ?? baseNextRunAt;
+      const shouldDisable = (persisted.scheduleType === "once" || persisted.scheduleType === "delay")
+        && nextRunAt === null;
       const message = error instanceof Error ? error.message : String(error);
 
       scheduledTaskStore.saveTask({
@@ -217,7 +243,8 @@ class LocalScheduler {
         activeRunId: null,
         lastRunAt: completedAt,
         lastRunStatus: "error",
-        lastError: message,
+        lastError: shouldRetry ? `${message} Retrying automatically.` : message,
+        retryCount: shouldRetry ? nextRetryCount : 0,
         nextRunAt,
       });
       appLogger.warn("scheduler", "Scheduled task failed.", {
@@ -225,6 +252,9 @@ class LocalScheduler {
         projectId: persisted.projectId,
         trigger,
         error: message,
+        retryCount: shouldRetry ? nextRetryCount : 0,
+        maxRetries,
+        retryRunAt,
       });
     } finally {
       this.inFlightTaskIds.delete(task.id);

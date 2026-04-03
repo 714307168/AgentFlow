@@ -801,9 +801,11 @@ async function captureProjectScreenshot(projectId: string): Promise<RunAttachmen
 function buildScheduledTaskPrompt(task: ScheduledTask, project: Project): string {
   const scheduleLabel = task.scheduleType === "daily"
     ? `daily ${task.dailyTime ?? "--:--"}`
+    : (task.scheduleType === "delay"
+      ? `delay ${task.delayMinutes ?? 0}m`
     : (task.scheduleType === "weekly"
       ? `weekly day=${task.weeklyDay ?? "-"} ${task.dailyTime ?? "--:--"}`
-      : `once ${task.runAt ? new Date(task.runAt).toLocaleString() : "unspecified"}`);
+      : `once ${task.runAt ? new Date(task.runAt).toLocaleString() : "unspecified"}`));
   return [
     `[Scheduled Task] ${task.name}`,
     `Project: ${project.name}`,
@@ -4108,8 +4110,11 @@ ipcMain.handle("save-scheduled-task", (_event, data: {
   prompt: string;
   scheduleType?: ScheduledTaskScheduleType;
   runAt?: number | null;
+  delayMinutes?: number | null;
   dailyTime?: string | null;
   weeklyDay?: number | null;
+  maxRetries?: number | null;
+  retryDelayMinutes?: number | null;
   enabled?: boolean;
 }) => {
   const project = getLocalProjectById(String(data?.projectId ?? "").trim());
@@ -4129,24 +4134,40 @@ ipcMain.handle("save-scheduled-task", (_event, data: {
   const existing = typeof data?.id === "string" && data.id.trim()
     ? scheduledTaskStore.getTaskById(data.id.trim())
     : null;
+  const scheduleAnchorAt = Date.now();
   const scheduleType: ScheduledTaskScheduleType = data?.scheduleType === "weekly"
     ? "weekly"
-    : (data?.scheduleType === "daily" ? "daily" : "once");
+    : (data?.scheduleType === "daily" ? "daily" : (data?.scheduleType === "delay" ? "delay" : "once"));
   const enabled = data?.enabled !== false;
   const runAt = scheduleType === "once"
     ? (Number.isFinite(Number(data?.runAt)) && Number(data?.runAt) > 0 ? Math.trunc(Number(data?.runAt)) : null)
     : null;
-  const dailyTime = scheduleType === "once" ? null : normalizeDailyTime(data?.dailyTime);
+  const delayMinutes = scheduleType === "delay"
+    ? (Number.isInteger(Number(data?.delayMinutes)) && Number(data?.delayMinutes) > 0 ? Number(data?.delayMinutes) : null)
+    : null;
+  const dailyTime = scheduleType === "daily" || scheduleType === "weekly" ? normalizeDailyTime(data?.dailyTime) : null;
   const weeklyDay = scheduleType === "weekly" ? normalizeWeeklyDay(data?.weeklyDay) : null;
+  const maxRetries = Number.isInteger(Number(data?.maxRetries)) && Number(data?.maxRetries) >= 0
+    ? Number(data?.maxRetries)
+    : 0;
+  const retryDelayMinutes = Number.isInteger(Number(data?.retryDelayMinutes)) && Number(data?.retryDelayMinutes) > 0
+    ? Number(data?.retryDelayMinutes)
+    : 5;
 
   if (scheduleType === "once" && !runAt) {
     return { success: false, error: "Choose a valid run time for the one-time task." };
+  }
+  if (scheduleType === "delay" && !delayMinutes) {
+    return { success: false, error: "Choose a valid delay in minutes." };
   }
   if ((scheduleType === "daily" || scheduleType === "weekly") && !dailyTime) {
     return { success: false, error: "Choose a valid time in HH:mm format." };
   }
   if (scheduleType === "weekly" && weeklyDay === null) {
     return { success: false, error: "Choose a valid weekday for the weekly task." };
+  }
+  if (maxRetries > 0 && retryDelayMinutes <= 0) {
+    return { success: false, error: "Choose a valid retry delay in minutes." };
   }
 
   const task = scheduledTaskStore.saveTask({
@@ -4156,20 +4177,27 @@ ipcMain.handle("save-scheduled-task", (_event, data: {
     prompt,
     scheduleType,
     runAt,
+    delayMinutes,
+    delayStartAt: scheduleType === "delay" ? scheduleAnchorAt : null,
     dailyTime,
     weeklyDay,
     enabled,
-    activeRunId: existing?.activeRunId ?? null,
-    lastRunAt: existing?.lastRunAt ?? null,
-    lastRunStatus: existing?.lastRunStatus ?? "idle",
-    lastError: existing?.lastError ?? null,
+    activeRunId: null,
+    lastRunAt: null,
+    lastRunStatus: "idle",
+    lastError: null,
+    retryCount: 0,
+    maxRetries,
+    retryDelayMinutes,
     nextRunAt: computeScheduledTaskNextRunAt({
       scheduleType,
       enabled,
       runAt,
+      delayMinutes,
+      delayStartAt: scheduleType === "delay" ? scheduleAnchorAt : null,
       dailyTime,
       weeklyDay,
-      lastRunAt: existing?.lastRunAt ?? null,
+      lastRunAt: null,
     }),
   });
   localScheduler.syncTasks("save-scheduled-task");
