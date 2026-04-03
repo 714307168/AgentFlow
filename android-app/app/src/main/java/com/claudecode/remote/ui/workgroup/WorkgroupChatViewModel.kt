@@ -77,6 +77,7 @@ class WorkgroupChatViewModel(
     private var allMessages: List<WorkgroupMessage> = emptyList()
     private var visibleMessageCount: Int = WORKGROUP_VISIBLE_PAGE_SIZE
     private var activeSyncJob: Job? = null
+    private var refreshRecoveryJob: Job? = null
     private var pendingSyncTriggerJob: Job? = null
     private var pendingOlderHistoryRequest: PendingOlderHistoryRequest? = null
     private var syncBurstUntilMillis: Long = 0L
@@ -143,6 +144,8 @@ class WorkgroupChatViewModel(
         visibleMessageCount = WORKGROUP_VISIBLE_PAGE_SIZE
         pendingOlderHistoryRequest = null
         cancelPostSendSyncNudges()
+        refreshRecoveryJob?.cancel()
+        refreshRecoveryJob = null
         _uiState.update {
             it.copy(
                 agentId = agentId,
@@ -210,16 +213,40 @@ class WorkgroupChatViewModel(
         if (state.agentId.isBlank() || state.workgroupId.isBlank()) {
             return
         }
+        launchRefreshRecovery(
+            sessionKey = sessionKey(state.agentId, state.workgroupId),
+            reason = "manual-workgroup-refresh:${state.agentId}:${state.workgroupId}",
+            showLoading = true,
+            limit = WORKGROUP_INITIAL_SYNC_PAGE_SIZE
+        )
+    }
+
+    private fun launchRefreshRecovery(
+        sessionKey: String,
+        reason: String,
+        showLoading: Boolean,
+        limit: Int
+    ) {
+        val normalizedSessionKey = sessionKey.trim()
+        if (normalizedSessionKey.isEmpty()) {
+            return
+        }
+        val activeJob = refreshRecoveryJob
+        if (activeJob?.isActive == true) {
+            return
+        }
         markSyncBurst()
-        viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null) }
+        refreshRecoveryJob = viewModelScope.launch {
+            if (showLoading) {
+                _uiState.update { it.copy(isLoading = true, error = null) }
+            }
             try {
                 webSocket.ensureHealthyConnection(
-                    reason = "manual-workgroup-refresh:${state.agentId}:${state.workgroupId}",
+                    reason = reason,
                     staleTimeoutMs = WORKGROUP_RESUME_STALE_CONNECTION_TIMEOUT_MS
                 )
             } catch (e: Exception) {
-                CrashLogger.logError("WorkgroupChatViewModel", "Failed to restore workgroup connection on manual refresh", e)
+                CrashLogger.logError("WorkgroupChatViewModel", "Failed to restore workgroup connection during refresh recovery", e)
             }
 
             var waitedMs = 0L
@@ -231,10 +258,18 @@ class WorkgroupChatViewModel(
                 waitedMs += WORKGROUP_MANUAL_REFRESH_CONNECTION_POLL_MS
             }
 
-            requestLatestSessionNow(
-                showLoading = true,
-                limit = WORKGROUP_INITIAL_SYNC_PAGE_SIZE
-            )
+            if (currentSessionKey == normalizedSessionKey) {
+                requestLatestSessionNow(
+                    showLoading = showLoading,
+                    limit = limit
+                )
+            }
+        }.also { job ->
+            job.invokeOnCompletion {
+                if (refreshRecoveryJob === job) {
+                    refreshRecoveryJob = null
+                }
+            }
         }
     }
 
@@ -243,24 +278,12 @@ class WorkgroupChatViewModel(
         if (state.agentId.isBlank() || state.workgroupId.isBlank()) {
             return
         }
-        markSyncBurst()
-        viewModelScope.launch {
-            try {
-                webSocket.ensureHealthyConnection(
-                    reason = "workgroup-resume:${state.agentId}:${state.workgroupId}",
-                    staleTimeoutMs = WORKGROUP_RESUME_STALE_CONNECTION_TIMEOUT_MS
-                )
-            } catch (e: Exception) {
-                CrashLogger.logError("WorkgroupChatViewModel", "Failed to restore workgroup connection on resume", e)
-            }
-
-            if (webSocket.connectionState.value == RelayWebSocket.ConnectionState.CONNECTED) {
-                requestLatestSessionNow(
-                    showLoading = false,
-                    limit = WORKGROUP_INITIAL_SYNC_PAGE_SIZE
-                )
-            }
-        }
+        launchRefreshRecovery(
+            sessionKey = sessionKey(state.agentId, state.workgroupId),
+            reason = "workgroup-resume:${state.agentId}:${state.workgroupId}",
+            showLoading = false,
+            limit = WORKGROUP_INITIAL_SYNC_PAGE_SIZE
+        )
     }
 
     fun loadOlderMessages() {
@@ -702,6 +725,7 @@ class WorkgroupChatViewModel(
     override fun onCleared() {
         sessionsJob?.cancel()
         activeSyncJob?.cancel()
+        refreshRecoveryJob?.cancel()
         pendingSyncTriggerJob?.cancel()
         cancelPostSendSyncNudges()
         super.onCleared()

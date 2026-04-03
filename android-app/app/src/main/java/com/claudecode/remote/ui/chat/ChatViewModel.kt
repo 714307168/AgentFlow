@@ -155,6 +155,7 @@ class ChatViewModel(
     private var visibleActivityCount: Int = MESSAGE_PAGE_SIZE
     private var isAutoLoadingConversationHistory = false
     private var activeSyncJob: Job? = null
+    private var refreshRecoveryJob: Job? = null
     private var pendingSyncTriggerJob: Job? = null
     private var olderHistoryTimeoutJob: Job? = null
     private var pendingOlderHistoryRequest: PendingOlderHistoryRequest? = null
@@ -330,6 +331,8 @@ class ChatViewModel(
         olderHistoryTimeoutJob = null
         pendingOlderHistoryRequest = null
         projectBootstrapJob?.cancel()
+        refreshRecoveryJob?.cancel()
+        refreshRecoveryJob = null
         cancelPostSendSyncNudges()
         pendingSendFeedbackRunId = null
         pendingSendFeedbackTimeoutJob?.cancel()
@@ -516,24 +519,11 @@ class ChatViewModel(
         if (state.projectId.isBlank()) {
             return
         }
-        markSyncBurst()
-        viewModelScope.launch {
-            try {
-                webSocket.ensureHealthyConnection(
-                    reason = "chat-resume:${state.projectId}",
-                    staleTimeoutMs = RESUME_STALE_CONNECTION_TIMEOUT_MS
-                )
-            } catch (e: Exception) {
-                CrashLogger.logError("ChatViewModel", "Error restoring chat connection on resume", e)
-            }
-
-            if (webSocket.connectionState.value == RelayWebSocket.ConnectionState.CONNECTED) {
-                requestProjectSyncNow(
-                    recentOverlapCount = ACTIVE_SYNC_OVERLAP_COUNT,
-                    limit = if (state.messages.isNotEmpty()) MESSAGE_PAGE_SIZE else INITIAL_SYNC_PAGE_SIZE
-                )
-            }
-        }
+        launchRefreshRecovery(
+            projectId = state.projectId,
+            reason = "chat-resume:${state.projectId}",
+            limit = if (state.messages.isNotEmpty()) MESSAGE_PAGE_SIZE else INITIAL_SYNC_PAGE_SIZE
+        )
     }
 
     fun refresh() {
@@ -541,15 +531,35 @@ class ChatViewModel(
         if (state.projectId.isBlank()) {
             return
         }
+        launchRefreshRecovery(
+            projectId = state.projectId,
+            reason = "manual-chat-refresh:${state.projectId}",
+            limit = if (state.messages.isNotEmpty()) MESSAGE_PAGE_SIZE else INITIAL_SYNC_PAGE_SIZE
+        )
+    }
+
+    private fun launchRefreshRecovery(
+        projectId: String,
+        reason: String,
+        limit: Int
+    ) {
+        val normalizedProjectId = projectId.trim()
+        if (normalizedProjectId.isEmpty()) {
+            return
+        }
+        val activeJob = refreshRecoveryJob
+        if (activeJob?.isActive == true) {
+            return
+        }
         markSyncBurst()
-        viewModelScope.launch {
+        refreshRecoveryJob = viewModelScope.launch {
             try {
                 webSocket.ensureHealthyConnection(
-                    reason = "manual-chat-refresh:${state.projectId}",
+                    reason = reason,
                     staleTimeoutMs = RESUME_STALE_CONNECTION_TIMEOUT_MS
                 )
             } catch (e: Exception) {
-                CrashLogger.logError("ChatViewModel", "Error restoring chat connection on manual refresh", e)
+                CrashLogger.logError("ChatViewModel", "Error restoring chat connection during refresh recovery", e)
             }
 
             var waitedMs = 0L
@@ -561,10 +571,18 @@ class ChatViewModel(
                 waitedMs += MANUAL_REFRESH_CONNECTION_POLL_MS
             }
 
-            requestProjectSyncNow(
-                recentOverlapCount = ACTIVE_SYNC_OVERLAP_COUNT,
-                limit = if (state.messages.isNotEmpty()) MESSAGE_PAGE_SIZE else INITIAL_SYNC_PAGE_SIZE
-            )
+            if (_uiState.value.projectId.trim() == normalizedProjectId) {
+                requestProjectSyncNow(
+                    recentOverlapCount = ACTIVE_SYNC_OVERLAP_COUNT,
+                    limit = limit
+                )
+            }
+        }.also { job ->
+            job.invokeOnCompletion {
+                if (refreshRecoveryJob === job) {
+                    refreshRecoveryJob = null
+                }
+            }
         }
     }
 
@@ -1292,6 +1310,7 @@ class ChatViewModel(
 
     override fun onCleared() {
         activeSyncJob?.cancel()
+        refreshRecoveryJob?.cancel()
         pendingSyncTriggerJob?.cancel()
         olderHistoryTimeoutJob?.cancel()
         projectBootstrapJob?.cancel()
