@@ -96,7 +96,7 @@
 ### 当前状态（2026-04-03）
 
 - 阶段一完成度约 `92%`
-- 阶段二完成度约 `74%`
+- 阶段二完成度约 `78%`
 - 阶段三完成度约 `25%`
 - 阶段四完成度约 `0%`
 
@@ -119,6 +119,7 @@
 - 安卓项目同步的 sync bounds / known_items / prune 查询已排除 workgroup 残留消息，并在同步初始化时清扫旧 workgroup 行
 - 桌面端已收口协作组 PM 唯一性：手工 `project_manager` 成员会自动降级，普通成员保存也不再允许占用虚拟 PM 角色，聊天输入已补 `@pm` 建议
 - 桌面端已收口显式 mention 路由：`@PM` / `@member` 未命中时不再回退群发，并会把路由失败直接写入协作组线程
+- 桌面端已补 workgroup 发送链路日志：用户消息受理、显式路由失败、成员 dispatch accepted / done / error、handoff 与 dispatch summary 现在都可追踪
 
 ### 进行中
 
@@ -127,8 +128,8 @@
 ### 下一刀
 
 1. 协作组与私聊在存储和同步边界上的进一步隔离
-2. 日志链路补 workgroup 发送 / accepted / dispatch summary 埋点
-3. 协作组 handoff / 路由状态文案继续收口
+2. 协作组 handoff / 路由状态文案继续收口
+3. workgroup / 项目会话 traceId 继续统一
 
 ## 5. 后续顺序
 

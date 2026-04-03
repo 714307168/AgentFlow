@@ -199,6 +199,14 @@ function queuePlaceholderText(member: WorkgroupMember): string {
   return `${member.name} is preparing a response...`;
 }
 
+function summarizeMessageContent(content: string, maxLength = 160): string {
+  const normalized = content.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+  return `${normalized.slice(0, Math.max(0, maxLength - 3))}...`;
+}
+
 interface ResolvedTargetSelection {
   targets: WorkgroupMember[];
   mode: "broadcast" | "explicit";
@@ -227,7 +235,10 @@ interface RemoteDispatchResolution {
 }
 
 interface DispatchAttemptResult {
+  memberId: string;
   memberName: string;
+  projectId: string | null;
+  runId?: string;
   accepted: boolean;
   reason?: string;
 }
@@ -341,6 +352,33 @@ export default class WorkgroupCollaborationService extends EventEmitter {
     this.emitSummaries();
   }
 
+  private logWorkgroupEvent(
+    level: "info" | "warn" | "error",
+    message: string,
+    meta: Record<string, unknown>,
+  ): void {
+    if (level === "warn") {
+      appLogger.warn("workgroup-collaboration", message, meta);
+      return;
+    }
+    if (level === "error") {
+      appLogger.error("workgroup-collaboration", message, meta);
+      return;
+    }
+    appLogger.info("workgroup-collaboration", message, meta);
+  }
+
+  private buildWorkgroupLogMeta(
+    workgroup: Pick<Workgroup, "id" | "name">,
+    extra: Record<string, unknown> = {},
+  ): Record<string, unknown> {
+    return {
+      workgroupId: workgroup.id,
+      workgroupName: workgroup.name,
+      ...extra,
+    };
+  }
+
   async sendUserMessage(
     workgroupId: string,
     content: string,
@@ -360,6 +398,15 @@ export default class WorkgroupCollaborationService extends EventEmitter {
     if (normalizedClientMessageId) {
       const existingMessage = workgroupCollaborationStore.getMessage(workgroup.id, normalizedClientMessageId);
       if (existingMessage?.senderType === "user") {
+        this.logWorkgroupEvent(
+          "info",
+          "Deduped workgroup user message by clientMessageId.",
+          this.buildWorkgroupLogMeta(workgroup, {
+            traceId: existingMessage.id,
+            clientMessageId: normalizedClientMessageId,
+            contentPreview: summarizeMessageContent(trimmedContent),
+          }),
+        );
         const session = this.getSession(workgroup.id);
         return {
           success: true,
@@ -371,6 +418,15 @@ export default class WorkgroupCollaborationService extends EventEmitter {
     const members = workgroupStore.listMembers(workgroup.id);
     const selection = this.resolveTargets(workgroup, members, trimmedContent);
     if (selection.targets.length === 0 && selection.mode !== "explicit") {
+      this.logWorkgroupEvent(
+        "warn",
+        "Rejected workgroup user message because no bound members were available.",
+        this.buildWorkgroupLogMeta(workgroup, {
+          clientMessageId: normalizedClientMessageId || null,
+          routeMode: selection.mode,
+          contentPreview: summarizeMessageContent(trimmedContent),
+        }),
+      );
       return { success: false, error: "No bound workgroup members available for this message" };
     }
 
@@ -381,9 +437,33 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       content: trimmedContent,
       status: "done",
     });
+    this.logWorkgroupEvent(
+      "info",
+      "Accepted workgroup user message.",
+      this.buildWorkgroupLogMeta(workgroup, {
+        traceId: userMessage.id,
+        clientMessageId: normalizedClientMessageId || null,
+        routeMode: selection.mode,
+        targetCount: selection.targets.length,
+        targetMemberIds: selection.targets.map((member) => member.id),
+        targetMemberNames: selection.targets.map((member) => member.name),
+        unmatchedMentions: selection.unmatchedMentions ?? [],
+        contentPreview: summarizeMessageContent(trimmedContent),
+      }),
+    );
 
     if (selection.targets.length === 0) {
       this.appendMentionRoutingFailure(workgroup.id, userMessage.id, selection);
+      this.logWorkgroupEvent(
+        "warn",
+        "Workgroup explicit mention routing failed before dispatch.",
+        this.buildWorkgroupLogMeta(workgroup, {
+          traceId: userMessage.id,
+          clientMessageId: normalizedClientMessageId || null,
+          unmatchedMentions: selection.unmatchedMentions ?? [],
+          contentPreview: summarizeMessageContent(trimmedContent),
+        }),
+      );
       this.emitSnapshot(workgroup.id);
       this.emitSummaries();
       const session = this.getSession(workgroup.id);
@@ -394,6 +474,19 @@ export default class WorkgroupCollaborationService extends EventEmitter {
     }
 
     this.appendRoutingNote(workgroup.id, userMessage.id, selection);
+    this.logWorkgroupEvent(
+      "info",
+      "Workgroup user message routed to members.",
+      this.buildWorkgroupLogMeta(workgroup, {
+        traceId: userMessage.id,
+        clientMessageId: normalizedClientMessageId || null,
+        routeMode: selection.mode,
+        targetCount: selection.targets.length,
+        targetMemberIds: selection.targets.map((member) => member.id),
+        targetMemberNames: selection.targets.map((member) => member.name),
+        unmatchedMentions: selection.unmatchedMentions ?? [],
+      }),
+    );
     this.emitSnapshot(workgroup.id);
     this.emitSummaries();
 
@@ -786,20 +879,56 @@ export default class WorkgroupCollaborationService extends EventEmitter {
     if (!projectId) {
       const reason = "Member has no bound project.";
       this.appendDispatchError(workgroup.id, member, reason);
-      return { memberName: member.name, accepted: false, reason };
+      this.logWorkgroupEvent(
+        "warn",
+        "Rejected workgroup member dispatch because the member has no bound project.",
+        this.buildWorkgroupLogMeta(workgroup, {
+          traceId: userMessage.id,
+          memberId: member.id,
+          memberName: member.name,
+          memberRole: member.role,
+          projectId: null,
+          reason,
+        }),
+      );
+      return { memberId: member.id, memberName: member.name, projectId: null, accepted: false, reason };
     }
 
     const project = this.options.getBoundProject(projectId);
     if (!project) {
       const reason = "Bound project is unavailable.";
       this.appendDispatchError(workgroup.id, member, reason);
-      return { memberName: member.name, accepted: false, reason };
+      this.logWorkgroupEvent(
+        "warn",
+        "Rejected workgroup member dispatch because the bound project was unavailable.",
+        this.buildWorkgroupLogMeta(workgroup, {
+          traceId: userMessage.id,
+          memberId: member.id,
+          memberName: member.name,
+          memberRole: member.role,
+          projectId,
+          reason,
+        }),
+      );
+      return { memberId: member.id, memberName: member.name, projectId, accepted: false, reason };
     }
 
     if (project.kind === "remote" && !project.online) {
       const reason = "Remote member project is offline.";
       this.appendDispatchError(workgroup.id, member, reason);
-      return { memberName: member.name, accepted: false, reason };
+      this.logWorkgroupEvent(
+        "warn",
+        "Rejected workgroup member dispatch because the remote project was offline.",
+        this.buildWorkgroupLogMeta(workgroup, {
+          traceId: userMessage.id,
+          memberId: member.id,
+          memberName: member.name,
+          memberRole: member.role,
+          projectId,
+          reason,
+        }),
+      );
+      return { memberId: member.id, memberName: member.name, projectId, accepted: false, reason };
     }
 
     const runId = uuidv4();
@@ -826,6 +955,20 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       triggerMessageId: userMessage.id,
       startedAt: Date.now(),
     });
+    this.logWorkgroupEvent(
+      "info",
+      "Queued workgroup member dispatch.",
+      this.buildWorkgroupLogMeta(workgroup, {
+        traceId: rootTriggerMessageId,
+        triggerMessageId: userMessage.id,
+        dispatchRunId: runId,
+        memberId: member.id,
+        memberName: member.name,
+        memberRole: member.role,
+        projectId: project.id,
+        projectKind: project.kind,
+      }),
+    );
     this.emitSnapshot(workgroup.id);
     this.emitSummaries();
 
@@ -853,6 +996,21 @@ export default class WorkgroupCollaborationService extends EventEmitter {
         content: current?.content?.trim() ? current.content : queuePlaceholderText(member),
         status: "done",
       });
+      this.logWorkgroupEvent(
+        "info",
+        "Completed workgroup member dispatch.",
+        this.buildWorkgroupLogMeta(workgroup, {
+          traceId: rootTriggerMessageId,
+          triggerMessageId: userMessage.id,
+          dispatchRunId: runId,
+          memberId: member.id,
+          memberName: member.name,
+          memberRole: member.role,
+          projectId: project.id,
+          replyMessageId: replyMessage.id,
+          contentLength: finalizedMessage?.content?.trim().length ?? 0,
+        }),
+      );
       this.emitSnapshot(workgroup.id);
       this.emitSummaries();
       if (finalizedMessage && finalizedMessage.senderType === "member") {
@@ -866,6 +1024,21 @@ export default class WorkgroupCollaborationService extends EventEmitter {
         content: error.trim() || `${member.name} failed to respond.`,
         status: "done",
       });
+      this.logWorkgroupEvent(
+        "warn",
+        "Failed workgroup member dispatch.",
+        this.buildWorkgroupLogMeta(workgroup, {
+          traceId: rootTriggerMessageId,
+          triggerMessageId: userMessage.id,
+          dispatchRunId: runId,
+          memberId: member.id,
+          memberName: member.name,
+          memberRole: member.role,
+          projectId: project.id,
+          replyMessageId: replyMessage.id,
+          error: error.trim() || `${member.name} failed to respond.`,
+        }),
+      );
       this.emitSnapshot(workgroup.id);
       this.emitSummaries();
     };
@@ -875,7 +1048,7 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       if (!remoteSessionStore) {
         const reason = "Remote controller is unavailable.";
         handleError(reason);
-        return { memberName: member.name, accepted: false, reason };
+        return { memberId: member.id, memberName: member.name, projectId: project.id, runId, accepted: false, reason };
       }
 
       const result = await remoteSessionStore.sendPrompt(project.id, prompt, undefined, {
@@ -887,9 +1060,23 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       if (!result.success) {
         const reason = result.error ?? "Remote dispatch failed.";
         handleError(reason);
-        return { memberName: member.name, accepted: false, reason };
+        return { memberId: member.id, memberName: member.name, projectId: project.id, runId, accepted: false, reason };
       }
-      return { memberName: member.name, accepted: true };
+      this.logWorkgroupEvent(
+        "info",
+        "Accepted remote workgroup member dispatch.",
+        this.buildWorkgroupLogMeta(workgroup, {
+          traceId: rootTriggerMessageId,
+          triggerMessageId: userMessage.id,
+          dispatchRunId: runId,
+          memberId: member.id,
+          memberName: member.name,
+          memberRole: member.role,
+          projectId: project.id,
+          projectKind: project.kind,
+        }),
+      );
+      return { memberId: member.id, memberName: member.name, projectId: project.id, runId, accepted: true };
     }
 
     this.options.runtimeManager.enqueueMessage({
@@ -903,7 +1090,21 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       onDone: handleDone,
       onError: handleError,
     });
-    return { memberName: member.name, accepted: true };
+    this.logWorkgroupEvent(
+      "info",
+      "Accepted local workgroup member dispatch.",
+      this.buildWorkgroupLogMeta(workgroup, {
+        traceId: rootTriggerMessageId,
+        triggerMessageId: userMessage.id,
+        dispatchRunId: runId,
+        memberId: member.id,
+        memberName: member.name,
+        memberRole: member.role,
+        projectId: project.id,
+        projectKind: project.kind,
+      }),
+    );
+    return { memberId: member.id, memberName: member.name, projectId: project.id, runId, accepted: true };
   }
 
   private async dispatchMemberHandoffs(
@@ -943,6 +1144,19 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       content: `Handoff from @${sender.name} to ${filteredTargets.map((member) => `@${member.name}`).join(", ")}`,
       status: "done",
     });
+    this.logWorkgroupEvent(
+      "info",
+      "Created workgroup member handoff.",
+      this.buildWorkgroupLogMeta(workgroup, {
+        traceId: rootTriggerMessageId ?? sourceMessage.id,
+        triggerMessageId: sourceMessage.id,
+        handoffMessageId: routedMessage.id,
+        senderMemberId: sender.id,
+        senderMemberName: sender.name,
+        targetMemberIds: filteredTargets.map((member) => member.id),
+        targetMemberNames: filteredTargets.map((member) => member.name),
+      }),
+    );
     this.emitSnapshot(workgroup.id);
     this.emitSummaries();
 
@@ -993,6 +1207,7 @@ export default class WorkgroupCollaborationService extends EventEmitter {
     const reasonSummary = failed
       .map((entry) => `${entry.memberName}: ${entry.reason ?? "dispatch failed"}`)
       .join(" | ");
+    const workgroup = workgroupStore.getWorkgroupById(workgroupId);
 
     const payload = acceptedCount <= 0
       ? {
@@ -1011,6 +1226,23 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       content: payload.content,
       status: "done",
     });
+    if (workgroup) {
+      this.logWorkgroupEvent(
+        acceptedCount <= 0 ? "warn" : "info",
+        "Recorded workgroup dispatch summary.",
+        this.buildWorkgroupLogMeta(workgroup, {
+          traceId: triggerMessageId,
+          acceptedCount,
+          failedCount: failed.length,
+          failedMembers: failed.map((entry) => entry.memberName),
+          failedMemberIds: failed.map((entry) => entry.memberId),
+          failedProjectIds: failed.map((entry) => entry.projectId),
+          failedReasons: failed.map((entry) => entry.reason ?? "dispatch failed"),
+          acceptedRunIds: results.filter((entry) => entry.accepted).map((entry) => entry.runId ?? null),
+          summaryContent: payload.content,
+        }),
+      );
+    }
     this.emitSnapshot(workgroupId);
     this.emitSummaries();
   }
