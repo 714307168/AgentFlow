@@ -1,8 +1,8 @@
 import Store from "electron-store";
 import { v4 as uuidv4 } from "uuid";
 
-export type ScheduledTaskScheduleType = "once" | "daily";
-export type ScheduledTaskLastStatus = "idle" | "queued" | "success" | "error";
+export type ScheduledTaskScheduleType = "once" | "daily" | "weekly";
+export type ScheduledTaskLastStatus = "idle" | "queued" | "running" | "success" | "error";
 
 export interface ScheduledTask {
   id: string;
@@ -12,7 +12,9 @@ export interface ScheduledTask {
   scheduleType: ScheduledTaskScheduleType;
   runAt?: number | null;
   dailyTime?: string | null;
+  weeklyDay?: number | null;
   enabled: boolean;
+  activeRunId?: string | null;
   lastRunAt?: number | null;
   lastRunStatus: ScheduledTaskLastStatus;
   lastError?: string | null;
@@ -39,7 +41,10 @@ function normalizeTimestamp(value: number | null | undefined): number | null {
 }
 
 function normalizeScheduleType(value: string | null | undefined): ScheduledTaskScheduleType {
-  return value === "daily" ? "daily" : "once";
+  if (value === "daily" || value === "weekly") {
+    return value;
+  }
+  return "once";
 }
 
 export function normalizeDailyTime(value: string | null | undefined): string | null {
@@ -59,9 +64,18 @@ export function normalizeDailyTime(value: string | null | undefined): string | n
   return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
 }
 
+export function normalizeWeeklyDay(value: number | null | undefined): number | null {
+  const numeric = Number(value);
+  if (!Number.isInteger(numeric) || numeric < 0 || numeric > 6) {
+    return null;
+  }
+  return numeric;
+}
+
 function normalizeLastStatus(value: string | null | undefined): ScheduledTaskLastStatus {
   switch (value) {
     case "queued":
+    case "running":
     case "success":
     case "error":
       return value;
@@ -71,7 +85,7 @@ function normalizeLastStatus(value: string | null | undefined): ScheduledTaskLas
 }
 
 export function computeScheduledTaskNextRunAt(
-  task: Pick<ScheduledTask, "scheduleType" | "enabled" | "runAt" | "dailyTime" | "lastRunAt">,
+  task: Pick<ScheduledTask, "scheduleType" | "enabled" | "runAt" | "dailyTime" | "weeklyDay" | "lastRunAt">,
   now = Date.now(),
 ): number | null {
   if (!task.enabled) {
@@ -79,7 +93,8 @@ export function computeScheduledTaskNextRunAt(
   }
 
   const lastRunAt = normalizeTimestamp(task.lastRunAt);
-  if (normalizeScheduleType(task.scheduleType) === "once") {
+  const scheduleType = normalizeScheduleType(task.scheduleType);
+  if (scheduleType === "once") {
     const runAt = normalizeTimestamp(task.runAt);
     if (!runAt) {
       return null;
@@ -97,6 +112,21 @@ export function computeScheduledTaskNextRunAt(
 
   const [hour, minute] = dailyTime.split(":").map((value) => Number(value));
   const target = new Date(now);
+
+  if (scheduleType === "weekly") {
+    const weeklyDay = normalizeWeeklyDay(task.weeklyDay);
+    if (weeklyDay === null) {
+      return null;
+    }
+    const offsetDays = (weeklyDay - target.getDay() + 7) % 7;
+    target.setDate(target.getDate() + offsetDays);
+    target.setHours(hour, minute, 0, 0);
+    if (target.getTime() <= now || (lastRunAt !== null && lastRunAt >= target.getTime())) {
+      target.setDate(target.getDate() + 7);
+    }
+    return target.getTime();
+  }
+
   target.setHours(hour, minute, 0, 0);
   if (lastRunAt !== null && lastRunAt >= target.getTime()) {
     target.setDate(target.getDate() + 1);
@@ -127,7 +157,9 @@ class ScheduledTaskStore {
         scheduleType: normalizeScheduleType(task.scheduleType),
         runAt: normalizeTimestamp(task.runAt),
         dailyTime: normalizeDailyTime(task.dailyTime),
+        weeklyDay: normalizeWeeklyDay(task.weeklyDay),
         enabled: Boolean(task.enabled),
+        activeRunId: normalizeNullableText(task.activeRunId),
         lastRunAt: normalizeTimestamp(task.lastRunAt),
         lastRunStatus: normalizeLastStatus(task.lastRunStatus),
         lastError: normalizeNullableText(task.lastError),
@@ -170,7 +202,9 @@ class ScheduledTaskStore {
       scheduleType: normalizeScheduleType(input.scheduleType),
       runAt: input.runAt !== undefined ? normalizeTimestamp(input.runAt) : (existing?.runAt ?? null),
       dailyTime: input.dailyTime !== undefined ? normalizeDailyTime(input.dailyTime) : (existing?.dailyTime ?? null),
+      weeklyDay: input.weeklyDay !== undefined ? normalizeWeeklyDay(input.weeklyDay) : (existing?.weeklyDay ?? null),
       enabled: input.enabled !== undefined ? Boolean(input.enabled) : (existing?.enabled ?? true),
+      activeRunId: input.activeRunId !== undefined ? normalizeNullableText(input.activeRunId) : (existing?.activeRunId ?? null),
       lastRunAt: input.lastRunAt !== undefined ? normalizeTimestamp(input.lastRunAt) : (existing?.lastRunAt ?? null),
       lastRunStatus: input.lastRunStatus !== undefined ? normalizeLastStatus(input.lastRunStatus) : (existing?.lastRunStatus ?? "idle"),
       lastError: input.lastError !== undefined ? normalizeNullableText(input.lastError) : (existing?.lastError ?? null),

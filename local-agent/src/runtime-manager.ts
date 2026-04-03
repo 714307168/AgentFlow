@@ -598,6 +598,12 @@ class RuntimeManager extends EventEmitter {
     state.currentSource = next.source;
     state.currentPrompt = next.prompt;
     state.currentStartedAt = Date.now();
+    this.emit("run-started", {
+      projectId: state.projectId,
+      runId: next.runId,
+      provider: state.provider,
+      source: next.source,
+    });
     const context: RunContext = {
       runId: next.runId,
       runStatusActivityId: null,

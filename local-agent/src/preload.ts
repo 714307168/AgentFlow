@@ -39,9 +39,10 @@ contextBridge.exposeInMainWorld('claudeAgent', {
     projectId: string;
     name: string;
     prompt: string;
-    scheduleType?: 'once' | 'daily';
+    scheduleType?: 'once' | 'daily' | 'weekly';
     runAt?: number | null;
     dailyTime?: string | null;
+    weeklyDay?: number | null;
     enabled?: boolean;
   }) => ipcRenderer.invoke('save-scheduled-task', data),
   deleteScheduledTask: (taskId: string) => ipcRenderer.invoke('delete-scheduled-task', taskId),

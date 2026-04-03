@@ -918,7 +918,7 @@
 
           <div class="section">
             <div class="section-title" id="scheduledTasksSection">Scheduled Tasks</div>
-            <div class="section-subtitle" id="scheduledTasksHint">Run a saved prompt on this desktop for a local project. V1 supports one-time and daily schedules.</div>
+            <div class="section-subtitle" id="scheduledTasksHint">Run a saved prompt on this desktop for a local project. V1 supports one-time, daily, and weekly schedules.</div>
             <div class="split-grid">
               <div class="workgroup-card">
                 <div class="workgroup-card-title" id="scheduledTaskFormTitle">Task Profile</div>
@@ -935,6 +935,7 @@
                   <select id="scheduledTaskType">
                     <option value="once">One Time</option>
                     <option value="daily">Daily</option>
+                    <option value="weekly">Weekly</option>
                   </select>
                 </div>
                 <div class="field" id="scheduledTaskRunAtField">
@@ -942,8 +943,20 @@
                   <input type="datetime-local" id="scheduledTaskRunAt">
                 </div>
                 <div class="field" id="scheduledTaskDailyTimeField" style="display:none;">
-                  <label id="scheduledTaskDailyTimeLabel">Daily Time</label>
+                  <label id="scheduledTaskDailyTimeLabel">Repeat Time</label>
                   <input type="time" id="scheduledTaskDailyTime">
+                </div>
+                <div class="field" id="scheduledTaskWeeklyDayField" style="display:none;">
+                  <label id="scheduledTaskWeeklyDayLabel">Weekly Day</label>
+                  <select id="scheduledTaskWeeklyDay">
+                    <option value="1">Monday</option>
+                    <option value="2">Tuesday</option>
+                    <option value="3">Wednesday</option>
+                    <option value="4">Thursday</option>
+                    <option value="5">Friday</option>
+                    <option value="6">Saturday</option>
+                    <option value="0">Sunday</option>
+                  </select>
                 </div>
                 <div class="field">
                   <label id="scheduledTaskPromptLabel">Prompt</label>
@@ -1415,8 +1428,8 @@
       document.getElementById("clearHistoryCacheBtn").textContent = inlineText("Clear Local History Cache", "清理本地历史缓存");
       document.getElementById("scheduledTasksSection").textContent = inlineText("Scheduled Tasks", "定时任务");
       document.getElementById("scheduledTasksHint").textContent = inlineText(
-        "Run a saved prompt on this desktop for a local project. V1 supports one-time and daily schedules.",
-        "在当前桌面端为本地项目定时执行保存好的提示词。第一版先支持单次和每日任务。"
+        "Run a saved prompt on this desktop for a local project. V1 supports one-time, daily, and weekly schedules.",
+        "在当前桌面端为本地项目定时执行保存好的提示词。第一版支持单次、每日和每周任务。"
       );
       document.getElementById("scheduledTaskFormTitle").textContent = inlineText("Task Profile", "任务配置");
       document.getElementById("scheduledTaskProjectLabel").textContent = inlineText("Local Project", "本地项目");
@@ -1425,8 +1438,18 @@
       document.getElementById("scheduledTaskTypeLabel").textContent = inlineText("Schedule Type", "调度类型");
       document.getElementById("scheduledTaskType").options[0].text = inlineText("One Time", "单次");
       document.getElementById("scheduledTaskType").options[1].text = inlineText("Daily", "每日");
+      document.getElementById("scheduledTaskType").options[2].text = inlineText("Weekly", "每周");
       document.getElementById("scheduledTaskRunAtLabel").textContent = inlineText("Run At", "执行时间");
-      document.getElementById("scheduledTaskDailyTimeLabel").textContent = inlineText("Daily Time", "每日时间");
+      document.getElementById("scheduledTaskDailyTimeLabel").textContent = inlineText("Repeat Time", "重复时间");
+      document.getElementById("scheduledTaskWeeklyDayLabel").textContent = inlineText("Weekly Day", "每周日期");
+      const weeklyDaySelect = document.getElementById("scheduledTaskWeeklyDay");
+      weeklyDaySelect.options[0].text = inlineText("Monday", "周一");
+      weeklyDaySelect.options[1].text = inlineText("Tuesday", "周二");
+      weeklyDaySelect.options[2].text = inlineText("Wednesday", "周三");
+      weeklyDaySelect.options[3].text = inlineText("Thursday", "周四");
+      weeklyDaySelect.options[4].text = inlineText("Friday", "周五");
+      weeklyDaySelect.options[5].text = inlineText("Saturday", "周六");
+      weeklyDaySelect.options[6].text = inlineText("Sunday", "周日");
       document.getElementById("scheduledTaskPromptLabel").textContent = inlineText("Prompt", "提示词");
       document.getElementById("scheduledTaskPrompt").placeholder = inlineText(
         "Check the current branch, run the smoke test, and summarize anything abnormal.",
@@ -1772,8 +1795,9 @@
 
     function syncScheduledTaskTypeFields() {
       const type = document.getElementById("scheduledTaskType").value || "once";
-      document.getElementById("scheduledTaskRunAtField").style.display = type === "daily" ? "none" : "";
-      document.getElementById("scheduledTaskDailyTimeField").style.display = type === "daily" ? "" : "none";
+      document.getElementById("scheduledTaskRunAtField").style.display = type === "once" ? "" : "none";
+      document.getElementById("scheduledTaskDailyTimeField").style.display = type === "once" ? "none" : "";
+      document.getElementById("scheduledTaskWeeklyDayField").style.display = type === "weekly" ? "" : "none";
     }
 
     function formatLocalDateTimeInput(value) {
@@ -1799,7 +1823,9 @@
     function getScheduledTaskStatusLabel(status) {
       switch (status) {
         case "queued":
-          return inlineText("Queued / Running", "排队中 / 执行中");
+          return inlineText("Queued", "排队中");
+        case "running":
+          return inlineText("Running", "执行中");
         case "success":
           return inlineText("Success", "成功");
         case "error":
@@ -1813,6 +1839,8 @@
       switch (status) {
         case "queued":
           return "assigned";
+        case "running":
+          return "running";
         case "success":
           return "done";
         case "error":
@@ -1825,6 +1853,19 @@
     function getScheduledTaskScheduleLabel(task) {
       if ((task?.scheduleType || "once") === "daily") {
         return inlineText(`Daily ${task?.dailyTime || "--:--"}`, `每日 ${task?.dailyTime || "--:--"}`);
+      }
+      if ((task?.scheduleType || "once") === "weekly") {
+        const labels = [
+          inlineText("Sunday", "周日"),
+          inlineText("Monday", "周一"),
+          inlineText("Tuesday", "周二"),
+          inlineText("Wednesday", "周三"),
+          inlineText("Thursday", "周四"),
+          inlineText("Friday", "周五"),
+          inlineText("Saturday", "周六"),
+        ];
+        const dayLabel = labels[Number(task?.weeklyDay)] || inlineText("Unknown day", "未知日期");
+        return inlineText(`Weekly ${dayLabel} ${task?.dailyTime || "--:--"}`, `每周 ${dayLabel} ${task?.dailyTime || "--:--"}`);
       }
       return inlineText(`One time at ${formatDateTimeLabel(task?.runAt)}`, `单次 ${formatDateTimeLabel(task?.runAt)}`);
     }
@@ -1841,6 +1882,9 @@
         task?.runAt || (Date.now() + 30 * 60 * 1000)
       );
       document.getElementById("scheduledTaskDailyTime").value = task?.dailyTime || "09:00";
+      document.getElementById("scheduledTaskWeeklyDay").value = String(
+        Number.isInteger(Number(task?.weeklyDay)) ? Number(task?.weeklyDay) : 1
+      );
       document.getElementById("scheduledTaskPrompt").value = task?.prompt || "";
       document.getElementById("scheduledTaskEnabled").checked = task ? task.enabled !== false : true;
       syncScheduledTaskTypeFields();
@@ -1940,6 +1984,7 @@
       const scheduleType = document.getElementById("scheduledTaskType").value || "once";
       const runAtInput = document.getElementById("scheduledTaskRunAt").value.trim();
       const dailyTime = document.getElementById("scheduledTaskDailyTime").value.trim();
+      const weeklyDay = document.getElementById("scheduledTaskWeeklyDay").value;
       const prompt = document.getElementById("scheduledTaskPrompt").value.trim();
       const enabled = document.getElementById("scheduledTaskEnabled").checked;
 
@@ -1963,6 +2008,10 @@
         showStatus(inlineText("Choose the daily execution time.", "请选择每日执行时间。"), true);
         return;
       }
+      if (scheduleType === "weekly" && !dailyTime) {
+        showStatus(inlineText("Choose the weekly execution time.", "请选择每周执行时间。"), true);
+        return;
+      }
 
       try {
         const result = await api.saveScheduledTask({
@@ -1972,7 +2021,8 @@
           prompt,
           scheduleType,
           runAt: scheduleType === "once" ? Date.parse(runAtInput) : null,
-          dailyTime: scheduleType === "daily" ? dailyTime : null,
+          dailyTime: scheduleType === "once" ? null : dailyTime,
+          weeklyDay: scheduleType === "weekly" ? Number(weeklyDay) : null,
           enabled,
         });
         if (!result?.success) {

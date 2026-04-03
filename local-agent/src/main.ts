@@ -18,6 +18,7 @@ import RuntimeManager, { CliProvider, ProjectSessionSnapshot, RunAttachment } fr
 import scheduledTaskStore, {
   computeScheduledTaskNextRunAt,
   normalizeDailyTime,
+  normalizeWeeklyDay,
   ScheduledTask,
   ScheduledTaskScheduleType,
 } from "./scheduled-task-store";
@@ -726,7 +727,7 @@ const runtimeManager = new RuntimeManager(() => ({
 }));
 runtimeManager.pruneHistoryCache(appSettingsStore.get("historyRetentionDays") as number);
 const localScheduler = new LocalScheduler({
-  executeTask: async (task) => executeScheduledTask(task),
+  executeTask: async (task, options) => executeScheduledTask(task, options),
   onTasksChanged: () => {
     broadcastScheduledTasksChanged();
   },
@@ -800,7 +801,9 @@ async function captureProjectScreenshot(projectId: string): Promise<RunAttachmen
 function buildScheduledTaskPrompt(task: ScheduledTask, project: Project): string {
   const scheduleLabel = task.scheduleType === "daily"
     ? `daily ${task.dailyTime ?? "--:--"}`
-    : `once ${task.runAt ? new Date(task.runAt).toLocaleString() : "unspecified"}`;
+    : (task.scheduleType === "weekly"
+      ? `weekly day=${task.weeklyDay ?? "-"} ${task.dailyTime ?? "--:--"}`
+      : `once ${task.runAt ? new Date(task.runAt).toLocaleString() : "unspecified"}`);
   return [
     `[Scheduled Task] ${task.name}`,
     `Project: ${project.name}`,
@@ -810,7 +813,10 @@ function buildScheduledTaskPrompt(task: ScheduledTask, project: Project): string
   ].join("\n");
 }
 
-async function executeScheduledTask(task: ScheduledTask): Promise<{ success: boolean; message?: string | null }> {
+async function executeScheduledTask(
+  task: ScheduledTask,
+  options: { runId: string },
+): Promise<{ success: boolean; message?: string | null }> {
   const project = getLocalProjectById(task.projectId);
   if (!project) {
     return { success: false, message: "Bound local project was not found." };
@@ -838,6 +844,7 @@ async function executeScheduledTask(task: ScheduledTask): Promise<{ success: boo
       cwd: project.path,
       prompt: buildScheduledTaskPrompt(task, project),
       source: "desktop",
+      runId: options.runId,
       onDone: () => settle({ success: true, message: "Scheduled task completed." }),
       onError: (error) => settle({ success: false, message: error || "Scheduled task failed." }),
     });
@@ -1233,6 +1240,10 @@ runtimeManager.on("snapshot", (_projectId: string, snapshot: ProjectSessionSnaps
   }
   broadcastSessionSync(snapshot);
   void updateManager.maybeInstallDownloadedUpdate();
+});
+
+runtimeManager.on("run-started", (payload: { runId: string }) => {
+  localScheduler.markTaskRunning(payload.runId);
 });
 
 runtimeManager.on("run-completed", () => {
@@ -4098,6 +4109,7 @@ ipcMain.handle("save-scheduled-task", (_event, data: {
   scheduleType?: ScheduledTaskScheduleType;
   runAt?: number | null;
   dailyTime?: string | null;
+  weeklyDay?: number | null;
   enabled?: boolean;
 }) => {
   const project = getLocalProjectById(String(data?.projectId ?? "").trim());
@@ -4117,18 +4129,24 @@ ipcMain.handle("save-scheduled-task", (_event, data: {
   const existing = typeof data?.id === "string" && data.id.trim()
     ? scheduledTaskStore.getTaskById(data.id.trim())
     : null;
-  const scheduleType: ScheduledTaskScheduleType = data?.scheduleType === "daily" ? "daily" : "once";
+  const scheduleType: ScheduledTaskScheduleType = data?.scheduleType === "weekly"
+    ? "weekly"
+    : (data?.scheduleType === "daily" ? "daily" : "once");
   const enabled = data?.enabled !== false;
   const runAt = scheduleType === "once"
     ? (Number.isFinite(Number(data?.runAt)) && Number(data?.runAt) > 0 ? Math.trunc(Number(data?.runAt)) : null)
     : null;
-  const dailyTime = scheduleType === "daily" ? normalizeDailyTime(data?.dailyTime) : null;
+  const dailyTime = scheduleType === "once" ? null : normalizeDailyTime(data?.dailyTime);
+  const weeklyDay = scheduleType === "weekly" ? normalizeWeeklyDay(data?.weeklyDay) : null;
 
   if (scheduleType === "once" && !runAt) {
     return { success: false, error: "Choose a valid run time for the one-time task." };
   }
-  if (scheduleType === "daily" && !dailyTime) {
-    return { success: false, error: "Choose a valid daily time in HH:mm format." };
+  if ((scheduleType === "daily" || scheduleType === "weekly") && !dailyTime) {
+    return { success: false, error: "Choose a valid time in HH:mm format." };
+  }
+  if (scheduleType === "weekly" && weeklyDay === null) {
+    return { success: false, error: "Choose a valid weekday for the weekly task." };
   }
 
   const task = scheduledTaskStore.saveTask({
@@ -4139,7 +4157,9 @@ ipcMain.handle("save-scheduled-task", (_event, data: {
     scheduleType,
     runAt,
     dailyTime,
+    weeklyDay,
     enabled,
+    activeRunId: existing?.activeRunId ?? null,
     lastRunAt: existing?.lastRunAt ?? null,
     lastRunStatus: existing?.lastRunStatus ?? "idle",
     lastError: existing?.lastError ?? null,
@@ -4148,6 +4168,7 @@ ipcMain.handle("save-scheduled-task", (_event, data: {
       enabled,
       runAt,
       dailyTime,
+      weeklyDay,
       lastRunAt: existing?.lastRunAt ?? null,
     }),
   });

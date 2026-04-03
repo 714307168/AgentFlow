@@ -1,4 +1,5 @@
 import appLogger from "./app-logger";
+import { v4 as uuidv4 } from "uuid";
 import scheduledTaskStore, {
   computeScheduledTaskNextRunAt,
   isScheduledTaskDue,
@@ -12,8 +13,12 @@ interface ScheduledTaskExecutionResult {
   message?: string | null;
 }
 
+interface ScheduledTaskExecutionOptions {
+  runId: string;
+}
+
 interface LocalSchedulerConfig {
-  executeTask: (task: ScheduledTask) => Promise<ScheduledTaskExecutionResult>;
+  executeTask: (task: ScheduledTask, options: ScheduledTaskExecutionOptions) => Promise<ScheduledTaskExecutionResult>;
   onTasksChanged?: () => void;
 }
 
@@ -60,6 +65,24 @@ class LocalScheduler {
     return { success: true };
   }
 
+  markTaskRunning(runId: string): void {
+    const task = scheduledTaskStore.listTasks().find((entry) => entry.activeRunId === runId);
+    if (!task || task.lastRunStatus === "running") {
+      return;
+    }
+    scheduledTaskStore.saveTask({
+      ...task,
+      lastRunStatus: "running",
+      lastError: null,
+    });
+    appLogger.info("scheduler", "Scheduled task started running.", {
+      taskId: task.id,
+      projectId: task.projectId,
+      runId,
+    });
+    this.config.onTasksChanged?.();
+  }
+
   private async tick(reason: string): Promise<void> {
     this.reconcileTasks(reason);
     const now = Date.now();
@@ -78,9 +101,11 @@ class LocalScheduler {
     for (const task of scheduledTaskStore.listTasks()) {
       let nextStatus = task.lastRunStatus;
       let nextError = task.lastError ?? null;
-      if (task.lastRunStatus === "queued" && !this.inFlightTaskIds.has(task.id)) {
+      let nextActiveRunId = task.activeRunId ?? null;
+      if ((task.lastRunStatus === "queued" || task.lastRunStatus === "running") && !this.inFlightTaskIds.has(task.id)) {
         nextStatus = "error";
         nextError = nextError || "Desktop restarted before the scheduled task finished.";
+        nextActiveRunId = null;
       }
 
       const nextRunAt = computeScheduledTaskNextRunAt({
@@ -88,10 +113,16 @@ class LocalScheduler {
         enabled: task.enabled,
         runAt: task.runAt,
         dailyTime: task.dailyTime,
+        weeklyDay: task.weeklyDay,
         lastRunAt: task.lastRunAt,
       }, now);
 
-      if (nextStatus === task.lastRunStatus && nextError === (task.lastError ?? null) && nextRunAt === (task.nextRunAt ?? null)) {
+      if (
+        nextStatus === task.lastRunStatus
+        && nextError === (task.lastError ?? null)
+        && nextRunAt === (task.nextRunAt ?? null)
+        && nextActiveRunId === (task.activeRunId ?? null)
+      ) {
         continue;
       }
 
@@ -99,6 +130,7 @@ class LocalScheduler {
         ...task,
         lastRunStatus: nextStatus,
         lastError: nextError,
+        activeRunId: nextActiveRunId,
         nextRunAt,
       });
       changed = true;
@@ -116,11 +148,13 @@ class LocalScheduler {
       return;
     }
 
+    const runId = uuidv4();
     this.inFlightTaskIds.add(task.id);
     scheduledTaskStore.saveTask({
       ...latestTask,
       lastRunStatus: "queued",
       lastError: null,
+      activeRunId: runId,
       nextRunAt: null,
     });
     this.config.onTasksChanged?.();
@@ -128,11 +162,12 @@ class LocalScheduler {
       taskId: latestTask.id,
       projectId: latestTask.projectId,
       trigger,
+      runId,
       scheduleType: latestTask.scheduleType,
     });
 
     try {
-      const result = await this.config.executeTask(latestTask);
+      const result = await this.config.executeTask(latestTask, { runId });
       const completedAt = Date.now();
       const persisted = scheduledTaskStore.getTaskById(task.id) ?? latestTask;
       const nextRunAt = computeScheduledTaskNextRunAt({
@@ -140,6 +175,7 @@ class LocalScheduler {
         enabled: persisted.enabled,
         runAt: persisted.runAt,
         dailyTime: persisted.dailyTime,
+        weeklyDay: persisted.weeklyDay,
         lastRunAt: completedAt,
       }, completedAt);
       const shouldDisable = persisted.scheduleType === "once" && nextRunAt === null;
@@ -147,6 +183,7 @@ class LocalScheduler {
       scheduledTaskStore.saveTask({
         ...persisted,
         enabled: shouldDisable ? false : persisted.enabled,
+        activeRunId: null,
         lastRunAt: completedAt,
         lastRunStatus: result.success ? "success" : "error",
         lastError: result.success ? null : (result.message?.trim() || "Scheduled task failed."),
@@ -168,6 +205,7 @@ class LocalScheduler {
         enabled: persisted.enabled,
         runAt: persisted.runAt,
         dailyTime: persisted.dailyTime,
+        weeklyDay: persisted.weeklyDay,
         lastRunAt: completedAt,
       }, completedAt);
       const shouldDisable = persisted.scheduleType === "once" && nextRunAt === null;
@@ -176,6 +214,7 @@ class LocalScheduler {
       scheduledTaskStore.saveTask({
         ...persisted,
         enabled: shouldDisable ? false : persisted.enabled,
+        activeRunId: null,
         lastRunAt: completedAt,
         lastRunStatus: "error",
         lastError: message,
