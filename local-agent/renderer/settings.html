@@ -796,7 +796,7 @@
               </div>
               <div class="project-list" id="workgroupRegistryResultList" data-empty-message="No matching workgroup."></div>
             </div>
-            <div class="workgroup-card" style="margin-top: 14px; display:none;">
+            <div class="workgroup-card" style="margin-top: 14px;">
               <div class="workgroup-card-title" id="workgroupTaskTitle">Tasks</div>
               <div class="split-grid">
                 <div>
@@ -815,6 +815,50 @@
                       <option value="high">High</option>
                       <option value="low">Low</option>
                     </select>
+                  </div>
+                  <div class="field">
+                    <label id="taskScheduleTypeLabel">Schedule</label>
+                    <select id="workgroupTaskScheduleType">
+                      <option value="manual">Manual Only</option>
+                      <option value="once">One Time</option>
+                      <option value="delay">Delay</option>
+                      <option value="daily">Daily</option>
+                      <option value="weekly">Weekly</option>
+                    </select>
+                  </div>
+                  <div class="field" id="workgroupTaskRunAtField" style="display:none;">
+                    <label id="taskRunAtLabel">Run At</label>
+                    <input type="datetime-local" id="workgroupTaskRunAt">
+                  </div>
+                  <div class="field" id="workgroupTaskDelayField" style="display:none;">
+                    <label id="taskDelayLabel">Delay Minutes</label>
+                    <input type="text" id="workgroupTaskDelayMinutes" inputmode="numeric" placeholder="30">
+                  </div>
+                  <div class="field" id="workgroupTaskDailyTimeField" style="display:none;">
+                    <label id="taskDailyTimeLabel">Repeat Time</label>
+                    <input type="time" id="workgroupTaskDailyTime">
+                  </div>
+                  <div class="field" id="workgroupTaskWeeklyDayField" style="display:none;">
+                    <label id="taskWeeklyDayLabel">Weekly Day</label>
+                    <select id="workgroupTaskWeeklyDay">
+                      <option value="0">Sunday</option>
+                      <option value="1">Monday</option>
+                      <option value="2">Tuesday</option>
+                      <option value="3">Wednesday</option>
+                      <option value="4">Thursday</option>
+                      <option value="5">Friday</option>
+                      <option value="6">Saturday</option>
+                    </select>
+                  </div>
+                  <div class="toggle-row" id="workgroupTaskEnabledRow" style="display:none;">
+                    <div class="toggle-copy">
+                      <label id="taskEnabledLabel" for="workgroupTaskScheduleEnabled">Enabled</label>
+                      <div class="toggle-help" id="taskEnabledHint">Disabled scheduled workgroup tasks stay saved but do not auto-dispatch.</div>
+                    </div>
+                    <div class="toggle">
+                      <input type="checkbox" id="workgroupTaskScheduleEnabled" checked>
+                      <span class="slider"></span>
+                    </div>
                   </div>
                 </div>
                 <div>
@@ -1393,6 +1437,29 @@
       document.getElementById("workgroupTaskPriority").options[0].text = inlineText("Normal", "中");
       document.getElementById("workgroupTaskPriority").options[1].text = inlineText("High", "高");
       document.getElementById("workgroupTaskPriority").options[2].text = inlineText("Low", "低");
+      document.getElementById("taskScheduleTypeLabel").textContent = inlineText("Schedule", "调度");
+      document.getElementById("workgroupTaskScheduleType").options[0].text = inlineText("Manual Only", "仅手动");
+      document.getElementById("workgroupTaskScheduleType").options[1].text = inlineText("One Time", "单次");
+      document.getElementById("workgroupTaskScheduleType").options[2].text = inlineText("Delay", "延迟");
+      document.getElementById("workgroupTaskScheduleType").options[3].text = inlineText("Daily", "每日");
+      document.getElementById("workgroupTaskScheduleType").options[4].text = inlineText("Weekly", "每周");
+      document.getElementById("taskRunAtLabel").textContent = inlineText("Run At", "执行时间");
+      document.getElementById("taskDelayLabel").textContent = inlineText("Delay Minutes", "延迟分钟数");
+      document.getElementById("workgroupTaskDelayMinutes").placeholder = inlineText("30", "30");
+      document.getElementById("taskDailyTimeLabel").textContent = inlineText("Repeat Time", "重复时间");
+      document.getElementById("taskWeeklyDayLabel").textContent = inlineText("Weekly Day", "每周日期");
+      const workgroupWeeklyDaySelect = document.getElementById("workgroupTaskWeeklyDay");
+      ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].forEach((label, index) => {
+        workgroupWeeklyDaySelect.options[index].text = inlineText(
+          label,
+          ["周日", "周一", "周二", "周三", "周四", "周五", "周六"][index]
+        );
+      });
+      document.getElementById("taskEnabledLabel").textContent = inlineText("Enabled", "启用");
+      document.getElementById("taskEnabledHint").textContent = inlineText(
+        "Disabled scheduled workgroup tasks stay saved but do not auto-dispatch.",
+        "关闭后，协作组定时任务会保留配置，但不会自动派发。"
+      );
       document.getElementById("taskDescriptionLabel").textContent = inlineText("Description", "任务说明");
       document.getElementById("workgroupTaskDescription").placeholder = inlineText(
         "Ship the current branch, confirm service health, and attach the verification result.",
@@ -1823,6 +1890,16 @@
       document.getElementById("scheduledTaskWeeklyDayField").style.display = type === "weekly" ? "" : "none";
     }
 
+    function syncWorkgroupTaskTypeFields() {
+      const type = document.getElementById("workgroupTaskScheduleType").value || "manual";
+      const scheduled = type !== "manual";
+      document.getElementById("workgroupTaskRunAtField").style.display = type === "once" ? "" : "none";
+      document.getElementById("workgroupTaskDelayField").style.display = type === "delay" ? "" : "none";
+      document.getElementById("workgroupTaskDailyTimeField").style.display = type === "daily" || type === "weekly" ? "" : "none";
+      document.getElementById("workgroupTaskWeeklyDayField").style.display = type === "weekly" ? "" : "none";
+      document.getElementById("workgroupTaskEnabledRow").style.display = scheduled ? "" : "none";
+    }
+
     function formatLocalDateTimeInput(value) {
       const numeric = Number(value || 0);
       if (!Number.isFinite(numeric) || numeric <= 0) {
@@ -1881,6 +1958,32 @@
         return inlineText(`Delay ${task?.delayMinutes || 0} minutes`, `延迟 ${task?.delayMinutes || 0} 分钟`);
       }
       if ((task?.scheduleType || "once") === "weekly") {
+        const labels = [
+          inlineText("Sunday", "周日"),
+          inlineText("Monday", "周一"),
+          inlineText("Tuesday", "周二"),
+          inlineText("Wednesday", "周三"),
+          inlineText("Thursday", "周四"),
+          inlineText("Friday", "周五"),
+          inlineText("Saturday", "周六"),
+        ];
+        const dayLabel = labels[Number(task?.weeklyDay)] || inlineText("Unknown day", "未知日期");
+        return inlineText(`Weekly ${dayLabel} ${task?.dailyTime || "--:--"}`, `每周 ${dayLabel} ${task?.dailyTime || "--:--"}`);
+      }
+      return inlineText(`One time at ${formatDateTimeLabel(task?.runAt)}`, `单次 ${formatDateTimeLabel(task?.runAt)}`);
+    }
+
+    function getWorkgroupTaskScheduleLabel(task) {
+      if (!task?.scheduleType) {
+        return inlineText("Manual dispatch only", "仅手动派发");
+      }
+      if (task.scheduleType === "daily") {
+        return inlineText(`Daily ${task?.dailyTime || "--:--"}`, `每日 ${task?.dailyTime || "--:--"}`);
+      }
+      if (task.scheduleType === "delay") {
+        return inlineText(`Delay ${task?.delayMinutes || 0} minutes`, `延迟 ${task?.delayMinutes || 0} 分钟`);
+      }
+      if (task.scheduleType === "weekly") {
         const labels = [
           inlineText("Sunday", "周日"),
           inlineText("Monday", "周一"),
@@ -2360,9 +2463,20 @@
       editingTaskId = task?.id || null;
       document.getElementById("workgroupTaskName").value = task?.title || "";
       document.getElementById("workgroupTaskPriority").value = task?.priority || "normal";
+      document.getElementById("workgroupTaskScheduleType").value = task?.scheduleType || "manual";
+      document.getElementById("workgroupTaskRunAt").value = formatLocalDateTimeInput(
+        task?.runAt || (Date.now() + 30 * 60 * 1000)
+      );
+      document.getElementById("workgroupTaskDelayMinutes").value = String(Number(task?.delayMinutes || 30));
+      document.getElementById("workgroupTaskDailyTime").value = task?.dailyTime || "09:00";
+      document.getElementById("workgroupTaskWeeklyDay").value = String(
+        Number.isInteger(Number(task?.weeklyDay)) ? Number(task?.weeklyDay) : 1
+      );
+      document.getElementById("workgroupTaskScheduleEnabled").checked = task ? task.scheduleEnabled !== false : true;
       document.getElementById("workgroupTaskDescription").value = task?.description || "";
       document.getElementById("workgroupTaskCriteria").value = task?.acceptanceCriteria || "";
       renderTaskAssigneeOptions(task?.assigneeMemberId || "");
+      syncWorkgroupTaskTypeFields();
     }
 
     function renderWorkgroupSelect() {
@@ -2485,17 +2599,23 @@
             <div class="workgroup-inline-meta">
               <span class="workgroup-pill status-${escapeHtml(task.status)}">${escapeHtml(getTaskStatusLabel(task.status))}</span>
               <span class="workgroup-pill">${escapeHtml(getTaskPriorityLabel(task.priority))}</span>
+              <span class="workgroup-pill">${escapeHtml(task.scheduleType ? inlineText("Scheduled", "定时") : inlineText("Manual", "手动"))}</span>
+              ${task.scheduleType ? `<span class="workgroup-pill">${escapeHtml(task.scheduleEnabled === false ? inlineText("Disabled", "已关闭") : inlineText("Enabled", "已启用"))}</span>` : ""}
               <span class="workgroup-pill">${escapeHtml(task.assigneeMemberName || inlineText("Unassigned", "未分配"))}</span>
               ${task.assigneeProjectBindingLabel ? `<span class="workgroup-pill">${escapeHtml(task.assigneeProjectBindingLabel)}</span>` : ""}
             </div>
             ${task.description ? `<div class="workgroup-subtext">${escapeHtml(task.description)}</div>` : ""}
             ${task.acceptanceCriteria ? `<div class="workgroup-subtext" style="margin-top: 6px;">${escapeHtml(`${inlineText("Acceptance", "验收")}: ${task.acceptanceCriteria}`)}</div>` : ""}
+            <div class="workgroup-subtext" style="margin-top: 6px;">${escapeHtml(getWorkgroupTaskScheduleLabel(task))}</div>
+            ${task.scheduleType ? `<div class="workgroup-subtext" style="margin-top: 6px;">${escapeHtml(inlineText(`Next dispatch: ${formatDateTimeLabel(task.nextRunAt)}`, `下次派发：${formatDateTimeLabel(task.nextRunAt)}`))}</div>` : ""}
+            ${task.lastDispatchAt ? `<div class="workgroup-subtext" style="margin-top: 6px;">${escapeHtml(inlineText(`Last dispatch: ${formatDateTimeLabel(task.lastDispatchAt)}`, `上次派发：${formatDateTimeLabel(task.lastDispatchAt)}`))}</div>` : ""}
             ${task.dispatchBlockedReason ? `<div class="workgroup-subtext" style="margin-top: 6px;">${escapeHtml(task.dispatchBlockedReason)}</div>` : ""}
             ${task.lastDispatchResult ? `<div class="workgroup-subtext" style="margin-top: 6px;">${escapeHtml(task.lastDispatchResult)}</div>` : ""}
           </div>
           <div class="project-actions">
             <button class="btn-primary btn-small" onclick="dispatchWorkgroupTask('${task.id}')" ${task.dispatchReady ? "" : "disabled"} title="${escapeHtml(task.dispatchBlockedReason || "")}">${escapeHtml(inlineText("Dispatch", "派发"))}</button>
             <button class="btn-secondary btn-small" onclick="editWorkgroupTask('${task.id}')">${escapeHtml(inlineText("Edit", "编辑"))}</button>
+            ${task.scheduleType ? `<button class="btn-secondary btn-small" onclick="setWorkgroupTaskScheduleEnabled('${task.id}', ${task.scheduleEnabled === false ? "true" : "false"})">${escapeHtml(task.scheduleEnabled === false ? inlineText("Enable", "启用") : inlineText("Disable", "停用"))}</button>` : ""}
             <button class="btn-secondary btn-small" onclick="setWorkgroupTaskStatus('${task.id}', 'done')">${escapeHtml(inlineText("Done", "完成"))}</button>
             <button class="btn-secondary btn-small" onclick="setWorkgroupTaskStatus('${task.id}', 'blocked')">${escapeHtml(inlineText("Block", "阻塞"))}</button>
             <button class="btn-secondary btn-small" onclick="setWorkgroupTaskStatus('${task.id}', 'todo')">${escapeHtml(inlineText("Reset", "重置"))}</button>
@@ -2819,8 +2939,30 @@
         return;
       }
       const title = document.getElementById("workgroupTaskName").value.trim();
+      const scheduleType = document.getElementById("workgroupTaskScheduleType").value || "manual";
+      const runAtInput = document.getElementById("workgroupTaskRunAt").value.trim();
+      const delayMinutes = document.getElementById("workgroupTaskDelayMinutes").value.trim();
+      const dailyTime = document.getElementById("workgroupTaskDailyTime").value.trim();
+      const weeklyDay = document.getElementById("workgroupTaskWeeklyDay").value;
+      const scheduleEnabled = document.getElementById("workgroupTaskScheduleEnabled").checked;
       if (!title) {
         showStatus(inlineText("Task title is required.", "任务标题不能为空。"), true);
+        return;
+      }
+      if (scheduleType === "once" && !runAtInput) {
+        showStatus(inlineText("Pick a valid run time.", "请选择有效的执行时间。"), true);
+        return;
+      }
+      if (scheduleType === "delay" && !(Number(delayMinutes) > 0)) {
+        showStatus(inlineText("Pick a valid delay in minutes.", "请选择有效的延迟分钟数。"), true);
+        return;
+      }
+      if (scheduleType === "daily" && !dailyTime) {
+        showStatus(inlineText("Pick a valid daily time.", "请选择有效的每日时间。"), true);
+        return;
+      }
+      if (scheduleType === "weekly" && !dailyTime) {
+        showStatus(inlineText("Pick a valid weekly time.", "请选择有效的每周时间。"), true);
         return;
       }
       try {
@@ -2832,9 +2974,30 @@
           acceptanceCriteria: document.getElementById("workgroupTaskCriteria").value.trim() || null,
           assigneeMemberId: document.getElementById("workgroupTaskAssignee").value || null,
           priority: document.getElementById("workgroupTaskPriority").value,
+          scheduleType,
+          runAt: scheduleType === "once" ? Date.parse(runAtInput) : null,
+          delayMinutes: scheduleType === "delay" ? Number(delayMinutes) : null,
+          dailyTime: scheduleType === "daily" || scheduleType === "weekly" ? dailyTime : null,
+          weeklyDay: scheduleType === "weekly" ? Number(weeklyDay) : null,
+          scheduleEnabled,
         });
         if (!result?.success) {
           showStatus(result?.error || inlineText("Failed to save task.", "保存任务失败。"), true);
+          return;
+        }
+        paneLoadState.workgroupsDirty = true;
+        await loadWorkgroups({ force: true });
+        flashSaved();
+      } catch (error) {
+        showStatus(getErrorMessage(error), true);
+      }
+    }
+
+    async function setWorkgroupTaskScheduleEnabled(taskId, enabled) {
+      try {
+        const result = await api.setWorkgroupTaskScheduleEnabled({ taskId, enabled });
+        if (!result?.success) {
+          showStatus(result?.error || inlineText("Failed to update schedule state.", "更新定时状态失败。"), true);
           return;
         }
         paneLoadState.workgroupsDirty = true;
@@ -3255,6 +3418,9 @@
 
     document.getElementById("scheduledTaskType").addEventListener("change", () => {
       syncScheduledTaskTypeFields();
+    });
+    document.getElementById("workgroupTaskScheduleType").addEventListener("change", () => {
+      syncWorkgroupTaskTypeFields();
     });
 
     document.getElementById("saveScheduledTaskBtn").addEventListener("click", () => {

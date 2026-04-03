@@ -1,5 +1,10 @@
 import Store from "electron-store";
 import { v4 as uuidv4 } from "uuid";
+import {
+  normalizeDailyTime,
+  normalizeWeeklyDay,
+  ScheduledTaskScheduleType,
+} from "./scheduled-task-store";
 
 export type WorkgroupRole = "developer" | "qa" | "project_manager" | "custom";
 export type WorkgroupTaskPriority = "low" | "normal" | "high";
@@ -43,6 +48,14 @@ export interface WorkgroupTask {
   assigneeMemberId?: string | null;
   priority: WorkgroupTaskPriority;
   status: WorkgroupTaskStatus;
+  scheduleType?: ScheduledTaskScheduleType | null;
+  scheduleEnabled?: boolean;
+  runAt?: number | null;
+  delayMinutes?: number | null;
+  delayStartAt?: number | null;
+  dailyTime?: string | null;
+  weeklyDay?: number | null;
+  nextRunAt?: number | null;
   dispatchProjectId?: string | null;
   dispatchRunId?: string | null;
   lastDispatchAt?: number | null;
@@ -67,6 +80,29 @@ function normalizeProjectKind(value: string | null | undefined): "local" | "remo
 function normalizeNullableText(value: string | null | undefined): string | null {
   const normalized = String(value ?? "").trim();
   return normalized || null;
+}
+
+function normalizeTimestamp(value: number | null | undefined): number | null {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return null;
+  }
+  return Math.trunc(numeric);
+}
+
+function normalizePositiveInteger(value: number | null | undefined): number | null {
+  const numeric = Number(value);
+  if (!Number.isInteger(numeric) || numeric <= 0) {
+    return null;
+  }
+  return numeric;
+}
+
+function normalizeScheduleType(value: string | null | undefined): ScheduledTaskScheduleType | null {
+  if (value === "once" || value === "delay" || value === "daily" || value === "weekly") {
+    return value;
+  }
+  return null;
 }
 
 function normalizeAllowedPaths(paths: Array<string | null | undefined> | null | undefined): string[] {
@@ -213,6 +249,14 @@ class WorkgroupStore {
       description: normalizeNullableText(task.description),
       acceptanceCriteria: normalizeNullableText(task.acceptanceCriteria),
       assigneeMemberId: normalizeNullableText(task.assigneeMemberId),
+      scheduleType: normalizeScheduleType(task.scheduleType),
+      scheduleEnabled: task.scheduleEnabled !== false,
+      runAt: normalizeTimestamp(task.runAt),
+      delayMinutes: normalizePositiveInteger(task.delayMinutes),
+      delayStartAt: normalizeTimestamp(task.delayStartAt),
+      dailyTime: normalizeDailyTime(task.dailyTime),
+      weeklyDay: normalizeWeeklyDay(task.weeklyDay),
+      nextRunAt: normalizeTimestamp(task.nextRunAt),
       dispatchProjectId: normalizeNullableText(task.dispatchProjectId),
       dispatchRunId: normalizeNullableText(task.dispatchRunId),
       lastDispatchResult: normalizeNullableText(task.lastDispatchResult),
@@ -248,6 +292,16 @@ class WorkgroupStore {
       assigneeMemberId: normalizeNullableText(input.assigneeMemberId),
       priority: input.priority === "low" || input.priority === "high" ? input.priority : "normal",
       status: input.status ?? existing?.status ?? "todo",
+      scheduleType: input.scheduleType !== undefined
+        ? normalizeScheduleType(input.scheduleType)
+        : (existing?.scheduleType ?? null),
+      scheduleEnabled: input.scheduleEnabled !== undefined ? input.scheduleEnabled !== false : (existing?.scheduleEnabled ?? true),
+      runAt: input.runAt !== undefined ? normalizeTimestamp(input.runAt) : (existing?.runAt ?? null),
+      delayMinutes: input.delayMinutes !== undefined ? normalizePositiveInteger(input.delayMinutes) : (existing?.delayMinutes ?? null),
+      delayStartAt: input.delayStartAt !== undefined ? normalizeTimestamp(input.delayStartAt) : (existing?.delayStartAt ?? null),
+      dailyTime: input.dailyTime !== undefined ? normalizeDailyTime(input.dailyTime) : (existing?.dailyTime ?? null),
+      weeklyDay: input.weeklyDay !== undefined ? normalizeWeeklyDay(input.weeklyDay) : (existing?.weeklyDay ?? null),
+      nextRunAt: input.nextRunAt !== undefined ? normalizeTimestamp(input.nextRunAt) : (existing?.nextRunAt ?? null),
       dispatchProjectId: input.dispatchProjectId !== undefined
         ? normalizeNullableText(input.dispatchProjectId)
         : (existing?.dispatchProjectId ?? null),

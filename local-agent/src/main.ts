@@ -14,6 +14,7 @@ import ptyManager from "./pty-manager";
 import RemoteSessionStore, { RemoteProjectRecord } from "./remote-session-store";
 import RemoteWorkgroupStore, { RemoteWorkgroupRegistryRecord, parseCompositeWorkgroupId } from "./remote-workgroup-store";
 import LocalScheduler from "./local-scheduler";
+import WorkgroupTaskScheduler from "./workgroup-task-scheduler";
 import RuntimeManager, { CliProvider, ProjectSessionSnapshot, RunAttachment } from "./runtime-manager";
 import scheduledTaskStore, {
   computeScheduledTaskNextRunAt,
@@ -730,6 +731,12 @@ const localScheduler = new LocalScheduler({
   executeTask: async (task, options) => executeScheduledTask(task, options),
   onTasksChanged: () => {
     broadcastScheduledTasksChanged();
+  },
+});
+const workgroupTaskScheduler = new WorkgroupTaskScheduler({
+  dispatchTask: async (taskId: string) => handleDispatchWorkgroupTaskRequest(taskId),
+  onTasksChanged: () => {
+    broadcastWorkgroupsChanged();
   },
 });
 const workgroupCollaborationService = new WorkgroupCollaborationService({
@@ -1740,7 +1747,14 @@ function listSerializedWorkgroups(): WorkgroupView[] {
       const tasks = workgroupStore
         .listTasks(workgroup.id)
         .map((task) => serializeWorkgroupTask(task, membersById))
-        .sort((left, right) => right.updatedAt - left.updatedAt);
+        .sort((left, right) => {
+          const leftRank = left.nextRunAt ?? Number.MAX_SAFE_INTEGER;
+          const rightRank = right.nextRunAt ?? Number.MAX_SAFE_INTEGER;
+          if (leftRank !== rightRank) {
+            return leftRank - rightRank;
+          }
+          return right.updatedAt - left.updatedAt;
+        });
       return {
         ...workgroup,
         members,
@@ -3242,6 +3256,7 @@ async function handleDispatchWorkgroupTaskRequest(taskId: string) {
         lastDispatchAt: dispatchAt,
         lastDispatchResult: result.error || "Remote dispatch failed",
       });
+      workgroupTaskScheduler.syncTasks("dispatch-workgroup-task-error");
       broadcastWorkgroupsChanged();
       return result;
     }
@@ -3255,6 +3270,7 @@ async function handleDispatchWorkgroupTaskRequest(taskId: string) {
         ? "Waiting in the assigned remote member project queue."
         : "Assigned remote member project is executing the task.",
     });
+    workgroupTaskScheduler.syncTasks("dispatch-workgroup-task-success");
     broadcastWorkgroupsChanged();
     return {
       success: true,
@@ -3281,6 +3297,7 @@ async function handleDispatchWorkgroupTaskRequest(taskId: string) {
         status: "done",
         lastDispatchResult: "Completed by assigned member project.",
       });
+      workgroupTaskScheduler.syncTasks("dispatch-workgroup-task-done");
       broadcastWorkgroupsChanged();
     },
     onError: (error) => {
@@ -3292,6 +3309,7 @@ async function handleDispatchWorkgroupTaskRequest(taskId: string) {
         status: "error",
         lastDispatchResult: error || "Local dispatch failed",
       });
+      workgroupTaskScheduler.syncTasks("dispatch-workgroup-task-local-error");
       broadcastWorkgroupsChanged();
     },
   });
@@ -3305,6 +3323,7 @@ async function handleDispatchWorkgroupTaskRequest(taskId: string) {
       ? "Queued for the assigned local member project."
       : "Assigned local member project is executing the task.",
   });
+  workgroupTaskScheduler.syncTasks("dispatch-workgroup-task-success");
   broadcastWorkgroupsChanged();
   return {
     success: true,
@@ -4643,6 +4662,12 @@ ipcMain.handle("save-workgroup-task", (_event, data: {
   assigneeMemberId?: string | null;
   priority?: "low" | "normal" | "high";
   status?: WorkgroupTaskStatus;
+  scheduleType?: "manual" | ScheduledTaskScheduleType | null;
+  runAt?: number | null;
+  delayMinutes?: number | null;
+  dailyTime?: string | null;
+  weeklyDay?: number | null;
+  scheduleEnabled?: boolean;
 }) => {
   const workgroup = workgroupStore.getWorkgroupById(data?.workgroupId || "");
   if (!workgroup) {
@@ -4664,8 +4689,42 @@ ipcMain.handle("save-workgroup-task", (_event, data: {
     }
   }
 
+  const existing = typeof data?.id === "string" && data.id.trim()
+    ? workgroupStore.getTaskById(data.id.trim())
+    : null;
+  const scheduleAnchorAt = Date.now();
+  const scheduleType: ScheduledTaskScheduleType | null = data?.scheduleType === "weekly"
+    ? "weekly"
+    : (data?.scheduleType === "daily"
+      ? "daily"
+      : (data?.scheduleType === "delay"
+        ? "delay"
+        : (data?.scheduleType === "once" ? "once" : null)));
+  const scheduleEnabled = scheduleType ? data?.scheduleEnabled !== false : false;
+  const runAt = scheduleType === "once"
+    ? (Number.isFinite(Number(data?.runAt)) && Number(data?.runAt) > 0 ? Math.trunc(Number(data?.runAt)) : null)
+    : null;
+  const delayMinutes = scheduleType === "delay"
+    ? (Number.isInteger(Number(data?.delayMinutes)) && Number(data?.delayMinutes) > 0 ? Number(data?.delayMinutes) : null)
+    : null;
+  const dailyTime = scheduleType === "daily" || scheduleType === "weekly" ? normalizeDailyTime(data?.dailyTime) : null;
+  const weeklyDay = scheduleType === "weekly" ? normalizeWeeklyDay(data?.weeklyDay) : null;
+
+  if (scheduleType === "once" && !runAt) {
+    return { success: false, error: "Choose a valid run time for the one-time workgroup task." };
+  }
+  if (scheduleType === "delay" && !delayMinutes) {
+    return { success: false, error: "Choose a valid delay in minutes for the workgroup task." };
+  }
+  if ((scheduleType === "daily" || scheduleType === "weekly") && !dailyTime) {
+    return { success: false, error: "Choose a valid time in HH:mm format for the workgroup task." };
+  }
+  if (scheduleType === "weekly" && weeklyDay === null) {
+    return { success: false, error: "Choose a valid weekday for the weekly workgroup task." };
+  }
+
   const task = workgroupStore.saveTask({
-    id: typeof data?.id === "string" ? data.id.trim() : undefined,
+    id: existing?.id || (typeof data?.id === "string" ? data.id.trim() : undefined),
     workgroupId: workgroup.id,
     title,
     description: data?.description ?? null,
@@ -4673,8 +4732,30 @@ ipcMain.handle("save-workgroup-task", (_event, data: {
     assigneeMemberId,
     priority: data?.priority,
     status: data?.status,
+    scheduleType,
+    scheduleEnabled,
+    runAt,
+    delayMinutes,
+    delayStartAt: scheduleType === "delay"
+      ? (existing?.scheduleType === "delay" ? existing.delayStartAt ?? scheduleAnchorAt : scheduleAnchorAt)
+      : null,
+    dailyTime,
+    weeklyDay,
+    nextRunAt: scheduleType ? computeScheduledTaskNextRunAt({
+      scheduleType,
+      enabled: scheduleEnabled,
+      runAt,
+      delayMinutes,
+      delayStartAt: scheduleType === "delay"
+        ? (existing?.scheduleType === "delay" ? existing.delayStartAt ?? scheduleAnchorAt : scheduleAnchorAt)
+        : null,
+      dailyTime,
+      weeklyDay,
+      lastRunAt: existing?.lastDispatchAt ?? null,
+    }) : null,
   });
   touchWorkgroup(workgroup.id);
+  workgroupTaskScheduler.syncTasks("save-workgroup-task");
   broadcastWorkgroupsChanged();
   return {
     success: true,
@@ -4691,8 +4772,45 @@ ipcMain.handle("delete-workgroup-task", (_event, taskId: string) => {
 
   workgroupStore.removeTask(taskId);
   touchWorkgroup(task.workgroupId);
+  workgroupTaskScheduler.syncTasks("delete-workgroup-task");
   broadcastWorkgroupsChanged();
   return { success: true };
+});
+
+ipcMain.handle("set-workgroup-task-schedule-enabled", (_event, data: {
+  taskId: string;
+  enabled: boolean;
+}) => {
+  const task = workgroupStore.getTaskById(String(data?.taskId ?? "").trim());
+  if (!task) {
+    return { success: false, error: "Task not found" };
+  }
+  if (!task.scheduleType) {
+    return { success: false, error: "Task is not scheduled" };
+  }
+
+  const nextTask = workgroupStore.saveTask({
+    ...task,
+    scheduleEnabled: data.enabled !== false,
+    nextRunAt: computeScheduledTaskNextRunAt({
+      scheduleType: task.scheduleType,
+      enabled: data.enabled !== false,
+      runAt: task.runAt,
+      delayMinutes: task.delayMinutes,
+      delayStartAt: task.delayStartAt,
+      dailyTime: task.dailyTime,
+      weeklyDay: task.weeklyDay,
+      lastRunAt: task.lastDispatchAt ?? null,
+    }),
+  });
+  touchWorkgroup(task.workgroupId);
+  workgroupTaskScheduler.syncTasks("toggle-workgroup-task-schedule");
+  broadcastWorkgroupsChanged();
+  return {
+    success: true,
+    task: nextTask,
+    workgroup: getSerializedWorkgroupById(task.workgroupId),
+  };
 });
 
 ipcMain.handle("update-workgroup-task-status", (_event, data: {
@@ -4737,6 +4855,7 @@ app.whenReady().then(async () => {
   startRelayMaintenanceTask();
   runRelayMaintenanceTask("startup");
   localScheduler.start();
+  workgroupTaskScheduler.start();
   powerMonitor.on("resume", () => {
     runRelayMaintenanceTask("power-resume");
   });

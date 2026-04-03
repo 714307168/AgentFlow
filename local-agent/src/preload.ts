@@ -100,8 +100,18 @@ contextBridge.exposeInMainWorld('claudeAgent', {
     assigneeMemberId?: string | null;
     priority?: 'low' | 'normal' | 'high';
     status?: 'todo' | 'assigned' | 'running' | 'blocked' | 'done' | 'error';
+    scheduleType?: 'manual' | 'once' | 'delay' | 'daily' | 'weekly' | null;
+    runAt?: number | null;
+    delayMinutes?: number | null;
+    dailyTime?: string | null;
+    weeklyDay?: number | null;
+    scheduleEnabled?: boolean;
   }) => ipcRenderer.invoke('save-workgroup-task', data),
   deleteWorkgroupTask: (taskId: string) => ipcRenderer.invoke('delete-workgroup-task', taskId),
+  setWorkgroupTaskScheduleEnabled: (data: {
+    taskId: string;
+    enabled: boolean;
+  }) => ipcRenderer.invoke('set-workgroup-task-schedule-enabled', data),
   updateWorkgroupTaskStatus: (data: {
     taskId: string;
     status: 'todo' | 'assigned' | 'running' | 'blocked' | 'done' | 'error';
