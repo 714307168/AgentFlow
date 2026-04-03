@@ -2679,7 +2679,11 @@ function initRelay(config: AgentConfig): void {
     updateWorkgroupTaskStatus: (data) => handleUpdateWorkgroupTaskStatusRequest(data),
     getWorkgroupCollaborationRelayPayload: () => buildWorkgroupCollaborationRelayPayload(),
     getWorkgroupCollaborationSessionPayload: (data) => buildWorkgroupCollaborationSessionRelayPayload(data),
-    sendWorkgroupCollaborationMessage: (data) => workgroupCollaborationService.sendUserMessage(data.workgroupId, data.content),
+    sendWorkgroupCollaborationMessage: (data) => workgroupCollaborationService.sendUserMessage(
+      data.workgroupId,
+      data.content,
+      data.clientMessageId ?? undefined,
+    ),
     onProjectsChanged: () => {
       rebuildTrayMenu();
       broadcastProjectsChanged();

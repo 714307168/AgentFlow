@@ -40,6 +40,7 @@ interface MessageRouterOptions {
   sendWorkgroupCollaborationMessage?: (data: {
     workgroupId: string;
     content: string;
+    clientMessageId?: string | null;
   }) => Promise<{ success: boolean; error?: string; session?: unknown }>;
 }
 
@@ -444,9 +445,11 @@ class MessageRouter {
     const payload = env.payload as {
       workgroup_id?: string;
       content?: string;
+      client_message_id?: string;
     } | undefined;
     const workgroupId = String(payload?.workgroup_id ?? "").trim();
     const content = typeof payload?.content === "string" ? payload.content : "";
+    const clientMessageId = String(payload?.client_message_id ?? "").trim() || env.id;
 
     let result: { success: boolean; error?: string; session?: unknown };
     if (!workgroupId) {
@@ -457,6 +460,7 @@ class MessageRouter {
       result = await this.options.sendWorkgroupCollaborationMessage({
         workgroupId,
         content,
+        clientMessageId,
       });
     }
 
@@ -471,6 +475,7 @@ class MessageRouter {
         request_id: env.id,
         agent_id: relayPayload?.agent_id ?? "",
         workgroup_id: workgroupId,
+        client_message_id: clientMessageId,
         success: result.success,
         error: result.error,
         session: result.session ?? null,

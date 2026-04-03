@@ -1,5 +1,6 @@
 import { EventEmitter } from "events";
 import { v4 as uuidv4 } from "uuid";
+import appLogger from "./app-logger";
 import RuntimeManager from "./runtime-manager";
 import type RemoteSessionStore from "./remote-session-store";
 import workgroupStore, { Workgroup, WorkgroupMember, WorkgroupRole } from "./workgroup-store";
@@ -253,6 +254,7 @@ export default class WorkgroupCollaborationService extends EventEmitter {
   async sendUserMessage(
     workgroupId: string,
     content: string,
+    clientMessageId?: string,
   ): Promise<{ success: boolean; error?: string; session?: WorkgroupCollaborationSessionSnapshot }> {
     const workgroup = workgroupStore.getWorkgroupById(workgroupId);
     if (!workgroup) {
@@ -270,7 +272,20 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       return { success: false, error: "No bound workgroup members available for this message" };
     }
 
+    const normalizedClientMessageId = clientMessageId?.trim() || "";
+    if (normalizedClientMessageId) {
+      const existingMessage = workgroupCollaborationStore.getMessage(workgroup.id, normalizedClientMessageId);
+      if (existingMessage?.senderType === "user") {
+        const session = this.getSession(workgroup.id);
+        return {
+          success: true,
+          session: session ?? undefined,
+        };
+      }
+    }
+
     const userMessage = workgroupCollaborationStore.appendMessage(workgroup.id, {
+      id: normalizedClientMessageId || undefined,
       senderType: "user",
       senderName: "You",
       content: trimmedContent,
@@ -284,11 +299,17 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       .listMessages(workgroup.id)
       .slice(-DEFAULT_CONTEXT_MESSAGE_COUNT);
 
-    await Promise.all(selection.targets.map(async (member) => {
-      await this.dispatchToMember(workgroup, member, recentMessages, userMessage);
-    }));
-
     const session = this.getSession(workgroup.id);
+
+    void Promise.all(selection.targets.map(async (member) => {
+      await this.dispatchToMember(workgroup, member, recentMessages, userMessage);
+    })).catch((error) => {
+      appLogger.warn("workgroup-collaboration", "Async dispatch after user message failed", {
+        workgroupId: workgroup.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+
     return {
       success: true,
       session: session ?? undefined,

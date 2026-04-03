@@ -40,12 +40,14 @@ class WorkgroupRepository(
 ) {
     companion object {
         private const val REQUEST_TIMEOUT_MS = 30_000L
+        private const val MESSAGE_REQUEST_TIMEOUT_MS = 12_000L
         private const val DEFAULT_PAGE_SIZE = 30
         private const val KNOWN_ITEM_LIMIT = 60
         private const val LIST_REQUEST_DEDUPE_WINDOW_MS = 2_000L
         private const val SESSION_REQUEST_DEDUPE_WINDOW_MS = 1_200L
         private const val WAKEUP_THROTTLE_WINDOW_MS = 10_000L
         private const val SEND_STALE_CONNECTION_TIMEOUT_MS = 12_000L
+        private const val MAX_SEND_RETRY_COUNT = 1
     }
 
     private data class SessionResponse(
@@ -63,7 +65,7 @@ class WorkgroupRepository(
     private var myRegistryEntries: List<WorkgroupRegistryEntry> = emptyList()
 
     private val pendingSessionRequests = ConcurrentHashMap<String, CompletableDeferred<Result<SessionResponse>>>()
-    private val pendingSendRequests = ConcurrentHashMap<String, CompletableDeferred<Result<Unit>>>()
+    private val pendingSendRequests = ConcurrentHashMap<String, CompletableDeferred<Result<String>>>()
     private val inFlightSessionRequests = ConcurrentHashMap<String, CompletableDeferred<Result<Unit>>>()
     private val lastListRequestedAtByAgent = ConcurrentHashMap<String, Long>()
     private val lastSessionRequestedAt = ConcurrentHashMap<String, Long>()
@@ -209,8 +211,10 @@ class WorkgroupRepository(
     suspend fun sendMessage(
         agentId: String,
         workgroupId: String,
-        content: String
-    ): Result<Unit> {
+        content: String,
+        clientMessageId: String? = null,
+        retryCount: Int = 0
+    ): Result<String> {
         val normalizedAgentId = agentId.trim()
         val normalizedWorkgroupId = workgroupId.trim()
         val normalizedContent = content.trim()
@@ -221,8 +225,10 @@ class WorkgroupRepository(
             return Result.failure(IllegalArgumentException("content is required"))
         }
 
+        val stableClientMessageId = clientMessageId?.trim().takeUnless { it.isNullOrEmpty() }
+            ?: UUID.randomUUID().toString()
         val requestId = UUID.randomUUID().toString()
-        val deferred = CompletableDeferred<Result<Unit>>()
+        val deferred = CompletableDeferred<Result<String>>()
         pendingSendRequests[requestId] = deferred
 
         ensureSocketReady(normalizedAgentId, "workgroup-send")
@@ -236,6 +242,7 @@ class WorkgroupRepository(
                         put("agent_id", JsonPrimitive(normalizedAgentId))
                         put("workgroup_id", JsonPrimitive(normalizedWorkgroupId))
                         put("content", JsonPrimitive(content))
+                        put("client_message_id", JsonPrimitive(stableClientMessageId))
                     }
                 ),
                 ts = System.currentTimeMillis()
@@ -244,10 +251,20 @@ class WorkgroupRepository(
         )
 
         return try {
-            withTimeout(REQUEST_TIMEOUT_MS) { deferred.await() }
+            withTimeout(MESSAGE_REQUEST_TIMEOUT_MS) { deferred.await() }
         } catch (error: Exception) {
             pendingSendRequests.remove(requestId)
-            Result.failure(error)
+            if (retryCount < MAX_SEND_RETRY_COUNT) {
+                sendMessage(
+                    agentId = normalizedAgentId,
+                    workgroupId = normalizedWorkgroupId,
+                    content = content,
+                    clientMessageId = stableClientMessageId,
+                    retryCount = retryCount + 1
+                )
+            } else {
+                Result.failure(error)
+            }
         }
     }
 
@@ -384,7 +401,10 @@ class WorkgroupRepository(
                 }
                 pendingSendRequests.remove(requestId)?.complete(
                     if (payload["success"]?.jsonPrimitive?.booleanOrNull == true) {
-                        Result.success(Unit)
+                        Result.success(
+                            payload["client_message_id"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+                                .ifBlank { requestId }
+                        )
                     } else {
                         Result.failure(
                             IllegalStateException(
