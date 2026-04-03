@@ -508,15 +508,7 @@ class ChatViewModel(
             }
         }
 
-        viewModelScope.launch {
-            val hasCachedConversation = runCatching {
-                messageRepository.getConversationMessagesForProjectSnapshot(projectId).isNotEmpty()
-            }.getOrDefault(false)
-            requestProjectSyncNow(
-                recentOverlapCount = ACTIVE_SYNC_OVERLAP_COUNT,
-                limit = if (hasCachedConversation) MESSAGE_PAGE_SIZE else INITIAL_SYNC_PAGE_SIZE
-            )
-        }
+        refresh()
     }
 
     fun onResume() {

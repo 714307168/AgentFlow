@@ -201,11 +201,8 @@ class WorkgroupChatViewModel(
             }
         }
 
-        requestLatestSessionNow(
-            showLoading = true,
-            limit = WORKGROUP_INITIAL_SYNC_PAGE_SIZE
-        )
         startActiveSyncLoop()
+        refresh()
     }
 
     fun refresh() {
