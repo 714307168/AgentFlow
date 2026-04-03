@@ -194,6 +194,10 @@
     <string name="nav_agents">&#20195;&#29702;</string>
     <string name="session_summary_total">&#20849; %1$d &#20010;</string>
     <string name="session_summary_projects">%1$d &#20010;&#39033;&#30446;</string>
+    <string name="session_section_projects">&#39033;&#30446;</string>
+    <string name="session_section_workgroups">&#21327;&#20316;&#32452;</string>
+    <string name="session_type_project">&#39033;&#30446;</string>
+    <string name="session_type_workgroup">&#21327;&#20316;&#32452;</string>
     <string name="agents_summary_groups">%1$d &#20010;&#21327;&#20316;&#32452;</string>
     <string name="agents_empty">&#26242;&#26102;&#27809;&#26377;&#20195;&#29702;&#25110;&#21327;&#20316;&#32452;&#12290;</string>
     <string name="agents_collaboration_group">&#21327;&#20316;&#32452;</string>

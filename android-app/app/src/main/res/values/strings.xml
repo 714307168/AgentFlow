@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">AgentFlow</string>
-    <string name="no_sessions">No projects yet. Connect your desktop agent to load them here.</string>
+    <string name="no_sessions">No projects or workgroups yet. Connect your desktop agent to load them here.</string>
     <string name="send_message">Send</string>
     <string name="message_hint">Send a message</string>
-    <string name="session_search_hint">Search projects or messages</string>
-    <string name="session_search_empty">No matching sessions</string>
+    <string name="session_search_hint">Search projects, groups, or messages</string>
+    <string name="session_search_empty">No matching projects or workgroups</string>
     <string name="no_messages">No messages yet. Send a prompt to start.</string>
     <string name="back">Back</string>
     <string name="dismiss">Dismiss</string>
@@ -16,6 +16,10 @@
     <string name="nav_agents">Agents</string>
     <string name="session_summary_total">%1$d total</string>
     <string name="session_summary_projects">%1$d projects</string>
+    <string name="session_section_projects">Projects</string>
+    <string name="session_section_workgroups">Workgroups</string>
+    <string name="session_type_project">Project</string>
+    <string name="session_type_workgroup">Group</string>
     <string name="agents_summary_groups">%1$d groups</string>
     <string name="server_connection">Connection</string>
     <string name="relay_server_url">Relay Server URL</string>

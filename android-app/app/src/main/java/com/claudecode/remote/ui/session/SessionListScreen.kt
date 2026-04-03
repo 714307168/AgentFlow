@@ -91,16 +91,43 @@ fun SessionListScreen(
     val anchorItemKey = remember { mutableStateOf<String?>(null) }
     val anchorItemOffset = remember { mutableIntStateOf(0) }
     val shouldStickToTop = remember { mutableStateOf(true) }
+    val projectItems = remember(uiState.sessionItems) {
+        uiState.sessionItems.filter { it.type == SessionListItemType.PROJECT }
+    }
+    val workgroupItems = remember(uiState.sessionItems) {
+        uiState.sessionItems.filter { it.type == SessionListItemType.WORKGROUP }
+    }
+    val showUpdateBanner = updateState.status == AppUpdateStatus.AVAILABLE ||
+        updateState.status == AppUpdateStatus.DOWNLOADED
+    val displayRowKeys = remember(uiState.sessionItems, projectItems, workgroupItems, showUpdateBanner) {
+        buildList {
+            if (showUpdateBanner) {
+                add("update-banner")
+            }
+            if (uiState.sessionItems.isEmpty()) {
+                add("empty-state")
+            } else {
+                if (projectItems.isNotEmpty()) {
+                    add("section-projects")
+                    addAll(projectItems.map { it.key })
+                }
+                if (workgroupItems.isNotEmpty()) {
+                    add("section-workgroups")
+                    addAll(workgroupItems.map { it.key })
+                }
+            }
+        }
+    }
 
     LaunchedEffect(Unit) {
         viewModel.initialize()
     }
 
-    LaunchedEffect(listState, uiState.sessionItems) {
+    LaunchedEffect(listState, displayRowKeys) {
         snapshotFlow {
             val index = listState.firstVisibleItemIndex
             Triple(
-                uiState.sessionItems.getOrNull(index)?.key,
+                displayRowKeys.getOrNull(index),
                 listState.firstVisibleItemScrollOffset,
                 index == 0 && listState.firstVisibleItemScrollOffset <= SESSION_LIST_TOP_SNAP_THRESHOLD_PX
             )
@@ -111,8 +138,8 @@ fun SessionListScreen(
         }
     }
 
-    LaunchedEffect(uiState.sessionItems.map { it.key }) {
-        if (uiState.sessionItems.isEmpty()) {
+    LaunchedEffect(displayRowKeys) {
+        if (displayRowKeys.isEmpty()) {
             return@LaunchedEffect
         }
         if (shouldStickToTop.value) {
@@ -122,7 +149,7 @@ fun SessionListScreen(
             return@LaunchedEffect
         }
         val anchorKey = anchorItemKey.value ?: return@LaunchedEffect
-        val targetIndex = uiState.sessionItems.indexOfFirst { it.key == anchorKey }
+        val targetIndex = displayRowKeys.indexOf(anchorKey)
         if (targetIndex >= 0 && targetIndex != listState.firstVisibleItemIndex) {
             listState.scrollToItem(targetIndex, anchorItemOffset.intValue)
         }
@@ -163,6 +190,8 @@ fun SessionListScreen(
                 SessionHeader(
                     connectionState = connectionState,
                     totalCount = uiState.sessionItems.size,
+                    projectCount = projectItems.size,
+                    workgroupCount = workgroupItems.size,
                     isRefreshing = uiState.isLoading,
                     onRefresh = onRefreshSessions,
                     onToggleConnection = onToggleConnection
@@ -192,9 +221,7 @@ fun SessionListScreen(
                             contentPadding = PaddingValues(bottom = 16.dp),
                             verticalArrangement = Arrangement.spacedBy(0.dp)
                         ) {
-                            if (updateState.status == AppUpdateStatus.AVAILABLE ||
-                                updateState.status == AppUpdateStatus.DOWNLOADED
-                            ) {
+                            if (showUpdateBanner) {
                                 item(key = "update-banner") {
                                     UpdateBanner(
                                         updateState = updateState,
@@ -239,19 +266,49 @@ fun SessionListScreen(
                                     }
                                 }
                             } else {
-                                items(uiState.sessionItems, key = { it.key }) { item ->
-                                    SessionCard(
-                                        item = item,
-                                        onClick = {
-                                            when (item.type) {
-                                                SessionListItemType.PROJECT -> item.session?.let(onNavigateToChat)
-                                                SessionListItemType.WORKGROUP -> {
-                                                    val workgroupId = item.workgroupId ?: return@SessionCard
-                                                    onNavigateToWorkgroupChat(item.agentId, workgroupId, item.title)
+                                if (projectItems.isNotEmpty()) {
+                                    item(key = "section-projects") {
+                                        SessionSectionHeader(
+                                            title = stringResource(R.string.session_section_projects),
+                                            count = projectItems.size
+                                        )
+                                    }
+                                    items(projectItems, key = { it.key }) { item ->
+                                        SessionCard(
+                                            item = item,
+                                            onClick = {
+                                                when (item.type) {
+                                                    SessionListItemType.PROJECT -> item.session?.let(onNavigateToChat)
+                                                    SessionListItemType.WORKGROUP -> {
+                                                        val workgroupId = item.workgroupId ?: return@SessionCard
+                                                        onNavigateToWorkgroupChat(item.agentId, workgroupId, item.title)
+                                                    }
                                                 }
                                             }
-                                        }
-                                    )
+                                        )
+                                    }
+                                }
+                                if (workgroupItems.isNotEmpty()) {
+                                    item(key = "section-workgroups") {
+                                        SessionSectionHeader(
+                                            title = stringResource(R.string.session_section_workgroups),
+                                            count = workgroupItems.size
+                                        )
+                                    }
+                                    items(workgroupItems, key = { it.key }) { item ->
+                                        SessionCard(
+                                            item = item,
+                                            onClick = {
+                                                when (item.type) {
+                                                    SessionListItemType.PROJECT -> item.session?.let(onNavigateToChat)
+                                                    SessionListItemType.WORKGROUP -> {
+                                                        val workgroupId = item.workgroupId ?: return@SessionCard
+                                                        onNavigateToWorkgroupChat(item.agentId, workgroupId, item.title)
+                                                    }
+                                                }
+                                            }
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -392,6 +449,8 @@ private fun UpdateBanner(
 private fun SessionHeader(
     connectionState: RelayWebSocket.ConnectionState,
     totalCount: Int,
+    projectCount: Int,
+    workgroupCount: Int,
     isRefreshing: Boolean,
     onRefresh: () -> Unit,
     onToggleConnection: () -> Unit
@@ -420,11 +479,28 @@ private fun SessionHeader(
             ) {
                 ConnectionStatusBadge(connectionState)
                 if (totalCount > 0) {
-                    Text(
-                        text = stringResource(R.string.session_summary_projects, totalCount),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = stringResource(R.string.session_summary_total, totalCount),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = stringResource(R.string.session_summary_projects, projectCount),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        if (workgroupCount > 0) {
+                            Text(
+                                text = stringResource(R.string.agents_summary_groups, workgroupCount),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -461,6 +537,33 @@ private fun SessionHeader(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun SessionSectionHeader(
+    title: String,
+    count: Int
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 6.dp, bottom = 4.dp)
+            .padding(horizontal = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onBackground
+        )
+        Text(
+            text = count.toString(),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
@@ -552,7 +655,11 @@ private fun SessionCard(item: SessionListItem, onClick: () -> Unit) {
         lastActiveAt = item.previewTimestamp ?: 0L
     )
     val avatar = item.title.firstOrNull()?.uppercase() ?: "C"
-    val previewText = item.previewText ?: session.projectPath.ifBlank { item.metaText.orEmpty() }
+    val previewText = item.previewText ?: if (item.type == SessionListItemType.WORKGROUP) {
+        stringResource(R.string.workgroups_open_chat_hint)
+    } else {
+        session.projectPath.ifBlank { item.metaText.orEmpty() }
+    }
     val timestamp = item.previewTimestamp ?: session.createdAt
     val metaText = buildString {
         append(providerLabel(session.cliProvider))
@@ -566,6 +673,16 @@ private fun SessionCard(item: SessionListItem, onClick: () -> Unit) {
             append(" · ")
             append(it)
         }
+    }
+    val typeLabel = if (item.type == SessionListItemType.PROJECT) {
+        stringResource(R.string.session_type_project)
+    } else {
+        stringResource(R.string.session_type_workgroup)
+    }
+    val typePillColor = if (item.type == SessionListItemType.PROJECT) {
+        MaterialTheme.colorScheme.primary
+    } else {
+        MaterialTheme.colorScheme.secondary
     }
 
     val statusLabel = if (item.type == SessionListItemType.PROJECT) {
@@ -675,6 +792,11 @@ private fun SessionCard(item: SessionListItem, onClick: () -> Unit) {
                             .background(
                                 if (item.isOnline) Color(0xFF4CAF50) else Color(0xFFEF5350)
                             )
+                    )
+                    SummaryPill(
+                        text = typeLabel,
+                        containerColor = typePillColor.copy(alpha = 0.12f),
+                        contentColor = typePillColor
                     )
                     Text(
                         text = if (item.type == SessionListItemType.PROJECT) metaText else item.metaText.orEmpty(),
