@@ -53,6 +53,7 @@ export const Events = {
   WORKGROUP_COLLABORATION_MESSAGE_RESULT: "workgroup.collaboration.message.result",
   WORKGROUP_COLLABORATION_SNAPSHOT: "workgroup.collaboration.snapshot",
   MESSAGE_SEND:  "message.send",
+  MESSAGE_ACCEPTED: "message.accepted",
   MESSAGE_CHUNK: "message.chunk",
   MESSAGE_DONE:  "message.done",
   MESSAGE_ERROR: "message.error",

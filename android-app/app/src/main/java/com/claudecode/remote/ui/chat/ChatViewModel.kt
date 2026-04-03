@@ -282,6 +282,9 @@ class ChatViewModel(
                 val envelopeProjectId = envelope.projectId?.trim().orEmpty()
                 if (envelopeProjectId == activeProjectId) {
                     when (envelope.event) {
+                        Events.MESSAGE_ACCEPTED -> {
+                            resolvePendingSendFromAcceptedEnvelope(envelope)
+                        }
                         Events.MESSAGE_DONE,
                         Events.MESSAGE_ERROR,
                         Events.AGENT_STATUS,
@@ -584,6 +587,45 @@ class ChatViewModel(
                 }
             }
         }
+    }
+
+    private fun resolvePendingSendFromAcceptedEnvelope(envelope: com.claudecode.remote.data.model.Envelope) {
+        val payload = envelope.payload?.jsonObject ?: return
+        val acceptedRunId = payload["run_id"]
+            ?.jsonPrimitive
+            ?.contentOrNull
+            ?.trim()
+            .takeUnless { it.isNullOrEmpty() }
+            ?: payload["client_message_id"]
+                ?.jsonPrimitive
+                ?.contentOrNull
+                ?.trim()
+                .takeUnless { it.isNullOrEmpty() }
+            ?: envelope.id.trim().takeUnless { it.isEmpty() }
+            ?: return
+
+        val trackedRunId = pendingSendFeedbackRunId?.trim().takeUnless { it.isNullOrEmpty() }
+            ?: recentSendFeedback?.runId?.trim().takeUnless { it.isNullOrEmpty() }
+            ?: return
+        if (trackedRunId != acceptedRunId) {
+            return
+        }
+
+        pendingSendFeedbackRunId = null
+        pendingSendFeedbackTimeoutJob?.cancel()
+        pendingSendFeedbackTimeoutJob = null
+        _uiState.update { current ->
+            if (current.isSending) {
+                current.copy(isSending = false)
+            } else {
+                current
+            }
+        }
+        triggerImmediateSync(
+            debounceMs = 0L,
+            recentOverlapCount = ACTIVE_SYNC_OVERLAP_COUNT,
+            limit = INCREMENTAL_SYNC_PAGE_SIZE
+        )
     }
 
     private fun requestProjectSyncIfConnected(

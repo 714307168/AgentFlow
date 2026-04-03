@@ -41,6 +41,7 @@ object Events {
     const val WORKGROUP_COLLABORATION_MESSAGE_RESULT = "workgroup.collaboration.message.result"
     const val WORKGROUP_COLLABORATION_SNAPSHOT = "workgroup.collaboration.snapshot"
     const val MESSAGE_SEND = "message.send"
+    const val MESSAGE_ACCEPTED = "message.accepted"
     const val MESSAGE_CHUNK = "message.chunk"
     const val MESSAGE_DONE = "message.done"
     const val MESSAGE_ERROR = "message.error"

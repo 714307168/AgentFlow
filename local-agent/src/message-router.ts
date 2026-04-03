@@ -209,6 +209,19 @@ class MessageRouter {
         });
       },
     });
+    this.relayClient.send({
+      id: uuidv4(),
+      event: Events.MESSAGE_ACCEPTED,
+      project_id: projectId,
+      stream_id: streamId,
+      ts: Date.now(),
+      payload: {
+        client_message_id: env.id,
+        run_id: env.id,
+        stream_id: streamId,
+        accepted_at: Date.now(),
+      },
+    });
     this.options.flushProjectSessionSyncNow?.(projectId);
   }
 
