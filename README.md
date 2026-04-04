@@ -4,6 +4,8 @@
 
 `AgentFlow` 是一个自托管的远程协作方案，用来通过手机控制桌面端 Agent 和本地 CLI 工作流。
 
+社区友链：[LINUX DO 社区](https://linux.do)
+
 ```text
 Android App  <-->  Relay Server  <-->  Local Agent  <-->  Claude Code CLI
 ```
