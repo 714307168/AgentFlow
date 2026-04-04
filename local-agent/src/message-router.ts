@@ -26,6 +26,23 @@ interface MessageRouterOptions {
     status: "todo" | "assigned" | "running" | "blocked" | "done" | "error";
     lastDispatchResult?: string | null;
   }) => { success: boolean; error?: string; workgroup?: unknown };
+  saveWorkgroupTask?: (data: {
+    id?: string;
+    workgroupId: string;
+    title: string;
+    description?: string | null;
+    acceptanceCriteria?: string | null;
+    assigneeMemberId?: string | null;
+    priority?: "low" | "normal" | "high";
+    status?: "todo" | "assigned" | "running" | "blocked" | "done" | "error";
+    scheduleType?: "manual" | "once" | "delay" | "daily" | "weekly" | null;
+    runAt?: number | null;
+    delayMinutes?: number | null;
+    dailyTime?: string | null;
+    weeklyDay?: number | null;
+    scheduleEnabled?: boolean;
+  }) => { success: boolean; error?: string; workgroup?: unknown };
+  deleteWorkgroupTask?: (taskId: string) => { success: boolean; error?: string; workgroup?: unknown };
   updateWorkgroupTaskScheduleEnabled?: (data: {
     taskId: string;
     enabled: boolean;
@@ -411,14 +428,62 @@ class MessageRouter {
     const payload = env.payload as {
       action?: string;
       task_id?: string;
+      workgroup_id?: string;
+      title?: string;
+      description?: string;
+      acceptance_criteria?: string;
+      assignee_member_id?: string;
+      priority?: "low" | "normal" | "high";
       status?: "todo" | "assigned" | "running" | "blocked" | "done" | "error";
+      schedule_type?: "manual" | "once" | "delay" | "daily" | "weekly";
+      run_at?: number;
+      delay_minutes?: number;
+      daily_time?: string;
+      weekly_day?: number;
       enabled?: boolean;
     } | undefined;
     const action = String(payload?.action ?? "").trim().toLowerCase();
     const taskId = String(payload?.task_id ?? "").trim();
 
     let result: { success: boolean; error?: string; workgroup?: unknown };
-    if (!taskId) {
+    if (action === "save_task") {
+      if (!this.options.saveWorkgroupTask) {
+        result = { success: false, error: "Workgroup task saves are unavailable" };
+      } else {
+        const workgroupId = String(payload?.workgroup_id ?? "").trim();
+        const title = String(payload?.title ?? "").trim();
+        if (!workgroupId) {
+          result = { success: false, error: "Workgroup id is required" };
+        } else if (!title) {
+          result = { success: false, error: "Task title is required" };
+        } else {
+          result = this.options.saveWorkgroupTask({
+            id: taskId || undefined,
+            workgroupId,
+            title,
+            description: typeof payload?.description === "string" ? payload.description : null,
+            acceptanceCriteria: typeof payload?.acceptance_criteria === "string" ? payload.acceptance_criteria : null,
+            assigneeMemberId: typeof payload?.assignee_member_id === "string" ? payload.assignee_member_id : null,
+            priority: payload?.priority,
+            status: payload?.status,
+            scheduleType: payload?.schedule_type ?? null,
+            runAt: typeof payload?.run_at === "number" ? payload.run_at : null,
+            delayMinutes: typeof payload?.delay_minutes === "number" ? payload.delay_minutes : null,
+            dailyTime: typeof payload?.daily_time === "string" ? payload.daily_time : null,
+            weeklyDay: typeof payload?.weekly_day === "number" ? payload.weekly_day : null,
+            scheduleEnabled: payload?.enabled !== false,
+          });
+        }
+      }
+    } else if (action === "delete_task") {
+      if (!taskId) {
+        result = { success: false, error: "Task id is required" };
+      } else if (!this.options.deleteWorkgroupTask) {
+        result = { success: false, error: "Workgroup task deletion is unavailable" };
+      } else {
+        result = this.options.deleteWorkgroupTask(taskId);
+      }
+    } else if (!taskId) {
       result = { success: false, error: "Task id is required" };
     } else if (action === "dispatch_task") {
       if (!this.options.dispatchWorkgroupTask) {

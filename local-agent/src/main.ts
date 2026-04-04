@@ -3037,6 +3037,8 @@ function initRelay(config: AgentConfig): void {
     getWorkgroupRelayPayload: () => buildWorkgroupRelayPayload(),
     dispatchWorkgroupTask: (taskId: string) => handleDispatchWorkgroupTaskRequest(taskId),
     updateWorkgroupTaskStatus: (data) => handleUpdateWorkgroupTaskStatusRequest(data),
+    saveWorkgroupTask: (data) => handleSaveWorkgroupTaskRequest(data),
+    deleteWorkgroupTask: (taskId: string) => handleDeleteWorkgroupTaskRequest(taskId),
     updateWorkgroupTaskScheduleEnabled: (data) => handleSetWorkgroupTaskScheduleEnabledRequest(data),
     getWorkgroupCollaborationRelayPayload: () => buildWorkgroupCollaborationRelayPayload(),
     getWorkgroupCollaborationSessionPayload: (data) => buildWorkgroupCollaborationSessionRelayPayload(data),
@@ -3239,6 +3241,133 @@ function handleSetWorkgroupTaskScheduleEnabledRequest(data: {
   return {
     success: true,
     task: nextTask,
+    workgroup: getSerializedWorkgroupById(task.workgroupId),
+  };
+}
+
+function handleSaveWorkgroupTaskRequest(data: {
+  id?: string;
+  workgroupId: string;
+  title: string;
+  description?: string | null;
+  acceptanceCriteria?: string | null;
+  assigneeMemberId?: string | null;
+  priority?: "low" | "normal" | "high";
+  status?: WorkgroupTaskStatus;
+  scheduleType?: "manual" | ScheduledTaskScheduleType | null;
+  runAt?: number | null;
+  delayMinutes?: number | null;
+  dailyTime?: string | null;
+  weeklyDay?: number | null;
+  scheduleEnabled?: boolean;
+}) {
+  const workgroup = workgroupStore.getWorkgroupById(data?.workgroupId || "");
+  if (!workgroup) {
+    return { success: false, error: "Workgroup not found" };
+  }
+
+  const title = String(data?.title ?? "").trim();
+  if (!title) {
+    return { success: false, error: "Task title is required" };
+  }
+
+  const assigneeMemberId = typeof data?.assigneeMemberId === "string" && data.assigneeMemberId.trim()
+    ? data.assigneeMemberId.trim()
+    : null;
+  if (assigneeMemberId) {
+    const member = workgroupStore.getMemberById(assigneeMemberId);
+    if (!member || member.workgroupId !== workgroup.id) {
+      return { success: false, error: "Assignee not found in this workgroup" };
+    }
+  }
+
+  const existing = typeof data?.id === "string" && data.id.trim()
+    ? workgroupStore.getTaskById(data.id.trim())
+    : null;
+  const scheduleAnchorAt = Date.now();
+  const scheduleType: ScheduledTaskScheduleType | null = data?.scheduleType === "weekly"
+    ? "weekly"
+    : (data?.scheduleType === "daily"
+      ? "daily"
+      : (data?.scheduleType === "delay"
+        ? "delay"
+        : (data?.scheduleType === "once" ? "once" : null)));
+  const scheduleEnabled = scheduleType ? data?.scheduleEnabled !== false : false;
+  const runAt = scheduleType === "once"
+    ? (Number.isFinite(Number(data?.runAt)) && Number(data?.runAt) > 0 ? Math.trunc(Number(data?.runAt)) : null)
+    : null;
+  const delayMinutes = scheduleType === "delay"
+    ? (Number.isInteger(Number(data?.delayMinutes)) && Number(data?.delayMinutes) > 0 ? Number(data?.delayMinutes) : null)
+    : null;
+  const dailyTime = scheduleType === "daily" || scheduleType === "weekly" ? normalizeDailyTime(data?.dailyTime) : null;
+  const weeklyDay = scheduleType === "weekly" ? normalizeWeeklyDay(data?.weeklyDay) : null;
+
+  if (scheduleType === "once" && !runAt) {
+    return { success: false, error: "Choose a valid run time for the one-time workgroup task." };
+  }
+  if (scheduleType === "delay" && !delayMinutes) {
+    return { success: false, error: "Choose a valid delay in minutes for the workgroup task." };
+  }
+  if ((scheduleType === "daily" || scheduleType === "weekly") && !dailyTime) {
+    return { success: false, error: "Choose a valid time in HH:mm format for the workgroup task." };
+  }
+  if (scheduleType === "weekly" && weeklyDay === null) {
+    return { success: false, error: "Choose a valid weekday for the weekly workgroup task." };
+  }
+
+  const task = workgroupStore.saveTask({
+    id: existing?.id || (typeof data?.id === "string" ? data.id.trim() : undefined),
+    workgroupId: workgroup.id,
+    title,
+    description: data?.description ?? null,
+    acceptanceCriteria: data?.acceptanceCriteria ?? null,
+    assigneeMemberId,
+    priority: data?.priority,
+    status: data?.status,
+    scheduleType,
+    scheduleEnabled,
+    runAt,
+    delayMinutes,
+    delayStartAt: scheduleType === "delay"
+      ? (existing?.scheduleType === "delay" ? existing.delayStartAt ?? scheduleAnchorAt : scheduleAnchorAt)
+      : null,
+    dailyTime,
+    weeklyDay,
+    nextRunAt: scheduleType ? computeScheduledTaskNextRunAt({
+      scheduleType,
+      enabled: scheduleEnabled,
+      runAt,
+      delayMinutes,
+      delayStartAt: scheduleType === "delay"
+        ? (existing?.scheduleType === "delay" ? existing.delayStartAt ?? scheduleAnchorAt : scheduleAnchorAt)
+        : null,
+      dailyTime,
+      weeklyDay,
+      lastRunAt: existing?.lastDispatchAt ?? null,
+    }) : null,
+  });
+  touchWorkgroup(workgroup.id);
+  workgroupTaskScheduler.syncTasks("save-workgroup-task");
+  broadcastWorkgroupsChanged();
+  return {
+    success: true,
+    task,
+    workgroup: getSerializedWorkgroupById(workgroup.id),
+  };
+}
+
+function handleDeleteWorkgroupTaskRequest(taskId: string) {
+  const task = workgroupStore.getTaskById(taskId);
+  if (!task) {
+    return { success: false, error: "Task not found" };
+  }
+
+  workgroupStore.removeTask(taskId);
+  touchWorkgroup(task.workgroupId);
+  workgroupTaskScheduler.syncTasks("delete-workgroup-task");
+  broadcastWorkgroupsChanged();
+  return {
+    success: true,
     workgroup: getSerializedWorkgroupById(task.workgroupId),
   };
 }
@@ -4762,113 +4891,10 @@ ipcMain.handle("save-workgroup-task", (_event, data: {
   dailyTime?: string | null;
   weeklyDay?: number | null;
   scheduleEnabled?: boolean;
-}) => {
-  const workgroup = workgroupStore.getWorkgroupById(data?.workgroupId || "");
-  if (!workgroup) {
-    return { success: false, error: "Workgroup not found" };
-  }
-
-  const title = String(data?.title ?? "").trim();
-  if (!title) {
-    return { success: false, error: "Task title is required" };
-  }
-
-  const assigneeMemberId = typeof data?.assigneeMemberId === "string" && data.assigneeMemberId.trim()
-    ? data.assigneeMemberId.trim()
-    : null;
-  if (assigneeMemberId) {
-    const member = workgroupStore.getMemberById(assigneeMemberId);
-    if (!member || member.workgroupId !== workgroup.id) {
-      return { success: false, error: "Assignee not found in this workgroup" };
-    }
-  }
-
-  const existing = typeof data?.id === "string" && data.id.trim()
-    ? workgroupStore.getTaskById(data.id.trim())
-    : null;
-  const scheduleAnchorAt = Date.now();
-  const scheduleType: ScheduledTaskScheduleType | null = data?.scheduleType === "weekly"
-    ? "weekly"
-    : (data?.scheduleType === "daily"
-      ? "daily"
-      : (data?.scheduleType === "delay"
-        ? "delay"
-        : (data?.scheduleType === "once" ? "once" : null)));
-  const scheduleEnabled = scheduleType ? data?.scheduleEnabled !== false : false;
-  const runAt = scheduleType === "once"
-    ? (Number.isFinite(Number(data?.runAt)) && Number(data?.runAt) > 0 ? Math.trunc(Number(data?.runAt)) : null)
-    : null;
-  const delayMinutes = scheduleType === "delay"
-    ? (Number.isInteger(Number(data?.delayMinutes)) && Number(data?.delayMinutes) > 0 ? Number(data?.delayMinutes) : null)
-    : null;
-  const dailyTime = scheduleType === "daily" || scheduleType === "weekly" ? normalizeDailyTime(data?.dailyTime) : null;
-  const weeklyDay = scheduleType === "weekly" ? normalizeWeeklyDay(data?.weeklyDay) : null;
-
-  if (scheduleType === "once" && !runAt) {
-    return { success: false, error: "Choose a valid run time for the one-time workgroup task." };
-  }
-  if (scheduleType === "delay" && !delayMinutes) {
-    return { success: false, error: "Choose a valid delay in minutes for the workgroup task." };
-  }
-  if ((scheduleType === "daily" || scheduleType === "weekly") && !dailyTime) {
-    return { success: false, error: "Choose a valid time in HH:mm format for the workgroup task." };
-  }
-  if (scheduleType === "weekly" && weeklyDay === null) {
-    return { success: false, error: "Choose a valid weekday for the weekly workgroup task." };
-  }
-
-  const task = workgroupStore.saveTask({
-    id: existing?.id || (typeof data?.id === "string" ? data.id.trim() : undefined),
-    workgroupId: workgroup.id,
-    title,
-    description: data?.description ?? null,
-    acceptanceCriteria: data?.acceptanceCriteria ?? null,
-    assigneeMemberId,
-    priority: data?.priority,
-    status: data?.status,
-    scheduleType,
-    scheduleEnabled,
-    runAt,
-    delayMinutes,
-    delayStartAt: scheduleType === "delay"
-      ? (existing?.scheduleType === "delay" ? existing.delayStartAt ?? scheduleAnchorAt : scheduleAnchorAt)
-      : null,
-    dailyTime,
-    weeklyDay,
-    nextRunAt: scheduleType ? computeScheduledTaskNextRunAt({
-      scheduleType,
-      enabled: scheduleEnabled,
-      runAt,
-      delayMinutes,
-      delayStartAt: scheduleType === "delay"
-        ? (existing?.scheduleType === "delay" ? existing.delayStartAt ?? scheduleAnchorAt : scheduleAnchorAt)
-        : null,
-      dailyTime,
-      weeklyDay,
-      lastRunAt: existing?.lastDispatchAt ?? null,
-    }) : null,
-  });
-  touchWorkgroup(workgroup.id);
-  workgroupTaskScheduler.syncTasks("save-workgroup-task");
-  broadcastWorkgroupsChanged();
-  return {
-    success: true,
-    task,
-    workgroup: getSerializedWorkgroupById(workgroup.id),
-  };
-});
+}) => handleSaveWorkgroupTaskRequest(data));
 
 ipcMain.handle("delete-workgroup-task", (_event, taskId: string) => {
-  const task = workgroupStore.getTaskById(taskId);
-  if (!task) {
-    return { success: false, error: "Task not found" };
-  }
-
-  workgroupStore.removeTask(taskId);
-  touchWorkgroup(task.workgroupId);
-  workgroupTaskScheduler.syncTasks("delete-workgroup-task");
-  broadcastWorkgroupsChanged();
-  return { success: true };
+  return handleDeleteWorkgroupTaskRequest(taskId);
 });
 
 ipcMain.handle("set-workgroup-task-schedule-enabled", (_event, data: {

@@ -8,6 +8,7 @@ import com.claudecode.remote.data.local.TokenStore
 import com.claudecode.remote.data.model.AgentWorkgroups
 import com.claudecode.remote.data.model.Session
 import com.claudecode.remote.data.model.Workgroup
+import com.claudecode.remote.data.model.WorkgroupTask
 import com.claudecode.remote.data.model.WorkgroupRegistryEntry
 import com.claudecode.remote.data.remote.RelayWebSocket
 import com.claudecode.remote.domain.MessageRepository
@@ -323,6 +324,18 @@ class AgentHubViewModel(
     fun setWorkgroupTaskScheduleEnabled(agentId: String, taskId: String, enabled: Boolean) {
         submitWorkgroupCommand {
             workgroupRepository.setTaskScheduleEnabled(agentId, taskId, enabled)
+        }
+    }
+
+    fun saveWorkgroupTask(agentId: String, workgroupId: String, task: WorkgroupTask) {
+        submitWorkgroupCommand {
+            workgroupRepository.saveTask(agentId, workgroupId, task)
+        }
+    }
+
+    fun deleteWorkgroupTask(agentId: String, taskId: String) {
+        submitWorkgroupCommand {
+            workgroupRepository.deleteTask(agentId, taskId)
         }
     }
 

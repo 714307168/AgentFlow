@@ -22,6 +22,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
@@ -305,6 +307,39 @@ class WorkgroupRepository(
             taskId = taskId,
             action = "set_schedule_enabled",
             extraPayload = mapOf("enabled" to JsonPrimitive(enabled))
+        )
+
+    suspend fun saveTask(
+        agentId: String,
+        workgroupId: String,
+        task: WorkgroupTask
+    ): Result<Unit> =
+        sendWorkgroupCommand(
+            agentId = agentId,
+            taskId = task.id.trim().takeIf { it.isNotEmpty() },
+            action = "save_task",
+            extraPayload = buildMap {
+                put("workgroup_id", JsonPrimitive(workgroupId))
+                put("title", JsonPrimitive(task.title))
+                put("description", task.description.toJsonString())
+                put("acceptance_criteria", task.acceptanceCriteria.toJsonString())
+                put("assignee_member_id", task.assigneeMemberId.toJsonString())
+                put("priority", JsonPrimitive(task.priority))
+                put("status", JsonPrimitive(task.status))
+                put("schedule_type", task.scheduleType?.let(::JsonPrimitive) ?: JsonNull)
+                put("run_at", task.runAt?.let(::JsonPrimitive) ?: JsonNull)
+                put("delay_minutes", task.delayMinutes?.let(::JsonPrimitive) ?: JsonNull)
+                put("daily_time", task.dailyTime.toJsonString())
+                put("weekly_day", task.weeklyDay?.let(::JsonPrimitive) ?: JsonNull)
+                put("enabled", JsonPrimitive(task.scheduleEnabled))
+            }
+        )
+
+    suspend fun deleteTask(agentId: String, taskId: String): Result<Unit> =
+        sendWorkgroupCommand(
+            agentId = agentId,
+            taskId = taskId,
+            action = "delete_task"
         )
 
     fun getSession(agentId: String, workgroupId: String): WorkgroupSession? =
@@ -788,14 +823,17 @@ class WorkgroupRepository(
 
     private suspend fun sendWorkgroupCommand(
         agentId: String,
-        taskId: String,
+        taskId: String?,
         action: String,
-        extraPayload: Map<String, JsonPrimitive> = emptyMap()
+        extraPayload: Map<String, JsonElement> = emptyMap()
     ): Result<Unit> {
         val normalizedAgentId = agentId.trim()
-        val normalizedTaskId = taskId.trim()
-        if (normalizedAgentId.isEmpty() || normalizedTaskId.isEmpty()) {
-            return Result.failure(IllegalArgumentException("agentId and taskId are required"))
+        val normalizedTaskId = taskId?.trim().orEmpty()
+        if (normalizedAgentId.isEmpty()) {
+            return Result.failure(IllegalArgumentException("agentId is required"))
+        }
+        if (action != "save_task" && normalizedTaskId.isEmpty()) {
+            return Result.failure(IllegalArgumentException("taskId is required"))
         }
 
         val requestId = UUID.randomUUID().toString()
@@ -812,7 +850,9 @@ class WorkgroupRepository(
                     payload = JsonObject(
                         buildMap {
                             put("agent_id", JsonPrimitive(normalizedAgentId))
-                            put("task_id", JsonPrimitive(normalizedTaskId))
+                            if (normalizedTaskId.isNotEmpty()) {
+                                put("task_id", JsonPrimitive(normalizedTaskId))
+                            }
                             put("action", JsonPrimitive(action))
                             putAll(extraPayload)
                         }
@@ -827,6 +867,9 @@ class WorkgroupRepository(
             Result.failure(error)
         }
     }
+
+    private fun String?.toJsonString(): JsonElement =
+        this?.trim()?.takeIf { it.isNotEmpty() }?.let(::JsonPrimitive) ?: JsonNull
 
     private suspend fun wakeupAgent(agentId: String) {
         val normalizedAgentId = agentId.trim()
