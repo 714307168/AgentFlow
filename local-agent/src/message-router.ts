@@ -26,6 +26,10 @@ interface MessageRouterOptions {
     status: "todo" | "assigned" | "running" | "blocked" | "done" | "error";
     lastDispatchResult?: string | null;
   }) => { success: boolean; error?: string; workgroup?: unknown };
+  updateWorkgroupTaskScheduleEnabled?: (data: {
+    taskId: string;
+    enabled: boolean;
+  }) => { success: boolean; error?: string; workgroup?: unknown };
   getWorkgroupCollaborationRelayPayload?: () => { agent_id: string; workgroups: unknown[] } | null;
   getWorkgroupCollaborationSessionPayload?: (data: {
     workgroupId: string;
@@ -408,6 +412,7 @@ class MessageRouter {
       action?: string;
       task_id?: string;
       status?: "todo" | "assigned" | "running" | "blocked" | "done" | "error";
+      enabled?: boolean;
     } | undefined;
     const action = String(payload?.action ?? "").trim().toLowerCase();
     const taskId = String(payload?.task_id ?? "").trim();
@@ -430,6 +435,15 @@ class MessageRouter {
         result = this.options.updateWorkgroupTaskStatus({
           taskId,
           status: payload.status,
+        });
+      }
+    } else if (action === "set_schedule_enabled") {
+      if (!this.options.updateWorkgroupTaskScheduleEnabled) {
+        result = { success: false, error: "Workgroup schedule updates are unavailable" };
+      } else {
+        result = this.options.updateWorkgroupTaskScheduleEnabled({
+          taskId,
+          enabled: payload?.enabled !== false,
         });
       }
     } else {

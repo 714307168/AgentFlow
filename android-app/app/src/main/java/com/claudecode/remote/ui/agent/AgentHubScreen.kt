@@ -69,6 +69,7 @@ fun AgentHubScreen(
     webSocket: RelayWebSocket,
     onNavigateToChat: (Session) -> Unit,
     onOpenWorkgroupChat: (agentId: String, workgroupId: String, workgroupName: String) -> Unit,
+    onOpenWorkgroupTasks: (agentId: String, workgroupId: String, workgroupName: String) -> Unit,
     onToggleConnection: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -250,7 +251,8 @@ fun AgentHubScreen(
                                         SimpleWorkgroupCard(
                                             agentId = agentId,
                                             workgroup = workgroup,
-                                            onClick = { onOpenWorkgroupChat(agentId, workgroup.id, workgroup.name) }
+                                            onOpenChat = { onOpenWorkgroupChat(agentId, workgroup.id, workgroup.name) },
+                                            onOpenTasks = { onOpenWorkgroupTasks(agentId, workgroup.id, workgroup.name) }
                                         )
                                     }
                                 }
@@ -545,38 +547,73 @@ private fun SimpleProjectCard(session: Session, onClick: () -> Unit) {
 }
 
 @Composable
-private fun SimpleWorkgroupCard(agentId: String, workgroup: Workgroup, onClick: () -> Unit) {
+private fun SimpleWorkgroupCard(
+    agentId: String,
+    workgroup: Workgroup,
+    onOpenChat: () -> Unit,
+    onOpenTasks: () -> Unit
+) {
     Card(
-        onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.97f)),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
     ) {
-        Row(
+        Column(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Icon(Icons.Default.Groups, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(workgroup.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(
-                    text = workgroup.lastMessagePreview?.takeIf { it.isNotBlank() }
-                        ?: workgroup.description?.takeIf { it.isNotBlank() }
-                        ?: stringResource(R.string.workgroups_open_chat_hint),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = stringResource(R.string.agents_collaboration_meta, agentId.take(8), workgroup.memberCount, workgroup.messageCount),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary
-                )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Icon(Icons.Default.Groups, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(workgroup.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        text = workgroup.lastMessagePreview?.takeIf { it.isNotBlank() }
+                            ?: workgroup.description?.takeIf { it.isNotBlank() }
+                            ?: stringResource(R.string.workgroups_open_chat_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = stringResource(
+                            R.string.agents_collaboration_meta,
+                            agentId.take(8),
+                            workgroup.memberCount,
+                            workgroup.messageCount
+                        ),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = stringResource(
+                            R.string.workgroups_member_task_count,
+                            workgroup.memberCount,
+                            workgroup.tasks.size
+                        ),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextButton(onClick = onOpenChat) {
+                    Text(stringResource(R.string.workgroups_summary_title))
+                }
+                TextButton(onClick = onOpenTasks) {
+                    Text(stringResource(R.string.workgroups_tasks_manage))
+                }
+            }
         }
     }
 }

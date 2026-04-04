@@ -26,6 +26,29 @@ data class WorkgroupMember(
     val isRunning: Boolean = false
 )
 
+data class WorkgroupTask(
+    val id: String,
+    val title: String,
+    val description: String? = null,
+    val acceptanceCriteria: String? = null,
+    val assigneeMemberId: String? = null,
+    val assigneeMemberName: String? = null,
+    val priority: String = "normal",
+    val status: String = "todo",
+    val scheduleType: String? = null,
+    val scheduleEnabled: Boolean = true,
+    val runAt: Long? = null,
+    val delayMinutes: Int? = null,
+    val dailyTime: String? = null,
+    val weeklyDay: Int? = null,
+    val nextRunAt: Long? = null,
+    val lastDispatchAt: Long? = null,
+    val lastDispatchResult: String? = null,
+    val dispatchReady: Boolean = false,
+    val dispatchBlockedReason: String? = null,
+    val updatedAt: Long = 0L
+)
+
 data class Workgroup(
     val id: String,
     val name: String,
@@ -35,7 +58,8 @@ data class Workgroup(
     val isRunning: Boolean = false,
     val lastMessagePreview: String? = null,
     val messageCount: Int = 0,
-    val memberCount: Int = 0
+    val memberCount: Int = 0,
+    val tasks: List<WorkgroupTask> = emptyList()
 )
 
 data class WorkgroupSession(

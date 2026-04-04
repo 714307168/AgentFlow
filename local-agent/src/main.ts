@@ -3037,6 +3037,7 @@ function initRelay(config: AgentConfig): void {
     getWorkgroupRelayPayload: () => buildWorkgroupRelayPayload(),
     dispatchWorkgroupTask: (taskId: string) => handleDispatchWorkgroupTaskRequest(taskId),
     updateWorkgroupTaskStatus: (data) => handleUpdateWorkgroupTaskStatusRequest(data),
+    updateWorkgroupTaskScheduleEnabled: (data) => handleSetWorkgroupTaskScheduleEnabledRequest(data),
     getWorkgroupCollaborationRelayPayload: () => buildWorkgroupCollaborationRelayPayload(),
     getWorkgroupCollaborationSessionPayload: (data) => buildWorkgroupCollaborationSessionRelayPayload(data),
     sendWorkgroupCollaborationMessage: (data) => workgroupCollaborationService.sendUserMessage(
@@ -3203,6 +3204,42 @@ function handleUpdateWorkgroupTaskStatusRequest(data: {
     success: true,
     task: nextTask,
     workgroup: getSerializedWorkgroupById(nextTask.workgroupId),
+  };
+}
+
+function handleSetWorkgroupTaskScheduleEnabledRequest(data: {
+  taskId: string;
+  enabled: boolean;
+}) {
+  const task = workgroupStore.getTaskById(String(data?.taskId ?? "").trim());
+  if (!task) {
+    return { success: false, error: "Task not found" };
+  }
+  if (!task.scheduleType) {
+    return { success: false, error: "Task is not scheduled" };
+  }
+
+  const nextTask = workgroupStore.saveTask({
+    ...task,
+    scheduleEnabled: data.enabled !== false,
+    nextRunAt: computeScheduledTaskNextRunAt({
+      scheduleType: task.scheduleType,
+      enabled: data.enabled !== false,
+      runAt: task.runAt,
+      delayMinutes: task.delayMinutes,
+      delayStartAt: task.delayStartAt,
+      dailyTime: task.dailyTime,
+      weeklyDay: task.weeklyDay,
+      lastRunAt: task.lastDispatchAt ?? null,
+    }),
+  });
+  touchWorkgroup(task.workgroupId);
+  workgroupTaskScheduler.syncTasks("toggle-workgroup-task-schedule");
+  broadcastWorkgroupsChanged();
+  return {
+    success: true,
+    task: nextTask,
+    workgroup: getSerializedWorkgroupById(task.workgroupId),
   };
 }
 
@@ -4780,38 +4817,7 @@ ipcMain.handle("delete-workgroup-task", (_event, taskId: string) => {
 ipcMain.handle("set-workgroup-task-schedule-enabled", (_event, data: {
   taskId: string;
   enabled: boolean;
-}) => {
-  const task = workgroupStore.getTaskById(String(data?.taskId ?? "").trim());
-  if (!task) {
-    return { success: false, error: "Task not found" };
-  }
-  if (!task.scheduleType) {
-    return { success: false, error: "Task is not scheduled" };
-  }
-
-  const nextTask = workgroupStore.saveTask({
-    ...task,
-    scheduleEnabled: data.enabled !== false,
-    nextRunAt: computeScheduledTaskNextRunAt({
-      scheduleType: task.scheduleType,
-      enabled: data.enabled !== false,
-      runAt: task.runAt,
-      delayMinutes: task.delayMinutes,
-      delayStartAt: task.delayStartAt,
-      dailyTime: task.dailyTime,
-      weeklyDay: task.weeklyDay,
-      lastRunAt: task.lastDispatchAt ?? null,
-    }),
-  });
-  touchWorkgroup(task.workgroupId);
-  workgroupTaskScheduler.syncTasks("toggle-workgroup-task-schedule");
-  broadcastWorkgroupsChanged();
-  return {
-    success: true,
-    task: nextTask,
-    workgroup: getSerializedWorkgroupById(task.workgroupId),
-  };
-});
+}) => handleSetWorkgroupTaskScheduleEnabledRequest(data));
 
 ipcMain.handle("update-workgroup-task-status", (_event, data: {
   taskId: string;

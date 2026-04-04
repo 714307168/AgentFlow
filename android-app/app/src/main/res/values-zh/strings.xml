@@ -203,4 +203,12 @@
     <string name="agents_collaboration_group">&#21327;&#20316;&#32452;</string>
     <string name="agents_project_meta">&#20195;&#29702; %1$s &#183; %2$s</string>
     <string name="agents_collaboration_meta">&#20195;&#29702; %1$s &#183; %2$d &#20010;&#25104;&#21592; &#183; %3$d &#26465;&#28040;&#24687;</string>
+    <string name="workgroups_tasks_manage">&#20219;&#21153;&#31649;&#29702;</string>
+    <string name="workgroups_tasks_empty">&#26242;&#26102;&#27809;&#26377;&#20219;&#21153;&#65292;&#35831;&#20808;&#22312;&#26700;&#38754;&#31471;&#21019;&#24314;&#24182;&#20998;&#37197;&#20219;&#21153;&#12290;</string>
+    <string name="workgroups_task_schedule_label">&#35843;&#24230;&#65306;%1$s</string>
+    <string name="workgroups_task_next_run_label">&#19979;&#27425;&#36816;&#34892;&#65306;%1$s</string>
+    <string name="workgroups_task_last_dispatch_label">&#19978;&#27425;&#27966;&#21457;&#65306;%1$s</string>
+    <string name="workgroups_schedule_enable">&#21551;&#29992;&#35843;&#24230;</string>
+    <string name="workgroups_schedule_disable">&#20572;&#29992;&#35843;&#24230;</string>
+    <string name="workgroups_error_command">&#20219;&#21153;&#26356;&#26032;&#22833;&#36133;&#12290;</string>
 </resources>

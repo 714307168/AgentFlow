@@ -57,6 +57,7 @@ import com.claudecode.remote.ui.settings.SettingsState
 import com.claudecode.remote.ui.theme.RemoteTheme
 import com.claudecode.remote.ui.workgroup.WorkgroupChatScreen
 import com.claudecode.remote.ui.workgroup.WorkgroupChatViewModel
+import com.claudecode.remote.ui.workgroup.WorkgroupTaskManageScreen
 import com.claudecode.remote.util.CrashLogger
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -278,6 +279,12 @@ class MainActivity : ComponentActivity() {
                                     val encodedGroupName = android.net.Uri.encode(groupName.ifEmpty { "Workgroup" })
                                     navController.navigate("workgroups/chat/$encodedAgentId/$encodedWorkgroupId/$encodedGroupName")
                                 },
+                                onOpenWorkgroupTasks = { agentId, workgroupId, groupName ->
+                                    val encodedAgentId = android.net.Uri.encode(agentId)
+                                    val encodedWorkgroupId = android.net.Uri.encode(workgroupId)
+                                    val encodedGroupName = android.net.Uri.encode(groupName.ifEmpty { "Workgroup" })
+                                    navController.navigate("workgroups/manage/$encodedAgentId/$encodedWorkgroupId/$encodedGroupName")
+                                },
                                 onToggleConnection = {
                                     when (relayWebSocket.connectionState.value) {
                                         com.claudecode.remote.data.remote.RelayWebSocket.ConnectionState.CONNECTED,
@@ -287,6 +294,30 @@ class MainActivity : ComponentActivity() {
                                         com.claudecode.remote.data.remote.RelayWebSocket.ConnectionState.DISCONNECTED ->
                                             RelayConnectionService.start(applicationContext)
                                     }
+                                }
+                            )
+                        }
+                        composable("workgroups/manage/{agentId}/{workgroupId}/{workgroupName}") { backStackEntry ->
+                            val agentId = android.net.Uri.decode(
+                                backStackEntry.arguments?.getString("agentId") ?: ""
+                            )
+                            val workgroupId = android.net.Uri.decode(
+                                backStackEntry.arguments?.getString("workgroupId") ?: ""
+                            )
+                            val workgroupName = android.net.Uri.decode(
+                                backStackEntry.arguments?.getString("workgroupName") ?: "Workgroup"
+                            )
+                            WorkgroupTaskManageScreen(
+                                agentId = agentId,
+                                workgroupId = workgroupId,
+                                workgroupName = workgroupName,
+                                viewModel = agentHubViewModel,
+                                onNavigateBack = { navController.popBackStack() },
+                                onOpenChat = {
+                                    val encodedAgentId = android.net.Uri.encode(agentId)
+                                    val encodedWorkgroupId = android.net.Uri.encode(workgroupId)
+                                    val encodedGroupName = android.net.Uri.encode(workgroupName.ifEmpty { "Workgroup" })
+                                    navController.navigate("workgroups/chat/$encodedAgentId/$encodedWorkgroupId/$encodedGroupName")
                                 }
                             )
                         }

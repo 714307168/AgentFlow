@@ -6,6 +6,7 @@ import com.claudecode.remote.data.model.Events
 import com.claudecode.remote.data.model.Workgroup
 import com.claudecode.remote.data.model.WorkgroupMember
 import com.claudecode.remote.data.model.WorkgroupMessage
+import com.claudecode.remote.data.model.WorkgroupTask
 import com.claudecode.remote.data.model.WorkgroupRegistryEntry
 import com.claudecode.remote.data.model.WorkgroupSession
 import com.claudecode.remote.data.local.TokenStore
@@ -67,6 +68,7 @@ class WorkgroupRepository(
 
     private val pendingSessionRequests = ConcurrentHashMap<String, CompletableDeferred<Result<SessionResponse>>>()
     private val pendingSendRequests = ConcurrentHashMap<String, CompletableDeferred<Result<String>>>()
+    private val pendingCommandRequests = ConcurrentHashMap<String, CompletableDeferred<Result<Unit>>>()
     private val inFlightSessionRequests = ConcurrentHashMap<String, CompletableDeferred<Result<Unit>>>()
     private val lastListRequestedAtByAgent = ConcurrentHashMap<String, Long>()
     private val lastSessionRequestedAt = ConcurrentHashMap<String, Long>()
@@ -96,7 +98,7 @@ class WorkgroupRepository(
             webSocket.send(
                 Envelope(
                     id = UUID.randomUUID().toString(),
-                    event = Events.WORKGROUP_COLLABORATION_LIST_REQUEST,
+                    event = Events.WORKGROUP_LIST_REQUEST,
                     agentId = agentId,
                     payload = JsonObject(
                         mapOf("agent_id" to JsonPrimitive(agentId))
@@ -282,6 +284,29 @@ class WorkgroupRepository(
         }
     }
 
+    suspend fun dispatchTask(agentId: String, taskId: String): Result<Unit> =
+        sendWorkgroupCommand(
+            agentId = agentId,
+            taskId = taskId,
+            action = "dispatch_task"
+        )
+
+    suspend fun updateTaskStatus(agentId: String, taskId: String, status: String): Result<Unit> =
+        sendWorkgroupCommand(
+            agentId = agentId,
+            taskId = taskId,
+            action = "update_status",
+            extraPayload = mapOf("status" to JsonPrimitive(status))
+        )
+
+    suspend fun setTaskScheduleEnabled(agentId: String, taskId: String, enabled: Boolean): Result<Unit> =
+        sendWorkgroupCommand(
+            agentId = agentId,
+            taskId = taskId,
+            action = "set_schedule_enabled",
+            extraPayload = mapOf("enabled" to JsonPrimitive(enabled))
+        )
+
     fun getSession(agentId: String, workgroupId: String): WorkgroupSession? =
         _sessions.value[sessionKey(agentId, workgroupId)]
 
@@ -386,9 +411,34 @@ class WorkgroupRepository(
                 )
             }
 
+            Events.WORKGROUP_LIST,
             Events.WORKGROUP_COLLABORATION_LIST -> {
                 val payload = envelope.payload?.jsonObject ?: return
                 applyAgentWorkgroups(payload)
+            }
+
+            Events.WORKGROUP_COMMAND_RESULT -> {
+                val payload = envelope.payload?.jsonObject ?: return
+                if (payload["workgroups"]?.jsonArray != null) {
+                    applyAgentWorkgroups(payload)
+                }
+                val requestId = payload["request_id"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+                if (requestId.isBlank()) {
+                    return
+                }
+                val success = payload["success"]?.jsonPrimitive?.booleanOrNull == true
+                pendingCommandRequests.remove(requestId)?.complete(
+                    if (success) {
+                        Result.success(Unit)
+                    } else {
+                        Result.failure(
+                            IllegalStateException(
+                                payload["error"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+                                    .ifBlank { "Workgroup command failed." }
+                            )
+                        )
+                    }
+                )
             }
 
             Events.WORKGROUP_COLLABORATION_SESSION -> {
@@ -565,7 +615,8 @@ class WorkgroupRepository(
             isRunning = obj["isRunning"]?.jsonPrimitive?.booleanOrNull == true,
             lastMessagePreview = obj["lastMessagePreview"]?.jsonPrimitive?.contentOrNull?.trim().takeUnless { it.isNullOrEmpty() },
             messageCount = obj["messageCount"]?.jsonPrimitive?.intOrNull ?: 0,
-            memberCount = obj["memberCount"]?.jsonPrimitive?.intOrNull ?: 0
+            memberCount = obj["memberCount"]?.jsonPrimitive?.intOrNull ?: 0,
+            tasks = obj["tasks"]?.jsonArray?.mapNotNull(::parseTask).orEmpty()
         )
     }
 
@@ -608,6 +659,36 @@ class WorkgroupRepository(
             projectOnline = obj["projectOnline"]?.jsonPrimitive?.booleanOrNull == true,
             hasBinding = obj["hasBinding"]?.jsonPrimitive?.booleanOrNull == true,
             isRunning = obj["isRunning"]?.jsonPrimitive?.booleanOrNull == true
+        )
+    }
+
+    private fun parseTask(element: kotlinx.serialization.json.JsonElement): WorkgroupTask? {
+        val obj = element as? JsonObject ?: return null
+        val id = obj["id"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        if (id.isBlank()) {
+            return null
+        }
+        return WorkgroupTask(
+            id = id,
+            title = obj["title"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty().ifEmpty { id },
+            description = obj["description"]?.jsonPrimitive?.contentOrNull?.trim().takeUnless { it.isNullOrEmpty() },
+            acceptanceCriteria = obj["acceptanceCriteria"]?.jsonPrimitive?.contentOrNull?.trim().takeUnless { it.isNullOrEmpty() },
+            assigneeMemberId = obj["assigneeMemberId"]?.jsonPrimitive?.contentOrNull?.trim().takeUnless { it.isNullOrEmpty() },
+            assigneeMemberName = obj["assigneeMemberName"]?.jsonPrimitive?.contentOrNull?.trim().takeUnless { it.isNullOrEmpty() },
+            priority = obj["priority"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty().ifEmpty { "normal" },
+            status = obj["status"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty().ifEmpty { "todo" },
+            scheduleType = obj["scheduleType"]?.jsonPrimitive?.contentOrNull?.trim().takeUnless { it.isNullOrEmpty() },
+            scheduleEnabled = obj["scheduleEnabled"]?.jsonPrimitive?.booleanOrNull != false,
+            runAt = obj["runAt"]?.jsonPrimitive?.longOrNull,
+            delayMinutes = obj["delayMinutes"]?.jsonPrimitive?.intOrNull,
+            dailyTime = obj["dailyTime"]?.jsonPrimitive?.contentOrNull?.trim().takeUnless { it.isNullOrEmpty() },
+            weeklyDay = obj["weeklyDay"]?.jsonPrimitive?.intOrNull,
+            nextRunAt = obj["nextRunAt"]?.jsonPrimitive?.longOrNull,
+            lastDispatchAt = obj["lastDispatchAt"]?.jsonPrimitive?.longOrNull,
+            lastDispatchResult = obj["lastDispatchResult"]?.jsonPrimitive?.contentOrNull?.trim().takeUnless { it.isNullOrEmpty() },
+            dispatchReady = obj["dispatchReady"]?.jsonPrimitive?.booleanOrNull == true,
+            dispatchBlockedReason = obj["dispatchBlockedReason"]?.jsonPrimitive?.contentOrNull?.trim().takeUnless { it.isNullOrEmpty() },
+            updatedAt = obj["updatedAt"]?.jsonPrimitive?.longOrNull ?: 0L
         )
     }
 
@@ -705,6 +786,48 @@ class WorkgroupRepository(
         return bytes.joinToString(separator = "") { byte -> "%02x".format(byte) }
     }
 
+    private suspend fun sendWorkgroupCommand(
+        agentId: String,
+        taskId: String,
+        action: String,
+        extraPayload: Map<String, JsonPrimitive> = emptyMap()
+    ): Result<Unit> {
+        val normalizedAgentId = agentId.trim()
+        val normalizedTaskId = taskId.trim()
+        if (normalizedAgentId.isEmpty() || normalizedTaskId.isEmpty()) {
+            return Result.failure(IllegalArgumentException("agentId and taskId are required"))
+        }
+
+        val requestId = UUID.randomUUID().toString()
+        val deferred = CompletableDeferred<Result<Unit>>()
+        pendingCommandRequests[requestId] = deferred
+
+        return try {
+            ensureSocketReady(normalizedAgentId, "workgroup-command")
+            webSocket.send(
+                Envelope(
+                    id = requestId,
+                    event = Events.WORKGROUP_COMMAND,
+                    agentId = normalizedAgentId,
+                    payload = JsonObject(
+                        buildMap {
+                            put("agent_id", JsonPrimitive(normalizedAgentId))
+                            put("task_id", JsonPrimitive(normalizedTaskId))
+                            put("action", JsonPrimitive(action))
+                            putAll(extraPayload)
+                        }
+                    ),
+                    ts = System.currentTimeMillis()
+                ),
+                targetAgentId = normalizedAgentId
+            )
+            withTimeout(REQUEST_TIMEOUT_MS) { deferred.await() }
+        } catch (error: Exception) {
+            pendingCommandRequests.remove(requestId)
+            Result.failure(error)
+        }
+    }
+
     private suspend fun wakeupAgent(agentId: String) {
         val normalizedAgentId = agentId.trim()
         if (normalizedAgentId.isEmpty()) {
@@ -739,6 +862,10 @@ class WorkgroupRepository(
         }
         pendingSendRequests.entries.toList().forEach { (requestId, deferred) ->
             pendingSendRequests.remove(requestId)
+            deferred.complete(Result.failure(error))
+        }
+        pendingCommandRequests.entries.toList().forEach { (requestId, deferred) ->
+            pendingCommandRequests.remove(requestId)
             deferred.complete(Result.failure(error))
         }
     }

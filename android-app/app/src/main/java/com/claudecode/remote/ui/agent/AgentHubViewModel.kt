@@ -7,6 +7,7 @@ import com.claudecode.remote.R
 import com.claudecode.remote.data.local.TokenStore
 import com.claudecode.remote.data.model.AgentWorkgroups
 import com.claudecode.remote.data.model.Session
+import com.claudecode.remote.data.model.Workgroup
 import com.claudecode.remote.data.model.WorkgroupRegistryEntry
 import com.claudecode.remote.data.remote.RelayWebSocket
 import com.claudecode.remote.domain.MessageRepository
@@ -298,6 +299,33 @@ class AgentHubViewModel(
         _uiState.update { it.copy(error = null) }
     }
 
+    fun findWorkgroup(agentId: String, workgroupId: String): Workgroup? {
+        val normalizedAgentId = agentId.trim()
+        val normalizedWorkgroupId = workgroupId.trim()
+        return uiState.value.agentWorkgroups
+            .find { it.agentId == normalizedAgentId }
+            ?.workgroups
+            ?.find { it.id == normalizedWorkgroupId }
+    }
+
+    fun dispatchWorkgroupTask(agentId: String, taskId: String) {
+        submitWorkgroupCommand {
+            workgroupRepository.dispatchTask(agentId, taskId)
+        }
+    }
+
+    fun updateWorkgroupTaskStatus(agentId: String, taskId: String, status: String) {
+        submitWorkgroupCommand {
+            workgroupRepository.updateTaskStatus(agentId, taskId, status)
+        }
+    }
+
+    fun setWorkgroupTaskScheduleEnabled(agentId: String, taskId: String, enabled: Boolean) {
+        submitWorkgroupCommand {
+            workgroupRepository.setTaskScheduleEnabled(agentId, taskId, enabled)
+        }
+    }
+
     fun isConnected(): Boolean = webSocket.connectionState.value == RelayWebSocket.ConnectionState.CONNECTED
 
     private suspend fun resolveAgentIds(): List<String> {
@@ -323,6 +351,22 @@ class AgentHubViewModel(
             )
         }
         workgroupRepository.refresh(agentIds, force = force)
+    }
+
+    private fun submitWorkgroupCommand(block: suspend () -> Result<Unit>) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(error = null) }
+            block().onFailure { error ->
+                _uiState.update {
+                    it.copy(
+                        error = context.resolveWorkgroupErrorMessage(
+                            error,
+                            text(R.string.workgroups_error_command)
+                        )
+                    )
+                }
+            }
+        }
     }
 }
 

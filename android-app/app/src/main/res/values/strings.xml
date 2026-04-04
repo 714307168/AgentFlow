@@ -179,7 +179,15 @@
     <string name="workgroups_todo">Todo</string>
     <string name="workgroups_done">Done</string>
     <string name="workgroups_blocked">Block</string>
+    <string name="workgroups_tasks_manage">Task management</string>
+    <string name="workgroups_tasks_empty">No tasks yet. Create and assign tasks on desktop first.</string>
+    <string name="workgroups_task_schedule_label">Schedule: %1$s</string>
+    <string name="workgroups_task_next_run_label">Next run: %1$s</string>
+    <string name="workgroups_task_last_dispatch_label">Last dispatch: %1$s</string>
+    <string name="workgroups_schedule_enable">Enable schedule</string>
+    <string name="workgroups_schedule_disable">Disable schedule</string>
     <string name="workgroups_agent_label">Agent: %1$s</string>
+    <string name="workgroups_error_command">Failed to update task.</string>
     <string name="update_message_checking_manual">Checking for updates...</string>
     <string name="update_message_available">Version %1$s is available.</string>
     <string name="update_error_check_failed">Update check failed.</string>
