@@ -487,6 +487,11 @@ func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string) 
 	schedulerRetryLoopCount := 0
 	schedulerFailureExamples := make([]string, 0, 3)
 	schedulerRetryExamples := make([]string, 0, 3)
+	workgroupSchedulerFailedCount := 0
+	workgroupSchedulerRepeatFailureCount := 0
+	workgroupSchedulerFailureExamples := make([]string, 0, 3)
+	workgroupSchedulerRepeatExamples := make([]string, 0, 3)
+	workgroupSchedulerFailuresByTaskID := map[string]int{}
 
 	type signalPattern struct {
 		code           string
@@ -632,7 +637,21 @@ func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string) 
 			warningCount++
 		}
 
-		if strings.Contains(lowerLine, "scheduled task failed.") {
+		if strings.Contains(lowerLine, "scheduled workgroup task failed.") {
+			workgroupSchedulerFailedCount++
+			if len(workgroupSchedulerFailureExamples) < 3 {
+				workgroupSchedulerFailureExamples = append(workgroupSchedulerFailureExamples, line)
+			}
+			if taskID := extractTaskID(line); taskID != "" {
+				workgroupSchedulerFailuresByTaskID[taskID]++
+				if workgroupSchedulerFailuresByTaskID[taskID] > 1 {
+					workgroupSchedulerRepeatFailureCount++
+					if len(workgroupSchedulerRepeatExamples) < 3 {
+						workgroupSchedulerRepeatExamples = append(workgroupSchedulerRepeatExamples, line)
+					}
+				}
+			}
+		} else if strings.Contains(lowerLine, "scheduled task failed.") {
 			schedulerFailedCount++
 			if len(schedulerFailureExamples) < 3 {
 				schedulerFailureExamples = append(schedulerFailureExamples, line)
@@ -704,6 +723,30 @@ func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string) 
 			Title:          "Desktop scheduled task retry loop detected",
 			Count:          schedulerRetryLoopCount,
 			Recommendation: "Check whether the same scheduled task keeps failing with increasing retryCount or a moving retryRunAt. Repeated retries usually mean the runtime path is broken even though the scheduler itself is alive.",
+			Examples:       examples,
+		})
+	}
+
+	if workgroupSchedulerFailedCount > 0 {
+		signals = append(signals, mobileLogSignal{
+			Code:           "desktop_scheduled_workgroup_task_failures",
+			Title:          "Desktop scheduled workgroup task failures detected",
+			Count:          workgroupSchedulerFailedCount,
+			Recommendation: "Inspect the workgroup taskId, assignee mapping, and dispatch path after the scheduler queued the workgroup task. If failures cluster on one workgroup, compare workgroup membership, member online state, and the dispatchBlockedReason carried by later snapshots.",
+			Examples:       workgroupSchedulerFailureExamples,
+		})
+	}
+
+	if workgroupSchedulerRepeatFailureCount > 0 {
+		examples := workgroupSchedulerRepeatExamples
+		if len(examples) == 0 {
+			examples = workgroupSchedulerFailureExamples
+		}
+		signals = append(signals, mobileLogSignal{
+			Code:           "desktop_scheduled_workgroup_task_repeat_failures",
+			Title:          "Desktop scheduled workgroup task repeated failures detected",
+			Count:          workgroupSchedulerRepeatFailureCount,
+			Recommendation: "Focus on the repeated taskId and confirm whether the same scheduled workgroup task keeps failing across multiple dispatch windows. Repeated failures usually mean the scheduler is alive but member dispatch or downstream execution is consistently broken.",
 			Examples:       examples,
 		})
 	}
@@ -829,6 +872,7 @@ func containsNormalizedID(values []string, target string) bool {
 var (
 	traceIDPattern     = regexp.MustCompile(`(?i)(?:trace[_-]?id["=: ]+|traceId["=: ]+)([a-z0-9:-]{6,})`)
 	workgroupIDPattern = regexp.MustCompile(`(?i)(?:workgroup[_-]?id["=: ]+|workgroupId["=: ]+)([a-z0-9._:-]{3,})`)
+	taskIDPattern      = regexp.MustCompile(`(?i)(?:task[_-]?id["=: ]+|taskId["=: ]+)([a-z0-9._:-]{3,})`)
 )
 
 func extractTraceAndWorkgroupIDs(content string) ([]string, []string) {
@@ -861,6 +905,14 @@ func collectUniqueMatches(pattern *regexp.Regexp, content string) []string {
 	}
 	sort.Strings(values)
 	return values
+}
+
+func extractTaskID(content string) string {
+	match := taskIDPattern.FindStringSubmatch(content)
+	if len(match) < 2 {
+		return ""
+	}
+	return strings.Trim(strings.TrimSpace(match[1]), `"'.,;:()[]{}<>`)
 }
 
 const mobileLogsAdminHTML = `<!DOCTYPE html>

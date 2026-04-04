@@ -97,8 +97,8 @@
 
 - 阶段一完成度约 `92%`
 - 阶段二完成度约 `92%`
-- 阶段三完成度约 `76%`
-- 阶段四完成度约 `64%`
+- 阶段三完成度约 `79%`
+- 阶段四完成度约 `66%`
 
 ### 已完成
 
@@ -142,6 +142,7 @@
 - 服务端日志分析已接入桌面端定时任务诊断：`desktop_scheduled_task_failures` / `desktop_scheduled_task_retry_loops`
 - 桌面端协作组任务已补第一版定时派发：设置页已开放任务面板，支持 `manual / once / delay / daily / weekly`，到点后会复用现有 `dispatchWorkgroupTask(...)` 自动派发给指定成员
 - 安卓端已补协作组任务远程管理第一版：Agent 列表可直接进入任务管理页，支持查看任务、手动派发、更新任务状态，以及远程开关协作组定时任务
+- 服务端日志分析已补协作组定时任务诊断：`desktop_scheduled_workgroup_task_failures` / `desktop_scheduled_workgroup_task_repeat_failures`
 
 ### 进行中
 
