@@ -4274,6 +4274,63 @@ ipcMain.handle("delete-scheduled-task", (_event, taskId: string) => {
   return { success: true };
 });
 
+ipcMain.handle("set-scheduled-task-enabled", (_event, data: {
+  taskId: string;
+  enabled: boolean;
+}) => {
+  const task = scheduledTaskStore.getTaskById(String(data?.taskId ?? "").trim());
+  if (!task) {
+    return { success: false, error: "Scheduled task not found." };
+  }
+
+  scheduledTaskStore.saveTask({
+    ...task,
+    enabled: data?.enabled !== false,
+  });
+  localScheduler.syncTasks("set-scheduled-task-enabled");
+  broadcastScheduledTasksChanged();
+  return {
+    success: true,
+    task: listSerializedScheduledTasks().find((entry) => entry.id === task.id) ?? null,
+  };
+});
+
+ipcMain.handle("bulk-set-scheduled-task-enabled", (_event, data: {
+  taskIds?: string[];
+  enabled: boolean;
+}) => {
+  const taskIds = Array.isArray(data?.taskIds)
+    ? Array.from(new Set(data.taskIds.map((entry) => String(entry ?? "").trim()).filter(Boolean)))
+    : [];
+  if (!taskIds.length) {
+    return { success: false, error: "Choose at least one scheduled task." };
+  }
+
+  let changedCount = 0;
+  for (const taskId of taskIds) {
+    const task = scheduledTaskStore.getTaskById(taskId);
+    if (!task) {
+      continue;
+    }
+    if (task.enabled === (data?.enabled !== false)) {
+      continue;
+    }
+    scheduledTaskStore.saveTask({
+      ...task,
+      enabled: data?.enabled !== false,
+    });
+    changedCount += 1;
+  }
+
+  localScheduler.syncTasks("bulk-set-scheduled-task-enabled");
+  broadcastScheduledTasksChanged();
+  return {
+    success: true,
+    changedCount,
+    tasks: listSerializedScheduledTasks(),
+  };
+});
+
 ipcMain.handle("run-scheduled-task-now", async (_event, taskId: string) => {
   return await localScheduler.runTaskNow(String(taskId ?? "").trim());
 });

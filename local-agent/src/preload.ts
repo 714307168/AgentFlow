@@ -49,6 +49,14 @@ contextBridge.exposeInMainWorld('claudeAgent', {
     enabled?: boolean;
   }) => ipcRenderer.invoke('save-scheduled-task', data),
   deleteScheduledTask: (taskId: string) => ipcRenderer.invoke('delete-scheduled-task', taskId),
+  setScheduledTaskEnabled: (data: {
+    taskId: string;
+    enabled: boolean;
+  }) => ipcRenderer.invoke('set-scheduled-task-enabled', data),
+  bulkSetScheduledTaskEnabled: (data: {
+    taskIds: string[];
+    enabled: boolean;
+  }) => ipcRenderer.invoke('bulk-set-scheduled-task-enabled', data),
   runScheduledTaskNow: (taskId: string) => ipcRenderer.invoke('run-scheduled-task-now', taskId),
   onScheduledTasksChanged: (callback: (tasks: unknown[]) => void) => {
     ipcRenderer.on('scheduled-tasks-changed', (_event, tasks: unknown[]) => callback(tasks));

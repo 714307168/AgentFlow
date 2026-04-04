@@ -1039,6 +1039,17 @@
               </div>
               <div class="workgroup-card">
                 <div class="workgroup-card-title" id="scheduledTaskListTitle">Task List</div>
+                <div class="workgroup-toolbar">
+                  <select id="scheduledTaskFilter">
+                    <option value="all">All Tasks</option>
+                    <option value="active">Active</option>
+                    <option value="paused">Paused</option>
+                    <option value="failed">Failed</option>
+                    <option value="busy">Queued / Running</option>
+                  </select>
+                  <button class="btn-secondary btn-small" id="resumeFilteredScheduledTasksBtn">Resume Filtered</button>
+                  <button class="btn-secondary btn-small" id="pauseFilteredScheduledTasksBtn">Pause Filtered</button>
+                </div>
                 <div class="project-list" id="scheduledTaskList" data-empty-message="No scheduled tasks yet."></div>
               </div>
             </div>
@@ -1172,6 +1183,7 @@
     let latestAccessState = null;
     let latestProjectCatalog = [];
     let latestScheduledTasks = [];
+    let scheduledTaskFilter = "all";
     let latestWorkgroups = [];
     let latestWorkgroupRegistryResults = [];
     const latestWorkgroupRegistryMembersById = new Map();
@@ -1553,6 +1565,13 @@
       document.getElementById("resetScheduledTaskBtn").textContent = inlineText("Reset", "重置");
       document.getElementById("refreshScheduledTaskBtn").textContent = inlineText("Refresh", "刷新");
       document.getElementById("scheduledTaskListTitle").textContent = inlineText("Task List", "任务列表");
+      document.getElementById("scheduledTaskFilter").options[0].text = inlineText("All Tasks", "全部任务");
+      document.getElementById("scheduledTaskFilter").options[1].text = inlineText("Active", "启用中");
+      document.getElementById("scheduledTaskFilter").options[2].text = inlineText("Paused", "已暂停");
+      document.getElementById("scheduledTaskFilter").options[3].text = inlineText("Failed", "失败");
+      document.getElementById("scheduledTaskFilter").options[4].text = inlineText("Queued / Running", "排队 / 运行中");
+      document.getElementById("resumeFilteredScheduledTasksBtn").textContent = inlineText("Resume Filtered", "恢复筛选项");
+      document.getElementById("pauseFilteredScheduledTasksBtn").textContent = inlineText("Pause Filtered", "暂停筛选项");
       document.getElementById("scheduledTaskList").setAttribute("data-empty-message", inlineText("No scheduled tasks yet.", "还没有定时任务。"));
       document.getElementById("updatesSection").textContent = inlineText("Updates", "更新");
       document.getElementById("autoUpdateCheckLabel").textContent = inlineText("Automatically check for updates", "自动检查更新");
@@ -2023,9 +2042,38 @@
       document.getElementById("saveScheduledTaskBtn").disabled = document.getElementById("scheduledTaskProject").disabled;
     }
 
-    function renderScheduledTasks() {
+    function getFilteredScheduledTasks() {
+      return latestScheduledTasks.filter((task) => {
+        switch (scheduledTaskFilter) {
+          case "active":
+            return task.enabled !== false;
+          case "paused":
+            return task.enabled === false;
+          case "failed":
+            return String(task.lastRunStatus || "").toLowerCase() === "error";
+          case "busy":
+            return ["queued", "running"].includes(String(task.lastRunStatus || "").toLowerCase());
+          default:
+            return true;
+        }
+      });
+    }
+
+    function updateScheduledTaskEmptyMessage() {
       const listEl = document.getElementById("scheduledTaskList");
       if (!latestScheduledTasks.length) {
+        listEl.setAttribute("data-empty-message", inlineText("No scheduled tasks yet.", "还没有定时任务。"));
+        return;
+      }
+      listEl.setAttribute("data-empty-message", inlineText("No scheduled tasks match the current filter.", "当前筛选条件下没有定时任务。"));
+    }
+
+    function renderScheduledTasks() {
+      const listEl = document.getElementById("scheduledTaskList");
+      const visibleTasks = getFilteredScheduledTasks();
+      updateScheduledTaskEmptyMessage();
+
+      if (!visibleTasks.length) {
         if (renderSignatures.scheduledTasks !== "") {
           renderSignatures.scheduledTasks = "";
           listEl.innerHTML = "";
@@ -2033,7 +2081,7 @@
         return;
       }
 
-      const markup = latestScheduledTasks.map((task) => `
+      const markup = visibleTasks.map((task) => `
         <div class="project-item">
           <div class="project-info">
             <div class="project-name">${escapeHtml(task.name || "")}</div>
@@ -2061,6 +2109,7 @@
           </div>
           <div class="project-actions">
             <button class="btn-primary btn-small" onclick="runScheduledTaskNow('${task.id}')">${escapeHtml(inlineText("Run Now", "立即执行"))}</button>
+            <button class="btn-secondary btn-small" onclick="toggleScheduledTaskEnabled('${task.id}', ${task.enabled === false ? "true" : "false"})">${escapeHtml(task.enabled === false ? inlineText("Resume", "恢复") : inlineText("Pause", "暂停"))}</button>
             <button class="btn-secondary btn-small" onclick="editScheduledTask('${task.id}')">${escapeHtml(inlineText("Edit", "编辑"))}</button>
             <button class="btn-danger btn-small" onclick="deleteScheduledTask('${task.id}')">${escapeHtml(inlineText("Delete", "删除"))}</button>
           </div>
@@ -2069,6 +2118,65 @@
       if (renderSignatures.scheduledTasks !== markup) {
         renderSignatures.scheduledTasks = markup;
         listEl.innerHTML = markup;
+      }
+    }
+
+    async function toggleScheduledTaskEnabled(taskId, enabled) {
+      try {
+        const result = await api.setScheduledTaskEnabled({
+          taskId,
+          enabled: Boolean(enabled),
+        });
+        if (!result?.success) {
+          showStatus(result?.error || inlineText("Failed to update the scheduled task state.", "更新定时任务状态失败。"), true);
+          return;
+        }
+        paneLoadState.scheduledTasksDirty = true;
+        await loadScheduledTasks({ force: true });
+        showStatus(
+          enabled
+            ? inlineText("Scheduled task resumed.", "定时任务已恢复。")
+            : inlineText("Scheduled task paused.", "定时任务已暂停。"),
+          false
+        );
+        flashSaved();
+      } catch (error) {
+        showStatus(getErrorMessage(error), true);
+      }
+    }
+
+    async function bulkSetFilteredScheduledTasksEnabled(enabled) {
+      const targetTasks = getFilteredScheduledTasks().filter((task) => (task.enabled !== false) !== Boolean(enabled));
+      if (!targetTasks.length) {
+        showStatus(
+          enabled
+            ? inlineText("No filtered task needs to be resumed.", "筛选结果里没有需要恢复的任务。")
+            : inlineText("No filtered task needs to be paused.", "筛选结果里没有需要暂停的任务。"),
+          false
+        );
+        return;
+      }
+
+      try {
+        const result = await api.bulkSetScheduledTaskEnabled({
+          taskIds: targetTasks.map((task) => task.id),
+          enabled: Boolean(enabled),
+        });
+        if (!result?.success) {
+          showStatus(result?.error || inlineText("Failed to update filtered scheduled tasks.", "批量更新筛选任务失败。"), true);
+          return;
+        }
+        paneLoadState.scheduledTasksDirty = true;
+        await loadScheduledTasks({ force: true });
+        showStatus(
+          enabled
+            ? inlineText(`Resumed ${Number(result?.changedCount || 0)} scheduled task(s).`, `已恢复 ${Number(result?.changedCount || 0)} 个定时任务。`)
+            : inlineText(`Paused ${Number(result?.changedCount || 0)} scheduled task(s).`, `已暂停 ${Number(result?.changedCount || 0)} 个定时任务。`),
+          false
+        );
+        flashSaved();
+      } catch (error) {
+        showStatus(getErrorMessage(error), true);
       }
     }
 
@@ -3419,6 +3527,10 @@
     document.getElementById("scheduledTaskType").addEventListener("change", () => {
       syncScheduledTaskTypeFields();
     });
+    document.getElementById("scheduledTaskFilter").addEventListener("change", (event) => {
+      scheduledTaskFilter = event.target.value || "all";
+      renderScheduledTasks();
+    });
     document.getElementById("workgroupTaskScheduleType").addEventListener("change", () => {
       syncWorkgroupTaskTypeFields();
     });
@@ -3436,6 +3548,12 @@
       paneLoadState.scheduledTasksDirty = true;
       await loadScheduledTasks({ force: true });
       flashSaved();
+    });
+    document.getElementById("resumeFilteredScheduledTasksBtn").addEventListener("click", () => {
+      void bulkSetFilteredScheduledTasksEnabled(true);
+    });
+    document.getElementById("pauseFilteredScheduledTasksBtn").addEventListener("click", () => {
+      void bulkSetFilteredScheduledTasksEnabled(false);
     });
 
     document.getElementById("repairChatHistoryBtn").addEventListener("click", async () => {
