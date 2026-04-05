@@ -98,7 +98,7 @@
 - 阶段一完成度约 `92%`
 - 阶段二完成度约 `92%`
 - 阶段三完成度约 `100%`
-- 阶段四完成度约 `92%`
+- 阶段四完成度约 `93%`
 
 ### 已完成
 
@@ -167,6 +167,7 @@
 - 服务端 device logs overview 已补 connection hotspot 聚类：可直接看到哪类 `agent/controller/host/platform` 组合更容易命中 critical / warning，以及对应的 top signal
 - 服务端 device logs overview 已补 connection hotspot 一跳回查：每个热点现在会同时带出最相关的 `trace_id / workgroup_id / task_id / dispatch_run_id`，点一下就能进入过滤后的日志上下文
 - 服务端 device logs overview 已补 signal 降噪权重：`desktop_restart_recovery_residue / desktop_recovery_jitter` 已抬权，scheduler 系列 signal 已整体降权，减少高频调度噪音把真正的恢复链路问题顶到前面
+- 服务端 device logs 分析已补桌面 follow-up 收口缺口：当 `Completed relay follow-up refresh` 已标记 `requestedActiveProjectSync=true`，但后续没有看到 active sync 请求或 remote snapshot 落地时，现在会直接命中 `desktop_remote_snapshot_gaps / desktop_resume_catchup_stalled`，减少“看起来连上了但聊天没刷新”的漏报
 
 ### 进行中
 
@@ -180,7 +181,7 @@
 
 ### 下一刀
 
-1. 结合真实上传日志，再补一轮桌面 / 安卓重连与补拉问题的分析规则
+1. 继续结合真实上传日志，补安卓前后台恢复与 post-auth 补拉链路的分析规则
 2. 结合真实故障日志再细化 signal 权重和排序阈值，减少单条高频 scheduler 日志把真正的恢复问题挤下去
 3. 继续收敛阶段四，把日志诊断、device logs overview、connection snapshot、hotspot 聚类、一跳回查、signal 降噪排序、交叉筛选和客户端连接态观测串起来，减少只能靠上传日志定位的问题
 

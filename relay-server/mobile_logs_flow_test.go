@@ -738,6 +738,126 @@ func TestMobileLogOverviewPrioritizesRecoverySignalsOverSchedulerNoise(t *testin
 	}
 }
 
+func TestMobileLogAnalysisFlagsMissingDesktopActiveSyncAfterFollowUpCompletion(t *testing.T) {
+	t.Setenv("ADMIN_PASSWORD", "Admin12345A")
+	t.Setenv("ADMIN_USER", "")
+
+	dataDir := t.TempDir()
+	database, err := db.Open(dataDir)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer database.Close()
+
+	if err := database.InitializeDefaultUser(); err != nil {
+		t.Fatalf("init default user: %v", err)
+	}
+
+	cfg := &config.Config{
+		JWTSecret:    "relay-test-secret-20260406",
+		PingInterval: 30,
+		QueueSize:    100,
+		CORSOrigins:  "*",
+		DataDir:      dataDir,
+		DatabasePath: dataDir,
+	}
+	st := store.NewStore(database)
+	h := hub.NewHub(cfg, st)
+
+	if _, err := database.CreateUser("carl", "Carl12345A", false); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	carl, err := database.GetUserByUsername("carl")
+	if err != nil {
+		t.Fatalf("get carl: %v", err)
+	}
+	if err := database.RegisterAgent("agent-c", carl.ID, "Carl desktop"); err != nil {
+		t.Fatalf("register agent: %v", err)
+	}
+	if err := database.RegisterDevice("device-c", carl.ID, "agent-c", "Carl phone"); err != nil {
+		t.Fatalf("register device: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/auth/login", handler.LoginHandler(database, cfg))
+	mux.HandleFunc("/api/device/logs", handler.DeviceLogUploadHandler(cfg, database))
+	mux.HandleFunc("/admin/api/login", handler.AdminLoginHandler(database))
+	mux.HandleFunc("/admin/api/mobile-logs", handler.AdminMobileLogsHandler(cfg, database, h))
+	mux.HandleFunc("/admin/api/mobile-logs/", handler.AdminMobileLogsHandler(cfg, database, h))
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	var deviceLogin deviceLoginResponse
+	doJSON(t, http.DefaultClient, http.MethodPost, server.URL+"/api/auth/login", map[string]any{
+		"username":    "carl",
+		"password":    "Carl12345A",
+		"client_type": "device",
+		"client_id":   "device-c",
+	}, http.StatusOK, &deviceLogin)
+	if deviceLogin.Token == "" {
+		t.Fatal("expected device token")
+	}
+
+	doJSONWithBearer(t, http.DefaultClient, http.MethodPost, server.URL+"/api/device/logs", deviceLogin.Token, map[string]any{
+		"file_name": "desktop-followup-gap.log",
+		"content": "[2026-04-06T02:00:00.000Z] INFO [relay] Scheduled relay follow-up refreshes. reason=controller-authenticated delaysMs=0,1500,5000 trace_id=trace-desktop-004 workgroup_id=desktop-workgroup-gap\n" +
+			"[2026-04-06T02:00:01.000Z] INFO [relay] Running relay follow-up refresh. reason=controller-authenticated:0 trace_id=trace-desktop-004 workgroup_id=desktop-workgroup-gap\n" +
+			"[2026-04-06T02:00:01.100Z] INFO [relay] Requested remote project catalog refresh. reason=follow-up:controller-authenticated:0 trace_id=trace-desktop-004 workgroup_id=desktop-workgroup-gap\n" +
+			"[2026-04-06T02:00:01.300Z] INFO [relay] Remote project catalog updated. projectCount=3 trace_id=trace-desktop-004 workgroup_id=desktop-workgroup-gap\n" +
+			"[2026-04-06T02:00:01.500Z] INFO [workgroup] Completed remote workgroup catalog refresh. reason=follow-up:controller-authenticated:0 force=true recordCount=2 requestedSummaries=true trace_id=trace-desktop-004 workgroup_id=desktop-workgroup-gap\n" +
+			"[2026-04-06T02:00:01.700Z] INFO [workgroup] Remote workgroup catalog updated. summaryCount=2 trace_id=trace-desktop-004 workgroup_id=desktop-workgroup-gap\n" +
+			"[2026-04-06T02:00:02.000Z] INFO [relay] Completed relay follow-up refresh. reason=controller-authenticated:0 requestedActiveProjectSync=true trace_id=trace-desktop-004 workgroup_id=desktop-workgroup-gap\n",
+		"app_version":     "1.1.117",
+		"device_model":    "Desktop Follow-Up Gap Host",
+		"source":          "desktop",
+		"connection_note": "host=snapshot-gap-host; platform=linux; agent=connected; controller=connected",
+	}, http.StatusOK, nil)
+
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatalf("cookie jar: %v", err)
+	}
+	adminClient := &http.Client{Jar: jar}
+	doJSON(t, adminClient, http.MethodPost, server.URL+"/admin/api/login", map[string]any{
+		"username": "admin",
+		"password": "Admin12345A",
+	}, http.StatusOK, nil)
+
+	var logs []uploadedMobileLog
+	doJSON(t, adminClient, http.MethodGet, server.URL+"/admin/api/mobile-logs?source=desktop", nil, http.StatusOK, &logs)
+	if len(logs) != 1 {
+		t.Fatalf("expected 1 uploaded desktop log, got %d", len(logs))
+	}
+
+	var analysis uploadedMobileLogAnalysis
+	doJSON(t, adminClient, http.MethodGet, server.URL+"/admin/api/mobile-logs/"+logs[0].ID+"/analysis", nil, http.StatusOK, &analysis)
+	if !hasSignalCode(analysis.Signals, "desktop_remote_snapshot_gaps") {
+		t.Fatalf("expected desktop remote snapshot gap signal, got %+v", analysis.Signals)
+	}
+	if !hasSignalCode(analysis.Signals, "desktop_resume_catchup_stalled") {
+		t.Fatalf("expected desktop resume catch-up stalled signal, got %+v", analysis.Signals)
+	}
+	if len(analysis.RecoveryPanels) != 3 {
+		t.Fatalf("expected desktop analysis to expose 3 controller recovery panels, got %+v", analysis.RecoveryPanels)
+	}
+	if !hasRecoveryPanelStatus(analysis.RecoveryPanels, "desktop_catalog_refresh", "healthy", "") {
+		t.Fatalf("expected catalog refresh panel to stay healthy, got %+v", analysis.RecoveryPanels)
+	}
+	if !hasRecoveryPanelStatus(analysis.RecoveryPanels, "desktop_active_snapshot", "warning", "desktop_remote_snapshot_gaps") {
+		t.Fatalf("expected active snapshot panel to warn about missing active sync completion, got %+v", analysis.RecoveryPanels)
+	}
+
+	var overview uploadedMobileLogOverview
+	doJSON(t, adminClient, http.MethodGet, server.URL+"/admin/api/mobile-logs/overview?source=desktop", nil, http.StatusOK, &overview)
+	if len(overview.TopSignals) == 0 || overview.TopSignals[0].Code != "desktop_resume_catchup_stalled" {
+		t.Fatalf("expected overview to prioritize stalled desktop catch-up, got %+v", overview.TopSignals)
+	}
+	if !hasConnectionHotspot(overview.ConnectionSummary.Hotspots, "connected", "connected", "snapshot-gap-host", "linux", 1, 1, 0, 1, "desktop_resume_catchup_stalled", "trace-desktop-004", "desktop-workgroup-gap", "", "") {
+		t.Fatalf("expected hotspot to surface missing active sync follow-up, got %+v", overview.ConnectionSummary.Hotspots)
+	}
+}
+
 func hasSignalCode(signals []struct {
 	Code  string `json:"code"`
 	Count int    `json:"count"`

@@ -1305,6 +1305,8 @@ func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string, 
 	desktopProjectCatalogUpdatedCount := 0
 	desktopActiveProjectSyncRequestedCount := 0
 	desktopActiveProjectSyncExamples := make([]string, 0, 3)
+	desktopFollowUpRefreshExpectedActiveSyncCount := 0
+	desktopFollowUpRefreshExpectedActiveSyncExamples := make([]string, 0, 3)
 	desktopRemoteSessionSnapshotCount := 0
 	desktopRemoteSessionSnapshotExamples := make([]string, 0, 3)
 	desktopWorkgroupCatalogRefreshCount := 0
@@ -1641,6 +1643,12 @@ func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string, 
 				desktopActiveProjectSyncExamples = append(desktopActiveProjectSyncExamples, line)
 			}
 		}
+		if strings.Contains(lowerLine, "completed relay follow-up refresh") && strings.Contains(lowerLine, "requestedactiveprojectsync=true") {
+			desktopFollowUpRefreshExpectedActiveSyncCount++
+			if len(desktopFollowUpRefreshExpectedActiveSyncExamples) < 3 {
+				desktopFollowUpRefreshExpectedActiveSyncExamples = append(desktopFollowUpRefreshExpectedActiveSyncExamples, line)
+			}
+		}
 		if strings.Contains(lowerLine, "remote session snapshot updated") {
 			desktopRemoteSessionSnapshotCount++
 			if len(desktopRemoteSessionSnapshotExamples) < 3 {
@@ -1800,28 +1808,31 @@ func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string, 
 		})
 	}
 
-	if desktopActiveProjectSyncRequestedCount > 0 && desktopRemoteSessionSnapshotCount < desktopActiveProjectSyncRequestedCount {
-		examples := desktopActiveProjectSyncExamples
+	desktopExpectedActiveProjectSyncCount := maxInt(desktopActiveProjectSyncRequestedCount, desktopFollowUpRefreshExpectedActiveSyncCount)
+	desktopExpectedActiveProjectSyncExamples := mergeExampleLists(4, desktopFollowUpRefreshExpectedActiveSyncExamples, desktopActiveProjectSyncExamples)
+
+	if desktopExpectedActiveProjectSyncCount > 0 && desktopRemoteSessionSnapshotCount < desktopExpectedActiveProjectSyncCount {
+		examples := desktopExpectedActiveProjectSyncExamples
 		if len(examples) == 0 {
 			examples = desktopRemoteSessionSnapshotExamples
 		}
 		signals = append(signals, mobileLogSignal{
 			Code:           "desktop_remote_snapshot_gaps",
-			Title:          "Desktop active remote project sync did not settle into a snapshot",
-			Count:          maxInt(1, desktopActiveProjectSyncRequestedCount-desktopRemoteSessionSnapshotCount),
-			Recommendation: "Compare the active remote project sync request with later remote session snapshot updates. If the desktop requests an active project sync but no snapshot lands, the controller relay recovered only up to catalog refresh and never rebuilt the active conversation state.",
-			Examples:       examples,
+			Title:          "Desktop active remote project sync chain did not settle",
+			Count:          maxInt(1, desktopExpectedActiveProjectSyncCount-desktopRemoteSessionSnapshotCount),
+			Recommendation: "Compare follow-up refresh completion, active remote project sync requests, and later remote session snapshot updates. If follow-up refresh says an active sync should run but the request or snapshot never lands, the desktop recovered transport without rebuilding the visible conversation state.",
+			Examples:       mergeExampleLists(4, examples, desktopRemoteSessionSnapshotExamples),
 		})
 	}
 
 	if desktopFollowUpRefreshCount > 0 &&
-		(desktopAuthRecoveryFailureCount > 0 || desktopCatalogRefreshFailureCount > 0 || desktopActiveProjectSyncRequestedCount > desktopRemoteSessionSnapshotCount) {
+		(desktopAuthRecoveryFailureCount > 0 || desktopCatalogRefreshFailureCount > 0 || desktopExpectedActiveProjectSyncCount > desktopRemoteSessionSnapshotCount) {
 		signals = append(signals, mobileLogSignal{
 			Code:           "desktop_resume_catchup_stalled",
 			Title:          "Desktop reconnect recovered transport but not active state",
-			Count:          desktopAuthRecoveryFailureCount + desktopCatalogRefreshFailureCount + maxInt(1, desktopActiveProjectSyncRequestedCount-desktopRemoteSessionSnapshotCount),
-			Recommendation: "Inspect desktop resume as a full chain: auth recovery, follow-up catalog refresh, active project sync request, and remote snapshot update. If transport came back but the snapshot never landed, operators usually see a desktop that looks connected yet still needs a manual reconnect or relaunch before chats catch up.",
-			Examples:       mergeExampleLists(4, desktopAuthRecoveryFailureExamples, desktopCatalogRefreshExamples, desktopActiveProjectSyncExamples, desktopRemoteSessionSnapshotExamples),
+			Count:          desktopAuthRecoveryFailureCount + desktopCatalogRefreshFailureCount + maxInt(1, desktopExpectedActiveProjectSyncCount-desktopRemoteSessionSnapshotCount),
+			Recommendation: "Inspect desktop resume as a full chain: auth recovery, follow-up catalog refresh, active project sync expectation/request, and remote snapshot update. If follow-up refresh completed but the active sync request or snapshot never landed, operators usually see a desktop that looks connected yet still needs a manual reconnect or relaunch before chats catch up.",
+			Examples:       mergeExampleLists(4, desktopAuthRecoveryFailureExamples, desktopCatalogRefreshExamples, desktopExpectedActiveProjectSyncExamples, desktopRemoteSessionSnapshotExamples),
 		})
 	}
 
@@ -1963,8 +1974,9 @@ func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string, 
 				desktopCatalogRefreshFailureCount,
 				desktopCatalogRefreshExamples,
 				desktopActiveProjectSyncRequestedCount,
+				desktopExpectedActiveProjectSyncCount,
+				desktopExpectedActiveProjectSyncExamples,
 				desktopRemoteSessionSnapshotCount,
-				desktopActiveProjectSyncExamples,
 				desktopRemoteSessionSnapshotExamples,
 			)...,
 		),
@@ -2177,8 +2189,9 @@ func buildDesktopRecoveryPanels(
 	catalogRefreshFailureCount int,
 	catalogExamples []string,
 	activeProjectSyncRequestedCount int,
+	activeProjectSyncExpectedCount int,
+	activeProjectSyncExpectationExamples []string,
 	remoteSessionSnapshotCount int,
-	activeProjectSyncExamples []string,
 	remoteSessionSnapshotExamples []string,
 ) []mobileLogRecoveryPanel {
 	if authFailureCount == 0 &&
@@ -2188,6 +2201,7 @@ func buildDesktopRecoveryPanels(
 		workgroupCatalogUpdatedCount == 0 &&
 		catalogRefreshFailureCount == 0 &&
 		activeProjectSyncRequestedCount == 0 &&
+		activeProjectSyncExpectedCount == 0 &&
 		remoteSessionSnapshotCount == 0 {
 		return nil
 	}
@@ -2224,14 +2238,14 @@ func buildDesktopRecoveryPanels(
 	snapshotSummary := "No active project sync request was observed in this log window."
 	snapshotSignalCode := ""
 	snapshotExamplesOut := []string(nil)
-	if activeProjectSyncRequestedCount > 0 || remoteSessionSnapshotCount > 0 {
+	if activeProjectSyncExpectedCount > 0 || activeProjectSyncRequestedCount > 0 || remoteSessionSnapshotCount > 0 {
 		snapshotStatus = "healthy"
-		snapshotSummary = fmt.Sprintf("Active sync requests=%d, remote snapshots=%d.", activeProjectSyncRequestedCount, remoteSessionSnapshotCount)
-		if activeProjectSyncRequestedCount > remoteSessionSnapshotCount {
+		snapshotSummary = fmt.Sprintf("Expected active syncs=%d, observed requests=%d, remote snapshots=%d.", activeProjectSyncExpectedCount, activeProjectSyncRequestedCount, remoteSessionSnapshotCount)
+		if activeProjectSyncExpectedCount > remoteSessionSnapshotCount {
 			snapshotStatus = "warning"
 			snapshotSignalCode = "desktop_remote_snapshot_gaps"
-			snapshotExamplesOut = mergeExampleLists(4, activeProjectSyncExamples, remoteSessionSnapshotExamples)
-			snapshotSummary = fmt.Sprintf("Requested %d active project sync(s), but only %d remote snapshot update(s) landed.", activeProjectSyncRequestedCount, remoteSessionSnapshotCount)
+			snapshotExamplesOut = mergeExampleLists(4, activeProjectSyncExpectationExamples, remoteSessionSnapshotExamples)
+			snapshotSummary = fmt.Sprintf("Expected %d active sync follow-up(s), but only %d remote snapshot update(s) landed.", activeProjectSyncExpectedCount, remoteSessionSnapshotCount)
 		}
 	}
 
