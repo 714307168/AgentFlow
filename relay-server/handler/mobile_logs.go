@@ -169,21 +169,43 @@ type mobileLogOverviewPresenceItem struct {
 	LastUploaded string `json:"last_uploaded,omitempty"`
 }
 
+type mobileLogOverviewConnectionItem struct {
+	Value    string `json:"value"`
+	LogCount int    `json:"log_count"`
+}
+
+type mobileLogOverviewConnectionAccumulator struct {
+	Value    string
+	LogCount int
+}
+
+type mobileLogOverviewConnectionSummary struct {
+	LogsWithConnectionNotes int                               `json:"logs_with_connection_notes"`
+	StructuredLogs          int                               `json:"structured_logs"`
+	FreeformLogs            int                               `json:"freeform_logs"`
+	AgentStates             []mobileLogOverviewConnectionItem `json:"agent_states,omitempty"`
+	ControllerStates        []mobileLogOverviewConnectionItem `json:"controller_states,omitempty"`
+	Hosts                   []mobileLogOverviewConnectionItem `json:"hosts,omitempty"`
+	Platforms               []mobileLogOverviewConnectionItem `json:"platforms,omitempty"`
+	FreeformNotes           []mobileLogOverviewConnectionItem `json:"freeform_notes,omitempty"`
+}
+
 type mobileLogOverviewResponse struct {
-	Summary           string                           `json:"summary"`
-	LogCount          int                              `json:"log_count"`
-	LogsWithSignals   int                              `json:"logs_with_signals"`
-	ErrorCount        int                              `json:"error_count"`
-	WarningCount      int                              `json:"warning_count"`
-	PresenceSummary   mobileLogOverviewPresenceSummary `json:"presence_summary"`
-	LivePresence      []mobileLogOverviewPresenceItem  `json:"live_presence,omitempty"`
-	SourceCounts      []mobileLogOverviewSource        `json:"source_counts"`
-	TopSignals        []mobileLogOverviewSignal        `json:"top_signals"`
-	RecoveryPanels    []mobileLogOverviewRecoveryPanel `json:"recovery_panels,omitempty"`
-	TopTraceIDs       []mobileLogOverviewBucket        `json:"top_trace_ids,omitempty"`
-	TopWorkgroupIDs   []mobileLogOverviewBucket        `json:"top_workgroup_ids,omitempty"`
-	TopTaskIDs        []mobileLogOverviewBucket        `json:"top_task_ids,omitempty"`
-	TopDispatchRunIDs []mobileLogOverviewBucket        `json:"top_dispatch_run_ids,omitempty"`
+	Summary           string                             `json:"summary"`
+	LogCount          int                                `json:"log_count"`
+	LogsWithSignals   int                                `json:"logs_with_signals"`
+	ErrorCount        int                                `json:"error_count"`
+	WarningCount      int                                `json:"warning_count"`
+	PresenceSummary   mobileLogOverviewPresenceSummary   `json:"presence_summary"`
+	LivePresence      []mobileLogOverviewPresenceItem    `json:"live_presence,omitempty"`
+	ConnectionSummary mobileLogOverviewConnectionSummary `json:"connection_summary"`
+	SourceCounts      []mobileLogOverviewSource          `json:"source_counts"`
+	TopSignals        []mobileLogOverviewSignal          `json:"top_signals"`
+	RecoveryPanels    []mobileLogOverviewRecoveryPanel   `json:"recovery_panels,omitempty"`
+	TopTraceIDs       []mobileLogOverviewBucket          `json:"top_trace_ids,omitempty"`
+	TopWorkgroupIDs   []mobileLogOverviewBucket          `json:"top_workgroup_ids,omitempty"`
+	TopTaskIDs        []mobileLogOverviewBucket          `json:"top_task_ids,omitempty"`
+	TopDispatchRunIDs []mobileLogOverviewBucket          `json:"top_dispatch_run_ids,omitempty"`
 }
 
 type mobileLogFilter struct {
@@ -609,6 +631,11 @@ func buildMobileLogOverview(records []storedMobileLogMetadata, storageDir string
 	signalTotals := make(map[string]*signalAccumulator)
 	recoveryPanelTotals := make(map[string]*recoveryPanelAccumulator)
 	presenceTotals := make(map[string]*presenceAccumulator)
+	agentStateTotals := make(map[string]*mobileLogOverviewConnectionAccumulator)
+	controllerStateTotals := make(map[string]*mobileLogOverviewConnectionAccumulator)
+	hostTotals := make(map[string]*mobileLogOverviewConnectionAccumulator)
+	platformTotals := make(map[string]*mobileLogOverviewConnectionAccumulator)
+	freeformConnectionTotals := make(map[string]*mobileLogOverviewConnectionAccumulator)
 	traceBuckets := make(map[string]*mobileLogOverviewBucket)
 	workgroupBuckets := make(map[string]*mobileLogOverviewBucket)
 	taskBuckets := make(map[string]*mobileLogOverviewBucket)
@@ -616,6 +643,7 @@ func buildMobileLogOverview(records []storedMobileLogMetadata, storageDir string
 	logsWithSignals := 0
 	errorCount := 0
 	warningCount := 0
+	connectionSummary := mobileLogOverviewConnectionSummary{}
 
 	updateBucket := func(target map[string]*mobileLogOverviewBucket, values []string, analysis mobileLogAnalysisResponse) {
 		signalWeight := 0
@@ -663,6 +691,24 @@ func buildMobileLogOverview(records []storedMobileLogMetadata, storageDir string
 		if online {
 			item.Online = true
 		}
+	}
+	updateConnectionCount := func(target map[string]*mobileLogOverviewConnectionAccumulator, value string, canonicalize bool) {
+		cleanValue := strings.TrimSpace(value)
+		if cleanValue == "" {
+			return
+		}
+		key := cleanValue
+		displayValue := cleanValue
+		if canonicalize {
+			key = strings.ToLower(cleanValue)
+			displayValue = key
+		}
+		item := target[key]
+		if item == nil {
+			item = &mobileLogOverviewConnectionAccumulator{Value: displayValue}
+			target[key] = item
+		}
+		item.LogCount++
 	}
 
 	for _, record := range records {
@@ -721,6 +767,21 @@ func buildMobileLogOverview(records []storedMobileLogMetadata, storageDir string
 		}
 		updatePresence("agent", record, record.AgentID, presence.Agents[strings.TrimSpace(record.AgentID)])
 		updatePresence("device", record, record.DeviceID, presence.Devices[strings.TrimSpace(record.DeviceID)])
+		if strings.TrimSpace(record.ConnectionNote) != "" {
+			connectionSummary.LogsWithConnectionNotes++
+			fields, freeform := parseConnectionNote(record.ConnectionNote)
+			if len(fields) > 0 {
+				connectionSummary.StructuredLogs++
+				updateConnectionCount(agentStateTotals, fields["agent"], true)
+				updateConnectionCount(controllerStateTotals, fields["controller"], true)
+				updateConnectionCount(hostTotals, fields["host"], false)
+				updateConnectionCount(platformTotals, fields["platform"], true)
+			}
+			if freeform != "" {
+				connectionSummary.FreeformLogs++
+				updateConnectionCount(freeformConnectionTotals, freeform, false)
+			}
+		}
 
 		updateBucket(traceBuckets, traceIDs, analysis)
 		updateBucket(workgroupBuckets, workgroupIDs, analysis)
@@ -853,6 +914,11 @@ func buildMobileLogOverview(records []storedMobileLogMetadata, storageDir string
 		}
 		return presenceItems[i].LogCount > presenceItems[j].LogCount
 	})
+	connectionSummary.AgentStates = buildConnectionOverviewItems(agentStateTotals, 4)
+	connectionSummary.ControllerStates = buildConnectionOverviewItems(controllerStateTotals, 4)
+	connectionSummary.Hosts = buildConnectionOverviewItems(hostTotals, 4)
+	connectionSummary.Platforms = buildConnectionOverviewItems(platformTotals, 4)
+	connectionSummary.FreeformNotes = buildConnectionOverviewItems(freeformConnectionTotals, 4)
 
 	summary := fmt.Sprintf("Current filter matched %d logs.", len(records))
 	switch {
@@ -872,6 +938,7 @@ func buildMobileLogOverview(records []storedMobileLogMetadata, storageDir string
 		WarningCount:      warningCount,
 		PresenceSummary:   presenceSummary,
 		LivePresence:      presenceItems,
+		ConnectionSummary: connectionSummary,
 		SourceCounts:      sourceItems,
 		TopSignals:        topSignals,
 		RecoveryPanels:    recoveryPanels,
@@ -880,6 +947,59 @@ func buildMobileLogOverview(records []storedMobileLogMetadata, storageDir string
 		TopTaskIDs:        limitOverviewBuckets(taskBuckets, 6),
 		TopDispatchRunIDs: limitOverviewBuckets(dispatchRunBuckets, 6),
 	}
+}
+
+func parseConnectionNote(note string) (map[string]string, string) {
+	cleanNote := strings.TrimSpace(note)
+	if cleanNote == "" {
+		return nil, ""
+	}
+	fields := make(map[string]string)
+	freeformParts := make([]string, 0, 2)
+	for _, rawPart := range strings.Split(cleanNote, ";") {
+		part := strings.TrimSpace(rawPart)
+		if part == "" {
+			continue
+		}
+		separator := strings.Index(part, "=")
+		if separator <= 0 || separator >= len(part)-1 {
+			freeformParts = append(freeformParts, part)
+			continue
+		}
+		key := strings.ToLower(strings.TrimSpace(part[:separator]))
+		value := strings.TrimSpace(part[separator+1:])
+		if key == "" || value == "" {
+			freeformParts = append(freeformParts, part)
+			continue
+		}
+		if _, exists := fields[key]; !exists {
+			fields[key] = value
+		}
+	}
+	if len(fields) == 0 && len(freeformParts) == 0 {
+		freeformParts = append(freeformParts, cleanNote)
+	}
+	return fields, strings.Join(freeformParts, "; ")
+}
+
+func buildConnectionOverviewItems(values map[string]*mobileLogOverviewConnectionAccumulator, limit int) []mobileLogOverviewConnectionItem {
+	items := make([]mobileLogOverviewConnectionItem, 0, len(values))
+	for _, value := range values {
+		items = append(items, mobileLogOverviewConnectionItem{
+			Value:    value.Value,
+			LogCount: value.LogCount,
+		})
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].LogCount == items[j].LogCount {
+			return items[i].Value < items[j].Value
+		}
+		return items[i].LogCount > items[j].LogCount
+	})
+	if limit > 0 && len(items) > limit {
+		return items[:limit]
+	}
+	return items
 }
 
 func sanitizeOriginalName(name string) string {
@@ -2792,6 +2912,34 @@ function renderOverviewPresence(summary, items) {
     '</div>';
 }
 
+function renderConnectionItemChips(title, items) {
+  if (!Array.isArray(items) || items.length === 0) {
+    return '';
+  }
+  return '<div style="margin-top:8px;"><div class="meta-label">' + esc(title) + '</div><div class="chips">' + items.map((item) =>
+    '<span class="chip">' + esc(item.value || '-') + ' ? ' + esc(item.log_count || 0) + '</span>'
+  ).join('') + '</div></div>';
+}
+
+function renderOverviewConnection(summary) {
+  const connectionSummary = summary || {};
+  if (!(connectionSummary.logs_with_connection_notes > 0)) {
+    return '';
+  }
+  return '<div style="margin-top:10px;"><strong>Connection Snapshots</strong>' +
+    '<div class="chips">' +
+      '<span class="chip">notes ' + esc(connectionSummary.logs_with_connection_notes || 0) + '</span>' +
+      '<span class="chip">structured ' + esc(connectionSummary.structured_logs || 0) + '</span>' +
+      '<span class="chip">freeform ' + esc(connectionSummary.freeform_logs || 0) + '</span>' +
+    '</div>' +
+    renderConnectionItemChips("Agent State", connectionSummary.agent_states || []) +
+    renderConnectionItemChips("Controller State", connectionSummary.controller_states || []) +
+    renderConnectionItemChips("Hosts", connectionSummary.hosts || []) +
+    renderConnectionItemChips("Platforms", connectionSummary.platforms || []) +
+    renderConnectionItemChips("Notes", connectionSummary.freeform_notes || []) +
+    '</div>';
+}
+
 function renderOverviewBucketSection(title, items, kind) {
   if (!Array.isArray(items) || items.length === 0) {
     return '<div style="margin-top:10px;"><strong>' + esc(title) + '</strong><div class="muted" style="margin-top:6px;">-</div></div>';
@@ -2858,6 +3006,7 @@ function renderMeta() {
     '<div><div class="meta-label">Device</div><div class="mono">' + esc(meta.device_id) + '</div></div>' +
     '<div><div class="meta-label">Agent</div><div class="mono">' + esc(meta.agent_id || "-") + '</div></div>' +
     '<div><div class="meta-label">Source</div><div>' + esc((meta.source || "-").toUpperCase()) + '</div></div>' +
+    '<div><div class="meta-label">Connection Note</div><div>' + esc(meta.connection_note || "-") + '</div></div>' +
     '<div><div class="meta-label">Trace IDs</div><div>' + renderChips((state.analysis && state.analysis.trace_ids) || [], "trace_id") + '</div></div>' +
     '<div><div class="meta-label">Workgroup IDs</div><div>' + renderChips((state.analysis && state.analysis.workgroup_ids) || [], "workgroup_id") + '</div></div>' +
     '<div><div class="meta-label">Task IDs</div><div>' + renderChips((state.analysis && state.analysis.task_ids) || [], "task_id") + '</div></div>' +
@@ -2916,6 +3065,7 @@ function renderOverview() {
       '<div class="stat-card"><div class="meta-label">Warnings</div><strong>' + esc(state.overview.warning_count || 0) + '</strong></div>' +
     '</div>' +
     renderOverviewPresence(state.overview.presence_summary || {}, state.overview.live_presence || []) +
+    renderOverviewConnection(state.overview.connection_summary || {}) +
     renderOverviewRecoveryPanels(state.overview.recovery_panels || []) +
     '<div style="margin-top:10px;"><strong>Sources</strong>' +
       (sourceCounts.length === 0 ? '<div class="muted" style="margin-top:6px;">-</div>' : '<div class="chips">' + sourceCounts.map((item) =>

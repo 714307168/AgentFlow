@@ -36,12 +36,13 @@ type uploadedMobileLog struct {
 
 type uploadedMobileLogDetail struct {
 	Metadata struct {
-		ID           string   `json:"id"`
-		DeviceID     string   `json:"device_id"`
-		OriginalName string   `json:"original_name"`
-		Source       string   `json:"source"`
-		TraceIDs     []string `json:"trace_ids"`
-		WorkgroupIDs []string `json:"workgroup_ids"`
+		ID             string   `json:"id"`
+		DeviceID       string   `json:"device_id"`
+		OriginalName   string   `json:"original_name"`
+		Source         string   `json:"source"`
+		ConnectionNote string   `json:"connection_note"`
+		TraceIDs       []string `json:"trace_ids"`
+		WorkgroupIDs   []string `json:"workgroup_ids"`
 	} `json:"metadata"`
 	Content string `json:"content"`
 }
@@ -77,6 +78,31 @@ type uploadedMobileLogOverview struct {
 		MatchingDevices int `json:"matching_devices"`
 		OnlineDevices   int `json:"online_devices"`
 	} `json:"presence_summary"`
+	ConnectionSummary struct {
+		LogsWithConnectionNotes int `json:"logs_with_connection_notes"`
+		StructuredLogs          int `json:"structured_logs"`
+		FreeformLogs            int `json:"freeform_logs"`
+		AgentStates             []struct {
+			Value    string `json:"value"`
+			LogCount int    `json:"log_count"`
+		} `json:"agent_states"`
+		ControllerStates []struct {
+			Value    string `json:"value"`
+			LogCount int    `json:"log_count"`
+		} `json:"controller_states"`
+		Hosts []struct {
+			Value    string `json:"value"`
+			LogCount int    `json:"log_count"`
+		} `json:"hosts"`
+		Platforms []struct {
+			Value    string `json:"value"`
+			LogCount int    `json:"log_count"`
+		} `json:"platforms"`
+		FreeformNotes []struct {
+			Value    string `json:"value"`
+			LogCount int    `json:"log_count"`
+		} `json:"freeform_notes"`
+	} `json:"connection_summary"`
 	LivePresence []struct {
 		Kind         string `json:"kind"`
 		ID           string `json:"id"`
@@ -203,12 +229,13 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 	}
 	doJSONWithBearer(t, http.DefaultClient, http.MethodPost, server.URL+"/api/device/logs", deviceLogin.Token, uploadBody, http.StatusOK, nil)
 	doJSONWithBearer(t, http.DefaultClient, http.MethodPost, server.URL+"/api/device/logs", deviceLogin.Token, map[string]any{
-		"file_name":    "app-20260402.log",
-		"content":      "[2026-04-02 10:00:00.000] WARN [RelayConnectionService] recovering stalled websocket trace_id=trace-beta-002 workgroup_id=other-workgroup\n",
-		"app_version":  "1.1.92",
-		"app_build":    76,
-		"device_model": "Pixel Test",
-		"source":       "android",
+		"file_name":       "app-20260402.log",
+		"content":         "[2026-04-02 10:00:00.000] WARN [RelayConnectionService] recovering stalled websocket trace_id=trace-beta-002 workgroup_id=other-workgroup\n",
+		"app_version":     "1.1.92",
+		"app_build":       76,
+		"device_model":    "Pixel Test",
+		"source":          "android",
+		"connection_note": "Uploaded from Android settings diagnostics.",
 	}, http.StatusOK, nil)
 	doJSONWithBearer(t, http.DefaultClient, http.MethodPost, server.URL+"/api/device/logs", deviceLogin.Token, map[string]any{
 		"file_name":       "desktop-20260402.log",
@@ -242,7 +269,7 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 	if resp.StatusCode != http.StatusOK || !strings.Contains(string(pageBody), "Device Logs") {
 		t.Fatalf("unexpected mobile logs page response: status=%d", resp.StatusCode)
 	}
-	if !strings.Contains(string(pageBody), "log_id") || !strings.Contains(string(pageBody), "Copy Link") || !strings.Contains(string(pageBody), "history.replaceState") || !strings.Contains(string(pageBody), "Filter Text") || !strings.Contains(string(pageBody), "Filter Signal") || !strings.Contains(string(pageBody), "/admin/api/mobile-logs/overview") || !strings.Contains(string(pageBody), "Current Filter Overview") || !strings.Contains(string(pageBody), "Recovery Panels") || !strings.Contains(string(pageBody), "Recovery Health") || !strings.Contains(string(pageBody), "Live Presence") || !strings.Contains(string(pageBody), "signal_code") {
+	if !strings.Contains(string(pageBody), "log_id") || !strings.Contains(string(pageBody), "Copy Link") || !strings.Contains(string(pageBody), "history.replaceState") || !strings.Contains(string(pageBody), "Filter Text") || !strings.Contains(string(pageBody), "Filter Signal") || !strings.Contains(string(pageBody), "/admin/api/mobile-logs/overview") || !strings.Contains(string(pageBody), "Current Filter Overview") || !strings.Contains(string(pageBody), "Recovery Panels") || !strings.Contains(string(pageBody), "Recovery Health") || !strings.Contains(string(pageBody), "Live Presence") || !strings.Contains(string(pageBody), "Connection Snapshots") || !strings.Contains(string(pageBody), "Connection Note") || !strings.Contains(string(pageBody), "signal_code") {
 		t.Fatalf("expected admin page to expose deep-link jump helpers, got %s", string(pageBody))
 	}
 
@@ -292,6 +319,9 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 	}
 	if detail.Metadata.Source != "android" {
 		t.Fatalf("expected detail metadata to expose source, got %+v", detail.Metadata)
+	}
+	if detail.Metadata.ConnectionNote != "" {
+		t.Fatalf("expected alpha detail to keep empty connection note, got %+v", detail.Metadata)
 	}
 
 	var analysis uploadedMobileLogAnalysis
@@ -364,6 +394,21 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 	}
 	if overview.PresenceSummary.MatchingAgents != 1 || overview.PresenceSummary.OnlineAgents != 1 || overview.PresenceSummary.MatchingDevices != 1 || overview.PresenceSummary.OnlineDevices != 1 {
 		t.Fatalf("expected overview to expose live presence summary, got %+v", overview.PresenceSummary)
+	}
+	if overview.ConnectionSummary.LogsWithConnectionNotes != 2 || overview.ConnectionSummary.StructuredLogs != 1 || overview.ConnectionSummary.FreeformLogs != 1 {
+		t.Fatalf("expected overview to expose connection note summary, got %+v", overview.ConnectionSummary)
+	}
+	if !hasOverviewConnectionItem(overview.ConnectionSummary.AgentStates, "connected", 1) {
+		t.Fatalf("expected overview to expose agent connection state, got %+v", overview.ConnectionSummary.AgentStates)
+	}
+	if !hasOverviewConnectionItem(overview.ConnectionSummary.ControllerStates, "connected", 1) {
+		t.Fatalf("expected overview to expose controller connection state, got %+v", overview.ConnectionSummary.ControllerStates)
+	}
+	if !hasOverviewConnectionItem(overview.ConnectionSummary.Hosts, "test-host", 1) {
+		t.Fatalf("expected overview to expose host connection snapshot, got %+v", overview.ConnectionSummary.Hosts)
+	}
+	if !hasOverviewConnectionItem(overview.ConnectionSummary.FreeformNotes, "Uploaded from Android settings diagnostics.", 1) {
+		t.Fatalf("expected overview to expose freeform connection note, got %+v", overview.ConnectionSummary.FreeformNotes)
 	}
 	if !hasOverviewPresence(overview.LivePresence, "agent", "agent-a", true, 3) {
 		t.Fatalf("expected overview to expose live agent presence, got %+v", overview.LivePresence)
@@ -491,6 +536,12 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 	if desktopOverview.LogCount != 1 {
 		t.Fatalf("expected desktop overview to narrow to one log, got %+v", desktopOverview)
 	}
+	if desktopOverview.ConnectionSummary.LogsWithConnectionNotes != 1 || desktopOverview.ConnectionSummary.StructuredLogs != 1 || desktopOverview.ConnectionSummary.FreeformLogs != 0 {
+		t.Fatalf("expected desktop overview to expose structured connection snapshot, got %+v", desktopOverview.ConnectionSummary)
+	}
+	if !hasOverviewConnectionItem(desktopOverview.ConnectionSummary.ControllerStates, "connected", 1) {
+		t.Fatalf("expected desktop overview to expose controller state, got %+v", desktopOverview.ConnectionSummary.ControllerStates)
+	}
 	if len(desktopOverview.TopSignals) == 0 || desktopOverview.TopSignals[0].Code != "desktop_resume_catchup_stalled" {
 		t.Fatalf("expected desktop overview to prioritize resume catch-up stalled signal, got %+v", desktopOverview.TopSignals)
 	}
@@ -511,6 +562,9 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 	doJSON(t, adminClient, http.MethodGet, server.URL+"/admin/api/mobile-logs/overview?source=android", nil, http.StatusOK, &androidOverview)
 	if androidOverview.LogCount != 2 {
 		t.Fatalf("expected android overview to narrow to two logs, got %+v", androidOverview)
+	}
+	if androidOverview.ConnectionSummary.LogsWithConnectionNotes != 1 || androidOverview.ConnectionSummary.StructuredLogs != 0 || androidOverview.ConnectionSummary.FreeformLogs != 1 {
+		t.Fatalf("expected android overview to expose freeform connection note, got %+v", androidOverview.ConnectionSummary)
 	}
 	if !hasOverviewRecoveryPanel(androidOverview.RecoveryPanels, "android_project_sync", "warning", 1, 0, "post_auth_sync_incomplete") {
 		t.Fatalf("expected android overview to expose warning project sync panel, got %+v", androidOverview.RecoveryPanels)
@@ -593,6 +647,18 @@ func hasOverviewRecoveryPanel(items []struct {
 			return false
 		}
 		return true
+	}
+	return false
+}
+
+func hasOverviewConnectionItem(items []struct {
+	Value    string `json:"value"`
+	LogCount int    `json:"log_count"`
+}, value string, logCount int) bool {
+	for _, item := range items {
+		if item.Value == value && item.LogCount == logCount {
+			return true
+		}
 	}
 	return false
 }
