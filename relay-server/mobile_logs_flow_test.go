@@ -102,6 +102,18 @@ type uploadedMobileLogOverview struct {
 			Value    string `json:"value"`
 			LogCount int    `json:"log_count"`
 		} `json:"freeform_notes"`
+		Hotspots []struct {
+			AgentState      string `json:"agent_state"`
+			ControllerState string `json:"controller_state"`
+			Host            string `json:"host"`
+			Platform        string `json:"platform"`
+			LogCount        int    `json:"log_count"`
+			LogsWithSignals int    `json:"logs_with_signals"`
+			CriticalCount   int    `json:"critical_count"`
+			WarningCount    int    `json:"warning_count"`
+			TopSignalCode   string `json:"top_signal_code"`
+			TopSignalTitle  string `json:"top_signal_title"`
+		} `json:"hotspots"`
 	} `json:"connection_summary"`
 	LivePresence []struct {
 		Kind         string `json:"kind"`
@@ -269,7 +281,7 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 	if resp.StatusCode != http.StatusOK || !strings.Contains(string(pageBody), "Device Logs") {
 		t.Fatalf("unexpected mobile logs page response: status=%d", resp.StatusCode)
 	}
-	if !strings.Contains(string(pageBody), "log_id") || !strings.Contains(string(pageBody), "Copy Link") || !strings.Contains(string(pageBody), "history.replaceState") || !strings.Contains(string(pageBody), "Filter Text") || !strings.Contains(string(pageBody), "Filter Signal") || !strings.Contains(string(pageBody), "/admin/api/mobile-logs/overview") || !strings.Contains(string(pageBody), "Current Filter Overview") || !strings.Contains(string(pageBody), "Recovery Panels") || !strings.Contains(string(pageBody), "Recovery Health") || !strings.Contains(string(pageBody), "Live Presence") || !strings.Contains(string(pageBody), "Connection Snapshots") || !strings.Contains(string(pageBody), "Connection Note") || !strings.Contains(string(pageBody), "signal_code") {
+	if !strings.Contains(string(pageBody), "log_id") || !strings.Contains(string(pageBody), "Copy Link") || !strings.Contains(string(pageBody), "history.replaceState") || !strings.Contains(string(pageBody), "Filter Text") || !strings.Contains(string(pageBody), "Filter Signal") || !strings.Contains(string(pageBody), "/admin/api/mobile-logs/overview") || !strings.Contains(string(pageBody), "Current Filter Overview") || !strings.Contains(string(pageBody), "Recovery Panels") || !strings.Contains(string(pageBody), "Recovery Health") || !strings.Contains(string(pageBody), "Live Presence") || !strings.Contains(string(pageBody), "Connection Snapshots") || !strings.Contains(string(pageBody), "Connection Hotspots") || !strings.Contains(string(pageBody), "Connection Note") || !strings.Contains(string(pageBody), "signal_code") {
 		t.Fatalf("expected admin page to expose deep-link jump helpers, got %s", string(pageBody))
 	}
 
@@ -412,6 +424,9 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 	}
 	if !hasOverviewConnectionItem(overview.ConnectionSummary.FreeformNotes, "Uploaded from Android settings diagnostics.", 1) {
 		t.Fatalf("expected overview to expose freeform connection note, got %+v", overview.ConnectionSummary.FreeformNotes)
+	}
+	if !hasConnectionHotspot(overview.ConnectionSummary.Hotspots, "connected", "connected", "test-host", "linux", 1, 1, 1, 1, "desktop_resume_catchup_stalled") {
+		t.Fatalf("expected overview to expose connection hotspot, got %+v", overview.ConnectionSummary.Hotspots)
 	}
 	if !hasOverviewPresence(overview.LivePresence, "agent", "agent-a", true, 3) {
 		t.Fatalf("expected overview to expose live agent presence, got %+v", overview.LivePresence)
@@ -569,6 +584,9 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 	if !hasOverviewConnectionItem(desktopOverview.ConnectionSummary.ControllerStates, "connected", 1) {
 		t.Fatalf("expected desktop overview to expose controller state, got %+v", desktopOverview.ConnectionSummary.ControllerStates)
 	}
+	if !hasConnectionHotspot(desktopOverview.ConnectionSummary.Hotspots, "connected", "connected", "test-host", "linux", 1, 1, 1, 1, "desktop_resume_catchup_stalled") {
+		t.Fatalf("expected desktop overview to expose hotspot correlation, got %+v", desktopOverview.ConnectionSummary.Hotspots)
+	}
 	if len(desktopOverview.TopSignals) == 0 || desktopOverview.TopSignals[0].Code != "desktop_resume_catchup_stalled" {
 		t.Fatalf("expected desktop overview to prioritize resume catch-up stalled signal, got %+v", desktopOverview.TopSignals)
 	}
@@ -592,6 +610,9 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 	}
 	if androidOverview.ConnectionSummary.LogsWithConnectionNotes != 1 || androidOverview.ConnectionSummary.StructuredLogs != 0 || androidOverview.ConnectionSummary.FreeformLogs != 1 {
 		t.Fatalf("expected android overview to expose freeform connection note, got %+v", androidOverview.ConnectionSummary)
+	}
+	if len(androidOverview.ConnectionSummary.Hotspots) != 0 {
+		t.Fatalf("expected android overview to skip structured connection hotspots, got %+v", androidOverview.ConnectionSummary.Hotspots)
 	}
 	if !hasOverviewRecoveryPanel(androidOverview.RecoveryPanels, "android_project_sync", "warning", 1, 0, "post_auth_sync_incomplete") {
 		t.Fatalf("expected android overview to expose warning project sync panel, got %+v", androidOverview.RecoveryPanels)
@@ -684,6 +705,34 @@ func hasOverviewConnectionItem(items []struct {
 }, value string, logCount int) bool {
 	for _, item := range items {
 		if item.Value == value && item.LogCount == logCount {
+			return true
+		}
+	}
+	return false
+}
+
+func hasConnectionHotspot(items []struct {
+	AgentState      string `json:"agent_state"`
+	ControllerState string `json:"controller_state"`
+	Host            string `json:"host"`
+	Platform        string `json:"platform"`
+	LogCount        int    `json:"log_count"`
+	LogsWithSignals int    `json:"logs_with_signals"`
+	CriticalCount   int    `json:"critical_count"`
+	WarningCount    int    `json:"warning_count"`
+	TopSignalCode   string `json:"top_signal_code"`
+	TopSignalTitle  string `json:"top_signal_title"`
+}, agentState, controllerState, host, platform string, logCount, logsWithSignals, criticalCount, warningCount int, topSignalCode string) bool {
+	for _, item := range items {
+		if item.AgentState == agentState &&
+			item.ControllerState == controllerState &&
+			item.Host == host &&
+			item.Platform == platform &&
+			item.LogCount == logCount &&
+			item.LogsWithSignals == logsWithSignals &&
+			item.CriticalCount == criticalCount &&
+			item.WarningCount == warningCount &&
+			item.TopSignalCode == topSignalCode {
 			return true
 		}
 	}

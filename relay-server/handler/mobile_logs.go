@@ -179,15 +179,42 @@ type mobileLogOverviewConnectionAccumulator struct {
 	LogCount int
 }
 
+type connectionHotspotAccumulator struct {
+	AgentState      string
+	ControllerState string
+	Host            string
+	Platform        string
+	LogCount        int
+	LogsWithSignals int
+	CriticalCount   int
+	WarningCount    int
+	SignalTotals    map[string]int
+	SignalTitles    map[string]string
+}
+
 type mobileLogOverviewConnectionSummary struct {
-	LogsWithConnectionNotes int                               `json:"logs_with_connection_notes"`
-	StructuredLogs          int                               `json:"structured_logs"`
-	FreeformLogs            int                               `json:"freeform_logs"`
-	AgentStates             []mobileLogOverviewConnectionItem `json:"agent_states,omitempty"`
-	ControllerStates        []mobileLogOverviewConnectionItem `json:"controller_states,omitempty"`
-	Hosts                   []mobileLogOverviewConnectionItem `json:"hosts,omitempty"`
-	Platforms               []mobileLogOverviewConnectionItem `json:"platforms,omitempty"`
-	FreeformNotes           []mobileLogOverviewConnectionItem `json:"freeform_notes,omitempty"`
+	LogsWithConnectionNotes int                                  `json:"logs_with_connection_notes"`
+	StructuredLogs          int                                  `json:"structured_logs"`
+	FreeformLogs            int                                  `json:"freeform_logs"`
+	AgentStates             []mobileLogOverviewConnectionItem    `json:"agent_states,omitempty"`
+	ControllerStates        []mobileLogOverviewConnectionItem    `json:"controller_states,omitempty"`
+	Hosts                   []mobileLogOverviewConnectionItem    `json:"hosts,omitempty"`
+	Platforms               []mobileLogOverviewConnectionItem    `json:"platforms,omitempty"`
+	FreeformNotes           []mobileLogOverviewConnectionItem    `json:"freeform_notes,omitempty"`
+	Hotspots                []mobileLogOverviewConnectionHotspot `json:"hotspots,omitempty"`
+}
+
+type mobileLogOverviewConnectionHotspot struct {
+	AgentState      string `json:"agent_state,omitempty"`
+	ControllerState string `json:"controller_state,omitempty"`
+	Host            string `json:"host,omitempty"`
+	Platform        string `json:"platform,omitempty"`
+	LogCount        int    `json:"log_count"`
+	LogsWithSignals int    `json:"logs_with_signals"`
+	CriticalCount   int    `json:"critical_count"`
+	WarningCount    int    `json:"warning_count"`
+	TopSignalCode   string `json:"top_signal_code,omitempty"`
+	TopSignalTitle  string `json:"top_signal_title,omitempty"`
 }
 
 type mobileLogOverviewResponse struct {
@@ -738,6 +765,60 @@ func buildMobileLogOverview(records []storedMobileLogMetadata, storageDir string
 		}
 		item.LogCount++
 	}
+	connectionHotspotTotals := make(map[string]*connectionHotspotAccumulator)
+	updateConnectionHotspot := func(fields map[string]string, analysis mobileLogAnalysisResponse) {
+		if len(fields) == 0 {
+			return
+		}
+		agent := strings.ToLower(strings.TrimSpace(fields["agent"]))
+		controller := strings.ToLower(strings.TrimSpace(fields["controller"]))
+		host := strings.TrimSpace(fields["host"])
+		platform := strings.ToLower(strings.TrimSpace(fields["platform"]))
+		key := strings.Join([]string{
+			"agent=" + agent,
+			"controller=" + controller,
+			"host=" + strings.ToLower(host),
+			"platform=" + platform,
+		}, "|")
+		item := connectionHotspotTotals[key]
+		if item == nil {
+			item = &connectionHotspotAccumulator{
+				AgentState:      agent,
+				ControllerState: controller,
+				Host:            host,
+				Platform:        platform,
+				SignalTotals:    make(map[string]int),
+				SignalTitles:    make(map[string]string),
+			}
+			connectionHotspotTotals[key] = item
+		}
+		item.LogCount++
+		if len(analysis.Signals) > 0 {
+			item.LogsWithSignals++
+		}
+		hasCritical := false
+		hasWarning := false
+		for _, panel := range analysis.RecoveryPanels {
+			switch strings.ToLower(strings.TrimSpace(panel.Status)) {
+			case "critical":
+				hasCritical = true
+			case "warning":
+				hasWarning = true
+			}
+		}
+		if hasCritical {
+			item.CriticalCount++
+		}
+		if hasWarning {
+			item.WarningCount++
+		}
+		for _, signal := range analysis.Signals {
+			item.SignalTotals[signal.Code] += signal.Count
+			if item.SignalTitles[signal.Code] == "" && strings.TrimSpace(signal.Title) != "" {
+				item.SignalTitles[signal.Code] = signal.Title
+			}
+		}
+	}
 
 	for _, record := range records {
 		content, err := readStoredMobileLogContent(storageDir, record)
@@ -804,6 +885,7 @@ func buildMobileLogOverview(records []storedMobileLogMetadata, storageDir string
 				updateConnectionCount(controllerStateTotals, fields["controller"], true)
 				updateConnectionCount(hostTotals, fields["host"], false)
 				updateConnectionCount(platformTotals, fields["platform"], true)
+				updateConnectionHotspot(fields, analysis)
 			}
 			if freeform != "" {
 				connectionSummary.FreeformLogs++
@@ -947,6 +1029,7 @@ func buildMobileLogOverview(records []storedMobileLogMetadata, storageDir string
 	connectionSummary.Hosts = buildConnectionOverviewItems(hostTotals, 4)
 	connectionSummary.Platforms = buildConnectionOverviewItems(platformTotals, 4)
 	connectionSummary.FreeformNotes = buildConnectionOverviewItems(freeformConnectionTotals, 4)
+	connectionSummary.Hotspots = buildConnectionHotspots(connectionHotspotTotals, 6)
 
 	summary := fmt.Sprintf("Current filter matched %d logs.", len(records))
 	switch {
@@ -1023,6 +1106,62 @@ func buildConnectionOverviewItems(values map[string]*mobileLogOverviewConnection
 			return items[i].Value < items[j].Value
 		}
 		return items[i].LogCount > items[j].LogCount
+	})
+	if limit > 0 && len(items) > limit {
+		return items[:limit]
+	}
+	return items
+}
+
+func buildConnectionHotspots(values map[string]*connectionHotspotAccumulator, limit int) []mobileLogOverviewConnectionHotspot {
+	items := make([]mobileLogOverviewConnectionHotspot, 0, len(values))
+	for _, value := range values {
+		topSignalCode := ""
+		topSignalTitle := ""
+		topSignalWeight := 0
+		for code, weight := range value.SignalTotals {
+			title := strings.TrimSpace(value.SignalTitles[code])
+			if topSignalCode == "" {
+				topSignalCode = code
+				topSignalTitle = title
+				topSignalWeight = weight
+				continue
+			}
+			currentPriority := signalPriority(code)
+			bestPriority := signalPriority(topSignalCode)
+			if currentPriority > bestPriority || (currentPriority == bestPriority && (weight > topSignalWeight || (weight == topSignalWeight && code < topSignalCode))) {
+				topSignalCode = code
+				topSignalTitle = title
+				topSignalWeight = weight
+			}
+		}
+		items = append(items, mobileLogOverviewConnectionHotspot{
+			AgentState:      value.AgentState,
+			ControllerState: value.ControllerState,
+			Host:            value.Host,
+			Platform:        value.Platform,
+			LogCount:        value.LogCount,
+			LogsWithSignals: value.LogsWithSignals,
+			CriticalCount:   value.CriticalCount,
+			WarningCount:    value.WarningCount,
+			TopSignalCode:   topSignalCode,
+			TopSignalTitle:  topSignalTitle,
+		})
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].CriticalCount != items[j].CriticalCount {
+			return items[i].CriticalCount > items[j].CriticalCount
+		}
+		if items[i].WarningCount != items[j].WarningCount {
+			return items[i].WarningCount > items[j].WarningCount
+		}
+		if items[i].LogsWithSignals != items[j].LogsWithSignals {
+			return items[i].LogsWithSignals > items[j].LogsWithSignals
+		}
+		if items[i].LogCount != items[j].LogCount {
+			return items[i].LogCount > items[j].LogCount
+		}
+		return items[i].Host < items[j].Host
 	})
 	if limit > 0 && len(items) > limit {
 		return items[:limit]
@@ -3002,6 +3141,39 @@ function renderOverviewConnection(summary) {
     '</div>';
 }
 
+function renderConnectionHotspots(items) {
+  if (!Array.isArray(items) || items.length === 0) {
+    return '';
+  }
+  return '<div style="margin-top:10px;"><strong>Connection Hotspots</strong><div class="overview-list">' + items.map((item) => {
+    const chips = [];
+    if (item.agent_state) {
+      chips.push('<button type="button" class="chip actionable" data-filter-kind="agent_state" data-filter-value="' + esc(item.agent_state) + '">agent=' + esc(item.agent_state) + '</button>');
+    }
+    if (item.controller_state) {
+      chips.push('<button type="button" class="chip actionable" data-filter-kind="controller_state" data-filter-value="' + esc(item.controller_state) + '">controller=' + esc(item.controller_state) + '</button>');
+    }
+    if (item.host) {
+      chips.push('<button type="button" class="chip actionable" data-filter-kind="host" data-filter-value="' + esc(item.host) + '">host=' + esc(item.host) + '</button>');
+    }
+    if (item.platform) {
+      chips.push('<button type="button" class="chip actionable" data-filter-kind="platform" data-filter-value="' + esc(item.platform) + '">platform=' + esc(item.platform) + '</button>');
+    }
+    const right = [
+      '<span class="chip">logs ' + esc(item.log_count || 0) + '</span>',
+      '<span class="chip">signals ' + esc(item.logs_with_signals || 0) + '</span>',
+      '<span class="chip">critical ' + esc(item.critical_count || 0) + '</span>',
+      '<span class="chip">warning ' + esc(item.warning_count || 0) + '</span>',
+      renderSignalChip('Top Signal', { code: item.top_signal_code || '' }),
+    ].filter(Boolean);
+    return '<div class="overview-row">' +
+      '<div><div class="chips">' + chips.join('') + '</div>' +
+      '<div class="meta" style="margin-top:4px;">' + esc(item.top_signal_title || 'No dominant signal yet') + '</div></div>' +
+      '<div class="chips" style="justify-content:flex-end;">' + right.join('') + '</div>' +
+      '</div>';
+  }).join('') + '</div></div>';
+}
+
 function renderOverviewBucketSection(title, items, kind) {
   if (!Array.isArray(items) || items.length === 0) {
     return '<div style="margin-top:10px;"><strong>' + esc(title) + '</strong><div class="muted" style="margin-top:6px;">-</div></div>';
@@ -3128,6 +3300,7 @@ function renderOverview() {
     '</div>' +
     renderOverviewPresence(state.overview.presence_summary || {}, state.overview.live_presence || []) +
     renderOverviewConnection(state.overview.connection_summary || {}) +
+    renderConnectionHotspots((state.overview.connection_summary && state.overview.connection_summary.hotspots) || []) +
     renderOverviewRecoveryPanels(state.overview.recovery_panels || []) +
     '<div style="margin-top:10px;"><strong>Sources</strong>' +
       (sourceCounts.length === 0 ? '<div class="muted" style="margin-top:6px;">-</div>' : '<div class="chips">' + sourceCounts.map((item) =>
