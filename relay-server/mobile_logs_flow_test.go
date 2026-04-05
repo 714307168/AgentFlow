@@ -277,6 +277,9 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 	if !hasSignalCode(analysis.Signals, "post_auth_sync_incomplete") {
 		t.Fatalf("expected post-auth sync incomplete signal, got %+v", analysis.Signals)
 	}
+	if !hasSignalCode(analysis.Signals, "android_manual_reconnect_likely") {
+		t.Fatalf("expected android manual reconnect signal, got %+v", analysis.Signals)
+	}
 
 	var overview uploadedMobileLogOverview
 	doJSON(t, adminClient, http.MethodGet, server.URL+"/admin/api/mobile-logs/overview", nil, http.StatusOK, &overview)
@@ -289,8 +292,8 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 	if !hasOverviewSourceCount(overview.SourceCounts, "android", 2) || !hasOverviewSourceCount(overview.SourceCounts, "desktop", 1) {
 		t.Fatalf("unexpected overview source counts: %+v", overview.SourceCounts)
 	}
-	if !hasOverviewSignalCode(overview.TopSignals, "websocket_failures") {
-		t.Fatalf("expected overview to aggregate websocket failures, got %+v", overview.TopSignals)
+	if len(overview.TopSignals) == 0 || overview.TopSignals[0].Code != "android_manual_reconnect_likely" {
+		t.Fatalf("expected overview to prioritize android manual reconnect signal, got %+v", overview.TopSignals)
 	}
 	if !hasOverviewBucketValue(overview.TopTraceIDs, "trace-alpha-001") {
 		t.Fatalf("expected overview to expose top trace ids, got %+v", overview.TopTraceIDs)
@@ -327,7 +330,7 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 	}
 
 	var signalFiltered []uploadedMobileLog
-	doJSON(t, adminClient, http.MethodGet, server.URL+"/admin/api/mobile-logs?signal_code=auth_recovery_failures", nil, http.StatusOK, &signalFiltered)
+	doJSON(t, adminClient, http.MethodGet, server.URL+"/admin/api/mobile-logs?signal_code=android_manual_reconnect_likely", nil, http.StatusOK, &signalFiltered)
 	if len(signalFiltered) != 1 || signalFiltered[0].ID != alphaLog.ID {
 		t.Fatalf("expected signal filter to return alpha log, got %+v", signalFiltered)
 	}
@@ -382,6 +385,9 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 	if !hasSignalCode(desktopAnalysis.Signals, "desktop_remote_snapshot_gaps") {
 		t.Fatalf("expected desktop remote snapshot gap signal, got %+v", desktopAnalysis.Signals)
 	}
+	if !hasSignalCode(desktopAnalysis.Signals, "desktop_resume_catchup_stalled") {
+		t.Fatalf("expected desktop resume catch-up stalled signal, got %+v", desktopAnalysis.Signals)
+	}
 	if len(desktopAnalysis.TaskIDs) == 0 || len(desktopAnalysis.DispatchRunIDs) == 0 {
 		t.Fatalf("expected desktop analysis to expose task and dispatch run ids, got %+v", desktopAnalysis)
 	}
@@ -391,8 +397,8 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 	if desktopOverview.LogCount != 1 {
 		t.Fatalf("expected desktop overview to narrow to one log, got %+v", desktopOverview)
 	}
-	if !hasOverviewSignalCode(desktopOverview.TopSignals, "desktop_dispatch_breaks") {
-		t.Fatalf("expected desktop overview to aggregate desktop dispatch breaks, got %+v", desktopOverview.TopSignals)
+	if len(desktopOverview.TopSignals) == 0 || desktopOverview.TopSignals[0].Code != "desktop_resume_catchup_stalled" {
+		t.Fatalf("expected desktop overview to prioritize resume catch-up stalled signal, got %+v", desktopOverview.TopSignals)
 	}
 	if !hasOverviewBucketValue(desktopOverview.TopTaskIDs, "wg-task-1") {
 		t.Fatalf("expected desktop overview to expose top task ids, got %+v", desktopOverview.TopTaskIDs)

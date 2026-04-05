@@ -625,6 +625,11 @@ func buildMobileLogOverview(records []storedMobileLogMetadata, storageDir string
 		})
 	}
 	sort.Slice(topSignals, func(i, j int) bool {
+		leftPriority := signalPriority(topSignals[i].Code)
+		rightPriority := signalPriority(topSignals[j].Code)
+		if leftPriority != rightPriority {
+			return leftPriority > rightPriority
+		}
 		if topSignals[i].LogCount == topSignals[j].LogCount {
 			if topSignals[i].TotalCount == topSignals[j].TotalCount {
 				return topSignals[i].Title < topSignals[j].Title
@@ -1205,6 +1210,18 @@ func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string, 
 		})
 	}
 
+	if foregroundRecoveryPassCount > 0 && postAuthSyncStartCount > 0 &&
+		(foregroundRecoveryFailureCount > 0 || foregroundProjectSyncSkippedCount > 0) &&
+		(postAuthSyncFailureCount > 0 || postAuthProjectSyncRequestedCount < postAuthSyncStartCount || postAuthWorkgroupRefreshCount < postAuthSyncStartCount) {
+		signals = append(signals, mobileLogSignal{
+			Code:           "android_manual_reconnect_likely",
+			Title:          "Android resume likely still needed a manual reconnect",
+			Count:          foregroundRecoveryFailureCount + foregroundProjectSyncSkippedCount + postAuthSyncFailureCount + maxInt(1, postAuthSyncStartCount-postAuthProjectSyncRequestedCount),
+			Recommendation: "Treat foreground recovery, auth resume, and catch-up sync as one broken chain. When resume verification fails, project sync is skipped, and post-auth sync still does not settle, the app usually recovered transport only partially and still needed a manual reconnect to refresh messages.",
+			Examples:       mergeExampleLists(4, foregroundRecoveryExamples, postAuthSyncExamples, authRecoveryFailureExamples),
+		})
+	}
+
 	if desktopAuthRecoveryFailureCount > 0 {
 		signals = append(signals, mobileLogSignal{
 			Code:           "desktop_auth_recovery_failures",
@@ -1236,6 +1253,17 @@ func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string, 
 			Count:          maxInt(1, desktopActiveProjectSyncRequestedCount-desktopRemoteSessionSnapshotCount),
 			Recommendation: "Compare the active remote project sync request with later remote session snapshot updates. If the desktop requests an active project sync but no snapshot lands, the controller relay recovered only up to catalog refresh and never rebuilt the active conversation state.",
 			Examples:       examples,
+		})
+	}
+
+	if desktopFollowUpRefreshCount > 0 &&
+		(desktopAuthRecoveryFailureCount > 0 || desktopCatalogRefreshFailureCount > 0 || desktopActiveProjectSyncRequestedCount > desktopRemoteSessionSnapshotCount) {
+		signals = append(signals, mobileLogSignal{
+			Code:           "desktop_resume_catchup_stalled",
+			Title:          "Desktop reconnect recovered transport but not active state",
+			Count:          desktopAuthRecoveryFailureCount + desktopCatalogRefreshFailureCount + maxInt(1, desktopActiveProjectSyncRequestedCount-desktopRemoteSessionSnapshotCount),
+			Recommendation: "Inspect desktop resume as a full chain: auth recovery, follow-up catalog refresh, active project sync request, and remote snapshot update. If transport came back but the snapshot never landed, operators usually see a desktop that looks connected yet still needs a manual reconnect or relaunch before chats catch up.",
+			Examples:       mergeExampleLists(4, desktopAuthRecoveryFailureExamples, desktopCatalogRefreshExamples, desktopActiveProjectSyncExamples, desktopRemoteSessionSnapshotExamples),
 		})
 	}
 
@@ -1493,6 +1521,46 @@ func limitOverviewBuckets(values map[string]*mobileLogOverviewBucket, limit int)
 		return items[:limit]
 	}
 	return items
+}
+
+func mergeExampleLists(limit int, groups ...[]string) []string {
+	if limit <= 0 {
+		limit = 3
+	}
+	seen := make(map[string]struct{}, limit)
+	merged := make([]string, 0, limit)
+	for _, group := range groups {
+		for _, value := range group {
+			clean := strings.TrimSpace(value)
+			if clean == "" {
+				continue
+			}
+			if _, exists := seen[clean]; exists {
+				continue
+			}
+			seen[clean] = struct{}{}
+			merged = append(merged, clean)
+			if len(merged) >= limit {
+				return merged
+			}
+		}
+	}
+	return merged
+}
+
+func signalPriority(code string) int {
+	switch strings.TrimSpace(code) {
+	case "android_manual_reconnect_likely", "desktop_resume_catchup_stalled":
+		return 300
+	case "foreground_recovery_follow_up_gaps", "post_auth_sync_incomplete", "desktop_catalog_refresh_gaps", "desktop_remote_snapshot_gaps":
+		return 250
+	case "auth_recovery_failures", "desktop_auth_recovery_failures", "websocket_failures", "session_sync_failures":
+		return 200
+	case "project_sync_gap_recovery", "workgroup_sync_failures", "send_ack_retry_loops", "desktop_relay_recovery_loops", "desktop_dispatch_breaks":
+		return 160
+	default:
+		return 100
+	}
 }
 
 var (
