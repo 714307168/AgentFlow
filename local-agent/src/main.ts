@@ -3409,6 +3409,20 @@ async function handleDispatchWorkgroupTaskRequest(taskId: string) {
     ? "assigned"
     : "running";
   const prompt = buildWorkgroupDispatchPrompt(workgroup, serializedMember, task);
+  const buildTaskDispatchLogMeta = (
+    currentTask: WorkgroupTask,
+    extra: Record<string, unknown> = {},
+  ) => ({
+    taskId: currentTask.id,
+    workgroupId: currentTask.workgroupId,
+    assigneeMemberId: currentTask.assigneeMemberId ?? null,
+    dispatchProjectId: project.id,
+    dispatchRunId: currentTask.dispatchRunId ?? dispatchRunId,
+    status: currentTask.status,
+    projectKind: serializedMember.projectKind ?? null,
+    trigger: "manual_dispatch",
+    ...extra,
+  });
 
   if (serializedMember.projectKind === "remote") {
     const result = remoteSessionStore
@@ -3424,6 +3438,9 @@ async function handleDispatchWorkgroupTaskRequest(taskId: string) {
       });
       workgroupTaskScheduler.syncTasks("dispatch-workgroup-task-error");
       broadcastWorkgroupsChanged();
+      appLogger.warn("scheduler", "Scheduled workgroup task downstream execution failed.", buildTaskDispatchLogMeta(task, {
+        error: result.error || "Remote dispatch failed",
+      }));
       return result;
     }
 
@@ -3438,6 +3455,11 @@ async function handleDispatchWorkgroupTaskRequest(taskId: string) {
     });
     workgroupTaskScheduler.syncTasks("dispatch-workgroup-task-success");
     broadcastWorkgroupsChanged();
+    if (updatedTask) {
+      appLogger.info("scheduler", "Scheduled workgroup task dispatched.", buildTaskDispatchLogMeta(updatedTask, {
+        result: updatedTask.lastDispatchResult ?? null,
+      }));
+    }
     return {
       success: true,
       task: updatedTask,
@@ -3463,8 +3485,14 @@ async function handleDispatchWorkgroupTaskRequest(taskId: string) {
         status: "done",
         lastDispatchResult: "Completed by assigned member project.",
       });
+      const finishedTask = workgroupStore.getTaskById(task.id);
       workgroupTaskScheduler.syncTasks("dispatch-workgroup-task-done");
       broadcastWorkgroupsChanged();
+      if (finishedTask) {
+        appLogger.info("scheduler", "Scheduled workgroup task completed.", buildTaskDispatchLogMeta(finishedTask, {
+          result: finishedTask.lastDispatchResult ?? null,
+        }));
+      }
     },
     onError: (error) => {
       const latestTask = workgroupStore.getTaskById(task.id);
@@ -3475,8 +3503,14 @@ async function handleDispatchWorkgroupTaskRequest(taskId: string) {
         status: "error",
         lastDispatchResult: error || "Local dispatch failed",
       });
+      const failedTask = workgroupStore.getTaskById(task.id);
       workgroupTaskScheduler.syncTasks("dispatch-workgroup-task-local-error");
       broadcastWorkgroupsChanged();
+      if (failedTask) {
+        appLogger.warn("scheduler", "Scheduled workgroup task downstream execution failed.", buildTaskDispatchLogMeta(failedTask, {
+          error: error || "Local dispatch failed",
+        }));
+      }
     },
   });
 
@@ -3491,6 +3525,11 @@ async function handleDispatchWorkgroupTaskRequest(taskId: string) {
   });
   workgroupTaskScheduler.syncTasks("dispatch-workgroup-task-success");
   broadcastWorkgroupsChanged();
+  if (updatedTask) {
+    appLogger.info("scheduler", "Scheduled workgroup task dispatched.", buildTaskDispatchLogMeta(updatedTask, {
+      result: updatedTask.lastDispatchResult ?? null,
+    }));
+  }
   return {
     success: true,
     task: updatedTask,

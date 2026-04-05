@@ -20,13 +20,15 @@ type deviceLoginResponse struct {
 }
 
 type uploadedMobileLog struct {
-	ID           string   `json:"id"`
-	Username     string   `json:"username"`
-	DeviceID     string   `json:"device_id"`
-	OriginalName string   `json:"original_name"`
-	Source       string   `json:"source"`
-	TraceIDs     []string `json:"trace_ids"`
-	WorkgroupIDs []string `json:"workgroup_ids"`
+	ID             string   `json:"id"`
+	Username       string   `json:"username"`
+	DeviceID       string   `json:"device_id"`
+	OriginalName   string   `json:"original_name"`
+	Source         string   `json:"source"`
+	TraceIDs       []string `json:"trace_ids"`
+	WorkgroupIDs   []string `json:"workgroup_ids"`
+	TaskIDs        []string `json:"task_ids"`
+	DispatchRunIDs []string `json:"dispatch_run_ids"`
 }
 
 type uploadedMobileLogDetail struct {
@@ -42,11 +44,13 @@ type uploadedMobileLogDetail struct {
 }
 
 type uploadedMobileLogAnalysis struct {
-	Summary      string   `json:"summary"`
-	ErrorCount   int      `json:"error_count"`
-	TraceIDs     []string `json:"trace_ids"`
-	WorkgroupIDs []string `json:"workgroup_ids"`
-	Signals      []struct {
+	Summary        string   `json:"summary"`
+	ErrorCount     int      `json:"error_count"`
+	TraceIDs       []string `json:"trace_ids"`
+	WorkgroupIDs   []string `json:"workgroup_ids"`
+	TaskIDs        []string `json:"task_ids"`
+	DispatchRunIDs []string `json:"dispatch_run_ids"`
+	Signals        []struct {
 		Code  string `json:"code"`
 		Count int    `json:"count"`
 	} `json:"signals"`
@@ -134,7 +138,7 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 	}, http.StatusOK, nil)
 	doJSONWithBearer(t, http.DefaultClient, http.MethodPost, server.URL+"/api/device/logs", deviceLogin.Token, map[string]any{
 		"file_name":       "desktop-20260402.log",
-		"content":         "[2026-04-02T11:00:00.000Z] WARN [RelayClient] Reconnecting stalled socket during health-check; state=connecting staleForMs=91234 trace_id=trace-desktop-003 workgroup_id=desktop-workgroup\n[2026-04-02T11:00:01.000Z] INFO [RelayClient] Reconnecting in 1000ms...\n[2026-04-02T11:00:02.000Z] WARN [message-router] Project message run failed after acceptance. trace_id=trace-desktop-003 workgroup_id=desktop-workgroup\n[2026-04-02T11:00:03.000Z] ERROR [workgroup] Delivery failed: no member accepted this message. qa: Remote dispatch failed. trace_id=trace-desktop-003 workgroup_id=desktop-workgroup\n[2026-04-02T11:00:04.000Z] INFO [scheduler] Queued scheduled task. taskId=task-1 projectId=p-desktop runId=run-1 trigger=scheduled scheduleType=daily trace_id=trace-desktop-003 workgroup_id=desktop-workgroup\n[2026-04-02T11:00:05.000Z] INFO [scheduler] Scheduled task started running. taskId=task-1 projectId=p-desktop runId=run-1 trace_id=trace-desktop-003 workgroup_id=desktop-workgroup\n[2026-04-02T11:00:06.000Z] WARN [scheduler] Scheduled task failed. taskId=task-1 projectId=p-desktop trigger=scheduled error=relay timeout retryCount=1 maxRetries=3 retryRunAt=2026-04-02T11:05:06.000Z trace_id=trace-desktop-003 workgroup_id=desktop-workgroup\n[2026-04-02T11:00:07.000Z] INFO [scheduler] Queued scheduled workgroup task. taskId=wg-task-1 workgroupId=desktop-workgroup assigneeMemberId=member-1 trigger=scheduled scheduleType=daily trace_id=trace-desktop-003 workgroup_id=desktop-workgroup\n[2026-04-02T11:00:08.000Z] WARN [scheduler] Scheduled workgroup task failed. taskId=wg-task-1 workgroupId=desktop-workgroup assigneeMemberId=member-1 trigger=scheduled error=no eligible member trace_id=trace-desktop-003 workgroup_id=desktop-workgroup\n[2026-04-02T11:15:08.000Z] WARN [scheduler] Scheduled workgroup task failed. taskId=wg-task-1 workgroupId=desktop-workgroup assigneeMemberId=member-1 trigger=scheduled error=no eligible member trace_id=trace-desktop-003 workgroup_id=desktop-workgroup\n[2026-04-02T11:16:08.000Z] WARN [scheduler] Scheduled workgroup task failed. taskId=wg-task-2 workgroupId=desktop-workgroup assigneeMemberId=null trigger=scheduled error=Task has no assignee. trace_id=trace-desktop-003 workgroup_id=desktop-workgroup\n[2026-04-02T11:17:08.000Z] WARN [scheduler] Scheduled workgroup task failed. taskId=wg-task-3 workgroupId=desktop-workgroup assigneeMemberId=member-2 trigger=scheduled error=Assignee's remote project is offline. trace_id=trace-desktop-003 workgroup_id=desktop-workgroup\n[2026-04-02T11:18:08.000Z] WARN [scheduler] Scheduled workgroup task failed. taskId=wg-task-4 workgroupId=desktop-workgroup assigneeMemberId=member-3 trigger=scheduled error=Task is already dispatched. Reset or finish it before dispatching again. trace_id=trace-desktop-003 workgroup_id=desktop-workgroup\n[2026-04-02T11:19:08.000Z] WARN [scheduler] Scheduled workgroup task failed. taskId=wg-task-5 workgroupId=desktop-workgroup assigneeMemberId=member-4 trigger=scheduled error=Remote dispatch failed trace_id=trace-desktop-003 workgroup_id=desktop-workgroup\n",
+		"content":         "[2026-04-02T11:00:00.000Z] WARN [RelayClient] Reconnecting stalled socket during health-check; state=connecting staleForMs=91234 trace_id=trace-desktop-003 workgroup_id=desktop-workgroup\n[2026-04-02T11:00:01.000Z] INFO [RelayClient] Reconnecting in 1000ms...\n[2026-04-02T11:00:02.000Z] WARN [message-router] Project message run failed after acceptance. trace_id=trace-desktop-003 workgroup_id=desktop-workgroup\n[2026-04-02T11:00:03.000Z] ERROR [workgroup] Delivery failed: no member accepted this message. qa: Remote dispatch failed. trace_id=trace-desktop-003 workgroup_id=desktop-workgroup\n[2026-04-02T11:00:04.000Z] INFO [scheduler] Queued scheduled task. taskId=task-1 projectId=p-desktop runId=run-1 trigger=scheduled scheduleType=daily trace_id=trace-desktop-003 workgroup_id=desktop-workgroup\n[2026-04-02T11:00:05.000Z] INFO [scheduler] Scheduled task started running. taskId=task-1 projectId=p-desktop runId=run-1 trace_id=trace-desktop-003 workgroup_id=desktop-workgroup\n[2026-04-02T11:00:06.000Z] WARN [scheduler] Scheduled task failed. taskId=task-1 projectId=p-desktop trigger=scheduled error=relay timeout retryCount=1 maxRetries=3 retryRunAt=2026-04-02T11:05:06.000Z trace_id=trace-desktop-003 workgroup_id=desktop-workgroup\n[2026-04-02T11:00:07.000Z] INFO [scheduler] Queued scheduled workgroup task. taskId=wg-task-1 workgroupId=desktop-workgroup assigneeMemberId=member-1 trigger=scheduled scheduleType=daily trace_id=trace-desktop-003 workgroup_id=desktop-workgroup\n[2026-04-02T11:00:08.000Z] WARN [scheduler] Scheduled workgroup task failed. taskId=wg-task-1 workgroupId=desktop-workgroup assigneeMemberId=member-1 trigger=scheduled error=no eligible member trace_id=trace-desktop-003 workgroup_id=desktop-workgroup\n[2026-04-02T11:15:08.000Z] WARN [scheduler] Scheduled workgroup task failed. taskId=wg-task-1 workgroupId=desktop-workgroup assigneeMemberId=member-1 trigger=scheduled error=no eligible member trace_id=trace-desktop-003 workgroup_id=desktop-workgroup\n[2026-04-02T11:16:08.000Z] WARN [scheduler] Scheduled workgroup task failed. taskId=wg-task-2 workgroupId=desktop-workgroup assigneeMemberId=null trigger=scheduled error=Task has no assignee. trace_id=trace-desktop-003 workgroup_id=desktop-workgroup\n[2026-04-02T11:17:08.000Z] WARN [scheduler] Scheduled workgroup task failed. taskId=wg-task-3 workgroupId=desktop-workgroup assigneeMemberId=member-2 trigger=scheduled error=Assignee's remote project is offline. trace_id=trace-desktop-003 workgroup_id=desktop-workgroup\n[2026-04-02T11:18:08.000Z] WARN [scheduler] Scheduled workgroup task failed. taskId=wg-task-4 workgroupId=desktop-workgroup assigneeMemberId=member-3 trigger=scheduled error=Task is already dispatched. Reset or finish it before dispatching again. trace_id=trace-desktop-003 workgroup_id=desktop-workgroup\n[2026-04-02T11:19:08.000Z] WARN [scheduler] Scheduled workgroup task failed. taskId=wg-task-5 workgroupId=desktop-workgroup assigneeMemberId=member-4 trigger=scheduled error=Remote dispatch failed trace_id=trace-desktop-003 workgroup_id=desktop-workgroup\n[2026-04-02T11:20:08.000Z] INFO [scheduler] Queued scheduled workgroup task. taskId=wg-task-6 workgroupId=desktop-workgroup assigneeMemberId=member-6 trigger=scheduled scheduleType=daily trace_id=trace-desktop-003 workgroup_id=desktop-workgroup\n[2026-04-02T11:20:18.000Z] INFO [scheduler] Queued scheduled workgroup task. taskId=wg-task-6 workgroupId=desktop-workgroup assigneeMemberId=member-6 trigger=scheduled scheduleType=daily trace_id=trace-desktop-003 workgroup_id=desktop-workgroup\n[2026-04-02T11:21:08.000Z] INFO [scheduler] Scheduled workgroup task dispatched. taskId=wg-task-7 workgroupId=desktop-workgroup assigneeMemberId=member-7 dispatchProjectId=project-7 dispatchRunId=dispatch-run-7 status=running trigger=manual_dispatch result=Assigned local member project is executing the task. trace_id=trace-desktop-003 workgroup_id=desktop-workgroup\n[2026-04-02T11:22:08.000Z] INFO [scheduler] Scheduled workgroup task dispatched. taskId=wg-task-8 workgroupId=desktop-workgroup assigneeMemberId=member-8 dispatchProjectId=project-8 dispatchRunId=dispatch-run-8 status=running trigger=manual_dispatch result=Assigned local member project is executing the task. trace_id=trace-desktop-003 workgroup_id=desktop-workgroup\n[2026-04-02T11:23:08.000Z] INFO [scheduler] Scheduled workgroup task completed. taskId=wg-task-8 workgroupId=desktop-workgroup assigneeMemberId=member-8 dispatchProjectId=project-8 dispatchRunId=dispatch-run-8 status=done trigger=manual_dispatch result=Completed by assigned member project. trace_id=trace-desktop-003 workgroup_id=desktop-workgroup\n[2026-04-02T11:24:08.000Z] INFO [scheduler] Scheduled workgroup task dispatched. taskId=wg-task-9 workgroupId=desktop-workgroup assigneeMemberId=member-9 dispatchProjectId=project-9 dispatchRunId=dispatch-run-9 status=assigned trigger=manual_dispatch result=Waiting in the assigned remote member project queue. trace_id=trace-desktop-003 workgroup_id=desktop-workgroup\n[2026-04-02T11:25:08.000Z] WARN [scheduler] Scheduled workgroup task downstream execution failed. taskId=wg-task-9 workgroupId=desktop-workgroup assigneeMemberId=member-9 dispatchProjectId=project-9 dispatchRunId=dispatch-run-9 status=error trigger=manual_dispatch error=Remote dispatch failed trace_id=trace-desktop-003 workgroup_id=desktop-workgroup\n",
 		"app_version":     "1.1.102",
 		"device_model":    "Desktop Test Host",
 		"source":          "desktop",
@@ -194,6 +198,9 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 	if len(alphaLog.WorkgroupIDs) == 0 || alphaLog.WorkgroupIDs[0] != "fyzy-workgroup" {
 		t.Fatalf("expected alpha log to include extracted workgroup ids, got %+v", alphaLog)
 	}
+	if len(desktopLog.TaskIDs) == 0 || len(desktopLog.DispatchRunIDs) == 0 {
+		t.Fatalf("expected desktop log to expose extracted task and dispatch run ids, got %+v", desktopLog)
+	}
 
 	var detail uploadedMobileLogDetail
 	doJSON(t, adminClient, http.MethodGet, server.URL+"/admin/api/mobile-logs/"+alphaLog.ID, nil, http.StatusOK, &detail)
@@ -252,6 +259,18 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 		t.Fatalf("expected source filter to return desktop log, got %+v", sourceFiltered)
 	}
 
+	var taskFiltered []uploadedMobileLog
+	doJSON(t, adminClient, http.MethodGet, server.URL+"/admin/api/mobile-logs?task_id=wg-task-7", nil, http.StatusOK, &taskFiltered)
+	if len(taskFiltered) != 1 || taskFiltered[0].ID != desktopLog.ID {
+		t.Fatalf("expected task filter to return desktop log, got %+v", taskFiltered)
+	}
+
+	var runFiltered []uploadedMobileLog
+	doJSON(t, adminClient, http.MethodGet, server.URL+"/admin/api/mobile-logs?dispatch_run_id=dispatch-run-7", nil, http.StatusOK, &runFiltered)
+	if len(runFiltered) != 1 || runFiltered[0].ID != desktopLog.ID {
+		t.Fatalf("expected dispatch run filter to return desktop log, got %+v", runFiltered)
+	}
+
 	var desktopAnalysis uploadedMobileLogAnalysis
 	doJSON(t, adminClient, http.MethodGet, server.URL+"/admin/api/mobile-logs/"+desktopLog.ID+"/analysis", nil, http.StatusOK, &desktopAnalysis)
 	if !hasSignalCode(desktopAnalysis.Signals, "desktop_relay_recovery_loops") {
@@ -283,6 +302,15 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 	}
 	if !hasSignalCode(desktopAnalysis.Signals, "desktop_scheduled_workgroup_task_repeat_failures") {
 		t.Fatalf("expected desktop scheduled workgroup task repeat failure signal, got %+v", desktopAnalysis.Signals)
+	}
+	if !hasSignalCode(desktopAnalysis.Signals, "desktop_scheduled_workgroup_task_reentry") {
+		t.Fatalf("expected desktop scheduled workgroup task reentry signal, got %+v", desktopAnalysis.Signals)
+	}
+	if !hasSignalCode(desktopAnalysis.Signals, "desktop_scheduled_workgroup_task_stalled_after_dispatch") {
+		t.Fatalf("expected desktop scheduled workgroup task stalled-after-dispatch signal, got %+v", desktopAnalysis.Signals)
+	}
+	if len(desktopAnalysis.TaskIDs) == 0 || len(desktopAnalysis.DispatchRunIDs) == 0 {
+		t.Fatalf("expected desktop analysis to expose task and dispatch run ids, got %+v", desktopAnalysis)
 	}
 }
 

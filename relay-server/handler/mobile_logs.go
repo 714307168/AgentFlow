@@ -62,21 +62,23 @@ type storedMobileLogMetadata struct {
 }
 
 type adminMobileLogListItem struct {
-	ID           string   `json:"id"`
-	UserID       int      `json:"user_id"`
-	Username     string   `json:"username"`
-	DeviceID     string   `json:"device_id"`
-	AgentID      string   `json:"agent_id,omitempty"`
-	OriginalName string   `json:"original_name"`
-	SizeBytes    int64    `json:"size_bytes"`
-	AppVersion   string   `json:"app_version,omitempty"`
-	AppBuild     int      `json:"app_build,omitempty"`
-	DeviceModel  string   `json:"device_model,omitempty"`
-	ClientTime   string   `json:"client_time,omitempty"`
-	Source       string   `json:"source,omitempty"`
-	UploadedAt   string   `json:"uploaded_at"`
-	TraceIDs     []string `json:"trace_ids,omitempty"`
-	WorkgroupIDs []string `json:"workgroup_ids,omitempty"`
+	ID             string   `json:"id"`
+	UserID         int      `json:"user_id"`
+	Username       string   `json:"username"`
+	DeviceID       string   `json:"device_id"`
+	AgentID        string   `json:"agent_id,omitempty"`
+	OriginalName   string   `json:"original_name"`
+	SizeBytes      int64    `json:"size_bytes"`
+	AppVersion     string   `json:"app_version,omitempty"`
+	AppBuild       int      `json:"app_build,omitempty"`
+	DeviceModel    string   `json:"device_model,omitempty"`
+	ClientTime     string   `json:"client_time,omitempty"`
+	Source         string   `json:"source,omitempty"`
+	UploadedAt     string   `json:"uploaded_at"`
+	TraceIDs       []string `json:"trace_ids,omitempty"`
+	WorkgroupIDs   []string `json:"workgroup_ids,omitempty"`
+	TaskIDs        []string `json:"task_ids,omitempty"`
+	DispatchRunIDs []string `json:"dispatch_run_ids,omitempty"`
 }
 
 type adminMobileLogDetailResponse struct {
@@ -93,20 +95,24 @@ type mobileLogSignal struct {
 }
 
 type mobileLogAnalysisResponse struct {
-	Summary      string            `json:"summary"`
-	ErrorCount   int               `json:"error_count"`
-	WarningCount int               `json:"warning_count"`
-	Signals      []mobileLogSignal `json:"signals"`
-	RecentErrors []string          `json:"recent_errors"`
-	TraceIDs     []string          `json:"trace_ids,omitempty"`
-	WorkgroupIDs []string          `json:"workgroup_ids,omitempty"`
+	Summary        string            `json:"summary"`
+	ErrorCount     int               `json:"error_count"`
+	WarningCount   int               `json:"warning_count"`
+	Signals        []mobileLogSignal `json:"signals"`
+	RecentErrors   []string          `json:"recent_errors"`
+	TraceIDs       []string          `json:"trace_ids,omitempty"`
+	WorkgroupIDs   []string          `json:"workgroup_ids,omitempty"`
+	TaskIDs        []string          `json:"task_ids,omitempty"`
+	DispatchRunIDs []string          `json:"dispatch_run_ids,omitempty"`
 }
 
 type mobileLogFilter struct {
-	Query       string
-	Source      string
-	TraceID     string
-	WorkgroupID string
+	Query         string
+	Source        string
+	TraceID       string
+	WorkgroupID   string
+	TaskID        string
+	DispatchRunID string
 }
 
 func DeviceLogUploadHandler(cfg *config.Config, database *db.DB) http.HandlerFunc {
@@ -154,7 +160,7 @@ func DeviceLogUploadHandler(cfg *config.Config, database *db.DB) http.HandlerFun
 		req.TraceIDs = normalizeProvidedLogIDs(req.TraceIDs, 20)
 		req.WorkgroupIDs = normalizeProvidedLogIDs(req.WorkgroupIDs, 20)
 		if len(req.TraceIDs) == 0 || len(req.WorkgroupIDs) == 0 {
-			extractedTraceIDs, extractedWorkgroupIDs := extractTraceAndWorkgroupIDs(req.Content)
+			extractedTraceIDs, extractedWorkgroupIDs, _, _ := extractTraceAndWorkgroupIDs(req.Content)
 			if len(req.TraceIDs) == 0 {
 				req.TraceIDs = extractedTraceIDs
 			}
@@ -252,35 +258,39 @@ func AdminMobileLogsHandler(cfg *config.Config, database *db.DB) http.HandlerFun
 		}
 		records = filterMobileLogsForAdmin(records, session)
 		filter := mobileLogFilter{
-			Query:       strings.TrimSpace(r.URL.Query().Get("q")),
-			Source:      strings.TrimSpace(r.URL.Query().Get("source")),
-			TraceID:     strings.TrimSpace(r.URL.Query().Get("trace_id")),
-			WorkgroupID: strings.TrimSpace(r.URL.Query().Get("workgroup_id")),
+			Query:         strings.TrimSpace(r.URL.Query().Get("q")),
+			Source:        strings.TrimSpace(r.URL.Query().Get("source")),
+			TraceID:       strings.TrimSpace(r.URL.Query().Get("trace_id")),
+			WorkgroupID:   strings.TrimSpace(r.URL.Query().Get("workgroup_id")),
+			TaskID:        strings.TrimSpace(r.URL.Query().Get("task_id")),
+			DispatchRunID: strings.TrimSpace(r.URL.Query().Get("dispatch_run_id")),
 		}
-		if filter.Query != "" || filter.Source != "" || filter.TraceID != "" || filter.WorkgroupID != "" {
+		if filter.Query != "" || filter.Source != "" || filter.TraceID != "" || filter.WorkgroupID != "" || filter.TaskID != "" || filter.DispatchRunID != "" {
 			records = filterStoredMobileLogs(records, filepath.Join(cfg.DataDir, "mobile-logs"), filter)
 		}
 
 		if remainder == "" {
 			items := make([]adminMobileLogListItem, 0, len(records))
 			for _, record := range records {
-				traceIDs, workgroupIDs := resolveStoredMobileLogIDs(filepath.Join(cfg.DataDir, "mobile-logs"), record)
+				traceIDs, workgroupIDs, taskIDs, dispatchRunIDs := resolveStoredMobileLogIDs(filepath.Join(cfg.DataDir, "mobile-logs"), record)
 				items = append(items, adminMobileLogListItem{
-					ID:           record.ID,
-					UserID:       record.UserID,
-					Username:     record.Username,
-					DeviceID:     record.DeviceID,
-					AgentID:      record.AgentID,
-					OriginalName: record.OriginalName,
-					SizeBytes:    record.SizeBytes,
-					AppVersion:   record.AppVersion,
-					AppBuild:     record.AppBuild,
-					DeviceModel:  record.DeviceModel,
-					ClientTime:   record.ClientTime,
-					Source:       record.Source,
-					UploadedAt:   record.UploadedAt,
-					TraceIDs:     traceIDs,
-					WorkgroupIDs: workgroupIDs,
+					ID:             record.ID,
+					UserID:         record.UserID,
+					Username:       record.Username,
+					DeviceID:       record.DeviceID,
+					AgentID:        record.AgentID,
+					OriginalName:   record.OriginalName,
+					SizeBytes:      record.SizeBytes,
+					AppVersion:     record.AppVersion,
+					AppBuild:       record.AppBuild,
+					DeviceModel:    record.DeviceModel,
+					ClientTime:     record.ClientTime,
+					Source:         record.Source,
+					UploadedAt:     record.UploadedAt,
+					TraceIDs:       traceIDs,
+					WorkgroupIDs:   workgroupIDs,
+					TaskIDs:        taskIDs,
+					DispatchRunIDs: dispatchRunIDs,
 				})
 			}
 			w.Header().Set("Content-Type", "application/json")
@@ -295,9 +305,9 @@ func AdminMobileLogsHandler(cfg *config.Config, database *db.DB) http.HandlerFun
 				http.NotFound(w, r)
 				return
 			}
-			traceIDs, workgroupIDs := mergeStoredAndExtractedIDs(record, content)
+			traceIDs, workgroupIDs, taskIDs, dispatchRunIDs := mergeStoredAndExtractedIDs(record, content)
 			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(analyzeMobileLog(content, traceIDs, workgroupIDs))
+			_ = json.NewEncoder(w).Encode(analyzeMobileLog(content, traceIDs, workgroupIDs, taskIDs, dispatchRunIDs))
 			return
 		}
 
@@ -401,7 +411,7 @@ func readStoredMobileLogContent(storageDir string, record storedMobileLogMetadat
 }
 
 func filterStoredMobileLogs(records []storedMobileLogMetadata, storageDir string, filter mobileLogFilter) []storedMobileLogMetadata {
-	if filter.Query == "" && filter.Source == "" && filter.TraceID == "" && filter.WorkgroupID == "" {
+	if filter.Query == "" && filter.Source == "" && filter.TraceID == "" && filter.WorkgroupID == "" && filter.TaskID == "" && filter.DispatchRunID == "" {
 		return records
 	}
 
@@ -409,19 +419,21 @@ func filterStoredMobileLogs(records []storedMobileLogMetadata, storageDir string
 	source := strings.ToLower(strings.TrimSpace(filter.Source))
 	traceID := strings.ToLower(strings.TrimSpace(filter.TraceID))
 	workgroupID := strings.ToLower(strings.TrimSpace(filter.WorkgroupID))
+	taskID := strings.ToLower(strings.TrimSpace(filter.TaskID))
+	dispatchRunID := strings.ToLower(strings.TrimSpace(filter.DispatchRunID))
 	filtered := make([]storedMobileLogMetadata, 0, len(records))
 
 	for _, record := range records {
 		var content string
 		var err error
-		needsContent := query != "" || len(record.TraceIDs) == 0 || len(record.WorkgroupIDs) == 0
+		needsContent := query != "" || taskID != "" || dispatchRunID != "" || len(record.TraceIDs) == 0 || len(record.WorkgroupIDs) == 0
 		if needsContent {
 			content, err = readStoredMobileLogContent(storageDir, record)
 			if err != nil {
 				continue
 			}
 		}
-		traceIDs, workgroupIDs := mergeStoredAndExtractedIDs(record, content)
+		traceIDs, workgroupIDs, taskIDs, dispatchRunIDs := mergeStoredAndExtractedIDs(record, content)
 		if query != "" {
 			haystack := strings.ToLower(strings.Join([]string{
 				record.ID,
@@ -444,6 +456,12 @@ func filterStoredMobileLogs(records []storedMobileLogMetadata, storageDir string
 			continue
 		}
 		if workgroupID != "" && !containsNormalizedID(workgroupIDs, workgroupID) {
+			continue
+		}
+		if taskID != "" && !containsNormalizedID(taskIDs, taskID) {
+			continue
+		}
+		if dispatchRunID != "" && !containsNormalizedID(dispatchRunIDs, dispatchRunID) {
 			continue
 		}
 		filtered = append(filtered, record)
@@ -478,7 +496,7 @@ func randomID() (string, error) {
 	return hex.EncodeToString(buffer), nil
 }
 
-func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string) mobileLogAnalysisResponse {
+func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string, taskIDs []string, dispatchRunIDs []string) mobileLogAnalysisResponse {
 	lines := strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n")
 	errorCount := 0
 	warningCount := 0
@@ -500,6 +518,13 @@ func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string) 
 	workgroupSchedulerMemberUnavailableExamples := make([]string, 0, 3)
 	workgroupSchedulerDispatchFailureExamples := make([]string, 0, 3)
 	workgroupSchedulerFailuresByTaskID := map[string]int{}
+	workgroupSchedulerQueuedCountByTaskID := map[string]int{}
+	workgroupSchedulerStalledCount := 0
+	workgroupSchedulerQueuedExamples := make([]string, 0, 3)
+	workgroupSchedulerStalledExamples := make([]string, 0, 3)
+	workgroupSchedulerReentryCount := 0
+	workgroupSchedulerReentryExamples := make([]string, 0, 3)
+	workgroupSchedulerOpenDispatches := make(map[string]string)
 
 	type signalPattern struct {
 		code           string
@@ -673,6 +698,7 @@ func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string) 
 				}
 			}
 			if taskID := extractTaskID(line); taskID != "" {
+				delete(workgroupSchedulerOpenDispatches, taskID)
 				workgroupSchedulerFailuresByTaskID[taskID]++
 				if workgroupSchedulerFailuresByTaskID[taskID] > 1 {
 					workgroupSchedulerRepeatFailureCount++
@@ -680,6 +706,28 @@ func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string) 
 						workgroupSchedulerRepeatExamples = append(workgroupSchedulerRepeatExamples, line)
 					}
 				}
+			}
+		} else if strings.Contains(lowerLine, "queued scheduled workgroup task.") {
+			if taskID := extractTaskID(line); taskID != "" {
+				workgroupSchedulerQueuedCountByTaskID[taskID]++
+				if len(workgroupSchedulerQueuedExamples) < 3 {
+					workgroupSchedulerQueuedExamples = append(workgroupSchedulerQueuedExamples, line)
+				}
+				if workgroupSchedulerQueuedCountByTaskID[taskID] > 1 {
+					workgroupSchedulerReentryCount++
+					if len(workgroupSchedulerReentryExamples) < 3 {
+						workgroupSchedulerReentryExamples = append(workgroupSchedulerReentryExamples, line)
+					}
+				}
+			}
+		} else if strings.Contains(lowerLine, "scheduled workgroup task dispatched.") {
+			if taskID := extractTaskID(line); taskID != "" {
+				workgroupSchedulerOpenDispatches[taskID] = line
+			}
+		} else if strings.Contains(lowerLine, "scheduled workgroup task completed.") ||
+			strings.Contains(lowerLine, "scheduled workgroup task downstream execution failed.") {
+			if taskID := extractTaskID(line); taskID != "" {
+				delete(workgroupSchedulerOpenDispatches, taskID)
 			}
 		} else if strings.Contains(lowerLine, "scheduled task failed.") {
 			schedulerFailedCount++
@@ -821,6 +869,33 @@ func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string) 
 		})
 	}
 
+	for _, line := range workgroupSchedulerOpenDispatches {
+		workgroupSchedulerStalledCount++
+		if len(workgroupSchedulerStalledExamples) < 3 {
+			workgroupSchedulerStalledExamples = append(workgroupSchedulerStalledExamples, line)
+		}
+	}
+
+	if workgroupSchedulerStalledCount > 0 {
+		signals = append(signals, mobileLogSignal{
+			Code:           "desktop_scheduled_workgroup_task_stalled_after_dispatch",
+			Title:          "Desktop scheduled workgroup tasks stalled after dispatch",
+			Count:          workgroupSchedulerStalledCount,
+			Recommendation: "Inspect taskId and dispatchRunId after downstream acceptance. These tasks were dispatched but no matching completion or downstream failure event appeared in the same log window, which usually means the task is stuck in assigned/running state or the completion path stopped reporting.",
+			Examples:       workgroupSchedulerStalledExamples,
+		})
+	}
+
+	if workgroupSchedulerReentryCount > 0 {
+		signals = append(signals, mobileLogSignal{
+			Code:           "desktop_scheduled_workgroup_task_reentry",
+			Title:          "Desktop scheduled workgroup task reentry detected",
+			Count:          workgroupSchedulerReentryCount,
+			Recommendation: "Check whether the same taskId was queued again before the previous run fully settled. Reentry usually points to overlapping schedules, stale nextRunAt computation, or a task that never cleared its in-flight state cleanly.",
+			Examples:       workgroupSchedulerReentryExamples,
+		})
+	}
+
 	sort.Slice(signals, func(i, j int) bool {
 		return signals[i].Count > signals[j].Count
 	})
@@ -836,13 +911,15 @@ func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string) 
 	}
 
 	return mobileLogAnalysisResponse{
-		Summary:      summary,
-		ErrorCount:   errorCount,
-		WarningCount: warningCount,
-		Signals:      signals,
-		RecentErrors: recentErrors,
-		TraceIDs:     traceIDs,
-		WorkgroupIDs: workgroupIDs,
+		Summary:        summary,
+		ErrorCount:     errorCount,
+		WarningCount:   warningCount,
+		Signals:        signals,
+		RecentErrors:   recentErrors,
+		TraceIDs:       traceIDs,
+		WorkgroupIDs:   workgroupIDs,
+		TaskIDs:        taskIDs,
+		DispatchRunIDs: dispatchRunIDs,
 	}
 }
 
@@ -905,23 +982,29 @@ func mergeLogIDs(primary []string, secondary []string, limit int) []string {
 	return merged
 }
 
-func mergeStoredAndExtractedIDs(record storedMobileLogMetadata, content string) ([]string, []string) {
+func mergeStoredAndExtractedIDs(record storedMobileLogMetadata, content string) ([]string, []string, []string, []string) {
 	if content == "" {
-		return record.TraceIDs, record.WorkgroupIDs
+		return record.TraceIDs, record.WorkgroupIDs, nil, nil
 	}
-	extractedTraceIDs, extractedWorkgroupIDs := extractTraceAndWorkgroupIDs(content)
+	extractedTraceIDs, extractedWorkgroupIDs, extractedTaskIDs, extractedDispatchRunIDs := extractTraceAndWorkgroupIDs(content)
 	traceIDs := mergeLogIDs(record.TraceIDs, extractedTraceIDs, 20)
 	workgroupIDs := mergeLogIDs(record.WorkgroupIDs, extractedWorkgroupIDs, 20)
-	return traceIDs, workgroupIDs
+	taskIDs := mergeLogIDs(nil, extractedTaskIDs, 50)
+	dispatchRunIDs := mergeLogIDs(nil, extractedDispatchRunIDs, 50)
+	return traceIDs, workgroupIDs, taskIDs, dispatchRunIDs
 }
 
-func resolveStoredMobileLogIDs(storageDir string, record storedMobileLogMetadata) ([]string, []string) {
+func resolveStoredMobileLogIDs(storageDir string, record storedMobileLogMetadata) ([]string, []string, []string, []string) {
 	if len(record.TraceIDs) > 0 && len(record.WorkgroupIDs) > 0 {
-		return record.TraceIDs, record.WorkgroupIDs
+		content, err := readStoredMobileLogContent(storageDir, record)
+		if err != nil {
+			return record.TraceIDs, record.WorkgroupIDs, nil, nil
+		}
+		return mergeStoredAndExtractedIDs(record, content)
 	}
 	content, err := readStoredMobileLogContent(storageDir, record)
 	if err != nil {
-		return record.TraceIDs, record.WorkgroupIDs
+		return record.TraceIDs, record.WorkgroupIDs, nil, nil
 	}
 	return mergeStoredAndExtractedIDs(record, content)
 }
@@ -940,15 +1023,18 @@ func containsNormalizedID(values []string, target string) bool {
 }
 
 var (
-	traceIDPattern     = regexp.MustCompile(`(?i)(?:trace[_-]?id["=: ]+|traceId["=: ]+)([a-z0-9:-]{6,})`)
-	workgroupIDPattern = regexp.MustCompile(`(?i)(?:workgroup[_-]?id["=: ]+|workgroupId["=: ]+)([a-z0-9._:-]{3,})`)
-	taskIDPattern      = regexp.MustCompile(`(?i)(?:task[_-]?id["=: ]+|taskId["=: ]+)([a-z0-9._:-]{3,})`)
+	traceIDPattern       = regexp.MustCompile(`(?i)(?:trace[_-]?id["=: ]+|traceId["=: ]+)([a-z0-9:-]{6,})`)
+	workgroupIDPattern   = regexp.MustCompile(`(?i)(?:workgroup[_-]?id["=: ]+|workgroupId["=: ]+)([a-z0-9._:-]{3,})`)
+	taskIDPattern        = regexp.MustCompile(`(?i)(?:task[_-]?id["=: ]+|taskId["=: ]+)([a-z0-9._:-]{3,})`)
+	dispatchRunIDPattern = regexp.MustCompile(`(?i)(?:dispatch[_-]?run[_-]?id["=: ]+|dispatchRunId["=: ]+|run[_-]?id["=: ]+|runId["=: ]+)([a-z0-9._:-]{3,})`)
 )
 
-func extractTraceAndWorkgroupIDs(content string) ([]string, []string) {
+func extractTraceAndWorkgroupIDs(content string) ([]string, []string, []string, []string) {
 	traceIDs := collectUniqueMatches(traceIDPattern, content)
 	workgroupIDs := collectUniqueMatches(workgroupIDPattern, content)
-	return traceIDs, workgroupIDs
+	taskIDs := collectUniqueMatches(taskIDPattern, content)
+	dispatchRunIDs := collectUniqueMatches(dispatchRunIDPattern, content)
+	return traceIDs, workgroupIDs, taskIDs, dispatchRunIDs
 }
 
 func collectUniqueMatches(pattern *regexp.Regexp, content string) []string {
@@ -1185,7 +1271,7 @@ const mobileLogsAdminHTML = `<!DOCTYPE html>
     <div class="topbar">
       <div>
         <h1>Device Logs</h1>
-        <p>Uploaded Android and desktop logs can be filtered by text, source, trace_id, and workgroup_id for faster diagnosis.</p>
+        <p>Uploaded Android and desktop logs can be filtered by text, source, trace_id, workgroup_id, task_id, and dispatch_run_id for faster diagnosis.</p>
         <div class="filters">
           <input type="text" id="queryInput" placeholder="Search text, device, user, or error">
           <select id="sourceInput">
@@ -1195,6 +1281,8 @@ const mobileLogsAdminHTML = `<!DOCTYPE html>
           </select>
           <input type="text" id="traceInput" placeholder="Filter by trace_id">
           <input type="text" id="workgroupInput" placeholder="Filter by workgroup_id">
+          <input type="text" id="taskInput" placeholder="Filter by task_id">
+          <input type="text" id="dispatchRunInput" placeholder="Filter by dispatch_run_id">
         </div>
       </div>
       <div class="actions">
@@ -1230,6 +1318,8 @@ const state = {
     source: "",
     trace_id: "",
     workgroup_id: "",
+    task_id: "",
+    dispatch_run_id: "",
   },
 };
 
@@ -1262,6 +1352,8 @@ function buildListUrl() {
   if (state.filters.source) params.set("source", state.filters.source);
   if (state.filters.trace_id) params.set("trace_id", state.filters.trace_id);
   if (state.filters.workgroup_id) params.set("workgroup_id", state.filters.workgroup_id);
+  if (state.filters.task_id) params.set("task_id", state.filters.task_id);
+  if (state.filters.dispatch_run_id) params.set("dispatch_run_id", state.filters.dispatch_run_id);
   const query = params.toString();
   return "/admin/api/mobile-logs" + (query ? ("?" + query) : "");
 }
@@ -1286,6 +1378,12 @@ function bindFilterChipHandlers(root) {
       } else if (kind === "workgroup_id") {
         state.filters.workgroup_id = value;
         document.getElementById("workgroupInput").value = value;
+      } else if (kind === "task_id") {
+        state.filters.task_id = value;
+        document.getElementById("taskInput").value = value;
+      } else if (kind === "dispatch_run_id") {
+        state.filters.dispatch_run_id = value;
+        document.getElementById("dispatchRunInput").value = value;
       }
       await refresh();
     });
@@ -1306,6 +1404,8 @@ function renderList() {
       '<div class="muted">' + esc((item.source || "-").toUpperCase()) + ' ? ' + esc(item.app_version || "-") + ' ? ' + esc(item.uploaded_at || "-") + '</div>' +
       (Array.isArray(item.trace_ids) && item.trace_ids.length > 0 ? '<div class="muted">trace_id · ' + esc(item.trace_ids[0]) + '</div>' : '') +
       (Array.isArray(item.workgroup_ids) && item.workgroup_ids.length > 0 ? '<div class="muted">workgroup_id · ' + esc(item.workgroup_ids[0]) + '</div>' : '') +
+      (Array.isArray(item.task_ids) && item.task_ids.length > 0 ? '<div class="muted">task_id · ' + esc(item.task_ids[0]) + '</div>' : '') +
+      (Array.isArray(item.dispatch_run_ids) && item.dispatch_run_ids.length > 0 ? '<div class="muted">dispatch_run_id · ' + esc(item.dispatch_run_ids[0]) + '</div>' : '') +
       '<div class="muted">' + esc(fmtBytes(item.size_bytes)) + '</div>' +
       '</button>';
   }).join("");
@@ -1330,6 +1430,8 @@ function renderMeta() {
     '<div><div class="meta-label">Source</div><div>' + esc((meta.source || "-").toUpperCase()) + '</div></div>' +
     '<div><div class="meta-label">Trace IDs</div><div>' + renderChips((state.analysis && state.analysis.trace_ids) || [], "trace_id") + '</div></div>' +
     '<div><div class="meta-label">Workgroup IDs</div><div>' + renderChips((state.analysis && state.analysis.workgroup_ids) || [], "workgroup_id") + '</div></div>' +
+    '<div><div class="meta-label">Task IDs</div><div>' + renderChips((state.analysis && state.analysis.task_ids) || [], "task_id") + '</div></div>' +
+    '<div><div class="meta-label">Dispatch Run IDs</div><div>' + renderChips((state.analysis && state.analysis.dispatch_run_ids) || [], "dispatch_run_id") + '</div></div>' +
     '<div><div class="meta-label">App Version</div><div>' + esc(meta.app_version || "-") + (meta.app_build ? ' (build ' + esc(meta.app_build) + ')' : '') + '</div></div>' +
     '<div><div class="meta-label">Device Model</div><div>' + esc(meta.device_model || "-") + '</div></div>' +
     '<div><div class="meta-label">Client Time</div><div>' + esc(meta.client_time || "-") + '</div></div>' +
@@ -1352,6 +1454,8 @@ function renderAnalysis() {
     '<div class="muted" style="margin-top:8px;">Errors: ' + esc(state.analysis.error_count || 0) + ' ? Warnings: ' + esc(state.analysis.warning_count || 0) + '</div>' +
     '<div style="margin-top:8px;"><strong>Trace IDs</strong>' + renderChips(state.analysis.trace_ids || [], "trace_id") + '</div>' +
     '<div style="margin-top:8px;"><strong>Workgroup IDs</strong>' + renderChips(state.analysis.workgroup_ids || [], "workgroup_id") + '</div>' +
+    '<div style="margin-top:8px;"><strong>Task IDs</strong>' + renderChips(state.analysis.task_ids || [], "task_id") + '</div>' +
+    '<div style="margin-top:8px;"><strong>Dispatch Run IDs</strong>' + renderChips(state.analysis.dispatch_run_ids || [], "dispatch_run_id") + '</div>' +
     (signals.length === 0 ? '<div class="empty">No high-confidence diagnostic signal matched.</div>' : signals.map((signal) =>
       '<div class="signal">' +
       '<div><strong>' + esc(signal.title) + '</strong> ? ' + esc(signal.count) + '</div>' +
@@ -1414,6 +1518,14 @@ document.getElementById('traceInput').addEventListener('change', (event) => {
 });
 document.getElementById('workgroupInput').addEventListener('change', (event) => {
   state.filters.workgroup_id = event.target.value.trim();
+  void refresh();
+});
+document.getElementById('taskInput').addEventListener('change', (event) => {
+  state.filters.task_id = event.target.value.trim();
+  void refresh();
+});
+document.getElementById('dispatchRunInput').addEventListener('change', (event) => {
+  state.filters.dispatch_run_id = event.target.value.trim();
   void refresh();
 });
 void refresh();
