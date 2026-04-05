@@ -97,7 +97,7 @@
 
 - 阶段一完成度约 `92%`
 - 阶段二完成度约 `92%`
-- 阶段三完成度约 `97%`
+- 阶段三完成度约 `98%`
 - 阶段四完成度约 `86%`
 
 ### 已完成
@@ -158,6 +158,7 @@
 - 服务端日志分析页已补 signal / example 快捷联动入口：可直接按 signal 标题或示例日志正文过滤，并从单条示例里抽取 `traceId / workgroupId / taskId / dispatchRunId` 一键回查，减少手工复制日志正文
 - 服务端日志分析页已补当前筛选范围的 overview 统计：可聚合查看命中日志数、source 分布、Top signals，以及 `traceId / workgroupId / taskId / dispatchRunId` 热点；signal 快捷按钮也已改成真正按 `signal_code` 过滤日志
 - 服务端日志分析已补“安卓后台恢复后仍需手动重连”和“桌面重连后传输恢复但活动态未恢复”两类复合 signal；overview 排序也已提高恢复链路问题的优先级，避免被高频 scheduler 噪音淹没
+- 服务端日志分析页已把 desktop controller 恢复链路拆成 3 个稳定面板：`Auth Recovery / Catalog Refresh / Active Snapshot`，可直接看到每一段是 healthy / warning / critical，并继续按对应 signal 回查日志
 
 ### 进行中
 
@@ -167,8 +168,8 @@
 ### 下一刀
 
 1. 结合真实上传日志，再补一轮桌面 / 安卓重连与补拉问题的分析规则
-2. 继续把 controller relay 恢复链路拆成“认证恢复 / catalog 刷新 / active snapshot 落库”三个稳定面板
-3. 结合真实故障日志再细化 signal 权重和排序阈值，减少单条高频 scheduler 日志把真正的恢复问题挤下去
+2. 结合真实故障日志再细化 signal 权重和排序阈值，减少单条高频 scheduler 日志把真正的恢复问题挤下去
+3. 再补一层 panel 级别的 overview 汇总，直接按“认证恢复 / catalog 刷新 / active snapshot”统计当前筛选范围的健康度
 
 ## 5. 后续顺序
 

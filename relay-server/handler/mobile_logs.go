@@ -95,15 +95,26 @@ type mobileLogSignal struct {
 }
 
 type mobileLogAnalysisResponse struct {
-	Summary        string            `json:"summary"`
-	ErrorCount     int               `json:"error_count"`
-	WarningCount   int               `json:"warning_count"`
-	Signals        []mobileLogSignal `json:"signals"`
-	RecentErrors   []string          `json:"recent_errors"`
-	TraceIDs       []string          `json:"trace_ids,omitempty"`
-	WorkgroupIDs   []string          `json:"workgroup_ids,omitempty"`
-	TaskIDs        []string          `json:"task_ids,omitempty"`
-	DispatchRunIDs []string          `json:"dispatch_run_ids,omitempty"`
+	Summary        string                   `json:"summary"`
+	ErrorCount     int                      `json:"error_count"`
+	WarningCount   int                      `json:"warning_count"`
+	Signals        []mobileLogSignal        `json:"signals"`
+	RecoveryPanels []mobileLogRecoveryPanel `json:"recovery_panels,omitempty"`
+	RecentErrors   []string                 `json:"recent_errors"`
+	TraceIDs       []string                 `json:"trace_ids,omitempty"`
+	WorkgroupIDs   []string                 `json:"workgroup_ids,omitempty"`
+	TaskIDs        []string                 `json:"task_ids,omitempty"`
+	DispatchRunIDs []string                 `json:"dispatch_run_ids,omitempty"`
+}
+
+type mobileLogRecoveryPanel struct {
+	Key            string   `json:"key"`
+	Title          string   `json:"title"`
+	Status         string   `json:"status"`
+	Summary        string   `json:"summary"`
+	Recommendation string   `json:"recommendation"`
+	SignalCode     string   `json:"signal_code,omitempty"`
+	Examples       []string `json:"examples,omitempty"`
 }
 
 type mobileLogOverviewSource struct {
@@ -1373,10 +1384,24 @@ func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string, 
 	}
 
 	return mobileLogAnalysisResponse{
-		Summary:        summary,
-		ErrorCount:     errorCount,
-		WarningCount:   warningCount,
-		Signals:        signals,
+		Summary:      summary,
+		ErrorCount:   errorCount,
+		WarningCount: warningCount,
+		Signals:      signals,
+		RecoveryPanels: buildDesktopRecoveryPanels(
+			desktopAuthRecoveryFailureCount,
+			desktopAuthRecoveryFailureExamples,
+			desktopFollowUpRefreshCount,
+			desktopProjectCatalogUpdatedCount,
+			desktopWorkgroupCatalogRefreshCount,
+			desktopWorkgroupCatalogUpdatedCount,
+			desktopCatalogRefreshFailureCount,
+			desktopCatalogRefreshExamples,
+			desktopActiveProjectSyncRequestedCount,
+			desktopRemoteSessionSnapshotCount,
+			desktopActiveProjectSyncExamples,
+			desktopRemoteSessionSnapshotExamples,
+		),
 		RecentErrors:   recentErrors,
 		TraceIDs:       traceIDs,
 		WorkgroupIDs:   workgroupIDs,
@@ -1560,6 +1585,105 @@ func signalPriority(code string) int {
 		return 160
 	default:
 		return 100
+	}
+}
+
+func buildDesktopRecoveryPanels(
+	authFailureCount int,
+	authExamples []string,
+	followUpRefreshCount int,
+	projectCatalogUpdatedCount int,
+	workgroupCatalogRefreshCount int,
+	workgroupCatalogUpdatedCount int,
+	catalogRefreshFailureCount int,
+	catalogExamples []string,
+	activeProjectSyncRequestedCount int,
+	remoteSessionSnapshotCount int,
+	activeProjectSyncExamples []string,
+	remoteSessionSnapshotExamples []string,
+) []mobileLogRecoveryPanel {
+	if authFailureCount == 0 &&
+		followUpRefreshCount == 0 &&
+		projectCatalogUpdatedCount == 0 &&
+		workgroupCatalogRefreshCount == 0 &&
+		workgroupCatalogUpdatedCount == 0 &&
+		catalogRefreshFailureCount == 0 &&
+		activeProjectSyncRequestedCount == 0 &&
+		remoteSessionSnapshotCount == 0 {
+		return nil
+	}
+
+	authStatus := "healthy"
+	authSummary := "No auth recovery failure was detected in this log window."
+	authSignalCode := ""
+	authExamplesOut := []string(nil)
+	if authFailureCount > 0 {
+		authStatus = "critical"
+		authSummary = fmt.Sprintf("Credential refresh failed %d time(s) during controller relay recovery.", authFailureCount)
+		authSignalCode = "desktop_auth_recovery_failures"
+		authExamplesOut = authExamples
+	} else if followUpRefreshCount > 0 || activeProjectSyncRequestedCount > 0 {
+		authSummary = "The desktop progressed past auth recovery and reached later follow-up stages."
+	}
+
+	catalogStatus := "idle"
+	catalogSummary := "No follow-up catalog refresh was observed in this log window."
+	catalogSignalCode := ""
+	catalogExamplesOut := []string(nil)
+	if followUpRefreshCount > 0 || projectCatalogUpdatedCount > 0 || workgroupCatalogRefreshCount > 0 || workgroupCatalogUpdatedCount > 0 || catalogRefreshFailureCount > 0 {
+		catalogStatus = "healthy"
+		catalogSummary = fmt.Sprintf("Follow-up refresh=%d, project catalog updates=%d, workgroup refresh=%d, workgroup updates=%d.", followUpRefreshCount, projectCatalogUpdatedCount, workgroupCatalogRefreshCount, workgroupCatalogUpdatedCount)
+		if catalogRefreshFailureCount > 0 || projectCatalogUpdatedCount == 0 || workgroupCatalogRefreshCount == 0 || workgroupCatalogUpdatedCount == 0 {
+			catalogStatus = "warning"
+			catalogSignalCode = "desktop_catalog_refresh_gaps"
+			catalogExamplesOut = catalogExamples
+			catalogSummary = fmt.Sprintf("Follow-up refresh started %d time(s), but catalog rebuild did not settle cleanly.", followUpRefreshCount)
+		}
+	}
+
+	snapshotStatus := "idle"
+	snapshotSummary := "No active project sync request was observed in this log window."
+	snapshotSignalCode := ""
+	snapshotExamplesOut := []string(nil)
+	if activeProjectSyncRequestedCount > 0 || remoteSessionSnapshotCount > 0 {
+		snapshotStatus = "healthy"
+		snapshotSummary = fmt.Sprintf("Active sync requests=%d, remote snapshots=%d.", activeProjectSyncRequestedCount, remoteSessionSnapshotCount)
+		if activeProjectSyncRequestedCount > remoteSessionSnapshotCount {
+			snapshotStatus = "warning"
+			snapshotSignalCode = "desktop_remote_snapshot_gaps"
+			snapshotExamplesOut = mergeExampleLists(4, activeProjectSyncExamples, remoteSessionSnapshotExamples)
+			snapshotSummary = fmt.Sprintf("Requested %d active project sync(s), but only %d remote snapshot update(s) landed.", activeProjectSyncRequestedCount, remoteSessionSnapshotCount)
+		}
+	}
+
+	return []mobileLogRecoveryPanel{
+		{
+			Key:            "desktop_auth_recovery",
+			Title:          "1. Auth Recovery",
+			Status:         authStatus,
+			Summary:        authSummary,
+			Recommendation: "Check controller token refresh and relay re-auth first. If this stage is not healthy, later catalog and snapshot signals are downstream symptoms.",
+			SignalCode:     authSignalCode,
+			Examples:       authExamplesOut,
+		},
+		{
+			Key:            "desktop_catalog_refresh",
+			Title:          "2. Catalog Refresh",
+			Status:         catalogStatus,
+			Summary:        catalogSummary,
+			Recommendation: "Confirm follow-up refresh leads to both project catalog and workgroup catalog updates before you debug missing chats.",
+			SignalCode:     catalogSignalCode,
+			Examples:       catalogExamplesOut,
+		},
+		{
+			Key:            "desktop_active_snapshot",
+			Title:          "3. Active Snapshot",
+			Status:         snapshotStatus,
+			Summary:        snapshotSummary,
+			Recommendation: "Compare active project sync requests with later remote session snapshot updates. Missing snapshots usually explain why transport looked healthy but the visible conversation stayed stale.",
+			SignalCode:     snapshotSignalCode,
+			Examples:       snapshotExamplesOut,
+		},
 	}
 }
 
@@ -1784,6 +1908,40 @@ const mobileLogsAdminHTML = `<!DOCTYPE html>
     border-left: 3px solid rgba(15,106,91,0.5);
     padding-left: 12px;
     margin-bottom: 12px;
+  }
+  .panel-grid {
+    display: grid;
+    gap: 10px;
+    margin-top: 10px;
+  }
+  .recovery-panel {
+    border: 1px solid rgba(111,87,55,0.12);
+    border-radius: 16px;
+    padding: 12px;
+    background: rgba(255,255,255,0.74);
+  }
+  .recovery-panel.healthy {
+    border-color: rgba(15,106,91,0.25);
+    background: rgba(226,245,239,0.72);
+  }
+  .recovery-panel.warning {
+    border-color: rgba(190,124,42,0.28);
+    background: rgba(253,244,224,0.78);
+  }
+  .recovery-panel.critical {
+    border-color: rgba(176,70,70,0.3);
+    background: rgba(252,236,233,0.82);
+  }
+  .status-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    background: rgba(255,255,255,0.8);
+    border: 1px solid rgba(111,87,55,0.12);
   }
   .chips {
     display: flex;
@@ -2193,6 +2351,26 @@ function renderExampleBlock(lines) {
   return lines.map((line) => renderExampleLine(line)).join("");
 }
 
+function renderRecoveryPanels(items) {
+  if (!Array.isArray(items) || items.length === 0) {
+    return '';
+  }
+  return '<div style="margin-top:12px;"><strong>Controller Recovery Panels</strong><div class="panel-grid">' + items.map((item) => {
+    const status = String(item.status || 'idle').toLowerCase();
+    const chips = [];
+    if (item.signal_code) {
+      chips.push(renderSignalChip("Filter Signal", { code: item.signal_code }));
+    }
+    return '<div class="recovery-panel ' + esc(status) + '">' +
+      '<div class="toolbar" style="margin:0 0 6px;"><div><strong>' + esc(item.title || "-") + '</strong></div><div class="status-pill">' + esc(status) + '</div></div>' +
+      '<div>' + esc(item.summary || "-") + '</div>' +
+      '<div class="muted" style="margin-top:6px;">' + esc(item.recommendation || "") + '</div>' +
+      (chips.length === 0 ? '' : '<div class="chips">' + chips.join("") + '</div>') +
+      ((Array.isArray(item.examples) && item.examples.length > 0) ? '<div style="margin-top:8px;">' + renderExampleBlock(item.examples) + '</div>' : '') +
+      '</div>';
+  }).join('') + '</div></div>';
+}
+
 function renderOverviewBucketSection(title, items, kind) {
   if (!Array.isArray(items) || items.length === 0) {
     return '<div style="margin-top:10px;"><strong>' + esc(title) + '</strong><div class="muted" style="margin-top:6px;">-</div></div>';
@@ -2280,6 +2458,7 @@ function renderAnalysis() {
     return;
   }
   const signals = Array.isArray(state.analysis.signals) ? state.analysis.signals : [];
+  const recoveryPanels = Array.isArray(state.analysis.recovery_panels) ? state.analysis.recovery_panels : [];
   const recentErrors = Array.isArray(state.analysis.recent_errors) ? state.analysis.recent_errors : [];
   pane.innerHTML =
     '<div><strong>Summary</strong><div style="margin-top:6px;">' + esc(state.analysis.summary || "-") + '</div></div>' +
@@ -2288,6 +2467,7 @@ function renderAnalysis() {
     '<div style="margin-top:8px;"><strong>Workgroup IDs</strong>' + renderChips(state.analysis.workgroup_ids || [], "workgroup_id") + '</div>' +
     '<div style="margin-top:8px;"><strong>Task IDs</strong>' + renderChips(state.analysis.task_ids || [], "task_id") + '</div>' +
     '<div style="margin-top:8px;"><strong>Dispatch Run IDs</strong>' + renderChips(state.analysis.dispatch_run_ids || [], "dispatch_run_id") + '</div>' +
+    renderRecoveryPanels(recoveryPanels) +
     (signals.length === 0 ? '<div class="empty">No high-confidence diagnostic signal matched.</div>' : signals.map((signal) =>
       '<div class="signal">' +
       '<div><strong>' + esc(signal.title) + '</strong> ? ' + esc(signal.count) + '</div>' +

@@ -50,7 +50,13 @@ type uploadedMobileLogAnalysis struct {
 	WorkgroupIDs   []string `json:"workgroup_ids"`
 	TaskIDs        []string `json:"task_ids"`
 	DispatchRunIDs []string `json:"dispatch_run_ids"`
-	Signals        []struct {
+	RecoveryPanels []struct {
+		Key        string   `json:"key"`
+		Status     string   `json:"status"`
+		SignalCode string   `json:"signal_code"`
+		Examples   []string `json:"examples"`
+	} `json:"recovery_panels"`
+	Signals []struct {
 		Code  string `json:"code"`
 		Count int    `json:"count"`
 	} `json:"signals"`
@@ -193,7 +199,7 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 	if resp.StatusCode != http.StatusOK || !strings.Contains(string(pageBody), "Device Logs") {
 		t.Fatalf("unexpected mobile logs page response: status=%d", resp.StatusCode)
 	}
-	if !strings.Contains(string(pageBody), "log_id") || !strings.Contains(string(pageBody), "Copy Link") || !strings.Contains(string(pageBody), "history.replaceState") || !strings.Contains(string(pageBody), "Filter Text") || !strings.Contains(string(pageBody), "Filter Signal") || !strings.Contains(string(pageBody), "/admin/api/mobile-logs/overview") || !strings.Contains(string(pageBody), "Current Filter Overview") || !strings.Contains(string(pageBody), "signal_code") {
+	if !strings.Contains(string(pageBody), "log_id") || !strings.Contains(string(pageBody), "Copy Link") || !strings.Contains(string(pageBody), "history.replaceState") || !strings.Contains(string(pageBody), "Filter Text") || !strings.Contains(string(pageBody), "Filter Signal") || !strings.Contains(string(pageBody), "/admin/api/mobile-logs/overview") || !strings.Contains(string(pageBody), "Current Filter Overview") || !strings.Contains(string(pageBody), "Controller Recovery Panels") || !strings.Contains(string(pageBody), "signal_code") {
 		t.Fatalf("expected admin page to expose deep-link jump helpers, got %s", string(pageBody))
 	}
 
@@ -279,6 +285,9 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 	}
 	if !hasSignalCode(analysis.Signals, "android_manual_reconnect_likely") {
 		t.Fatalf("expected android manual reconnect signal, got %+v", analysis.Signals)
+	}
+	if len(analysis.RecoveryPanels) != 0 {
+		t.Fatalf("expected android analysis to skip desktop recovery panels, got %+v", analysis.RecoveryPanels)
 	}
 
 	var overview uploadedMobileLogOverview
@@ -388,6 +397,18 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 	if !hasSignalCode(desktopAnalysis.Signals, "desktop_resume_catchup_stalled") {
 		t.Fatalf("expected desktop resume catch-up stalled signal, got %+v", desktopAnalysis.Signals)
 	}
+	if len(desktopAnalysis.RecoveryPanels) != 3 {
+		t.Fatalf("expected desktop analysis to expose 3 controller recovery panels, got %+v", desktopAnalysis.RecoveryPanels)
+	}
+	if !hasRecoveryPanelStatus(desktopAnalysis.RecoveryPanels, "desktop_auth_recovery", "critical", "desktop_auth_recovery_failures") {
+		t.Fatalf("expected auth recovery panel to be critical, got %+v", desktopAnalysis.RecoveryPanels)
+	}
+	if !hasRecoveryPanelStatus(desktopAnalysis.RecoveryPanels, "desktop_catalog_refresh", "healthy", "") {
+		t.Fatalf("expected catalog recovery panel to be healthy, got %+v", desktopAnalysis.RecoveryPanels)
+	}
+	if !hasRecoveryPanelStatus(desktopAnalysis.RecoveryPanels, "desktop_active_snapshot", "warning", "desktop_remote_snapshot_gaps") {
+		t.Fatalf("expected active snapshot panel to warn, got %+v", desktopAnalysis.RecoveryPanels)
+	}
 	if len(desktopAnalysis.TaskIDs) == 0 || len(desktopAnalysis.DispatchRunIDs) == 0 {
 		t.Fatalf("expected desktop analysis to expose task and dispatch run ids, got %+v", desktopAnalysis)
 	}
@@ -450,6 +471,30 @@ func hasOverviewSourceCount(items []struct {
 		if item.Source == source && item.LogCount == count {
 			return true
 		}
+	}
+	return false
+}
+
+func hasRecoveryPanelStatus(items []struct {
+	Key        string   `json:"key"`
+	Status     string   `json:"status"`
+	SignalCode string   `json:"signal_code"`
+	Examples   []string `json:"examples"`
+}, key, status, signalCode string) bool {
+	for _, item := range items {
+		if item.Key != key {
+			continue
+		}
+		if item.Status != status {
+			return false
+		}
+		if signalCode != "" && item.SignalCode != signalCode {
+			return false
+		}
+		if signalCode == "" && item.SignalCode != "" {
+			return false
+		}
+		return true
 	}
 	return false
 }
