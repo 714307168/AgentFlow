@@ -2581,6 +2581,11 @@ function requestActiveRemoteProjectSync(_reason: string, force: boolean = false)
   }
 
   lastActiveRemoteProjectSyncAt = now;
+  appLogger.info("relay", "Requested active remote project sync.", {
+    reason: _reason,
+    force,
+    projectId,
+  });
   remoteSessionStore.requestSessionSync(projectId, { limit: 30 });
 }
 
@@ -3184,6 +3189,15 @@ function initRemoteRelay(config: AgentConfig): void {
     requestActiveRemoteProjectSync("remote-projects-changed");
   });
   remoteSessionStore.on("snapshot", (projectId: string, snapshot: ProjectSessionSnapshot) => {
+    appLogger.info("relay", "Remote session snapshot updated.", {
+      projectId,
+      isActiveProject: projectId === (activeWorkspaceProjectId?.trim() ?? ""),
+      queuedCount: snapshot.queuedCount,
+      messageTotal: snapshot.messageTotal,
+      conversationCount: Array.isArray(snapshot.conversations) ? snapshot.conversations.length : 0,
+      isRunning: snapshot.isRunning,
+      activeConversationId: snapshot.activeConversationId || null,
+    });
     syncWorkgroupTasksForProjectSnapshot(snapshot);
     if (workspaceWindow && !workspaceWindow.isDestroyed()) {
       workspaceWindow.webContents.send("project-session-snapshot", snapshot);

@@ -97,7 +97,7 @@
 
 - 阶段一完成度约 `92%`
 - 阶段二完成度约 `92%`
-- 阶段三完成度约 `93%`
+- 阶段三完成度约 `94%`
 - 阶段四完成度约 `86%`
 
 ### 已完成
@@ -154,17 +154,18 @@
 - 安卓认证恢复与 post-auth 同步链路已补显式锚点，服务端日志分析可新增聚类：`auth_recovery_failures` / `foreground_recovery_follow_up_gaps` / `post_auth_sync_incomplete`
 - 桌面端 controller follow-up refresh 与 remote catalog 更新链路已补显式锚点，服务端日志分析可新增聚类：`desktop_auth_recovery_failures` / `desktop_catalog_refresh_gaps`
 - 服务端日志分析页已补 URL 深链与一键回查：当前筛选和 `log_id` 会写入地址栏，`traceId / workgroupId / taskId / dispatchRunId` 可直接点进过滤后的诊断视图，便于分享和回放同一组日志上下文
+- 桌面端已补 `Requested active remote project sync` / `Remote session snapshot updated` 锚点，服务端日志分析可继续区分“catalog 已更新”与“active project snapshot 仍未落下”的链路断点
 
 ### 进行中
 
 - 基于真实上传日志继续补桌面 / 安卓恢复链路的诊断规则
-- 继续补恢复链路诊断字段，把 controller catalog 请求和 session snapshot 命中做成更细的收口统计
+- 基于真实上传日志继续补桌面 / 安卓恢复链路的诊断规则
 
 ### 下一刀
 
-1. 继续补恢复链路诊断字段，把 controller catalog 请求和 session snapshot 命中做成更细的收口统计
-2. 结合真实上传日志，再补一轮桌面 / 安卓重连与补拉问题的分析规则
-3. 再补分析页针对 signal / example 的联动入口，减少手工比对日志正文
+1. 结合真实上传日志，再补一轮桌面 / 安卓重连与补拉问题的分析规则
+2. 再补分析页针对 signal / example 的联动入口，减少手工比对日志正文
+3. 继续把 controller relay 恢复链路拆成“认证恢复 / catalog 刷新 / active snapshot 落库”三个稳定面板
 
 ## 5. 后续顺序
 

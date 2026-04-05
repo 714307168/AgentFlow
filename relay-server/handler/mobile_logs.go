@@ -548,6 +548,10 @@ func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string, 
 	desktopAuthRecoveryFailureExamples := make([]string, 0, 3)
 	desktopFollowUpRefreshCount := 0
 	desktopProjectCatalogUpdatedCount := 0
+	desktopActiveProjectSyncRequestedCount := 0
+	desktopActiveProjectSyncExamples := make([]string, 0, 3)
+	desktopRemoteSessionSnapshotCount := 0
+	desktopRemoteSessionSnapshotExamples := make([]string, 0, 3)
 	desktopWorkgroupCatalogRefreshCount := 0
 	desktopWorkgroupCatalogUpdatedCount := 0
 	desktopCatalogRefreshFailureCount := 0
@@ -876,6 +880,18 @@ func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string, 
 		if strings.Contains(lowerLine, "remote project catalog updated") {
 			desktopProjectCatalogUpdatedCount++
 		}
+		if strings.Contains(lowerLine, "requested active remote project sync") {
+			desktopActiveProjectSyncRequestedCount++
+			if len(desktopActiveProjectSyncExamples) < 3 {
+				desktopActiveProjectSyncExamples = append(desktopActiveProjectSyncExamples, line)
+			}
+		}
+		if strings.Contains(lowerLine, "remote session snapshot updated") {
+			desktopRemoteSessionSnapshotCount++
+			if len(desktopRemoteSessionSnapshotExamples) < 3 {
+				desktopRemoteSessionSnapshotExamples = append(desktopRemoteSessionSnapshotExamples, line)
+			}
+		}
 		if strings.Contains(lowerLine, "completed remote workgroup catalog refresh") {
 			desktopWorkgroupCatalogRefreshCount++
 		}
@@ -1014,6 +1030,20 @@ func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string, 
 			Count:          desktopCatalogRefreshFailureCount + maxInt(1, desktopFollowUpRefreshCount-desktopProjectCatalogUpdatedCount),
 			Recommendation: "Compare follow-up refresh runs with the later project-catalog update and workgroup-catalog refresh logs. If the desktop requests follow-up refreshes but catalog updates never land, the controller relay recovered without settling the remote indexes.",
 			Examples:       desktopCatalogRefreshExamples,
+		})
+	}
+
+	if desktopActiveProjectSyncRequestedCount > 0 && desktopRemoteSessionSnapshotCount < desktopActiveProjectSyncRequestedCount {
+		examples := desktopActiveProjectSyncExamples
+		if len(examples) == 0 {
+			examples = desktopRemoteSessionSnapshotExamples
+		}
+		signals = append(signals, mobileLogSignal{
+			Code:           "desktop_remote_snapshot_gaps",
+			Title:          "Desktop active remote project sync did not settle into a snapshot",
+			Count:          maxInt(1, desktopActiveProjectSyncRequestedCount-desktopRemoteSessionSnapshotCount),
+			Recommendation: "Compare the active remote project sync request with later remote session snapshot updates. If the desktop requests an active project sync but no snapshot lands, the controller relay recovered only up to catalog refresh and never rebuilt the active conversation state.",
+			Examples:       examples,
 		})
 	}
 
