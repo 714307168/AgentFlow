@@ -296,8 +296,20 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 	if !hasSignalCode(analysis.Signals, "android_manual_reconnect_likely") {
 		t.Fatalf("expected android manual reconnect signal, got %+v", analysis.Signals)
 	}
-	if len(analysis.RecoveryPanels) != 0 {
-		t.Fatalf("expected android analysis to skip desktop recovery panels, got %+v", analysis.RecoveryPanels)
+	if len(analysis.RecoveryPanels) != 4 {
+		t.Fatalf("expected android analysis to expose 4 recovery panels, got %+v", analysis.RecoveryPanels)
+	}
+	if !hasRecoveryPanelStatus(analysis.RecoveryPanels, "android_auth_recovery", "critical", "auth_recovery_failures") {
+		t.Fatalf("expected android auth panel to be critical, got %+v", analysis.RecoveryPanels)
+	}
+	if !hasRecoveryPanelStatus(analysis.RecoveryPanels, "android_foreground_catalog", "warning", "foreground_recovery_follow_up_gaps") {
+		t.Fatalf("expected android foreground catalog panel to warn, got %+v", analysis.RecoveryPanels)
+	}
+	if !hasRecoveryPanelStatus(analysis.RecoveryPanels, "android_project_sync", "warning", "post_auth_sync_incomplete") {
+		t.Fatalf("expected android project sync panel to warn, got %+v", analysis.RecoveryPanels)
+	}
+	if !hasRecoveryPanelStatus(analysis.RecoveryPanels, "android_workgroup_refresh", "warning", "foreground_recovery_follow_up_gaps") {
+		t.Fatalf("expected android workgroup refresh panel to warn, got %+v", analysis.RecoveryPanels)
 	}
 
 	var overview uploadedMobileLogOverview
@@ -317,8 +329,11 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 	if !hasOverviewBucketValue(overview.TopTraceIDs, "trace-alpha-001") {
 		t.Fatalf("expected overview to expose top trace ids, got %+v", overview.TopTraceIDs)
 	}
-	if len(overview.RecoveryPanels) != 3 {
+	if len(overview.RecoveryPanels) != 7 {
 		t.Fatalf("expected overview to expose aggregated recovery panels, got %+v", overview.RecoveryPanels)
+	}
+	if !hasOverviewRecoveryPanel(overview.RecoveryPanels, "android_auth_recovery", "critical", 1, 1, "auth_recovery_failures") {
+		t.Fatalf("expected overview android auth panel aggregation, got %+v", overview.RecoveryPanels)
 	}
 	if !hasOverviewRecoveryPanel(overview.RecoveryPanels, "desktop_auth_recovery", "critical", 1, 1, "desktop_auth_recovery_failures") {
 		t.Fatalf("expected overview auth panel aggregation, got %+v", overview.RecoveryPanels)
@@ -437,6 +452,9 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 	if len(desktopOverview.TopSignals) == 0 || desktopOverview.TopSignals[0].Code != "desktop_resume_catchup_stalled" {
 		t.Fatalf("expected desktop overview to prioritize resume catch-up stalled signal, got %+v", desktopOverview.TopSignals)
 	}
+	if len(desktopOverview.RecoveryPanels) != 3 {
+		t.Fatalf("expected desktop overview to keep 3 desktop recovery panels, got %+v", desktopOverview.RecoveryPanels)
+	}
 	if !hasOverviewRecoveryPanel(desktopOverview.RecoveryPanels, "desktop_catalog_refresh", "healthy", 1, 0, "") {
 		t.Fatalf("expected desktop overview to expose healthy catalog panel, got %+v", desktopOverview.RecoveryPanels)
 	}
@@ -445,6 +463,18 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 	}
 	if !hasOverviewBucketValue(desktopOverview.TopTaskIDs, "wg-task-1") {
 		t.Fatalf("expected desktop overview to expose top task ids, got %+v", desktopOverview.TopTaskIDs)
+	}
+
+	var androidOverview uploadedMobileLogOverview
+	doJSON(t, adminClient, http.MethodGet, server.URL+"/admin/api/mobile-logs/overview?source=android", nil, http.StatusOK, &androidOverview)
+	if androidOverview.LogCount != 2 {
+		t.Fatalf("expected android overview to narrow to two logs, got %+v", androidOverview)
+	}
+	if !hasOverviewRecoveryPanel(androidOverview.RecoveryPanels, "android_project_sync", "warning", 1, 0, "post_auth_sync_incomplete") {
+		t.Fatalf("expected android overview to expose warning project sync panel, got %+v", androidOverview.RecoveryPanels)
+	}
+	if !hasOverviewRecoveryPanel(androidOverview.RecoveryPanels, "android_workgroup_refresh", "warning", 1, 0, "foreground_recovery_follow_up_gaps") {
+		t.Fatalf("expected android overview to expose warning workgroup panel, got %+v", androidOverview.RecoveryPanels)
 	}
 }
 

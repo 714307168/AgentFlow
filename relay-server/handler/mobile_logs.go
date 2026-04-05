@@ -1480,19 +1480,38 @@ func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string, 
 		ErrorCount:   errorCount,
 		WarningCount: warningCount,
 		Signals:      signals,
-		RecoveryPanels: buildDesktopRecoveryPanels(
-			desktopAuthRecoveryFailureCount,
-			desktopAuthRecoveryFailureExamples,
-			desktopFollowUpRefreshCount,
-			desktopProjectCatalogUpdatedCount,
-			desktopWorkgroupCatalogRefreshCount,
-			desktopWorkgroupCatalogUpdatedCount,
-			desktopCatalogRefreshFailureCount,
-			desktopCatalogRefreshExamples,
-			desktopActiveProjectSyncRequestedCount,
-			desktopRemoteSessionSnapshotCount,
-			desktopActiveProjectSyncExamples,
-			desktopRemoteSessionSnapshotExamples,
+		RecoveryPanels: append(
+			buildAndroidRecoveryPanels(
+				authRecoveryFailureCount,
+				authRecoveryFailureExamples,
+				foregroundRecoveryPassCount,
+				foregroundSessionCatalogCount,
+				foregroundProjectSyncRequestedCount,
+				foregroundWorkgroupRefreshCount,
+				foregroundProjectSyncSkippedCount,
+				foregroundRecoveryFailureCount,
+				foregroundRecoveryExamples,
+				postAuthSyncStartCount,
+				postAuthSessionCatalogCount,
+				postAuthProjectSyncRequestedCount,
+				postAuthWorkgroupRefreshCount,
+				postAuthSyncFailureCount,
+				postAuthSyncExamples,
+			),
+			buildDesktopRecoveryPanels(
+				desktopAuthRecoveryFailureCount,
+				desktopAuthRecoveryFailureExamples,
+				desktopFollowUpRefreshCount,
+				desktopProjectCatalogUpdatedCount,
+				desktopWorkgroupCatalogRefreshCount,
+				desktopWorkgroupCatalogUpdatedCount,
+				desktopCatalogRefreshFailureCount,
+				desktopCatalogRefreshExamples,
+				desktopActiveProjectSyncRequestedCount,
+				desktopRemoteSessionSnapshotCount,
+				desktopActiveProjectSyncExamples,
+				desktopRemoteSessionSnapshotExamples,
+			)...,
 		),
 		RecentErrors:   recentErrors,
 		TraceIDs:       traceIDs,
@@ -1779,14 +1798,152 @@ func buildDesktopRecoveryPanels(
 	}
 }
 
+func buildAndroidRecoveryPanels(
+	authFailureCount int,
+	authExamples []string,
+	foregroundRecoveryPassCount int,
+	foregroundSessionCatalogCount int,
+	foregroundProjectSyncRequestedCount int,
+	foregroundWorkgroupRefreshCount int,
+	foregroundProjectSyncSkippedCount int,
+	foregroundRecoveryFailureCount int,
+	foregroundRecoveryExamples []string,
+	postAuthSyncStartCount int,
+	postAuthSessionCatalogCount int,
+	postAuthProjectSyncRequestedCount int,
+	postAuthWorkgroupRefreshCount int,
+	postAuthSyncFailureCount int,
+	postAuthSyncExamples []string,
+) []mobileLogRecoveryPanel {
+	if authFailureCount == 0 &&
+		foregroundRecoveryPassCount == 0 &&
+		foregroundSessionCatalogCount == 0 &&
+		foregroundProjectSyncRequestedCount == 0 &&
+		foregroundWorkgroupRefreshCount == 0 &&
+		foregroundProjectSyncSkippedCount == 0 &&
+		foregroundRecoveryFailureCount == 0 &&
+		postAuthSyncStartCount == 0 &&
+		postAuthSessionCatalogCount == 0 &&
+		postAuthProjectSyncRequestedCount == 0 &&
+		postAuthWorkgroupRefreshCount == 0 &&
+		postAuthSyncFailureCount == 0 {
+		return nil
+	}
+
+	authStatus := "healthy"
+	authSummary := "No auth recovery failure was detected in this log window."
+	authSignalCode := ""
+	authExamplesOut := []string(nil)
+	if authFailureCount > 0 {
+		authStatus = "critical"
+		authSummary = fmt.Sprintf("Mobile token refresh failed %d time(s) during resume recovery.", authFailureCount)
+		authSignalCode = "auth_recovery_failures"
+		authExamplesOut = authExamples
+	} else if foregroundRecoveryPassCount > 0 || postAuthSyncStartCount > 0 {
+		authSummary = "The app progressed past auth recovery and reached later catch-up stages."
+	}
+
+	catalogStatus := "idle"
+	catalogSummary := "No foreground session catalog refresh was observed in this log window."
+	catalogSignalCode := ""
+	catalogExamplesOut := []string(nil)
+	if foregroundRecoveryPassCount > 0 || foregroundSessionCatalogCount > 0 || foregroundRecoveryFailureCount > 0 {
+		catalogStatus = "healthy"
+		catalogSummary = fmt.Sprintf("Foreground recovery passes=%d, session catalog refreshes=%d.", foregroundRecoveryPassCount, foregroundSessionCatalogCount)
+		if foregroundRecoveryFailureCount > 0 || foregroundSessionCatalogCount < foregroundRecoveryPassCount {
+			catalogStatus = "warning"
+			catalogSignalCode = "foreground_recovery_follow_up_gaps"
+			catalogExamplesOut = foregroundRecoveryExamples
+			catalogSummary = fmt.Sprintf("Foreground recovery ran %d time(s), but catalog refresh only completed %d time(s).", foregroundRecoveryPassCount, foregroundSessionCatalogCount)
+		}
+	}
+
+	projectSyncStatus := "idle"
+	projectSyncSummary := "No Android project sync request was observed in this log window."
+	projectSyncSignalCode := ""
+	projectSyncExamplesOut := []string(nil)
+	if foregroundProjectSyncRequestedCount > 0 || foregroundProjectSyncSkippedCount > 0 || postAuthProjectSyncRequestedCount > 0 || postAuthSyncFailureCount > 0 {
+		projectSyncStatus = "healthy"
+		projectSyncSummary = fmt.Sprintf("Foreground project syncs=%d, post-auth project syncs=%d.", foregroundProjectSyncRequestedCount, postAuthProjectSyncRequestedCount)
+		if foregroundProjectSyncSkippedCount > 0 || postAuthSyncFailureCount > 0 || (postAuthSyncStartCount > 0 && postAuthProjectSyncRequestedCount < postAuthSyncStartCount) {
+			projectSyncStatus = "warning"
+			projectSyncSignalCode = "post_auth_sync_incomplete"
+			projectSyncExamplesOut = mergeExampleLists(4, foregroundRecoveryExamples, postAuthSyncExamples)
+			projectSyncSummary = fmt.Sprintf("Project sync requests did not settle cleanly. foreground skipped=%d, post-auth failures=%d.", foregroundProjectSyncSkippedCount, postAuthSyncFailureCount)
+		}
+	}
+
+	workgroupStatus := "idle"
+	workgroupSummary := "No Android workgroup refresh was observed in this log window."
+	workgroupSignalCode := ""
+	workgroupExamplesOut := []string(nil)
+	if foregroundWorkgroupRefreshCount > 0 || postAuthWorkgroupRefreshCount > 0 || foregroundRecoveryPassCount > 0 || postAuthSyncStartCount > 0 {
+		workgroupStatus = "healthy"
+		workgroupSummary = fmt.Sprintf("Foreground workgroup refreshes=%d, post-auth workgroup refreshes=%d.", foregroundWorkgroupRefreshCount, postAuthWorkgroupRefreshCount)
+		if (foregroundRecoveryPassCount > 0 && foregroundWorkgroupRefreshCount == 0) || (postAuthSyncStartCount > 0 && postAuthWorkgroupRefreshCount < postAuthSyncStartCount) {
+			workgroupStatus = "warning"
+			workgroupSignalCode = "foreground_recovery_follow_up_gaps"
+			workgroupExamplesOut = mergeExampleLists(4, foregroundRecoveryExamples, postAuthSyncExamples)
+			workgroupSummary = "Workgroup refresh did not keep pace with resume/post-auth recovery."
+		}
+	}
+
+	return []mobileLogRecoveryPanel{
+		{
+			Key:            "android_auth_recovery",
+			Title:          "Android 1. Auth Recovery",
+			Status:         authStatus,
+			Summary:        authSummary,
+			Recommendation: "Start with token refresh and relay re-auth. If auth is unhealthy, later catalog and sync panels are secondary symptoms.",
+			SignalCode:     authSignalCode,
+			Examples:       authExamplesOut,
+		},
+		{
+			Key:            "android_foreground_catalog",
+			Title:          "Android 2. Foreground Catalog",
+			Status:         catalogStatus,
+			Summary:        catalogSummary,
+			Recommendation: "Confirm each foreground recovery pass is followed by a session catalog refresh before judging message freshness.",
+			SignalCode:     catalogSignalCode,
+			Examples:       catalogExamplesOut,
+		},
+		{
+			Key:            "android_project_sync",
+			Title:          "Android 3. Project Sync",
+			Status:         projectSyncStatus,
+			Summary:        projectSyncSummary,
+			Recommendation: "Check whether foreground or post-auth recovery actually requested project syncs, rather than only restoring the transport.",
+			SignalCode:     projectSyncSignalCode,
+			Examples:       projectSyncExamplesOut,
+		},
+		{
+			Key:            "android_workgroup_refresh",
+			Title:          "Android 4. Workgroup Refresh",
+			Status:         workgroupStatus,
+			Summary:        workgroupSummary,
+			Recommendation: "If workgroup refresh stays behind resume recovery, collaboration messages often look stale even when project chat appears connected.",
+			SignalCode:     workgroupSignalCode,
+			Examples:       workgroupExamplesOut,
+		},
+	}
+}
+
 func recoveryPanelKeyPriority(key string) int {
 	switch strings.TrimSpace(key) {
-	case "desktop_auth_recovery":
+	case "android_auth_recovery":
 		return 1
-	case "desktop_catalog_refresh":
+	case "android_foreground_catalog":
 		return 2
-	case "desktop_active_snapshot":
+	case "android_project_sync":
 		return 3
+	case "android_workgroup_refresh":
+		return 4
+	case "desktop_auth_recovery":
+		return 11
+	case "desktop_catalog_refresh":
+		return 12
+	case "desktop_active_snapshot":
+		return 13
 	default:
 		return 100
 	}
