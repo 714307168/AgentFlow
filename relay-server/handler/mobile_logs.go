@@ -17,6 +17,7 @@ import (
 	"github.com/claudecode/relay-server/auth"
 	"github.com/claudecode/relay-server/config"
 	"github.com/claudecode/relay-server/db"
+	"github.com/claudecode/relay-server/hub"
 )
 
 const maxMobileLogUploadBytes int64 = 2 << 20
@@ -150,12 +151,32 @@ type mobileLogOverviewRecoveryPanel struct {
 	IdleCount     int    `json:"idle_count"`
 }
 
+type mobileLogOverviewPresenceSummary struct {
+	MatchingAgents  int `json:"matching_agents"`
+	OnlineAgents    int `json:"online_agents"`
+	MatchingDevices int `json:"matching_devices"`
+	OnlineDevices   int `json:"online_devices"`
+}
+
+type mobileLogOverviewPresenceItem struct {
+	Kind         string `json:"kind"`
+	ID           string `json:"id"`
+	AgentID      string `json:"agent_id,omitempty"`
+	Username     string `json:"username"`
+	Source       string `json:"source,omitempty"`
+	Online       bool   `json:"online"`
+	LogCount     int    `json:"log_count"`
+	LastUploaded string `json:"last_uploaded,omitempty"`
+}
+
 type mobileLogOverviewResponse struct {
 	Summary           string                           `json:"summary"`
 	LogCount          int                              `json:"log_count"`
 	LogsWithSignals   int                              `json:"logs_with_signals"`
 	ErrorCount        int                              `json:"error_count"`
 	WarningCount      int                              `json:"warning_count"`
+	PresenceSummary   mobileLogOverviewPresenceSummary `json:"presence_summary"`
+	LivePresence      []mobileLogOverviewPresenceItem  `json:"live_presence,omitempty"`
 	SourceCounts      []mobileLogOverviewSource        `json:"source_counts"`
 	TopSignals        []mobileLogOverviewSignal        `json:"top_signals"`
 	RecoveryPanels    []mobileLogOverviewRecoveryPanel `json:"recovery_panels,omitempty"`
@@ -298,7 +319,7 @@ func DeviceLogUploadHandler(cfg *config.Config, database *db.DB) http.HandlerFun
 	}
 }
 
-func AdminMobileLogsHandler(cfg *config.Config, database *db.DB) http.HandlerFunc {
+func AdminMobileLogsHandler(cfg *config.Config, database *db.DB, h *hub.Hub) http.HandlerFunc {
 	return adminAuth(cfg, func(w http.ResponseWriter, r *http.Request) {
 		session, ok := currentAdminSession(r)
 		if !ok {
@@ -331,8 +352,15 @@ func AdminMobileLogsHandler(cfg *config.Config, database *db.DB) http.HandlerFun
 		}
 
 		if remainder == "overview" {
+			presence := hub.PresenceSnapshot{
+				Agents:  map[string]bool{},
+				Devices: map[string]bool{},
+			}
+			if h != nil {
+				presence = h.PresenceSnapshot()
+			}
 			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(buildMobileLogOverview(records, filepath.Join(cfg.DataDir, "mobile-logs")))
+			_ = json.NewEncoder(w).Encode(buildMobileLogOverview(records, filepath.Join(cfg.DataDir, "mobile-logs"), presence))
 			return
 		}
 
@@ -544,7 +572,7 @@ func filterStoredMobileLogs(records []storedMobileLogMetadata, storageDir string
 	return filtered
 }
 
-func buildMobileLogOverview(records []storedMobileLogMetadata, storageDir string) mobileLogOverviewResponse {
+func buildMobileLogOverview(records []storedMobileLogMetadata, storageDir string, presence hub.PresenceSnapshot) mobileLogOverviewResponse {
 	if len(records) == 0 {
 		return mobileLogOverviewResponse{
 			Summary: "No device logs matched the current filter.",
@@ -567,9 +595,20 @@ func buildMobileLogOverview(records []storedMobileLogMetadata, storageDir string
 		IdleCount     int
 		SignalCode    string
 	}
+	type presenceAccumulator struct {
+		Kind         string
+		ID           string
+		AgentID      string
+		Username     string
+		Source       string
+		Online       bool
+		LogCount     int
+		LastUploaded string
+	}
 	sourceCounts := make(map[string]int)
 	signalTotals := make(map[string]*signalAccumulator)
 	recoveryPanelTotals := make(map[string]*recoveryPanelAccumulator)
+	presenceTotals := make(map[string]*presenceAccumulator)
 	traceBuckets := make(map[string]*mobileLogOverviewBucket)
 	workgroupBuckets := make(map[string]*mobileLogOverviewBucket)
 	taskBuckets := make(map[string]*mobileLogOverviewBucket)
@@ -597,6 +636,32 @@ func buildMobileLogOverview(records []storedMobileLogMetadata, storageDir string
 			item.ErrorCount += analysis.ErrorCount
 			item.WarningCount += analysis.WarningCount
 			item.SignalCount += signalWeight
+		}
+	}
+	updatePresence := func(kind string, record storedMobileLogMetadata, id string, online bool) {
+		cleanID := strings.TrimSpace(id)
+		if cleanID == "" {
+			return
+		}
+		key := kind + ":" + cleanID
+		item := presenceTotals[key]
+		if item == nil {
+			item = &presenceAccumulator{
+				Kind:     kind,
+				ID:       cleanID,
+				AgentID:  strings.TrimSpace(record.AgentID),
+				Username: strings.TrimSpace(record.Username),
+				Source:   strings.TrimSpace(record.Source),
+				Online:   online,
+			}
+			presenceTotals[key] = item
+		}
+		item.LogCount++
+		if record.UploadedAt > item.LastUploaded {
+			item.LastUploaded = record.UploadedAt
+		}
+		if online {
+			item.Online = true
 		}
 	}
 
@@ -654,6 +719,8 @@ func buildMobileLogOverview(records []storedMobileLogMetadata, storageDir string
 				item.SignalCode = panel.SignalCode
 			}
 		}
+		updatePresence("agent", record, record.AgentID, presence.Agents[strings.TrimSpace(record.AgentID)])
+		updatePresence("device", record, record.DeviceID, presence.Devices[strings.TrimSpace(record.DeviceID)])
 
 		updateBucket(traceBuckets, traceIDs, analysis)
 		updateBucket(workgroupBuckets, workgroupIDs, analysis)
@@ -744,6 +811,49 @@ func buildMobileLogOverview(records []storedMobileLogMetadata, storageDir string
 		return recoveryPanels[i].CriticalCount > recoveryPanels[j].CriticalCount
 	})
 
+	presenceItems := make([]mobileLogOverviewPresenceItem, 0, len(presenceTotals))
+	presenceSummary := mobileLogOverviewPresenceSummary{}
+	for _, item := range presenceTotals {
+		presenceItems = append(presenceItems, mobileLogOverviewPresenceItem{
+			Kind:         item.Kind,
+			ID:           item.ID,
+			AgentID:      item.AgentID,
+			Username:     item.Username,
+			Source:       item.Source,
+			Online:       item.Online,
+			LogCount:     item.LogCount,
+			LastUploaded: item.LastUploaded,
+		})
+		if item.Kind == "agent" {
+			presenceSummary.MatchingAgents++
+			if item.Online {
+				presenceSummary.OnlineAgents++
+			}
+			continue
+		}
+		if item.Kind == "device" {
+			presenceSummary.MatchingDevices++
+			if item.Online {
+				presenceSummary.OnlineDevices++
+			}
+		}
+	}
+	sort.Slice(presenceItems, func(i, j int) bool {
+		if presenceItems[i].Online != presenceItems[j].Online {
+			return presenceItems[i].Online
+		}
+		if presenceItems[i].LogCount == presenceItems[j].LogCount {
+			if presenceItems[i].LastUploaded == presenceItems[j].LastUploaded {
+				if presenceItems[i].Kind == presenceItems[j].Kind {
+					return presenceItems[i].ID < presenceItems[j].ID
+				}
+				return presenceItems[i].Kind < presenceItems[j].Kind
+			}
+			return presenceItems[i].LastUploaded > presenceItems[j].LastUploaded
+		}
+		return presenceItems[i].LogCount > presenceItems[j].LogCount
+	})
+
 	summary := fmt.Sprintf("Current filter matched %d logs.", len(records))
 	switch {
 	case len(topSignals) > 0:
@@ -760,6 +870,8 @@ func buildMobileLogOverview(records []storedMobileLogMetadata, storageDir string
 		LogsWithSignals:   logsWithSignals,
 		ErrorCount:        errorCount,
 		WarningCount:      warningCount,
+		PresenceSummary:   presenceSummary,
+		LivePresence:      presenceItems,
 		SourceCounts:      sourceItems,
 		TopSignals:        topSignals,
 		RecoveryPanels:    recoveryPanels,
@@ -2205,6 +2317,11 @@ const mobileLogsAdminHTML = `<!DOCTYPE html>
     background: rgba(255,255,255,0.8);
     border: 1px solid rgba(111,87,55,0.12);
   }
+  .status-pill.online {
+    color: var(--accent);
+    border-color: rgba(15,106,91,0.22);
+    background: rgba(226,245,239,0.82);
+  }
   .chips {
     display: flex;
     gap: 8px;
@@ -2617,7 +2734,7 @@ function renderRecoveryPanels(items) {
   if (!Array.isArray(items) || items.length === 0) {
     return '';
   }
-  return '<div style="margin-top:12px;"><strong>Controller Recovery Panels</strong><div class="panel-grid">' + items.map((item) => {
+  return '<div style="margin-top:12px;"><strong>Recovery Panels</strong><div class="panel-grid">' + items.map((item) => {
     const status = String(item.status || 'idle').toLowerCase();
     const chips = [];
     if (item.signal_code) {
@@ -2653,6 +2770,26 @@ function renderOverviewRecoveryPanels(items) {
       '<div class="chips">' + chips.join('') + '</div>' +
       '</div>';
   }).join('') + '</div></div>';
+}
+
+function renderOverviewPresence(summary, items) {
+  const presenceSummary = summary || {};
+  const rows = Array.isArray(items) ? items : [];
+  if ((presenceSummary.matching_agents || 0) === 0 && (presenceSummary.matching_devices || 0) === 0) {
+    return '';
+  }
+  return '<div style="margin-top:10px;"><strong>Live Presence</strong>' +
+    '<div class="chips">' +
+      '<span class="chip">agents ' + esc(presenceSummary.online_agents || 0) + '/' + esc(presenceSummary.matching_agents || 0) + ' online</span>' +
+      '<span class="chip">devices ' + esc(presenceSummary.online_devices || 0) + '/' + esc(presenceSummary.matching_devices || 0) + ' online</span>' +
+    '</div>' +
+    (rows.length === 0 ? '' : '<div class="overview-list">' + rows.map((item) =>
+      '<div class="overview-row">' +
+        '<div><strong>' + esc((item.kind || '-').toUpperCase()) + '</strong> <span class="mono">' + esc(item.id || '-') + '</span><div class="meta" style="margin-top:4px;">user ' + esc(item.username || '-') + ' | source ' + esc((item.source || '-').toUpperCase()) + (item.agent_id ? ' | agent ' + esc(item.agent_id) : '') + '</div></div>' +
+        '<div style="text-align:right;"><div class="meta">logs ' + esc(item.log_count || 0) + ' | last ' + esc(item.last_uploaded || '-') + '</div><div class="status-pill ' + (item.online ? 'online' : '') + '">' + esc(item.online ? 'online' : 'offline') + '</div></div>' +
+      '</div>'
+    ).join('') + '</div>') +
+    '</div>';
 }
 
 function renderOverviewBucketSection(title, items, kind) {
@@ -2778,6 +2915,7 @@ function renderOverview() {
       '<div class="stat-card"><div class="meta-label">Errors</div><strong>' + esc(state.overview.error_count || 0) + '</strong></div>' +
       '<div class="stat-card"><div class="meta-label">Warnings</div><strong>' + esc(state.overview.warning_count || 0) + '</strong></div>' +
     '</div>' +
+    renderOverviewPresence(state.overview.presence_summary || {}, state.overview.live_presence || []) +
     renderOverviewRecoveryPanels(state.overview.recovery_panels || []) +
     '<div style="margin-top:10px;"><strong>Sources</strong>' +
       (sourceCounts.length === 0 ? '<div class="muted" style="margin-top:6px;">-</div>' : '<div class="chips">' + sourceCounts.map((item) =>

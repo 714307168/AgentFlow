@@ -98,7 +98,7 @@
 - 阶段一完成度约 `92%`
 - 阶段二完成度约 `92%`
 - 阶段三完成度约 `100%`
-- 阶段四完成度约 `86%`
+- 阶段四完成度约 `87%`
 
 ### 已完成
 
@@ -161,17 +161,18 @@
 - 服务端日志分析页已把 desktop controller 恢复链路拆成 3 个稳定面板：`Auth Recovery / Catalog Refresh / Active Snapshot`，可直接看到每一段是 healthy / warning / critical，并继续按对应 signal 回查日志
 - 服务端日志 overview 已补 panel 级别汇总：当前筛选范围可直接看到 `Auth Recovery / Catalog Refresh / Active Snapshot` 三段在命中日志里的总体健康度、critical/warning/healthy 数量，并继续按 signal 下钻
 - 服务端日志分析页已补安卓恢复链路结构化面板：`Auth Recovery / Foreground Catalog / Project Sync / Workgroup Refresh`，并且 overview 也能聚合统计安卓这 4 段的总体健康度
+- 服务端 device logs overview 已补实时在线态联动：当前筛选范围可直接看到匹配日志里的 agent / device 在线数，以及对应的 live presence 列表，便于把上传日志和当前连接态一起核对
 
 ### 进行中
 
 - 基于真实上传日志继续补桌面 / 安卓恢复链路的诊断规则
-- 基于真实上传日志继续补桌面 / 安卓恢复链路的诊断规则
+- 继续补日志概览里的连接态观测与后续诊断联动，逐步减少管理员在多个后台页面之间来回切换
 
 ### 下一刀
 
 1. 结合真实上传日志，再补一轮桌面 / 安卓重连与补拉问题的分析规则
 2. 结合真实故障日志再细化 signal 权重和排序阈值，减少单条高频 scheduler 日志把真正的恢复问题挤下去
-3. 开始收敛阶段四，把日志诊断和客户端连接态观测串起来，减少只能靠上传日志定位的问题
+3. 继续收敛阶段四，把日志诊断、device logs overview 和客户端连接态观测串起来，减少只能靠上传日志定位的问题
 
 ## 5. 后续顺序
 

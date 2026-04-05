@@ -13,6 +13,9 @@ import (
 	"github.com/claudecode/relay-server/config"
 	"github.com/claudecode/relay-server/db"
 	"github.com/claudecode/relay-server/handler"
+	"github.com/claudecode/relay-server/hub"
+	"github.com/claudecode/relay-server/model"
+	"github.com/claudecode/relay-server/store"
 )
 
 type deviceLoginResponse struct {
@@ -68,7 +71,23 @@ type uploadedMobileLogOverview struct {
 	LogsWithSignals int    `json:"logs_with_signals"`
 	ErrorCount      int    `json:"error_count"`
 	WarningCount    int    `json:"warning_count"`
-	SourceCounts    []struct {
+	PresenceSummary struct {
+		MatchingAgents  int `json:"matching_agents"`
+		OnlineAgents    int `json:"online_agents"`
+		MatchingDevices int `json:"matching_devices"`
+		OnlineDevices   int `json:"online_devices"`
+	} `json:"presence_summary"`
+	LivePresence []struct {
+		Kind         string `json:"kind"`
+		ID           string `json:"id"`
+		AgentID      string `json:"agent_id"`
+		Username     string `json:"username"`
+		Source       string `json:"source"`
+		Online       bool   `json:"online"`
+		LogCount     int    `json:"log_count"`
+		LastUploaded string `json:"last_uploaded"`
+	} `json:"live_presence"`
+	SourceCounts []struct {
 		Source   string `json:"source"`
 		LogCount int    `json:"log_count"`
 	} `json:"source_counts"`
@@ -120,6 +139,8 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 		DataDir:      dataDir,
 		DatabasePath: dataDir,
 	}
+	st := store.NewStore(database)
+	h := hub.NewHub(cfg, st)
 
 	if _, err := database.CreateUser("alice", "Alice12345A", false); err != nil {
 		t.Fatalf("create user: %v", err)
@@ -135,12 +156,24 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 		t.Fatalf("register device: %v", err)
 	}
 
+	onlineAgent := hub.NewClient(h, nil)
+	onlineAgent.ID = "agent-online-1"
+	onlineAgent.Type = model.ClientTypeAgent
+	onlineAgent.AgentID = "agent-a"
+	h.RegisterAgent(onlineAgent)
+
+	onlineDevice := hub.NewClient(h, nil)
+	onlineDevice.ID = "device-online-1"
+	onlineDevice.Type = model.ClientTypeDevice
+	onlineDevice.DeviceID = "device-a"
+	h.RegisterDevice(onlineDevice)
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/auth/login", handler.LoginHandler(database, cfg))
 	mux.HandleFunc("/api/device/logs", handler.DeviceLogUploadHandler(cfg, database))
 	mux.HandleFunc("/admin/api/login", handler.AdminLoginHandler(database))
-	mux.HandleFunc("/admin/api/mobile-logs", handler.AdminMobileLogsHandler(cfg, database))
-	mux.HandleFunc("/admin/api/mobile-logs/", handler.AdminMobileLogsHandler(cfg, database))
+	mux.HandleFunc("/admin/api/mobile-logs", handler.AdminMobileLogsHandler(cfg, database, h))
+	mux.HandleFunc("/admin/api/mobile-logs/", handler.AdminMobileLogsHandler(cfg, database, h))
 	mux.HandleFunc("/admin/mobile-logs", handler.AdminMobileLogsPageHandler(cfg))
 	mux.HandleFunc("/admin/mobile-logs/", handler.AdminMobileLogsPageHandler(cfg))
 
@@ -209,7 +242,7 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 	if resp.StatusCode != http.StatusOK || !strings.Contains(string(pageBody), "Device Logs") {
 		t.Fatalf("unexpected mobile logs page response: status=%d", resp.StatusCode)
 	}
-	if !strings.Contains(string(pageBody), "log_id") || !strings.Contains(string(pageBody), "Copy Link") || !strings.Contains(string(pageBody), "history.replaceState") || !strings.Contains(string(pageBody), "Filter Text") || !strings.Contains(string(pageBody), "Filter Signal") || !strings.Contains(string(pageBody), "/admin/api/mobile-logs/overview") || !strings.Contains(string(pageBody), "Current Filter Overview") || !strings.Contains(string(pageBody), "Controller Recovery Panels") || !strings.Contains(string(pageBody), "Recovery Health") || !strings.Contains(string(pageBody), "signal_code") {
+	if !strings.Contains(string(pageBody), "log_id") || !strings.Contains(string(pageBody), "Copy Link") || !strings.Contains(string(pageBody), "history.replaceState") || !strings.Contains(string(pageBody), "Filter Text") || !strings.Contains(string(pageBody), "Filter Signal") || !strings.Contains(string(pageBody), "/admin/api/mobile-logs/overview") || !strings.Contains(string(pageBody), "Current Filter Overview") || !strings.Contains(string(pageBody), "Recovery Panels") || !strings.Contains(string(pageBody), "Recovery Health") || !strings.Contains(string(pageBody), "Live Presence") || !strings.Contains(string(pageBody), "signal_code") {
 		t.Fatalf("expected admin page to expose deep-link jump helpers, got %s", string(pageBody))
 	}
 
@@ -328,6 +361,15 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 	}
 	if !hasOverviewBucketValue(overview.TopTraceIDs, "trace-alpha-001") {
 		t.Fatalf("expected overview to expose top trace ids, got %+v", overview.TopTraceIDs)
+	}
+	if overview.PresenceSummary.MatchingAgents != 1 || overview.PresenceSummary.OnlineAgents != 1 || overview.PresenceSummary.MatchingDevices != 1 || overview.PresenceSummary.OnlineDevices != 1 {
+		t.Fatalf("expected overview to expose live presence summary, got %+v", overview.PresenceSummary)
+	}
+	if !hasOverviewPresence(overview.LivePresence, "agent", "agent-a", true, 3) {
+		t.Fatalf("expected overview to expose live agent presence, got %+v", overview.LivePresence)
+	}
+	if !hasOverviewPresence(overview.LivePresence, "device", "device-a", true, 3) {
+		t.Fatalf("expected overview to expose live device presence, got %+v", overview.LivePresence)
 	}
 	if len(overview.RecoveryPanels) != 7 {
 		t.Fatalf("expected overview to expose aggregated recovery panels, got %+v", overview.RecoveryPanels)
@@ -551,6 +593,24 @@ func hasOverviewRecoveryPanel(items []struct {
 			return false
 		}
 		return true
+	}
+	return false
+}
+
+func hasOverviewPresence(items []struct {
+	Kind         string `json:"kind"`
+	ID           string `json:"id"`
+	AgentID      string `json:"agent_id"`
+	Username     string `json:"username"`
+	Source       string `json:"source"`
+	Online       bool   `json:"online"`
+	LogCount     int    `json:"log_count"`
+	LastUploaded string `json:"last_uploaded"`
+}, kind, id string, online bool, logCount int) bool {
+	for _, item := range items {
+		if item.Kind == kind && item.ID == id && item.Online == online && item.LogCount == logCount {
+			return true
+		}
 	}
 	return false
 }
