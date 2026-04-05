@@ -98,7 +98,7 @@
 - 阶段一完成度约 `92%`
 - 阶段二完成度约 `92%`
 - 阶段三完成度约 `100%`
-- 阶段四完成度约 `95%`
+- 阶段四完成度约 `96%`
 
 ### 已完成
 
@@ -170,6 +170,7 @@
 - 服务端 device logs 分析已补桌面 follow-up 收口缺口：当 `Completed relay follow-up refresh` 已标记 `requestedActiveProjectSync=true`，但后续没有看到 active sync 请求或 remote snapshot 落地时，现在会直接命中 `desktop_remote_snapshot_gaps / desktop_resume_catchup_stalled`，减少“看起来连上了但聊天没刷新”的漏报
 - 服务端 device logs 分析已补安卓 post-auth 缺口：当前台恢复已出现 auth / reconnect 异常、前台 project sync 被跳过，且后续连 `Starting post-auth session sync` 都没出现时，现在也会直接命中 `post_auth_sync_incomplete / android_manual_reconnect_likely`，减少“后台回来后不刷新，只能手动重连”的漏报
 - 服务端 device logs 分析已补安卓 foreground project sync 显式失败规则：当前台 catalog 已刷新，但 `Failed to request project syncs on foreground` 仍然出现时，现在会单独命中 `foreground_project_sync_failures`，并把 `android_project_sync` 面板标成 warning，避免把“catalog 正常、消息补拉没发出去”继续混成笼统恢复慢
+- 服务端 device logs 分析已补安卓 foreground workgroup refresh 显式失败规则：当前台 catalog 已刷新、project sync 已发起，但 `Failed to refresh workgroups on foreground` 仍然出现时，现在会单独命中 `foreground_workgroup_refresh_failures`，并只把 `android_workgroup_refresh` 面板标成 warning，便于区分“项目聊天已补拉、但协作组线程仍旧没刷新”
 
 ### 进行中
 
@@ -183,7 +184,7 @@
 
 ### 下一刀
 
-1. 继续结合真实上传日志，补安卓前后台恢复链路里 workgroup refresh 显式失败和“catalog / project sync 正常但协作组刷新没跟上”的分析规则
+1. 继续结合真实上传日志，补安卓 post-auth 链路里 project sync / workgroup refresh 显式失败与部分恢复的分析规则
 2. 结合真实故障日志再细化 signal 权重和排序阈值，减少单条高频 scheduler 日志把真正的恢复问题挤下去
 3. 继续收敛阶段四，把日志诊断、device logs overview、connection snapshot、hotspot 聚类、一跳回查、signal 降噪排序、交叉筛选和客户端连接态观测串起来，减少只能靠上传日志定位的问题
 

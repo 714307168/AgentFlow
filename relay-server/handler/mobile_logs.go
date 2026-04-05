@@ -1294,6 +1294,8 @@ func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string, 
 	foregroundProjectSyncFailureCount := 0
 	foregroundProjectSyncFailureExamples := make([]string, 0, 3)
 	foregroundWorkgroupRefreshCount := 0
+	foregroundWorkgroupRefreshFailureCount := 0
+	foregroundWorkgroupRefreshFailureExamples := make([]string, 0, 3)
 	foregroundProjectSyncSkippedCount := 0
 	foregroundRecoveryFailureCount := 0
 	foregroundRecoveryExamples := make([]string, 0, 3)
@@ -1593,6 +1595,12 @@ func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string, 
 		if strings.Contains(lowerLine, "foreground workgroup refresh completed") {
 			foregroundWorkgroupRefreshCount++
 		}
+		if strings.Contains(lowerLine, "failed to refresh workgroups on foreground") {
+			foregroundWorkgroupRefreshFailureCount++
+			if len(foregroundWorkgroupRefreshFailureExamples) < 3 {
+				foregroundWorkgroupRefreshFailureExamples = append(foregroundWorkgroupRefreshFailureExamples, line)
+			}
+		}
 		if strings.Contains(lowerLine, "skipping foreground project sync because relay is not connected") {
 			foregroundProjectSyncSkippedCount++
 			if len(foregroundRecoveryExamples) < 3 {
@@ -1789,6 +1797,16 @@ func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string, 
 			Count:          foregroundProjectSyncFailureCount,
 			Recommendation: "Compare foreground session catalog refresh with the later project sync request call. If the catalog refreshed but project sync dispatch still failed, transport recovery finished only halfway and recent messages will stay stale until another catch-up path succeeds.",
 			Examples:       mergeExampleLists(4, foregroundProjectSyncFailureExamples, foregroundRecoveryExamples),
+		})
+	}
+
+	if foregroundSessionCatalogCount > 0 && foregroundProjectSyncRequestedCount > 0 && foregroundWorkgroupRefreshFailureCount > 0 {
+		signals = append(signals, mobileLogSignal{
+			Code:           "foreground_workgroup_refresh_failures",
+			Title:          "Foreground catalog and project sync recovered but workgroup refresh failed",
+			Count:          foregroundWorkgroupRefreshFailureCount,
+			Recommendation: "Compare foreground project sync dispatch with the later workgroup refresh call. If project sync already ran but workgroup refresh still failed, project chat may catch up while collaboration threads remain stale until another refresh path succeeds.",
+			Examples:       mergeExampleLists(4, foregroundWorkgroupRefreshFailureExamples, foregroundRecoveryExamples),
 		})
 	}
 
@@ -2010,6 +2028,8 @@ func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string, 
 				foregroundProjectSyncFailureCount,
 				foregroundProjectSyncFailureExamples,
 				foregroundWorkgroupRefreshCount,
+				foregroundWorkgroupRefreshFailureCount,
+				foregroundWorkgroupRefreshFailureExamples,
 				foregroundProjectSyncSkippedCount,
 				foregroundRecoveryFailureCount,
 				foregroundRecoveryExamples,
@@ -2215,6 +2235,8 @@ func signalPriority(code string) int {
 		return 250
 	case "foreground_project_sync_failures":
 		return 240
+	case "foreground_workgroup_refresh_failures":
+		return 230
 	case "auth_recovery_failures", "desktop_auth_recovery_failures", "websocket_failures", "session_sync_failures":
 		return 200
 	case "desktop_restart_recovery_residue", "desktop_recovery_jitter":
@@ -2349,6 +2371,8 @@ func buildAndroidRecoveryPanels(
 	foregroundProjectSyncFailureCount int,
 	foregroundProjectSyncFailureExamples []string,
 	foregroundWorkgroupRefreshCount int,
+	foregroundWorkgroupRefreshFailureCount int,
+	foregroundWorkgroupRefreshFailureExamples []string,
 	foregroundProjectSyncSkippedCount int,
 	foregroundRecoveryFailureCount int,
 	foregroundRecoveryExamples []string,
@@ -2366,6 +2390,7 @@ func buildAndroidRecoveryPanels(
 		foregroundProjectSyncRequestedCount == 0 &&
 		foregroundProjectSyncFailureCount == 0 &&
 		foregroundWorkgroupRefreshCount == 0 &&
+		foregroundWorkgroupRefreshFailureCount == 0 &&
 		foregroundProjectSyncSkippedCount == 0 &&
 		foregroundRecoveryFailureCount == 0 &&
 		postAuthSyncStartCount == 0 &&
@@ -2428,10 +2453,15 @@ func buildAndroidRecoveryPanels(
 	workgroupSummary := "No Android workgroup refresh was observed in this log window."
 	workgroupSignalCode := ""
 	workgroupExamplesOut := []string(nil)
-	if foregroundWorkgroupRefreshCount > 0 || postAuthWorkgroupRefreshCount > 0 || foregroundRecoveryPassCount > 0 || postAuthSyncStartCount > 0 {
+	if foregroundWorkgroupRefreshCount > 0 || foregroundWorkgroupRefreshFailureCount > 0 || postAuthWorkgroupRefreshCount > 0 || foregroundRecoveryPassCount > 0 || postAuthSyncStartCount > 0 {
 		workgroupStatus = "healthy"
-		workgroupSummary = fmt.Sprintf("Foreground workgroup refreshes=%d, post-auth workgroup refreshes=%d.", foregroundWorkgroupRefreshCount, postAuthWorkgroupRefreshCount)
-		if (foregroundRecoveryPassCount > 0 && foregroundWorkgroupRefreshCount == 0) || (postAuthSyncStartCount > 0 && postAuthWorkgroupRefreshCount < postAuthSyncStartCount) {
+		workgroupSummary = fmt.Sprintf("Foreground workgroup refreshes=%d, foreground workgroup refresh failures=%d, post-auth workgroup refreshes=%d.", foregroundWorkgroupRefreshCount, foregroundWorkgroupRefreshFailureCount, postAuthWorkgroupRefreshCount)
+		if foregroundWorkgroupRefreshFailureCount > 0 {
+			workgroupStatus = "warning"
+			workgroupSignalCode = "foreground_workgroup_refresh_failures"
+			workgroupExamplesOut = mergeExampleLists(4, foregroundWorkgroupRefreshFailureExamples, foregroundRecoveryExamples)
+			workgroupSummary = fmt.Sprintf("Foreground project sync recovered, but workgroup refresh failed %d time(s).", foregroundWorkgroupRefreshFailureCount)
+		} else if (foregroundRecoveryPassCount > 0 && foregroundWorkgroupRefreshCount == 0) || (postAuthSyncStartCount > 0 && postAuthWorkgroupRefreshCount < postAuthSyncStartCount) {
 			workgroupStatus = "warning"
 			workgroupSignalCode = "foreground_recovery_follow_up_gaps"
 			workgroupExamplesOut = mergeExampleLists(4, foregroundRecoveryExamples, postAuthSyncExamples)
