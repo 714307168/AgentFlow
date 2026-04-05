@@ -103,16 +103,20 @@ type uploadedMobileLogOverview struct {
 			LogCount int    `json:"log_count"`
 		} `json:"freeform_notes"`
 		Hotspots []struct {
-			AgentState      string `json:"agent_state"`
-			ControllerState string `json:"controller_state"`
-			Host            string `json:"host"`
-			Platform        string `json:"platform"`
-			LogCount        int    `json:"log_count"`
-			LogsWithSignals int    `json:"logs_with_signals"`
-			CriticalCount   int    `json:"critical_count"`
-			WarningCount    int    `json:"warning_count"`
-			TopSignalCode   string `json:"top_signal_code"`
-			TopSignalTitle  string `json:"top_signal_title"`
+			AgentState       string `json:"agent_state"`
+			ControllerState  string `json:"controller_state"`
+			Host             string `json:"host"`
+			Platform         string `json:"platform"`
+			LogCount         int    `json:"log_count"`
+			LogsWithSignals  int    `json:"logs_with_signals"`
+			CriticalCount    int    `json:"critical_count"`
+			WarningCount     int    `json:"warning_count"`
+			TopSignalCode    string `json:"top_signal_code"`
+			TopSignalTitle   string `json:"top_signal_title"`
+			TopTraceID       string `json:"top_trace_id"`
+			TopWorkgroupID   string `json:"top_workgroup_id"`
+			TopTaskID        string `json:"top_task_id"`
+			TopDispatchRunID string `json:"top_dispatch_run_id"`
 		} `json:"hotspots"`
 	} `json:"connection_summary"`
 	LivePresence []struct {
@@ -425,7 +429,7 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 	if !hasOverviewConnectionItem(overview.ConnectionSummary.FreeformNotes, "Uploaded from Android settings diagnostics.", 1) {
 		t.Fatalf("expected overview to expose freeform connection note, got %+v", overview.ConnectionSummary.FreeformNotes)
 	}
-	if !hasConnectionHotspot(overview.ConnectionSummary.Hotspots, "connected", "connected", "test-host", "linux", 1, 1, 1, 1, "desktop_resume_catchup_stalled") {
+	if !hasConnectionHotspot(overview.ConnectionSummary.Hotspots, "connected", "connected", "test-host", "linux", 1, 1, 1, 1, "desktop_resume_catchup_stalled", "trace-desktop-003", "desktop-workgroup", "task-1", "dispatch-run-7") {
 		t.Fatalf("expected overview to expose connection hotspot, got %+v", overview.ConnectionSummary.Hotspots)
 	}
 	if !hasOverviewPresence(overview.LivePresence, "agent", "agent-a", true, 3) {
@@ -584,7 +588,7 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 	if !hasOverviewConnectionItem(desktopOverview.ConnectionSummary.ControllerStates, "connected", 1) {
 		t.Fatalf("expected desktop overview to expose controller state, got %+v", desktopOverview.ConnectionSummary.ControllerStates)
 	}
-	if !hasConnectionHotspot(desktopOverview.ConnectionSummary.Hotspots, "connected", "connected", "test-host", "linux", 1, 1, 1, 1, "desktop_resume_catchup_stalled") {
+	if !hasConnectionHotspot(desktopOverview.ConnectionSummary.Hotspots, "connected", "connected", "test-host", "linux", 1, 1, 1, 1, "desktop_resume_catchup_stalled", "trace-desktop-003", "desktop-workgroup", "task-1", "dispatch-run-7") {
 		t.Fatalf("expected desktop overview to expose hotspot correlation, got %+v", desktopOverview.ConnectionSummary.Hotspots)
 	}
 	if len(desktopOverview.TopSignals) == 0 || desktopOverview.TopSignals[0].Code != "desktop_resume_catchup_stalled" {
@@ -712,17 +716,21 @@ func hasOverviewConnectionItem(items []struct {
 }
 
 func hasConnectionHotspot(items []struct {
-	AgentState      string `json:"agent_state"`
-	ControllerState string `json:"controller_state"`
-	Host            string `json:"host"`
-	Platform        string `json:"platform"`
-	LogCount        int    `json:"log_count"`
-	LogsWithSignals int    `json:"logs_with_signals"`
-	CriticalCount   int    `json:"critical_count"`
-	WarningCount    int    `json:"warning_count"`
-	TopSignalCode   string `json:"top_signal_code"`
-	TopSignalTitle  string `json:"top_signal_title"`
-}, agentState, controllerState, host, platform string, logCount, logsWithSignals, criticalCount, warningCount int, topSignalCode string) bool {
+	AgentState       string `json:"agent_state"`
+	ControllerState  string `json:"controller_state"`
+	Host             string `json:"host"`
+	Platform         string `json:"platform"`
+	LogCount         int    `json:"log_count"`
+	LogsWithSignals  int    `json:"logs_with_signals"`
+	CriticalCount    int    `json:"critical_count"`
+	WarningCount     int    `json:"warning_count"`
+	TopSignalCode    string `json:"top_signal_code"`
+	TopSignalTitle   string `json:"top_signal_title"`
+	TopTraceID       string `json:"top_trace_id"`
+	TopWorkgroupID   string `json:"top_workgroup_id"`
+	TopTaskID        string `json:"top_task_id"`
+	TopDispatchRunID string `json:"top_dispatch_run_id"`
+}, agentState, controllerState, host, platform string, logCount, logsWithSignals, criticalCount, warningCount int, topSignalCode string, topTraceID string, topWorkgroupID string, topTaskID string, topDispatchRunID string) bool {
 	for _, item := range items {
 		if item.AgentState == agentState &&
 			item.ControllerState == controllerState &&
@@ -732,7 +740,11 @@ func hasConnectionHotspot(items []struct {
 			item.LogsWithSignals == logsWithSignals &&
 			item.CriticalCount == criticalCount &&
 			item.WarningCount == warningCount &&
-			item.TopSignalCode == topSignalCode {
+			item.TopSignalCode == topSignalCode &&
+			item.TopTraceID == topTraceID &&
+			item.TopWorkgroupID == topWorkgroupID &&
+			item.TopTaskID == topTaskID &&
+			item.TopDispatchRunID == topDispatchRunID {
 			return true
 		}
 	}

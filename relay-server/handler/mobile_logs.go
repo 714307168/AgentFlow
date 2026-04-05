@@ -190,6 +190,10 @@ type connectionHotspotAccumulator struct {
 	WarningCount    int
 	SignalTotals    map[string]int
 	SignalTitles    map[string]string
+	TraceTotals     map[string]int
+	WorkgroupTotals map[string]int
+	TaskTotals      map[string]int
+	DispatchTotals  map[string]int
 }
 
 type mobileLogOverviewConnectionSummary struct {
@@ -205,16 +209,20 @@ type mobileLogOverviewConnectionSummary struct {
 }
 
 type mobileLogOverviewConnectionHotspot struct {
-	AgentState      string `json:"agent_state,omitempty"`
-	ControllerState string `json:"controller_state,omitempty"`
-	Host            string `json:"host,omitempty"`
-	Platform        string `json:"platform,omitempty"`
-	LogCount        int    `json:"log_count"`
-	LogsWithSignals int    `json:"logs_with_signals"`
-	CriticalCount   int    `json:"critical_count"`
-	WarningCount    int    `json:"warning_count"`
-	TopSignalCode   string `json:"top_signal_code,omitempty"`
-	TopSignalTitle  string `json:"top_signal_title,omitempty"`
+	AgentState       string `json:"agent_state,omitempty"`
+	ControllerState  string `json:"controller_state,omitempty"`
+	Host             string `json:"host,omitempty"`
+	Platform         string `json:"platform,omitempty"`
+	LogCount         int    `json:"log_count"`
+	LogsWithSignals  int    `json:"logs_with_signals"`
+	CriticalCount    int    `json:"critical_count"`
+	WarningCount     int    `json:"warning_count"`
+	TopSignalCode    string `json:"top_signal_code,omitempty"`
+	TopSignalTitle   string `json:"top_signal_title,omitempty"`
+	TopTraceID       string `json:"top_trace_id,omitempty"`
+	TopWorkgroupID   string `json:"top_workgroup_id,omitempty"`
+	TopTaskID        string `json:"top_task_id,omitempty"`
+	TopDispatchRunID string `json:"top_dispatch_run_id,omitempty"`
 }
 
 type mobileLogOverviewResponse struct {
@@ -766,7 +774,7 @@ func buildMobileLogOverview(records []storedMobileLogMetadata, storageDir string
 		item.LogCount++
 	}
 	connectionHotspotTotals := make(map[string]*connectionHotspotAccumulator)
-	updateConnectionHotspot := func(fields map[string]string, analysis mobileLogAnalysisResponse) {
+	updateConnectionHotspot := func(fields map[string]string, analysis mobileLogAnalysisResponse, traceIDs []string, workgroupIDs []string, taskIDs []string, dispatchRunIDs []string) {
 		if len(fields) == 0 {
 			return
 		}
@@ -789,6 +797,10 @@ func buildMobileLogOverview(records []storedMobileLogMetadata, storageDir string
 				Platform:        platform,
 				SignalTotals:    make(map[string]int),
 				SignalTitles:    make(map[string]string),
+				TraceTotals:     make(map[string]int),
+				WorkgroupTotals: make(map[string]int),
+				TaskTotals:      make(map[string]int),
+				DispatchTotals:  make(map[string]int),
 			}
 			connectionHotspotTotals[key] = item
 		}
@@ -816,6 +828,30 @@ func buildMobileLogOverview(records []storedMobileLogMetadata, storageDir string
 			item.SignalTotals[signal.Code] += signal.Count
 			if item.SignalTitles[signal.Code] == "" && strings.TrimSpace(signal.Title) != "" {
 				item.SignalTitles[signal.Code] = signal.Title
+			}
+		}
+		for _, value := range traceIDs {
+			cleanValue := strings.TrimSpace(value)
+			if cleanValue != "" {
+				item.TraceTotals[cleanValue]++
+			}
+		}
+		for _, value := range workgroupIDs {
+			cleanValue := strings.TrimSpace(value)
+			if cleanValue != "" {
+				item.WorkgroupTotals[cleanValue]++
+			}
+		}
+		for _, value := range taskIDs {
+			cleanValue := strings.TrimSpace(value)
+			if cleanValue != "" {
+				item.TaskTotals[cleanValue]++
+			}
+		}
+		for _, value := range dispatchRunIDs {
+			cleanValue := strings.TrimSpace(value)
+			if cleanValue != "" {
+				item.DispatchTotals[cleanValue]++
 			}
 		}
 	}
@@ -885,7 +921,7 @@ func buildMobileLogOverview(records []storedMobileLogMetadata, storageDir string
 				updateConnectionCount(controllerStateTotals, fields["controller"], true)
 				updateConnectionCount(hostTotals, fields["host"], false)
 				updateConnectionCount(platformTotals, fields["platform"], true)
-				updateConnectionHotspot(fields, analysis)
+				updateConnectionHotspot(fields, analysis, traceIDs, workgroupIDs, taskIDs, dispatchRunIDs)
 			}
 			if freeform != "" {
 				connectionSummary.FreeformLogs++
@@ -1135,17 +1171,25 @@ func buildConnectionHotspots(values map[string]*connectionHotspotAccumulator, li
 				topSignalWeight = weight
 			}
 		}
+		topTraceID := topConnectionHotspotValue(value.TraceTotals)
+		topWorkgroupID := topConnectionHotspotValue(value.WorkgroupTotals)
+		topTaskID := topConnectionHotspotValue(value.TaskTotals)
+		topDispatchRunID := topConnectionHotspotValue(value.DispatchTotals)
 		items = append(items, mobileLogOverviewConnectionHotspot{
-			AgentState:      value.AgentState,
-			ControllerState: value.ControllerState,
-			Host:            value.Host,
-			Platform:        value.Platform,
-			LogCount:        value.LogCount,
-			LogsWithSignals: value.LogsWithSignals,
-			CriticalCount:   value.CriticalCount,
-			WarningCount:    value.WarningCount,
-			TopSignalCode:   topSignalCode,
-			TopSignalTitle:  topSignalTitle,
+			AgentState:       value.AgentState,
+			ControllerState:  value.ControllerState,
+			Host:             value.Host,
+			Platform:         value.Platform,
+			LogCount:         value.LogCount,
+			LogsWithSignals:  value.LogsWithSignals,
+			CriticalCount:    value.CriticalCount,
+			WarningCount:     value.WarningCount,
+			TopSignalCode:    topSignalCode,
+			TopSignalTitle:   topSignalTitle,
+			TopTraceID:       topTraceID,
+			TopWorkgroupID:   topWorkgroupID,
+			TopTaskID:        topTaskID,
+			TopDispatchRunID: topDispatchRunID,
 		})
 	}
 	sort.Slice(items, func(i, j int) bool {
@@ -1167,6 +1211,18 @@ func buildConnectionHotspots(values map[string]*connectionHotspotAccumulator, li
 		return items[:limit]
 	}
 	return items
+}
+
+func topConnectionHotspotValue(values map[string]int) string {
+	bestValue := ""
+	bestCount := 0
+	for value, count := range values {
+		if bestValue == "" || count > bestCount || (count == bestCount && value < bestValue) {
+			bestValue = value
+			bestCount = count
+		}
+	}
+	return bestValue
 }
 
 func sanitizeOriginalName(name string) string {
@@ -3158,6 +3214,18 @@ function renderConnectionHotspots(items) {
     }
     if (item.platform) {
       chips.push('<button type="button" class="chip actionable" data-filter-kind="platform" data-filter-value="' + esc(item.platform) + '">platform=' + esc(item.platform) + '</button>');
+    }
+    if (item.top_trace_id) {
+      chips.push('<button type="button" class="chip actionable" data-filter-kind="trace_id" data-filter-value="' + esc(item.top_trace_id) + '">trace_id=' + esc(item.top_trace_id) + '</button>');
+    }
+    if (item.top_workgroup_id) {
+      chips.push('<button type="button" class="chip actionable" data-filter-kind="workgroup_id" data-filter-value="' + esc(item.top_workgroup_id) + '">workgroup_id=' + esc(item.top_workgroup_id) + '</button>');
+    }
+    if (item.top_task_id) {
+      chips.push('<button type="button" class="chip actionable" data-filter-kind="task_id" data-filter-value="' + esc(item.top_task_id) + '">task_id=' + esc(item.top_task_id) + '</button>');
+    }
+    if (item.top_dispatch_run_id) {
+      chips.push('<button type="button" class="chip actionable" data-filter-kind="dispatch_run_id" data-filter-value="' + esc(item.top_dispatch_run_id) + '">dispatch_run_id=' + esc(item.top_dispatch_run_id) + '</button>');
     }
     const right = [
       '<span class="chip">logs ' + esc(item.log_count || 0) + '</span>',
