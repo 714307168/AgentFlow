@@ -97,7 +97,7 @@
 
 - 阶段一完成度约 `92%`
 - 阶段二完成度约 `92%`
-- 阶段三完成度约 `92%`
+- 阶段三完成度约 `93%`
 - 阶段四完成度约 `86%`
 
 ### 已完成
@@ -153,17 +153,18 @@
 - 安卓前后台恢复链路已补“开始 foreground recovery / foreground sync / session catalog refreshed / project sync requested / workgroup refresh completed”锚点，服务端可直接定位恢复后到底断在认证、catalog、补拉还是 workgroup 刷新
 - 安卓认证恢复与 post-auth 同步链路已补显式锚点，服务端日志分析可新增聚类：`auth_recovery_failures` / `foreground_recovery_follow_up_gaps` / `post_auth_sync_incomplete`
 - 桌面端 controller follow-up refresh 与 remote catalog 更新链路已补显式锚点，服务端日志分析可新增聚类：`desktop_auth_recovery_failures` / `desktop_catalog_refresh_gaps`
+- 服务端日志分析页已补 URL 深链与一键回查：当前筛选和 `log_id` 会写入地址栏，`traceId / workgroupId / taskId / dispatchRunId` 可直接点进过滤后的诊断视图，便于分享和回放同一组日志上下文
 
 ### 进行中
 
 - 基于真实上传日志继续补桌面 / 安卓恢复链路的诊断规则
-- 继续扩分析页联动能力，把 traceId / taskId / dispatchRunId 回查做成一键跳转
+- 继续补恢复链路诊断字段，把 controller catalog 请求和 session snapshot 命中做成更细的收口统计
 
 ### 下一刀
 
-1. 把分析页的 traceId / taskId / dispatchRunId 做成一键回查和联动跳转
-2. 继续补恢复链路诊断字段，把 controller catalog 请求和 session snapshot 命中做成更细的收口统计
-3. 结合真实上传日志，再补一轮桌面 / 安卓重连与补拉问题的分析规则
+1. 继续补恢复链路诊断字段，把 controller catalog 请求和 session snapshot 命中做成更细的收口统计
+2. 结合真实上传日志，再补一轮桌面 / 安卓重连与补拉问题的分析规则
+3. 再补分析页针对 signal / example 的联动入口，减少手工比对日志正文
 
 ## 5. 后续顺序
 

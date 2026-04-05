@@ -1421,6 +1421,7 @@ const mobileLogsAdminHTML = `<!DOCTYPE html>
     border: 1px solid rgba(111,87,55,0.12);
     border-radius: 16px;
     padding: 14px;
+    cursor: pointer;
   }
   .item.active {
     border-color: rgba(15,106,91,0.35);
@@ -1471,6 +1472,27 @@ const mobileLogsAdminHTML = `<!DOCTYPE html>
   .chip.actionable {
     cursor: pointer;
   }
+  .toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 14px;
+  }
+  .toolbar-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .inline-link {
+    color: var(--accent);
+    text-decoration: none;
+    font-size: 12px;
+  }
+  .inline-link:hover {
+    text-decoration: underline;
+  }
   .empty {
     padding: 28px 16px;
     text-align: center;
@@ -1506,6 +1528,8 @@ const mobileLogsAdminHTML = `<!DOCTYPE html>
       </div>
       <div class="actions">
         <a class="btn ghost" href="/admin">Back to Admin</a>
+        <button class="btn ghost" type="button" id="clearFiltersBtn">Clear Filters</button>
+        <button class="btn ghost" type="button" id="copyLinkBtn">Copy Link</button>
         <button class="btn primary" type="button" id="refreshBtn">Refresh</button>
       </div>
     </div>
@@ -1513,6 +1537,7 @@ const mobileLogsAdminHTML = `<!DOCTYPE html>
       <section class="card list-panel">
         <h2 style="margin:0 0 6px;">Uploaded Logs</h2>
         <p class="muted" style="margin:0 0 14px;">Newest first. Source, trace, and workgroup chips help pivot quickly.</p>
+        <div id="activeFilters"></div>
         <div class="list" id="logList"></div>
       </section>
       <section class="card detail-panel">
@@ -1577,6 +1602,50 @@ function buildListUrl() {
   return "/admin/api/mobile-logs" + (query ? ("?" + query) : "");
 }
 
+function buildPageUrl(overrides = {}) {
+  const params = new URLSearchParams();
+  const filters = Object.assign({}, state.filters, overrides.filters || {});
+  if (filters.q) params.set("q", filters.q);
+  if (filters.source) params.set("source", filters.source);
+  if (filters.trace_id) params.set("trace_id", filters.trace_id);
+  if (filters.workgroup_id) params.set("workgroup_id", filters.workgroup_id);
+  if (filters.task_id) params.set("task_id", filters.task_id);
+  if (filters.dispatch_run_id) params.set("dispatch_run_id", filters.dispatch_run_id);
+  const selectedId = overrides.selectedId !== undefined ? overrides.selectedId : state.selectedId;
+  if (selectedId) params.set("log_id", selectedId);
+  const query = params.toString();
+  return "/admin/mobile-logs" + (query ? ("?" + query) : "");
+}
+
+function syncInputsFromState() {
+  document.getElementById("queryInput").value = state.filters.q || "";
+  document.getElementById("sourceInput").value = state.filters.source || "";
+  document.getElementById("traceInput").value = state.filters.trace_id || "";
+  document.getElementById("workgroupInput").value = state.filters.workgroup_id || "";
+  document.getElementById("taskInput").value = state.filters.task_id || "";
+  document.getElementById("dispatchRunInput").value = state.filters.dispatch_run_id || "";
+}
+
+function loadStateFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  state.filters.q = params.get("q") || "";
+  state.filters.source = params.get("source") || "";
+  state.filters.trace_id = params.get("trace_id") || "";
+  state.filters.workgroup_id = params.get("workgroup_id") || "";
+  state.filters.task_id = params.get("task_id") || "";
+  state.filters.dispatch_run_id = params.get("dispatch_run_id") || "";
+  state.selectedId = params.get("log_id") || "";
+  syncInputsFromState();
+}
+
+function syncUrlState() {
+  const nextUrl = buildPageUrl();
+  const currentUrl = window.location.pathname + window.location.search;
+  if (nextUrl !== currentUrl) {
+    window.history.replaceState(null, "", nextUrl);
+  }
+}
+
 function renderChips(values, kind) {
   if (!Array.isArray(values) || values.length === 0) {
     return '<div class="muted">-</div>';
@@ -1586,27 +1655,69 @@ function renderChips(values, kind) {
   ).join("") + '</div>';
 }
 
+function applyFilter(kind, value) {
+  if (kind === "trace_id") {
+    state.filters.trace_id = value;
+  } else if (kind === "workgroup_id") {
+    state.filters.workgroup_id = value;
+  } else if (kind === "task_id") {
+    state.filters.task_id = value;
+  } else if (kind === "dispatch_run_id") {
+    state.filters.dispatch_run_id = value;
+  }
+  syncInputsFromState();
+}
+
 function bindFilterChipHandlers(root) {
   root.querySelectorAll("[data-filter-kind]").forEach((button) => {
-    button.addEventListener("click", async () => {
+    button.addEventListener("click", async (event) => {
+      event.stopPropagation();
       const kind = button.getAttribute("data-filter-kind");
       const value = button.getAttribute("data-filter-value") || "";
-      if (kind === "trace_id") {
-        state.filters.trace_id = value;
-        document.getElementById("traceInput").value = value;
-      } else if (kind === "workgroup_id") {
-        state.filters.workgroup_id = value;
-        document.getElementById("workgroupInput").value = value;
-      } else if (kind === "task_id") {
-        state.filters.task_id = value;
-        document.getElementById("taskInput").value = value;
-      } else if (kind === "dispatch_run_id") {
-        state.filters.dispatch_run_id = value;
-        document.getElementById("dispatchRunInput").value = value;
-      }
+      applyFilter(kind, value);
       await refresh();
     });
   });
+}
+
+function renderActiveFilters() {
+  const root = document.getElementById("activeFilters");
+  const items = [];
+  if (state.filters.q) items.push({ label: "q", value: state.filters.q });
+  if (state.filters.source) items.push({ label: "source", value: state.filters.source });
+  if (state.filters.trace_id) items.push({ label: "trace_id", value: state.filters.trace_id });
+  if (state.filters.workgroup_id) items.push({ label: "workgroup_id", value: state.filters.workgroup_id });
+  if (state.filters.task_id) items.push({ label: "task_id", value: state.filters.task_id });
+  if (state.filters.dispatch_run_id) items.push({ label: "dispatch_run_id", value: state.filters.dispatch_run_id });
+  if (items.length === 0) {
+    root.innerHTML = "";
+    return;
+  }
+  root.innerHTML = '<div class="toolbar"><div><strong>Active Filters</strong>' +
+    '<div class="chips">' + items.map((item) =>
+      '<span class="chip">' + esc(item.label) + ' = ' + esc(item.value) + '</span>'
+    ).join("") + '</div></div>' +
+    '<div class="toolbar-actions"><a class="inline-link" href="' + esc(buildPageUrl()) + '">Open Current View</a></div></div>';
+}
+
+function renderItemJumpLinks(item) {
+  const links = [];
+  if (Array.isArray(item.trace_ids) && item.trace_ids[0]) {
+    links.push('<button type="button" class="chip actionable" data-filter-kind="trace_id" data-filter-value="' + esc(item.trace_ids[0]) + '">trace_id: ' + esc(item.trace_ids[0]) + '</button>');
+  }
+  if (Array.isArray(item.workgroup_ids) && item.workgroup_ids[0]) {
+    links.push('<button type="button" class="chip actionable" data-filter-kind="workgroup_id" data-filter-value="' + esc(item.workgroup_ids[0]) + '">workgroup_id: ' + esc(item.workgroup_ids[0]) + '</button>');
+  }
+  if (Array.isArray(item.task_ids) && item.task_ids[0]) {
+    links.push('<button type="button" class="chip actionable" data-filter-kind="task_id" data-filter-value="' + esc(item.task_ids[0]) + '">task_id: ' + esc(item.task_ids[0]) + '</button>');
+  }
+  if (Array.isArray(item.dispatch_run_ids) && item.dispatch_run_ids[0]) {
+    links.push('<button type="button" class="chip actionable" data-filter-kind="dispatch_run_id" data-filter-value="' + esc(item.dispatch_run_ids[0]) + '">dispatch_run_id: ' + esc(item.dispatch_run_ids[0]) + '</button>');
+  }
+  if (links.length === 0) {
+    return "";
+  }
+  return '<div class="chips" style="margin-top:8px;">' + links.join("") + '</div>';
 }
 
 function renderList() {
@@ -1617,20 +1728,24 @@ function renderList() {
   }
   root.innerHTML = state.logs.map((item) => {
     const active = item.id === state.selectedId ? "active" : "";
-    return '<button type="button" class="item ' + active + '" data-id="' + esc(item.id) + '">' +
+    return '<div class="item ' + active + '" data-id="' + esc(item.id) + '" role="button" tabindex="0">' +
       '<div><strong>' + esc(item.original_name || item.id) + '</strong></div>' +
-      '<div class="muted">User ' + esc(item.username) + ' ? Device ' + esc(item.device_id) + '</div>' +
-      '<div class="muted">' + esc((item.source || "-").toUpperCase()) + ' ? ' + esc(item.app_version || "-") + ' ? ' + esc(item.uploaded_at || "-") + '</div>' +
-      (Array.isArray(item.trace_ids) && item.trace_ids.length > 0 ? '<div class="muted">trace_id · ' + esc(item.trace_ids[0]) + '</div>' : '') +
-      (Array.isArray(item.workgroup_ids) && item.workgroup_ids.length > 0 ? '<div class="muted">workgroup_id · ' + esc(item.workgroup_ids[0]) + '</div>' : '') +
-      (Array.isArray(item.task_ids) && item.task_ids.length > 0 ? '<div class="muted">task_id · ' + esc(item.task_ids[0]) + '</div>' : '') +
-      (Array.isArray(item.dispatch_run_ids) && item.dispatch_run_ids.length > 0 ? '<div class="muted">dispatch_run_id · ' + esc(item.dispatch_run_ids[0]) + '</div>' : '') +
+      '<div class="muted">User ' + esc(item.username) + ' | Device ' + esc(item.device_id) + '</div>' +
+      '<div class="muted">' + esc((item.source || "-").toUpperCase()) + ' | ' + esc(item.app_version || "-") + ' | ' + esc(item.uploaded_at || "-") + '</div>' +
+      renderItemJumpLinks(item) +
       '<div class="muted">' + esc(fmtBytes(item.size_bytes)) + '</div>' +
-      '</button>';
+      '</div>';
   }).join("");
   root.querySelectorAll("[data-id]").forEach((button) => {
     button.addEventListener("click", () => selectLog(button.getAttribute("data-id")));
+    button.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        selectLog(button.getAttribute("data-id"));
+      }
+    });
   });
+  bindFilterChipHandlers(root);
 }
 
 function renderMeta() {
@@ -1657,7 +1772,8 @@ function renderMeta() {
     '<div><div class="meta-label">Original File</div><div>' + esc(meta.original_name) + '</div></div>' +
     '<div><div class="meta-label">Size / SHA256</div><div class="mono">' + esc(fmtBytes(meta.size_bytes)) + '
 ' + esc(meta.sha256) + '</div></div>' +
-    '</div>';
+    '</div>' +
+    '<div class="toolbar" style="margin-top:14px;"><div class="muted">Deep link to the current log and filters.</div><div class="toolbar-actions"><a class="inline-link" href="' + esc(buildPageUrl()) + '">Open Current View</a></div></div>';
 }
 
 function renderAnalysis() {
@@ -1693,6 +1809,7 @@ function renderContent() {
 
 async function selectLog(id) {
   state.selectedId = id;
+  syncUrlState();
   renderList();
   state.detail = await api('/admin/api/mobile-logs/' + encodeURIComponent(id));
   state.analysis = await api('/admin/api/mobile-logs/' + encodeURIComponent(id) + '/analysis');
@@ -1710,6 +1827,8 @@ async function refresh() {
   if (!state.selectedId && state.logs.length > 0) {
     state.selectedId = state.logs[0].id;
   }
+  syncUrlState();
+  renderActiveFilters();
   renderList();
   if (state.selectedId) {
     await selectLog(state.selectedId);
@@ -1723,6 +1842,19 @@ async function refresh() {
 }
 
 document.getElementById('refreshBtn').addEventListener('click', () => { void refresh(); });
+document.getElementById('clearFiltersBtn').addEventListener('click', () => {
+  state.filters = { q: "", source: "", trace_id: "", workgroup_id: "", task_id: "", dispatch_run_id: "" };
+  syncInputsFromState();
+  void refresh();
+});
+document.getElementById('copyLinkBtn').addEventListener('click', async () => {
+  const absoluteUrl = window.location.origin + buildPageUrl();
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    await navigator.clipboard.writeText(absoluteUrl);
+  } else {
+    window.prompt("Copy log view link", absoluteUrl);
+  }
+});
 document.getElementById('queryInput').addEventListener('change', (event) => {
   state.filters.q = event.target.value.trim();
   void refresh();
@@ -1747,6 +1879,11 @@ document.getElementById('dispatchRunInput').addEventListener('change', (event) =
   state.filters.dispatch_run_id = event.target.value.trim();
   void refresh();
 });
+window.addEventListener('popstate', () => {
+  loadStateFromUrl();
+  void refresh();
+});
+loadStateFromUrl();
 void refresh();
 </script>
 </body>
