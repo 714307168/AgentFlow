@@ -84,6 +84,22 @@ class WorkgroupTaskScheduler {
     });
   }
 
+  private buildTaskLogMeta(task: WorkgroupTask, extra: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      taskId: task.id,
+      workgroupId: task.workgroupId,
+      assigneeMemberId: task.assigneeMemberId ?? null,
+      dispatchProjectId: task.dispatchProjectId ?? null,
+      dispatchRunId: task.dispatchRunId ?? null,
+      status: task.status,
+      scheduleType: task.scheduleType ?? null,
+      scheduleEnabled: task.scheduleEnabled !== false,
+      nextRunAt: task.nextRunAt ?? null,
+      lastDispatchAt: task.lastDispatchAt ?? null,
+      ...extra,
+    };
+  }
+
   private reconcileTasks(reason: string): void {
     let changed = false;
     for (const task of workgroupStore.listTasks()) {
@@ -141,12 +157,9 @@ class WorkgroupTaskScheduler {
     }
 
     this.inFlightTaskIds.add(task.id);
-    appLogger.info("scheduler", "Queued scheduled workgroup task.", {
-      taskId: latestTask.id,
-      workgroupId: latestTask.workgroupId,
+    appLogger.info("scheduler", "Queued scheduled workgroup task.", this.buildTaskLogMeta(latestTask, {
       trigger,
-      scheduleType: latestTask.scheduleType,
-    });
+    }));
 
     try {
       const result = await this.config.dispatchTask(latestTask.id);
@@ -164,26 +177,23 @@ class WorkgroupTaskScheduler {
           lastDispatchResult: result.error || "Scheduled workgroup task dispatch failed.",
           nextRunAt,
         });
-        appLogger.warn("scheduler", "Scheduled workgroup task failed.", {
-          taskId: persisted.id,
-          workgroupId: persisted.workgroupId,
+        appLogger.warn("scheduler", "Scheduled workgroup task failed.", this.buildTaskLogMeta(persisted, {
           trigger,
           error: result.error || "Scheduled workgroup task dispatch failed.",
-        });
+          nextRunAt,
+          disabled: shouldDisable,
+        }));
       } else {
         workgroupStore.saveTask({
           ...persisted,
           scheduleEnabled: shouldDisable ? false : persisted.scheduleEnabled !== false,
           nextRunAt,
         });
-        appLogger.info("scheduler", "Scheduled workgroup task dispatched.", {
-          taskId: persisted.id,
-          workgroupId: persisted.workgroupId,
+        appLogger.info("scheduler", "Scheduled workgroup task dispatched.", this.buildTaskLogMeta(persisted, {
           trigger,
-          scheduleType: persisted.scheduleType,
           nextRunAt,
           disabled: shouldDisable,
-        });
+        }));
       }
     } finally {
       this.inFlightTaskIds.delete(task.id);

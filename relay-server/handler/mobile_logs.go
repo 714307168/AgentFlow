@@ -489,8 +489,16 @@ func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string) 
 	schedulerRetryExamples := make([]string, 0, 3)
 	workgroupSchedulerFailedCount := 0
 	workgroupSchedulerRepeatFailureCount := 0
+	workgroupSchedulerConfigFailureCount := 0
+	workgroupSchedulerBlockedFailureCount := 0
+	workgroupSchedulerMemberUnavailableCount := 0
+	workgroupSchedulerDispatchFailureCount := 0
 	workgroupSchedulerFailureExamples := make([]string, 0, 3)
 	workgroupSchedulerRepeatExamples := make([]string, 0, 3)
+	workgroupSchedulerConfigExamples := make([]string, 0, 3)
+	workgroupSchedulerBlockedExamples := make([]string, 0, 3)
+	workgroupSchedulerMemberUnavailableExamples := make([]string, 0, 3)
+	workgroupSchedulerDispatchFailureExamples := make([]string, 0, 3)
 	workgroupSchedulerFailuresByTaskID := map[string]int{}
 
 	type signalPattern struct {
@@ -642,6 +650,28 @@ func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string) 
 			if len(workgroupSchedulerFailureExamples) < 3 {
 				workgroupSchedulerFailureExamples = append(workgroupSchedulerFailureExamples, line)
 			}
+			switch classifyWorkgroupSchedulerFailure(lowerLine) {
+			case "config":
+				workgroupSchedulerConfigFailureCount++
+				if len(workgroupSchedulerConfigExamples) < 3 {
+					workgroupSchedulerConfigExamples = append(workgroupSchedulerConfigExamples, line)
+				}
+			case "blocked":
+				workgroupSchedulerBlockedFailureCount++
+				if len(workgroupSchedulerBlockedExamples) < 3 {
+					workgroupSchedulerBlockedExamples = append(workgroupSchedulerBlockedExamples, line)
+				}
+			case "member_unavailable":
+				workgroupSchedulerMemberUnavailableCount++
+				if len(workgroupSchedulerMemberUnavailableExamples) < 3 {
+					workgroupSchedulerMemberUnavailableExamples = append(workgroupSchedulerMemberUnavailableExamples, line)
+				}
+			case "dispatch":
+				workgroupSchedulerDispatchFailureCount++
+				if len(workgroupSchedulerDispatchFailureExamples) < 3 {
+					workgroupSchedulerDispatchFailureExamples = append(workgroupSchedulerDispatchFailureExamples, line)
+				}
+			}
 			if taskID := extractTaskID(line); taskID != "" {
 				workgroupSchedulerFailuresByTaskID[taskID]++
 				if workgroupSchedulerFailuresByTaskID[taskID] > 1 {
@@ -734,6 +764,46 @@ func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string) 
 			Count:          workgroupSchedulerFailedCount,
 			Recommendation: "Inspect the workgroup taskId, assignee mapping, and dispatch path after the scheduler queued the workgroup task. If failures cluster on one workgroup, compare workgroup membership, member online state, and the dispatchBlockedReason carried by later snapshots.",
 			Examples:       workgroupSchedulerFailureExamples,
+		})
+	}
+
+	if workgroupSchedulerConfigFailureCount > 0 {
+		signals = append(signals, mobileLogSignal{
+			Code:           "desktop_scheduled_workgroup_task_config_gaps",
+			Title:          "Desktop scheduled workgroup tasks have configuration gaps",
+			Count:          workgroupSchedulerConfigFailureCount,
+			Recommendation: "Inspect the task's assignee, workgroup binding, and project mapping. These failures usually mean the scheduler ran on time, but the task itself is incomplete or points to a missing member or project.",
+			Examples:       workgroupSchedulerConfigExamples,
+		})
+	}
+
+	if workgroupSchedulerBlockedFailureCount > 0 {
+		signals = append(signals, mobileLogSignal{
+			Code:           "desktop_scheduled_workgroup_task_dispatch_blocked",
+			Title:          "Desktop scheduled workgroup task dispatch was blocked",
+			Count:          workgroupSchedulerBlockedFailureCount,
+			Recommendation: "Check whether the task was already running or still assigned when the scheduler fired again. If this clusters, inspect overlapping schedules, stale task status, and whether completion callbacks are clearing dispatch state correctly.",
+			Examples:       workgroupSchedulerBlockedExamples,
+		})
+	}
+
+	if workgroupSchedulerMemberUnavailableCount > 0 {
+		signals = append(signals, mobileLogSignal{
+			Code:           "desktop_scheduled_workgroup_task_member_unavailable",
+			Title:          "Desktop scheduled workgroup task member was unavailable",
+			Count:          workgroupSchedulerMemberUnavailableCount,
+			Recommendation: "Focus on assignee availability, online state, and member-to-project binding. These failures usually mean the task is valid, but the target member or project was unavailable when the scheduler fired.",
+			Examples:       workgroupSchedulerMemberUnavailableExamples,
+		})
+	}
+
+	if workgroupSchedulerDispatchFailureCount > 0 {
+		signals = append(signals, mobileLogSignal{
+			Code:           "desktop_scheduled_workgroup_task_dispatch_failures",
+			Title:          "Desktop scheduled workgroup task dispatch failed downstream",
+			Count:          workgroupSchedulerDispatchFailureCount,
+			Recommendation: "Inspect downstream local or remote dispatch after the scheduler queued the task. If these failures repeat, compare dispatchRunId, project connectivity, and runtime enqueue logs to confirm where the handoff broke.",
+			Examples:       workgroupSchedulerDispatchFailureExamples,
 		})
 	}
 
@@ -913,6 +983,32 @@ func extractTaskID(content string) string {
 		return ""
 	}
 	return strings.Trim(strings.TrimSpace(match[1]), `"'.,;:()[]{}<>`)
+}
+
+func classifyWorkgroupSchedulerFailure(lowerLine string) string {
+	switch {
+	case strings.Contains(lowerLine, "task has no assignee"),
+		strings.Contains(lowerLine, "assignee not found"),
+		strings.Contains(lowerLine, "assignee is not bound to an available project"),
+		strings.Contains(lowerLine, "assigned project is unavailable"),
+		strings.Contains(lowerLine, "workgroup not found"),
+		strings.Contains(lowerLine, "task not found"):
+		return "config"
+	case strings.Contains(lowerLine, "task is already dispatched"),
+		strings.Contains(lowerLine, "already running"),
+		strings.Contains(lowerLine, "already assigned"):
+		return "blocked"
+	case strings.Contains(lowerLine, "remote project is offline"),
+		strings.Contains(lowerLine, "no eligible member"),
+		strings.Contains(lowerLine, "no member accepted"):
+		return "member_unavailable"
+	case strings.Contains(lowerLine, "remote dispatch failed"),
+		strings.Contains(lowerLine, "local dispatch failed"),
+		strings.Contains(lowerLine, "dispatch failed"):
+		return "dispatch"
+	default:
+		return ""
+	}
 }
 
 const mobileLogsAdminHTML = `<!DOCTYPE html>
