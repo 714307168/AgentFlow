@@ -1685,6 +1685,13 @@ function renderChips(values, kind) {
   ).join("") + '</div>';
 }
 
+function renderQueryChip(label, value) {
+  if (!value) {
+    return "";
+  }
+  return '<button type="button" class="chip actionable" data-query-value="' + esc(value) + '">' + esc(label) + '</button>';
+}
+
 function applyFilter(kind, value) {
   if (kind === "trace_id") {
     state.filters.trace_id = value;
@@ -1698,6 +1705,11 @@ function applyFilter(kind, value) {
   syncInputsFromState();
 }
 
+function applyQueryFilter(value) {
+  state.filters.q = String(value || "").trim();
+  syncInputsFromState();
+}
+
 function bindFilterChipHandlers(root) {
   root.querySelectorAll("[data-filter-kind]").forEach((button) => {
     button.addEventListener("click", async (event) => {
@@ -1705,6 +1717,14 @@ function bindFilterChipHandlers(root) {
       const kind = button.getAttribute("data-filter-kind");
       const value = button.getAttribute("data-filter-value") || "";
       applyFilter(kind, value);
+      await refresh();
+    });
+  });
+  root.querySelectorAll("[data-query-value]").forEach((button) => {
+    button.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      const value = button.getAttribute("data-query-value") || "";
+      applyQueryFilter(value);
       await refresh();
     });
   });
@@ -1748,6 +1768,52 @@ function renderItemJumpLinks(item) {
     return "";
   }
   return '<div class="chips" style="margin-top:8px;">' + links.join("") + '</div>';
+}
+
+function extractLineIdentifiers(line) {
+  const source = String(line || "");
+  const definitions = [
+    { kind: "trace_id", label: "trace_id", patterns: [/trace_id=([^\s]+)/i] },
+    { kind: "workgroup_id", label: "workgroup_id", patterns: [/workgroup_id=([^\s]+)/i] },
+    { kind: "task_id", label: "task_id", patterns: [/task_id=([^\s]+)/i, /taskId=([^\s]+)/i] },
+    { kind: "dispatch_run_id", label: "dispatch_run_id", patterns: [/dispatch_run_id=([^\s]+)/i, /dispatchRunId=([^\s]+)/i] },
+  ];
+  const results = [];
+  definitions.forEach((definition) => {
+    for (const pattern of definition.patterns) {
+      const match = source.match(pattern);
+      if (match && match[1]) {
+        results.push({
+          kind: definition.kind,
+          label: definition.label,
+          value: match[1].replace(/["',;:()\[\]{}<>]+$/g, ""),
+        });
+        break;
+      }
+    }
+  });
+  return results;
+}
+
+function renderExampleLine(line) {
+  const identifiers = extractLineIdentifiers(line);
+  const chips = [
+    renderQueryChip("Filter Text", line),
+    ...identifiers.map((item) =>
+      '<button type="button" class="chip actionable" data-filter-kind="' + esc(item.kind) + '" data-filter-value="' + esc(item.value) + '">' + esc(item.label + ": " + item.value) + '</button>'
+    ),
+  ].filter(Boolean);
+  return '<div style="margin-top:8px;">' +
+    '<div class="mono">' + esc(line) + '</div>' +
+    (chips.length === 0 ? '' : '<div class="chips" style="margin-top:6px;">' + chips.join("") + '</div>') +
+    '</div>';
+}
+
+function renderExampleBlock(lines) {
+  if (!Array.isArray(lines) || lines.length === 0) {
+    return '<div class="muted">-</div>';
+  }
+  return lines.map((line) => renderExampleLine(line)).join("");
 }
 
 function renderList() {
@@ -1825,12 +1891,11 @@ function renderAnalysis() {
       '<div class="signal">' +
       '<div><strong>' + esc(signal.title) + '</strong> ? ' + esc(signal.count) + '</div>' +
       '<div class="muted" style="margin:4px 0 8px;">' + esc(signal.recommendation) + '</div>' +
-      '<div class="mono">' + esc((signal.examples || []).join("
-")) + '</div>' +
+      '<div class="chips">' + renderQueryChip("Filter Signal", signal.title || "") + '</div>' +
+      '<div style="margin-top:6px;">' + renderExampleBlock(signal.examples || []) + '</div>' +
       '</div>'
     ).join("")) +
-    (recentErrors.length === 0 ? '' : '<div><strong>Recent Errors</strong><div class="mono" style="margin-top:6px;">' + esc(recentErrors.join("
-")) + '</div></div>');
+    (recentErrors.length === 0 ? '' : '<div><strong>Recent Errors</strong><div style="margin-top:6px;">' + renderExampleBlock(recentErrors) + '</div></div>');
 }
 
 function renderContent() {
