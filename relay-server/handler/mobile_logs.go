@@ -209,13 +209,17 @@ type mobileLogOverviewResponse struct {
 }
 
 type mobileLogFilter struct {
-	Query         string
-	Source        string
-	SignalCode    string
-	TraceID       string
-	WorkgroupID   string
-	TaskID        string
-	DispatchRunID string
+	Query           string
+	Source          string
+	SignalCode      string
+	TraceID         string
+	WorkgroupID     string
+	TaskID          string
+	DispatchRunID   string
+	AgentState      string
+	ControllerState string
+	Host            string
+	Platform        string
 }
 
 func DeviceLogUploadHandler(cfg *config.Config, database *db.DB) http.HandlerFunc {
@@ -361,15 +365,19 @@ func AdminMobileLogsHandler(cfg *config.Config, database *db.DB, h *hub.Hub) htt
 		}
 		records = filterMobileLogsForAdmin(records, session)
 		filter := mobileLogFilter{
-			Query:         strings.TrimSpace(r.URL.Query().Get("q")),
-			Source:        strings.TrimSpace(r.URL.Query().Get("source")),
-			SignalCode:    strings.TrimSpace(r.URL.Query().Get("signal_code")),
-			TraceID:       strings.TrimSpace(r.URL.Query().Get("trace_id")),
-			WorkgroupID:   strings.TrimSpace(r.URL.Query().Get("workgroup_id")),
-			TaskID:        strings.TrimSpace(r.URL.Query().Get("task_id")),
-			DispatchRunID: strings.TrimSpace(r.URL.Query().Get("dispatch_run_id")),
+			Query:           strings.TrimSpace(r.URL.Query().Get("q")),
+			Source:          strings.TrimSpace(r.URL.Query().Get("source")),
+			SignalCode:      strings.TrimSpace(r.URL.Query().Get("signal_code")),
+			TraceID:         strings.TrimSpace(r.URL.Query().Get("trace_id")),
+			WorkgroupID:     strings.TrimSpace(r.URL.Query().Get("workgroup_id")),
+			TaskID:          strings.TrimSpace(r.URL.Query().Get("task_id")),
+			DispatchRunID:   strings.TrimSpace(r.URL.Query().Get("dispatch_run_id")),
+			AgentState:      strings.TrimSpace(r.URL.Query().Get("agent_state")),
+			ControllerState: strings.TrimSpace(r.URL.Query().Get("controller_state")),
+			Host:            strings.TrimSpace(r.URL.Query().Get("host")),
+			Platform:        strings.TrimSpace(r.URL.Query().Get("platform")),
 		}
-		if filter.Query != "" || filter.Source != "" || filter.SignalCode != "" || filter.TraceID != "" || filter.WorkgroupID != "" || filter.TaskID != "" || filter.DispatchRunID != "" {
+		if filter.Query != "" || filter.Source != "" || filter.SignalCode != "" || filter.TraceID != "" || filter.WorkgroupID != "" || filter.TaskID != "" || filter.DispatchRunID != "" || filter.AgentState != "" || filter.ControllerState != "" || filter.Host != "" || filter.Platform != "" {
 			records = filterStoredMobileLogs(records, filepath.Join(cfg.DataDir, "mobile-logs"), filter)
 		}
 
@@ -528,7 +536,7 @@ func readStoredMobileLogContent(storageDir string, record storedMobileLogMetadat
 }
 
 func filterStoredMobileLogs(records []storedMobileLogMetadata, storageDir string, filter mobileLogFilter) []storedMobileLogMetadata {
-	if filter.Query == "" && filter.Source == "" && filter.SignalCode == "" && filter.TraceID == "" && filter.WorkgroupID == "" && filter.TaskID == "" && filter.DispatchRunID == "" {
+	if filter.Query == "" && filter.Source == "" && filter.SignalCode == "" && filter.TraceID == "" && filter.WorkgroupID == "" && filter.TaskID == "" && filter.DispatchRunID == "" && filter.AgentState == "" && filter.ControllerState == "" && filter.Host == "" && filter.Platform == "" {
 		return records
 	}
 
@@ -539,6 +547,11 @@ func filterStoredMobileLogs(records []storedMobileLogMetadata, storageDir string
 	workgroupID := strings.ToLower(strings.TrimSpace(filter.WorkgroupID))
 	taskID := strings.ToLower(strings.TrimSpace(filter.TaskID))
 	dispatchRunID := strings.ToLower(strings.TrimSpace(filter.DispatchRunID))
+	agentState := strings.ToLower(strings.TrimSpace(filter.AgentState))
+	controllerState := strings.ToLower(strings.TrimSpace(filter.ControllerState))
+	host := strings.TrimSpace(filter.Host)
+	hostLower := strings.ToLower(host)
+	platform := strings.ToLower(strings.TrimSpace(filter.Platform))
 	filtered := make([]storedMobileLogMetadata, 0, len(records))
 
 	for _, record := range records {
@@ -587,6 +600,21 @@ func filterStoredMobileLogs(records []storedMobileLogMetadata, storageDir string
 		}
 		if dispatchRunID != "" && !containsNormalizedID(dispatchRunIDs, dispatchRunID) {
 			continue
+		}
+		if agentState != "" || controllerState != "" || hostLower != "" || platform != "" {
+			fields, _ := parseConnectionNote(record.ConnectionNote)
+			if agentState != "" && strings.ToLower(strings.TrimSpace(fields["agent"])) != agentState {
+				continue
+			}
+			if controllerState != "" && strings.ToLower(strings.TrimSpace(fields["controller"])) != controllerState {
+				continue
+			}
+			if hostLower != "" && strings.ToLower(strings.TrimSpace(fields["host"])) != hostLower {
+				continue
+			}
+			if platform != "" && strings.ToLower(strings.TrimSpace(fields["platform"])) != platform {
+				continue
+			}
 		}
 		filtered = append(filtered, record)
 	}
@@ -2591,6 +2619,10 @@ const state = {
     workgroup_id: "",
     task_id: "",
     dispatch_run_id: "",
+    agent_state: "",
+    controller_state: "",
+    host: "",
+    platform: "",
   },
 };
 
@@ -2626,6 +2658,10 @@ function buildListUrl() {
   if (state.filters.workgroup_id) params.set("workgroup_id", state.filters.workgroup_id);
   if (state.filters.task_id) params.set("task_id", state.filters.task_id);
   if (state.filters.dispatch_run_id) params.set("dispatch_run_id", state.filters.dispatch_run_id);
+  if (state.filters.agent_state) params.set("agent_state", state.filters.agent_state);
+  if (state.filters.controller_state) params.set("controller_state", state.filters.controller_state);
+  if (state.filters.host) params.set("host", state.filters.host);
+  if (state.filters.platform) params.set("platform", state.filters.platform);
   const query = params.toString();
   return "/admin/api/mobile-logs" + (query ? ("?" + query) : "");
 }
@@ -2639,6 +2675,10 @@ function buildOverviewUrl() {
   if (state.filters.workgroup_id) params.set("workgroup_id", state.filters.workgroup_id);
   if (state.filters.task_id) params.set("task_id", state.filters.task_id);
   if (state.filters.dispatch_run_id) params.set("dispatch_run_id", state.filters.dispatch_run_id);
+  if (state.filters.agent_state) params.set("agent_state", state.filters.agent_state);
+  if (state.filters.controller_state) params.set("controller_state", state.filters.controller_state);
+  if (state.filters.host) params.set("host", state.filters.host);
+  if (state.filters.platform) params.set("platform", state.filters.platform);
   const query = params.toString();
   return "/admin/api/mobile-logs/overview" + (query ? ("?" + query) : "");
 }
@@ -2653,6 +2693,10 @@ function buildPageUrl(overrides = {}) {
   if (filters.workgroup_id) params.set("workgroup_id", filters.workgroup_id);
   if (filters.task_id) params.set("task_id", filters.task_id);
   if (filters.dispatch_run_id) params.set("dispatch_run_id", filters.dispatch_run_id);
+  if (filters.agent_state) params.set("agent_state", filters.agent_state);
+  if (filters.controller_state) params.set("controller_state", filters.controller_state);
+  if (filters.host) params.set("host", filters.host);
+  if (filters.platform) params.set("platform", filters.platform);
   const selectedId = overrides.selectedId !== undefined ? overrides.selectedId : state.selectedId;
   if (selectedId) params.set("log_id", selectedId);
   const query = params.toString();
@@ -2677,6 +2721,10 @@ function loadStateFromUrl() {
   state.filters.workgroup_id = params.get("workgroup_id") || "";
   state.filters.task_id = params.get("task_id") || "";
   state.filters.dispatch_run_id = params.get("dispatch_run_id") || "";
+  state.filters.agent_state = params.get("agent_state") || "";
+  state.filters.controller_state = params.get("controller_state") || "";
+  state.filters.host = params.get("host") || "";
+  state.filters.platform = params.get("platform") || "";
   state.selectedId = params.get("log_id") || "";
   syncInputsFromState();
 }
@@ -2721,6 +2769,14 @@ function applyFilter(kind, value) {
     state.filters.task_id = value;
   } else if (kind === "dispatch_run_id") {
     state.filters.dispatch_run_id = value;
+  } else if (kind === "agent_state") {
+    state.filters.agent_state = value;
+  } else if (kind === "controller_state") {
+    state.filters.controller_state = value;
+  } else if (kind === "host") {
+    state.filters.host = value;
+  } else if (kind === "platform") {
+    state.filters.platform = value;
   }
   syncInputsFromState();
 }
@@ -2773,6 +2829,10 @@ function renderActiveFilters() {
   if (state.filters.workgroup_id) items.push({ label: "workgroup_id", value: state.filters.workgroup_id });
   if (state.filters.task_id) items.push({ label: "task_id", value: state.filters.task_id });
   if (state.filters.dispatch_run_id) items.push({ label: "dispatch_run_id", value: state.filters.dispatch_run_id });
+  if (state.filters.agent_state) items.push({ label: "agent_state", value: state.filters.agent_state });
+  if (state.filters.controller_state) items.push({ label: "controller_state", value: state.filters.controller_state });
+  if (state.filters.host) items.push({ label: "host", value: state.filters.host });
+  if (state.filters.platform) items.push({ label: "platform", value: state.filters.platform });
   if (items.length === 0) {
     root.innerHTML = "";
     return;
@@ -2912,12 +2972,14 @@ function renderOverviewPresence(summary, items) {
     '</div>';
 }
 
-function renderConnectionItemChips(title, items) {
+function renderConnectionItemChips(title, items, filterKind) {
   if (!Array.isArray(items) || items.length === 0) {
     return '';
   }
   return '<div style="margin-top:8px;"><div class="meta-label">' + esc(title) + '</div><div class="chips">' + items.map((item) =>
-    '<span class="chip">' + esc(item.value || '-') + ' ? ' + esc(item.log_count || 0) + '</span>'
+    (filterKind
+      ? '<button type="button" class="chip actionable" data-filter-kind="' + esc(filterKind) + '" data-filter-value="' + esc(item.value || '') + '">' + esc(item.value || '-') + ' ? ' + esc(item.log_count || 0) + '</button>'
+      : '<span class="chip">' + esc(item.value || '-') + ' ? ' + esc(item.log_count || 0) + '</span>')
   ).join('') + '</div></div>';
 }
 
@@ -2932,10 +2994,10 @@ function renderOverviewConnection(summary) {
       '<span class="chip">structured ' + esc(connectionSummary.structured_logs || 0) + '</span>' +
       '<span class="chip">freeform ' + esc(connectionSummary.freeform_logs || 0) + '</span>' +
     '</div>' +
-    renderConnectionItemChips("Agent State", connectionSummary.agent_states || []) +
-    renderConnectionItemChips("Controller State", connectionSummary.controller_states || []) +
-    renderConnectionItemChips("Hosts", connectionSummary.hosts || []) +
-    renderConnectionItemChips("Platforms", connectionSummary.platforms || []) +
+    renderConnectionItemChips("Agent State", connectionSummary.agent_states || [], "agent_state") +
+    renderConnectionItemChips("Controller State", connectionSummary.controller_states || [], "controller_state") +
+    renderConnectionItemChips("Hosts", connectionSummary.hosts || [], "host") +
+    renderConnectionItemChips("Platforms", connectionSummary.platforms || [], "platform") +
     renderConnectionItemChips("Notes", connectionSummary.freeform_notes || []) +
     '</div>';
 }
@@ -3124,7 +3186,7 @@ async function refresh() {
 
 document.getElementById('refreshBtn').addEventListener('click', () => { void refresh(); });
 document.getElementById('clearFiltersBtn').addEventListener('click', () => {
-  state.filters = { q: "", source: "", signal_code: "", trace_id: "", workgroup_id: "", task_id: "", dispatch_run_id: "" };
+  state.filters = { q: "", source: "", signal_code: "", trace_id: "", workgroup_id: "", task_id: "", dispatch_run_id: "", agent_state: "", controller_state: "", host: "", platform: "" };
   syncInputsFromState();
   void refresh();
 });

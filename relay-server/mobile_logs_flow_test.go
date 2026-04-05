@@ -243,7 +243,7 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 		"app_version":     "1.1.102",
 		"device_model":    "Desktop Test Host",
 		"source":          "desktop",
-		"connection_note": "host=test-host; agent=connected; controller=connected",
+		"connection_note": "host=test-host; platform=linux; agent=connected; controller=connected",
 	}, http.StatusOK, nil)
 
 	jar, err := cookiejar.New(nil)
@@ -407,6 +407,9 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 	if !hasOverviewConnectionItem(overview.ConnectionSummary.Hosts, "test-host", 1) {
 		t.Fatalf("expected overview to expose host connection snapshot, got %+v", overview.ConnectionSummary.Hosts)
 	}
+	if !hasOverviewConnectionItem(overview.ConnectionSummary.Platforms, "linux", 1) {
+		t.Fatalf("expected overview to expose platform connection snapshot, got %+v", overview.ConnectionSummary.Platforms)
+	}
 	if !hasOverviewConnectionItem(overview.ConnectionSummary.FreeformNotes, "Uploaded from Android settings diagnostics.", 1) {
 		t.Fatalf("expected overview to expose freeform connection note, got %+v", overview.ConnectionSummary.FreeformNotes)
 	}
@@ -460,6 +463,30 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 	doJSON(t, adminClient, http.MethodGet, server.URL+"/admin/api/mobile-logs?signal_code=android_manual_reconnect_likely", nil, http.StatusOK, &signalFiltered)
 	if len(signalFiltered) != 1 || signalFiltered[0].ID != alphaLog.ID {
 		t.Fatalf("expected signal filter to return alpha log, got %+v", signalFiltered)
+	}
+
+	var agentStateFiltered []uploadedMobileLog
+	doJSON(t, adminClient, http.MethodGet, server.URL+"/admin/api/mobile-logs?agent_state=connected", nil, http.StatusOK, &agentStateFiltered)
+	if len(agentStateFiltered) != 1 || agentStateFiltered[0].ID != desktopLog.ID {
+		t.Fatalf("expected agent state filter to return desktop log, got %+v", agentStateFiltered)
+	}
+
+	var controllerStateFiltered []uploadedMobileLog
+	doJSON(t, adminClient, http.MethodGet, server.URL+"/admin/api/mobile-logs?controller_state=connected", nil, http.StatusOK, &controllerStateFiltered)
+	if len(controllerStateFiltered) != 1 || controllerStateFiltered[0].ID != desktopLog.ID {
+		t.Fatalf("expected controller state filter to return desktop log, got %+v", controllerStateFiltered)
+	}
+
+	var hostFiltered []uploadedMobileLog
+	doJSON(t, adminClient, http.MethodGet, server.URL+"/admin/api/mobile-logs?host=test-host", nil, http.StatusOK, &hostFiltered)
+	if len(hostFiltered) != 1 || hostFiltered[0].ID != desktopLog.ID {
+		t.Fatalf("expected host filter to return desktop log, got %+v", hostFiltered)
+	}
+
+	var platformFiltered []uploadedMobileLog
+	doJSON(t, adminClient, http.MethodGet, server.URL+"/admin/api/mobile-logs?platform=linux", nil, http.StatusOK, &platformFiltered)
+	if len(platformFiltered) != 1 || platformFiltered[0].ID != desktopLog.ID {
+		t.Fatalf("expected platform filter to return desktop log, got %+v", platformFiltered)
 	}
 
 	var desktopAnalysis uploadedMobileLogAnalysis
