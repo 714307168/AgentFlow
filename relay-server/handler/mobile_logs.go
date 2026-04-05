@@ -1288,7 +1288,11 @@ func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string, 
 	authRecoveryFailureExamples := make([]string, 0, 3)
 	foregroundRecoveryPassCount := 0
 	foregroundSessionCatalogCount := 0
+	foregroundCatalogFailureCount := 0
+	foregroundCatalogFailureExamples := make([]string, 0, 3)
 	foregroundProjectSyncRequestedCount := 0
+	foregroundProjectSyncFailureCount := 0
+	foregroundProjectSyncFailureExamples := make([]string, 0, 3)
 	foregroundWorkgroupRefreshCount := 0
 	foregroundProjectSyncSkippedCount := 0
 	foregroundRecoveryFailureCount := 0
@@ -1577,6 +1581,12 @@ func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string, 
 		if strings.Contains(lowerLine, "foreground session catalog refreshed") {
 			foregroundSessionCatalogCount++
 		}
+		if strings.Contains(lowerLine, "failed to refresh session catalog on foreground") {
+			foregroundCatalogFailureCount++
+			if len(foregroundCatalogFailureExamples) < 3 {
+				foregroundCatalogFailureExamples = append(foregroundCatalogFailureExamples, line)
+			}
+		}
 		if strings.Contains(lowerLine, "foreground project sync requested") {
 			foregroundProjectSyncRequestedCount++
 		}
@@ -1587,6 +1597,12 @@ func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string, 
 			foregroundProjectSyncSkippedCount++
 			if len(foregroundRecoveryExamples) < 3 {
 				foregroundRecoveryExamples = append(foregroundRecoveryExamples, line)
+			}
+		}
+		if strings.Contains(lowerLine, "failed to request project syncs on foreground") {
+			foregroundProjectSyncFailureCount++
+			if len(foregroundProjectSyncFailureExamples) < 3 {
+				foregroundProjectSyncFailureExamples = append(foregroundProjectSyncFailureExamples, line)
 			}
 		}
 		if strings.Contains(lowerLine, "failed to verify relay connection on resume") ||
@@ -1763,6 +1779,16 @@ func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string, 
 			Count:          foregroundRecoveryFailureCount + foregroundProjectSyncSkippedCount + maxInt(1, foregroundRecoveryPassCount-foregroundProjectSyncRequestedCount),
 			Recommendation: "Compare each foreground recovery pass with the later catalog refresh, project sync request, and workgroup refresh logs. If the pass starts but these follow-up logs do not appear, the app resumed without completing its catch-up chain.",
 			Examples:       foregroundRecoveryExamples,
+		})
+	}
+
+	if foregroundSessionCatalogCount > 0 && foregroundProjectSyncFailureCount > 0 {
+		signals = append(signals, mobileLogSignal{
+			Code:           "foreground_project_sync_failures",
+			Title:          "Foreground catalog recovered but project sync dispatch failed",
+			Count:          foregroundProjectSyncFailureCount,
+			Recommendation: "Compare foreground session catalog refresh with the later project sync request call. If the catalog refreshed but project sync dispatch still failed, transport recovery finished only halfway and recent messages will stay stale until another catch-up path succeeds.",
+			Examples:       mergeExampleLists(4, foregroundProjectSyncFailureExamples, foregroundRecoveryExamples),
 		})
 	}
 
@@ -1978,7 +2004,11 @@ func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string, 
 				authRecoveryFailureExamples,
 				foregroundRecoveryPassCount,
 				foregroundSessionCatalogCount,
+				foregroundCatalogFailureCount,
+				foregroundCatalogFailureExamples,
 				foregroundProjectSyncRequestedCount,
+				foregroundProjectSyncFailureCount,
+				foregroundProjectSyncFailureExamples,
 				foregroundWorkgroupRefreshCount,
 				foregroundProjectSyncSkippedCount,
 				foregroundRecoveryFailureCount,
@@ -2183,6 +2213,8 @@ func signalPriority(code string) int {
 		return 300
 	case "foreground_recovery_follow_up_gaps", "post_auth_sync_incomplete", "desktop_catalog_refresh_gaps", "desktop_remote_snapshot_gaps":
 		return 250
+	case "foreground_project_sync_failures":
+		return 240
 	case "auth_recovery_failures", "desktop_auth_recovery_failures", "websocket_failures", "session_sync_failures":
 		return 200
 	case "desktop_restart_recovery_residue", "desktop_recovery_jitter":
@@ -2311,7 +2343,11 @@ func buildAndroidRecoveryPanels(
 	authExamples []string,
 	foregroundRecoveryPassCount int,
 	foregroundSessionCatalogCount int,
+	foregroundCatalogFailureCount int,
+	foregroundCatalogFailureExamples []string,
 	foregroundProjectSyncRequestedCount int,
+	foregroundProjectSyncFailureCount int,
+	foregroundProjectSyncFailureExamples []string,
 	foregroundWorkgroupRefreshCount int,
 	foregroundProjectSyncSkippedCount int,
 	foregroundRecoveryFailureCount int,
@@ -2326,7 +2362,9 @@ func buildAndroidRecoveryPanels(
 	if authFailureCount == 0 &&
 		foregroundRecoveryPassCount == 0 &&
 		foregroundSessionCatalogCount == 0 &&
+		foregroundCatalogFailureCount == 0 &&
 		foregroundProjectSyncRequestedCount == 0 &&
+		foregroundProjectSyncFailureCount == 0 &&
 		foregroundWorkgroupRefreshCount == 0 &&
 		foregroundProjectSyncSkippedCount == 0 &&
 		foregroundRecoveryFailureCount == 0 &&
@@ -2358,11 +2396,11 @@ func buildAndroidRecoveryPanels(
 	if foregroundRecoveryPassCount > 0 || foregroundSessionCatalogCount > 0 || foregroundRecoveryFailureCount > 0 {
 		catalogStatus = "healthy"
 		catalogSummary = fmt.Sprintf("Foreground recovery passes=%d, session catalog refreshes=%d.", foregroundRecoveryPassCount, foregroundSessionCatalogCount)
-		if foregroundRecoveryFailureCount > 0 || foregroundSessionCatalogCount < foregroundRecoveryPassCount {
+		if foregroundCatalogFailureCount > 0 || foregroundSessionCatalogCount < foregroundRecoveryPassCount {
 			catalogStatus = "warning"
 			catalogSignalCode = "foreground_recovery_follow_up_gaps"
-			catalogExamplesOut = foregroundRecoveryExamples
-			catalogSummary = fmt.Sprintf("Foreground recovery ran %d time(s), but catalog refresh only completed %d time(s).", foregroundRecoveryPassCount, foregroundSessionCatalogCount)
+			catalogExamplesOut = mergeExampleLists(4, foregroundCatalogFailureExamples, foregroundRecoveryExamples)
+			catalogSummary = fmt.Sprintf("Foreground recovery ran %d time(s), catalog refresh completed %d time(s), explicit catalog failures=%d.", foregroundRecoveryPassCount, foregroundSessionCatalogCount, foregroundCatalogFailureCount)
 		}
 	}
 
@@ -2370,10 +2408,15 @@ func buildAndroidRecoveryPanels(
 	projectSyncSummary := "No Android project sync request was observed in this log window."
 	projectSyncSignalCode := ""
 	projectSyncExamplesOut := []string(nil)
-	if foregroundProjectSyncRequestedCount > 0 || foregroundProjectSyncSkippedCount > 0 || postAuthProjectSyncRequestedCount > 0 || postAuthSyncFailureCount > 0 {
+	if foregroundProjectSyncRequestedCount > 0 || foregroundProjectSyncFailureCount > 0 || foregroundProjectSyncSkippedCount > 0 || postAuthProjectSyncRequestedCount > 0 || postAuthSyncFailureCount > 0 {
 		projectSyncStatus = "healthy"
-		projectSyncSummary = fmt.Sprintf("Foreground project syncs=%d, post-auth project syncs=%d.", foregroundProjectSyncRequestedCount, postAuthProjectSyncRequestedCount)
-		if foregroundProjectSyncSkippedCount > 0 || postAuthSyncFailureCount > 0 || (postAuthSyncStartCount > 0 && postAuthProjectSyncRequestedCount < postAuthSyncStartCount) {
+		projectSyncSummary = fmt.Sprintf("Foreground project syncs=%d, foreground project sync failures=%d, post-auth project syncs=%d.", foregroundProjectSyncRequestedCount, foregroundProjectSyncFailureCount, postAuthProjectSyncRequestedCount)
+		if foregroundProjectSyncFailureCount > 0 {
+			projectSyncStatus = "warning"
+			projectSyncSignalCode = "foreground_project_sync_failures"
+			projectSyncExamplesOut = mergeExampleLists(4, foregroundProjectSyncFailureExamples, foregroundRecoveryExamples)
+			projectSyncSummary = fmt.Sprintf("Foreground catalog refresh completed, but project sync dispatch failed %d time(s).", foregroundProjectSyncFailureCount)
+		} else if foregroundProjectSyncSkippedCount > 0 || postAuthSyncFailureCount > 0 || (postAuthSyncStartCount > 0 && postAuthProjectSyncRequestedCount < postAuthSyncStartCount) {
 			projectSyncStatus = "warning"
 			projectSyncSignalCode = "post_auth_sync_incomplete"
 			projectSyncExamplesOut = mergeExampleLists(4, foregroundRecoveryExamples, postAuthSyncExamples)

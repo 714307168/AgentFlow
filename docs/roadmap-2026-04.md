@@ -98,7 +98,7 @@
 - 阶段一完成度约 `92%`
 - 阶段二完成度约 `92%`
 - 阶段三完成度约 `100%`
-- 阶段四完成度约 `94%`
+- 阶段四完成度约 `95%`
 
 ### 已完成
 
@@ -169,6 +169,7 @@
 - 服务端 device logs overview 已补 signal 降噪权重：`desktop_restart_recovery_residue / desktop_recovery_jitter` 已抬权，scheduler 系列 signal 已整体降权，减少高频调度噪音把真正的恢复链路问题顶到前面
 - 服务端 device logs 分析已补桌面 follow-up 收口缺口：当 `Completed relay follow-up refresh` 已标记 `requestedActiveProjectSync=true`，但后续没有看到 active sync 请求或 remote snapshot 落地时，现在会直接命中 `desktop_remote_snapshot_gaps / desktop_resume_catchup_stalled`，减少“看起来连上了但聊天没刷新”的漏报
 - 服务端 device logs 分析已补安卓 post-auth 缺口：当前台恢复已出现 auth / reconnect 异常、前台 project sync 被跳过，且后续连 `Starting post-auth session sync` 都没出现时，现在也会直接命中 `post_auth_sync_incomplete / android_manual_reconnect_likely`，减少“后台回来后不刷新，只能手动重连”的漏报
+- 服务端 device logs 分析已补安卓 foreground project sync 显式失败规则：当前台 catalog 已刷新，但 `Failed to request project syncs on foreground` 仍然出现时，现在会单独命中 `foreground_project_sync_failures`，并把 `android_project_sync` 面板标成 warning，避免把“catalog 正常、消息补拉没发出去”继续混成笼统恢复慢
 
 ### 进行中
 
@@ -182,7 +183,7 @@
 
 ### 下一刀
 
-1. 继续结合真实上传日志，补安卓前后台恢复链路里“catalog 正常但消息补拉 / workgroup 刷新没跟上”的分析规则
+1. 继续结合真实上传日志，补安卓前后台恢复链路里 workgroup refresh 显式失败和“catalog / project sync 正常但协作组刷新没跟上”的分析规则
 2. 结合真实故障日志再细化 signal 权重和排序阈值，减少单条高频 scheduler 日志把真正的恢复问题挤下去
 3. 继续收敛阶段四，把日志诊断、device logs overview、connection snapshot、hotspot 聚类、一跳回查、signal 降噪排序、交叉筛选和客户端连接态观测串起来，减少只能靠上传日志定位的问题
 

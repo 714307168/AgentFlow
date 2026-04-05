@@ -381,8 +381,8 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 	if !hasRecoveryPanelStatus(analysis.RecoveryPanels, "android_auth_recovery", "critical", "auth_recovery_failures") {
 		t.Fatalf("expected android auth panel to be critical, got %+v", analysis.RecoveryPanels)
 	}
-	if !hasRecoveryPanelStatus(analysis.RecoveryPanels, "android_foreground_catalog", "warning", "foreground_recovery_follow_up_gaps") {
-		t.Fatalf("expected android foreground catalog panel to warn, got %+v", analysis.RecoveryPanels)
+	if !hasRecoveryPanelStatus(analysis.RecoveryPanels, "android_foreground_catalog", "healthy", "") {
+		t.Fatalf("expected android foreground catalog panel to stay healthy, got %+v", analysis.RecoveryPanels)
 	}
 	if !hasRecoveryPanelStatus(analysis.RecoveryPanels, "android_project_sync", "warning", "post_auth_sync_incomplete") {
 		t.Fatalf("expected android project sync panel to warn, got %+v", analysis.RecoveryPanels)
@@ -975,6 +975,122 @@ func TestMobileLogAnalysisFlagsMissingAndroidPostAuthRecoveryStart(t *testing.T)
 	}
 	if !hasOverviewRecoveryPanel(overview.RecoveryPanels, "android_project_sync", "warning", 1, 0, "post_auth_sync_incomplete") {
 		t.Fatalf("expected android overview project sync aggregation to warn, got %+v", overview.RecoveryPanels)
+	}
+}
+
+func TestMobileLogAnalysisFlagsForegroundProjectSyncDispatchFailures(t *testing.T) {
+	t.Setenv("ADMIN_PASSWORD", "Admin12345A")
+	t.Setenv("ADMIN_USER", "")
+
+	dataDir := t.TempDir()
+	database, err := db.Open(dataDir)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer database.Close()
+
+	if err := database.InitializeDefaultUser(); err != nil {
+		t.Fatalf("init default user: %v", err)
+	}
+
+	cfg := &config.Config{
+		JWTSecret:    "relay-test-secret-20260406-android-project-sync",
+		PingInterval: 30,
+		QueueSize:    100,
+		CORSOrigins:  "*",
+		DataDir:      dataDir,
+		DatabasePath: dataDir,
+	}
+	st := store.NewStore(database)
+	h := hub.NewHub(cfg, st)
+
+	if _, err := database.CreateUser("erin", "Erin12345A", false); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	erin, err := database.GetUserByUsername("erin")
+	if err != nil {
+		t.Fatalf("get erin: %v", err)
+	}
+	if err := database.RegisterAgent("agent-e", erin.ID, "Erin desktop"); err != nil {
+		t.Fatalf("register agent: %v", err)
+	}
+	if err := database.RegisterDevice("device-e", erin.ID, "agent-e", "Erin phone"); err != nil {
+		t.Fatalf("register device: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/auth/login", handler.LoginHandler(database, cfg))
+	mux.HandleFunc("/api/device/logs", handler.DeviceLogUploadHandler(cfg, database))
+	mux.HandleFunc("/admin/api/login", handler.AdminLoginHandler(database))
+	mux.HandleFunc("/admin/api/mobile-logs", handler.AdminMobileLogsHandler(cfg, database, h))
+	mux.HandleFunc("/admin/api/mobile-logs/", handler.AdminMobileLogsHandler(cfg, database, h))
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	var deviceLogin deviceLoginResponse
+	doJSON(t, http.DefaultClient, http.MethodPost, server.URL+"/api/auth/login", map[string]any{
+		"username":    "erin",
+		"password":    "Erin12345A",
+		"client_type": "device",
+		"client_id":   "device-e",
+	}, http.StatusOK, &deviceLogin)
+	if deviceLogin.Token == "" {
+		t.Fatal("expected device token")
+	}
+
+	doJSONWithBearer(t, http.DefaultClient, http.MethodPost, server.URL+"/api/device/logs", deviceLogin.Token, map[string]any{
+		"file_name": "android-foreground-project-sync-failure.log",
+		"content": "[2026-04-06 09:00:00.000] INFO [MainActivity] Scheduling foreground recovery passes reason=activity-resume forceReconnectInitial=false passCount=3 trace_id=trace-android-006 workgroup_id=android-project-sync-gap\n" +
+			"[2026-04-06 09:00:00.500] INFO [MainActivity] Running foreground recovery pass reason=activity-resume:0 forceReconnect=false trace_id=trace-android-006 workgroup_id=android-project-sync-gap\n" +
+			"[2026-04-06 09:00:01.000] INFO [MainActivity] Starting foreground sync reason=activity-resume:0 trace_id=trace-android-006 workgroup_id=android-project-sync-gap\n" +
+			"[2026-04-06 09:00:01.300] INFO [MainActivity] Foreground session catalog refreshed reason=activity-resume:0 sessionCount=5 trace_id=trace-android-006 workgroup_id=android-project-sync-gap\n" +
+			"[2026-04-06 09:00:01.700] ERROR [MainActivity] Failed to request project syncs on foreground: activity-resume:0 trace_id=trace-android-006 workgroup_id=android-project-sync-gap\n" +
+			"[2026-04-06 09:00:02.100] INFO [MainActivity] Foreground workgroup refresh completed reason=activity-resume:0 trackedAgentCount=2 trace_id=trace-android-006 workgroup_id=android-project-sync-gap\n",
+		"app_version":  "1.2.11",
+		"app_build":    95,
+		"device_model": "Pixel Test",
+		"source":       "android",
+	}, http.StatusOK, nil)
+
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatalf("cookie jar: %v", err)
+	}
+	adminClient := &http.Client{Jar: jar}
+	doJSON(t, adminClient, http.MethodPost, server.URL+"/admin/api/login", map[string]any{
+		"username": "admin",
+		"password": "Admin12345A",
+	}, http.StatusOK, nil)
+
+	var logs []uploadedMobileLog
+	doJSON(t, adminClient, http.MethodGet, server.URL+"/admin/api/mobile-logs?source=android", nil, http.StatusOK, &logs)
+	if len(logs) != 1 {
+		t.Fatalf("expected 1 uploaded android log, got %d", len(logs))
+	}
+
+	var analysis uploadedMobileLogAnalysis
+	doJSON(t, adminClient, http.MethodGet, server.URL+"/admin/api/mobile-logs/"+logs[0].ID+"/analysis", nil, http.StatusOK, &analysis)
+	if !hasSignalCode(analysis.Signals, "foreground_project_sync_failures") {
+		t.Fatalf("expected foreground project sync failure signal, got %+v", analysis.Signals)
+	}
+	if !hasRecoveryPanelStatus(analysis.RecoveryPanels, "android_project_sync", "warning", "foreground_project_sync_failures") {
+		t.Fatalf("expected android project sync panel to warn with foreground project sync failure, got %+v", analysis.RecoveryPanels)
+	}
+	if !hasRecoveryPanelStatus(analysis.RecoveryPanels, "android_foreground_catalog", "healthy", "") {
+		t.Fatalf("expected android foreground catalog panel to remain healthy, got %+v", analysis.RecoveryPanels)
+	}
+	if !hasRecoveryPanelStatus(analysis.RecoveryPanels, "android_workgroup_refresh", "healthy", "") {
+		t.Fatalf("expected android workgroup refresh panel to remain healthy, got %+v", analysis.RecoveryPanels)
+	}
+
+	var overview uploadedMobileLogOverview
+	doJSON(t, adminClient, http.MethodGet, server.URL+"/admin/api/mobile-logs/overview?source=android", nil, http.StatusOK, &overview)
+	if !hasOverviewSignalCode(overview.TopSignals, "foreground_project_sync_failures") {
+		t.Fatalf("expected overview to include foreground project sync failure signal, got %+v", overview.TopSignals)
+	}
+	if !hasOverviewRecoveryPanel(overview.RecoveryPanels, "android_project_sync", "warning", 1, 0, "foreground_project_sync_failures") {
+		t.Fatalf("expected android overview project sync aggregation to warn on foreground project sync failure, got %+v", overview.RecoveryPanels)
 	}
 }
 
