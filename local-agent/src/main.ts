@@ -2483,7 +2483,13 @@ function ensureRemoteRelayReady(configOverride?: AgentConfig): boolean {
 
 async function recoverAgentRelayAuthentication(reason: string): Promise<void> {
   const refreshed = await refreshAgentToken(true);
-  if (!refreshed || !relayClient) {
+  if (!refreshed) {
+    appLogger.warn("relay", "Agent relay auth recovery aborted because token refresh failed.", {
+      reason,
+    });
+    return;
+  }
+  if (!relayClient) {
     return;
   }
   console.warn(`[Main] Recovering agent relay after auth failure: ${reason}`);
@@ -2495,6 +2501,9 @@ async function recoverAgentRelayAuthentication(reason: string): Promise<void> {
 async function recoverControllerRelayAuthentication(reason: string): Promise<void> {
   const refreshed = await refreshControllerToken(true);
   if (!refreshed) {
+    appLogger.warn("relay", "Controller relay auth recovery aborted because token refresh failed.", {
+      reason,
+    });
     return;
   }
   ensureRemoteRelayReady(loadConfig());
@@ -2575,7 +2584,10 @@ function requestActiveRemoteProjectSync(_reason: string, force: boolean = false)
   remoteSessionStore.requestSessionSync(projectId, { limit: 30 });
 }
 
-async function runRelayFollowUpRefresh(_reason: string): Promise<void> {
+async function runRelayFollowUpRefresh(reason: string): Promise<void> {
+  appLogger.info("relay", "Running relay follow-up refresh.", {
+    reason,
+  });
   ensureRemoteRelayReady(loadConfig());
 
   if (remoteProjectCatalogRefreshTimer) {
@@ -2585,13 +2597,21 @@ async function runRelayFollowUpRefresh(_reason: string): Promise<void> {
   lastRemoteProjectCatalogRefreshAt = 0;
   lastRemoteWorkgroupCatalogRefreshAt = 0;
 
-  requestRemoteProjectCatalogRefresh();
-  await refreshRemoteWorkgroupCatalog(true);
-  requestActiveRemoteProjectSync("follow-up", true);
+  requestRemoteProjectCatalogRefresh(`follow-up:${reason}`);
+  await refreshRemoteWorkgroupCatalog(true, `follow-up:${reason}`);
+  requestActiveRemoteProjectSync(`follow-up:${reason}`, true);
+  appLogger.info("relay", "Completed relay follow-up refresh.", {
+    reason,
+    requestedActiveProjectSync: Boolean(activeWorkspaceProjectId?.trim() && isRemoteProject(activeWorkspaceProjectId)),
+  });
 }
 
 function scheduleRelayFollowUpRefreshes(reason: string): void {
   clearRelayFollowUpRefreshTimers();
+  appLogger.info("relay", "Scheduled relay follow-up refreshes.", {
+    reason,
+    delaysMs: RELAY_FOLLOW_UP_REFRESH_DELAYS_MS.join(","),
+  });
   for (const delayMs of RELAY_FOLLOW_UP_REFRESH_DELAYS_MS) {
     const timer = setTimeout(() => {
       relayFollowUpRefreshTimers.delete(timer);
@@ -2601,7 +2621,7 @@ function scheduleRelayFollowUpRefreshes(reason: string): void {
   }
 }
 
-function requestRemoteProjectCatalogRefresh(): void {
+function requestRemoteProjectCatalogRefresh(reason: string = "unspecified"): void {
   if (!remoteSessionStore || !controllerRelayClient) {
     return;
   }
@@ -2616,23 +2636,26 @@ function requestRemoteProjectCatalogRefresh(): void {
     if (!remoteProjectCatalogRefreshTimer) {
       remoteProjectCatalogRefreshTimer = setTimeout(() => {
         remoteProjectCatalogRefreshTimer = null;
-        requestRemoteProjectCatalogRefresh();
+        requestRemoteProjectCatalogRefresh(reason);
       }, delayMs);
     }
     return;
   }
 
   lastRemoteProjectCatalogRefreshAt = now;
+  appLogger.info("relay", "Requested remote project catalog refresh.", {
+    reason,
+  });
   remoteSessionStore.requestProjectList();
 }
 
-function scheduleRemoteProjectCatalogRefresh(delayMs: number): void {
+function scheduleRemoteProjectCatalogRefresh(delayMs: number, reason: string = "scheduled"): void {
   setTimeout(() => {
-    requestRemoteProjectCatalogRefresh();
+    requestRemoteProjectCatalogRefresh(reason);
   }, Math.max(0, delayMs));
 }
 
-async function refreshRemoteWorkgroupCatalog(force: boolean = false): Promise<void> {
+async function refreshRemoteWorkgroupCatalog(force: boolean = false, reason: string = "unspecified"): Promise<void> {
   if (!remoteWorkgroupStore) {
     return;
   }
@@ -2648,10 +2671,17 @@ async function refreshRemoteWorkgroupCatalog(force: boolean = false): Promise<vo
     if (controllerRelayClient?.isConnected()) {
       remoteWorkgroupStore.requestSummaries();
     }
+    appLogger.info("workgroup", "Completed remote workgroup catalog refresh.", {
+      reason,
+      force,
+      recordCount: Array.isArray(response.records) ? response.records.length : 0,
+      requestedSummaries: Boolean(controllerRelayClient?.isConnected()),
+    });
     broadcastWorkgroupCollaborationSummaries();
   } catch (error) {
     lastRemoteWorkgroupCatalogRefreshAt = 0;
     appLogger.warn("workgroup", "Failed to refresh remote workgroup catalog.", {
+      reason,
       error: error instanceof Error ? error.message : String(error),
     });
   }
@@ -3145,7 +3175,10 @@ function initRemoteRelay(config: AgentConfig): void {
     localAgentId: () => loadConfig().agentId,
   });
 
-  remoteSessionStore.on("projects-changed", () => {
+  remoteSessionStore.on("projects-changed", (projects: unknown) => {
+    appLogger.info("relay", "Remote project catalog updated.", {
+      projectCount: Array.isArray(projects) ? projects.length : remoteSessionStore?.getProjects().length ?? 0,
+    });
     broadcastProjectsChanged();
     updateWindowTitles();
     requestActiveRemoteProjectSync("remote-projects-changed");
@@ -3156,7 +3189,10 @@ function initRemoteRelay(config: AgentConfig): void {
       workspaceWindow.webContents.send("project-session-snapshot", snapshot);
     }
   });
-  remoteWorkgroupStore.on("summaries", () => {
+  remoteWorkgroupStore.on("summaries", (summaries: unknown) => {
+    appLogger.info("workgroup", "Remote workgroup catalog updated.", {
+      summaryCount: Array.isArray(summaries) ? summaries.length : remoteWorkgroupStore?.listSummaries().length ?? 0,
+    });
     broadcastWorkgroupCollaborationSummaries();
   });
   remoteWorkgroupStore.on("snapshot", (_workgroupId: string, snapshot: WorkgroupCollaborationSessionSnapshot) => {
@@ -3170,10 +3206,10 @@ function initRemoteRelay(config: AgentConfig): void {
     scheduleControllerTokenRefresh();
   });
   controllerRelayClient.on("authenticated", () => {
-    requestRemoteProjectCatalogRefresh();
-    scheduleRemoteProjectCatalogRefresh(1_500);
-    scheduleRemoteProjectCatalogRefresh(5_000);
-    void refreshRemoteWorkgroupCatalog(true);
+    requestRemoteProjectCatalogRefresh("controller-authenticated");
+    scheduleRemoteProjectCatalogRefresh(1_500, "controller-authenticated:1500");
+    scheduleRemoteProjectCatalogRefresh(5_000, "controller-authenticated:5000");
+    void refreshRemoteWorkgroupCatalog(true, "controller-authenticated");
     scheduleRelayFollowUpRefreshes("controller-authenticated");
   });
   controllerRelayClient.on("disconnected", () => {

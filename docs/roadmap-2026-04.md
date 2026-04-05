@@ -97,7 +97,7 @@
 
 - 阶段一完成度约 `92%`
 - 阶段二完成度约 `92%`
-- 阶段三完成度约 `90%`
+- 阶段三完成度约 `92%`
 - 阶段四完成度约 `86%`
 
 ### 已完成
@@ -150,17 +150,20 @@
 - 服务端日志分析已补“协作组定时任务调度重入 / 派发后长时间无结果”聚类，能直接区分“重复触发了”和“已派发但后续没收口”
 - 桌面端已补调度恢复日志：启动后把残留的 queued / running / assigned 任务收口成 error 时，会显式写出“stale in-flight state”恢复记录
 - 服务端日志分析已补“桌面重启后调度残留未清理 / relay 恢复抖动”聚类，可直接看出是启动收口问题还是连接恢复反复震荡
+- 安卓前后台恢复链路已补“开始 foreground recovery / foreground sync / session catalog refreshed / project sync requested / workgroup refresh completed”锚点，服务端可直接定位恢复后到底断在认证、catalog、补拉还是 workgroup 刷新
+- 安卓认证恢复与 post-auth 同步链路已补显式锚点，服务端日志分析可新增聚类：`auth_recovery_failures` / `foreground_recovery_follow_up_gaps` / `post_auth_sync_incomplete`
+- 桌面端 controller follow-up refresh 与 remote catalog 更新链路已补显式锚点，服务端日志分析可新增聚类：`desktop_auth_recovery_failures` / `desktop_catalog_refresh_gaps`
 
 ### 进行中
 
 - 基于真实上传日志继续补桌面 / 安卓恢复链路的诊断规则
-- 基于真实上传日志继续补桌面 / 安卓恢复链路的诊断规则
+- 继续扩分析页联动能力，把 traceId / taskId / dispatchRunId 回查做成一键跳转
 
 ### 下一刀
 
-1. 结合真实上传日志，再补一轮桌面 / 安卓重连与补拉问题的分析规则
-2. 继续补“认证恢复失败 / 前后台恢复后未触发补拉 / 恢复后 Catalog 不刷新”的服务端聚类规则
-3. 再补一轮分析页联动能力，把 traceId / taskId / dispatchRunId 回查做成一键跳转
+1. 把分析页的 traceId / taskId / dispatchRunId 做成一键回查和联动跳转
+2. 继续补恢复链路诊断字段，把 controller catalog 请求和 session snapshot 命中做成更细的收口统计
+3. 结合真实上传日志，再补一轮桌面 / 安卓重连与补拉问题的分析规则
 
 ## 5. 后续顺序
 

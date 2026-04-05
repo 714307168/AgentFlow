@@ -523,18 +523,28 @@ class MainActivity : ComponentActivity() {
 
     private fun scheduleForegroundRecoveryPasses(reason: String, forceReconnectInitial: Boolean) {
         clearForegroundRecoveryJobs()
+        CrashLogger.logInfo(
+            "MainActivity",
+            "Scheduling foreground recovery passes reason=$reason forceReconnectInitial=$forceReconnectInitial passCount=${FOREGROUND_RECOVERY_DELAYS_MS.size}"
+        )
         FOREGROUND_RECOVERY_DELAYS_MS.forEachIndexed { index, delayMs ->
             val job = lifecycleScope.launch {
                 if (delayMs > 0L) {
                     delay(delayMs)
                 }
+                val passReason = "$reason:$delayMs"
+                val forceReconnect = forceReconnectInitial && index == 0
+                CrashLogger.logInfo(
+                    "MainActivity",
+                    "Running foreground recovery pass reason=$passReason forceReconnect=$forceReconnect"
+                )
                 try {
                     restoreRelayConnectionOnForeground(
-                        reason = "$reason:$delayMs",
-                        forceReconnect = forceReconnectInitial && index == 0,
+                        reason = passReason,
+                        forceReconnect = forceReconnect,
                         staleTimeoutMs = RESUME_STALE_CONNECTION_TIMEOUT_MS
                     )
-                    syncForegroundData("$reason:$delayMs")
+                    syncForegroundData(passReason)
                 } catch (e: Exception) {
                     CrashLogger.logError("MainActivity", "Failed to verify relay connection on resume", e)
                 }
@@ -611,6 +621,10 @@ class MainActivity : ComponentActivity() {
             } else {
                 "$reason-force-reconnect"
             }
+            CrashLogger.logInfo(
+                "MainActivity",
+                "Foreground relay recovery forcing reconnect reason=$reconnectReason tokenChanged=$tokenChanged"
+            )
             appContainer.relayWebSocket.forceReconnect(reconnectReason)
             return
         }
@@ -626,17 +640,26 @@ class MainActivity : ComponentActivity() {
         val messageRepository = appContainer.messageRepository
         val workgroupRepository = appContainer.workgroupRepository
         val webSocket = appContainer.relayWebSocket
+        CrashLogger.logInfo("MainActivity", "Starting foreground sync reason=$reason")
 
-        sessionRepository.syncFromServer(force = true).onFailure { error ->
+        val syncResult = sessionRepository.syncFromServer(force = true)
+        syncResult.onFailure { error ->
             CrashLogger.logError(
                 "MainActivity",
                 "Failed to refresh session catalog on foreground: $reason",
                 error as? Exception ?: Exception(error)
             )
         }
+        syncResult.onSuccess {
+            CrashLogger.logInfo(
+                "MainActivity",
+                "Foreground session catalog refreshed reason=$reason sessionCount=${sessionRepository.getSessions().size}"
+            )
+        }
 
         val sessions = sessionRepository.getSessions()
         if (sessions.isEmpty()) {
+            CrashLogger.logInfo("MainActivity", "Foreground sync found no sessions reason=$reason")
             workgroupRepository.retainAgentIds(emptyList())
             return
         }
@@ -657,6 +680,11 @@ class MainActivity : ComponentActivity() {
 
         runCatching {
             messageRepository.requestProjectSyncs(sessions, bypassDedupe = true)
+        }.onSuccess {
+            CrashLogger.logInfo(
+                "MainActivity",
+                "Foreground project sync requested reason=$reason sessionCount=${sessions.size}"
+            )
         }.onFailure { error ->
             CrashLogger.logError(
                 "MainActivity",
@@ -674,6 +702,11 @@ class MainActivity : ComponentActivity() {
             } else {
                 workgroupRepository.refresh(trackedAgentIds, force = true)
             }
+        }.onSuccess {
+            CrashLogger.logInfo(
+                "MainActivity",
+                "Foreground workgroup refresh completed reason=$reason trackedAgentCount=${trackedAgentIds.size}"
+            )
         }.onFailure { error ->
             CrashLogger.logError(
                 "MainActivity",

@@ -529,6 +529,29 @@ func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string, 
 	restartResidueExamples := make([]string, 0, 3)
 	recoveryJitterCount := 0
 	recoveryJitterExamples := make([]string, 0, 3)
+	authRecoveryFailureCount := 0
+	authRecoveryFailureExamples := make([]string, 0, 3)
+	foregroundRecoveryPassCount := 0
+	foregroundSessionCatalogCount := 0
+	foregroundProjectSyncRequestedCount := 0
+	foregroundWorkgroupRefreshCount := 0
+	foregroundProjectSyncSkippedCount := 0
+	foregroundRecoveryFailureCount := 0
+	foregroundRecoveryExamples := make([]string, 0, 3)
+	postAuthSyncStartCount := 0
+	postAuthSessionCatalogCount := 0
+	postAuthProjectSyncRequestedCount := 0
+	postAuthWorkgroupRefreshCount := 0
+	postAuthSyncFailureCount := 0
+	postAuthSyncExamples := make([]string, 0, 3)
+	desktopAuthRecoveryFailureCount := 0
+	desktopAuthRecoveryFailureExamples := make([]string, 0, 3)
+	desktopFollowUpRefreshCount := 0
+	desktopProjectCatalogUpdatedCount := 0
+	desktopWorkgroupCatalogRefreshCount := 0
+	desktopWorkgroupCatalogUpdatedCount := 0
+	desktopCatalogRefreshFailureCount := 0
+	desktopCatalogRefreshExamples := make([]string, 0, 3)
 
 	type signalPattern struct {
 		code           string
@@ -773,6 +796,99 @@ func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string, 
 			}
 		}
 
+		if strings.Contains(lowerLine, "failed to refresh mobile token after auth error") ||
+			strings.Contains(lowerLine, "failed to reconnect relay after auth error recovery") ||
+			strings.Contains(lowerLine, "failed to reconnect relay after token refresh") ||
+			strings.Contains(lowerLine, "failed to refresh mobile token in background") ||
+			strings.Contains(lowerLine, "failed to refresh relay token on foreground restore") {
+			authRecoveryFailureCount++
+			if len(authRecoveryFailureExamples) < 3 {
+				authRecoveryFailureExamples = append(authRecoveryFailureExamples, line)
+			}
+		}
+
+		if strings.Contains(lowerLine, "running foreground recovery pass") {
+			foregroundRecoveryPassCount++
+			if len(foregroundRecoveryExamples) < 3 {
+				foregroundRecoveryExamples = append(foregroundRecoveryExamples, line)
+			}
+		}
+		if strings.Contains(lowerLine, "foreground session catalog refreshed") {
+			foregroundSessionCatalogCount++
+		}
+		if strings.Contains(lowerLine, "foreground project sync requested") {
+			foregroundProjectSyncRequestedCount++
+		}
+		if strings.Contains(lowerLine, "foreground workgroup refresh completed") {
+			foregroundWorkgroupRefreshCount++
+		}
+		if strings.Contains(lowerLine, "skipping foreground project sync because relay is not connected") {
+			foregroundProjectSyncSkippedCount++
+			if len(foregroundRecoveryExamples) < 3 {
+				foregroundRecoveryExamples = append(foregroundRecoveryExamples, line)
+			}
+		}
+		if strings.Contains(lowerLine, "failed to verify relay connection on resume") ||
+			strings.Contains(lowerLine, "failed to refresh session catalog on foreground") ||
+			strings.Contains(lowerLine, "failed to request project syncs on foreground") ||
+			strings.Contains(lowerLine, "failed to refresh workgroups on foreground") {
+			foregroundRecoveryFailureCount++
+			if len(foregroundRecoveryExamples) < 3 {
+				foregroundRecoveryExamples = append(foregroundRecoveryExamples, line)
+			}
+		}
+
+		if strings.Contains(lowerLine, "starting post-auth session sync") {
+			postAuthSyncStartCount++
+			if len(postAuthSyncExamples) < 3 {
+				postAuthSyncExamples = append(postAuthSyncExamples, line)
+			}
+		}
+		if strings.Contains(lowerLine, "post-auth session catalog refreshed") {
+			postAuthSessionCatalogCount++
+		}
+		if strings.Contains(lowerLine, "requested project syncs after relay authentication") {
+			postAuthProjectSyncRequestedCount++
+		}
+		if strings.Contains(lowerLine, "completed post-auth workgroup refresh") {
+			postAuthWorkgroupRefreshCount++
+		}
+		if strings.Contains(lowerLine, "failed to sync sessions after relay authentication") {
+			postAuthSyncFailureCount++
+			if len(postAuthSyncExamples) < 3 {
+				postAuthSyncExamples = append(postAuthSyncExamples, line)
+			}
+		}
+
+		if strings.Contains(lowerLine, "agent relay auth recovery aborted because token refresh failed") ||
+			strings.Contains(lowerLine, "controller relay auth recovery aborted because token refresh failed") {
+			desktopAuthRecoveryFailureCount++
+			if len(desktopAuthRecoveryFailureExamples) < 3 {
+				desktopAuthRecoveryFailureExamples = append(desktopAuthRecoveryFailureExamples, line)
+			}
+		}
+		if strings.Contains(lowerLine, "running relay follow-up refresh") {
+			desktopFollowUpRefreshCount++
+			if len(desktopCatalogRefreshExamples) < 3 {
+				desktopCatalogRefreshExamples = append(desktopCatalogRefreshExamples, line)
+			}
+		}
+		if strings.Contains(lowerLine, "remote project catalog updated") {
+			desktopProjectCatalogUpdatedCount++
+		}
+		if strings.Contains(lowerLine, "completed remote workgroup catalog refresh") {
+			desktopWorkgroupCatalogRefreshCount++
+		}
+		if strings.Contains(lowerLine, "remote workgroup catalog updated") {
+			desktopWorkgroupCatalogUpdatedCount++
+		}
+		if strings.Contains(lowerLine, "failed to refresh remote workgroup catalog") {
+			desktopCatalogRefreshFailureCount++
+			if len(desktopCatalogRefreshExamples) < 3 {
+				desktopCatalogRefreshExamples = append(desktopCatalogRefreshExamples, line)
+			}
+		}
+
 		for _, pattern := range patterns {
 			matched := false
 			for _, token := range pattern.matches {
@@ -848,6 +964,56 @@ func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string, 
 			Count:          recoveryJitterCount,
 			Recommendation: "Inspect whether relay recovery is oscillating between watchdog recovery, stale-socket reconnects, and forced reconnects. When these cluster tightly, the client is not settling into a stable connected state after resume or network change.",
 			Examples:       recoveryJitterExamples,
+		})
+	}
+
+	if authRecoveryFailureCount > 0 {
+		signals = append(signals, mobileLogSignal{
+			Code:           "auth_recovery_failures",
+			Title:          "Auth recovery chain is failing",
+			Count:          authRecoveryFailureCount,
+			Recommendation: "Inspect token refresh and reconnect together. If these failures cluster after auth-error, foreground restore, or token-refresh, the client is failing before it can re-enter a healthy relay session.",
+			Examples:       authRecoveryFailureExamples,
+		})
+	}
+
+	if foregroundRecoveryPassCount > 0 && (foregroundRecoveryFailureCount > 0 || foregroundProjectSyncSkippedCount > 0 || foregroundSessionCatalogCount < foregroundRecoveryPassCount || foregroundProjectSyncRequestedCount == 0 || foregroundWorkgroupRefreshCount == 0) {
+		signals = append(signals, mobileLogSignal{
+			Code:           "foreground_recovery_follow_up_gaps",
+			Title:          "Foreground recovery did not complete follow-up sync",
+			Count:          foregroundRecoveryFailureCount + foregroundProjectSyncSkippedCount + maxInt(1, foregroundRecoveryPassCount-foregroundProjectSyncRequestedCount),
+			Recommendation: "Compare each foreground recovery pass with the later catalog refresh, project sync request, and workgroup refresh logs. If the pass starts but these follow-up logs do not appear, the app resumed without completing its catch-up chain.",
+			Examples:       foregroundRecoveryExamples,
+		})
+	}
+
+	if postAuthSyncStartCount > 0 && (postAuthSyncFailureCount > 0 || postAuthSessionCatalogCount < postAuthSyncStartCount || postAuthProjectSyncRequestedCount < postAuthSyncStartCount || postAuthWorkgroupRefreshCount < postAuthSyncStartCount) {
+		signals = append(signals, mobileLogSignal{
+			Code:           "post_auth_sync_incomplete",
+			Title:          "Post-auth sync chain did not settle",
+			Count:          postAuthSyncFailureCount + maxInt(1, postAuthSyncStartCount-postAuthProjectSyncRequestedCount),
+			Recommendation: "Inspect the post-auth chain in order: session catalog refresh, project sync request, and workgroup refresh. If authentication succeeded but these follow-up steps are missing, the relay resumed without rebuilding catalogs and session state.",
+			Examples:       postAuthSyncExamples,
+		})
+	}
+
+	if desktopAuthRecoveryFailureCount > 0 {
+		signals = append(signals, mobileLogSignal{
+			Code:           "desktop_auth_recovery_failures",
+			Title:          "Desktop auth recovery could not refresh credentials",
+			Count:          desktopAuthRecoveryFailureCount,
+			Recommendation: "Inspect controller or agent token refresh around auth-failed. If recovery aborts here, the desktop will reconnect repeatedly without ever re-establishing a valid authenticated relay session.",
+			Examples:       desktopAuthRecoveryFailureExamples,
+		})
+	}
+
+	if desktopFollowUpRefreshCount > 0 && (desktopCatalogRefreshFailureCount > 0 || desktopProjectCatalogUpdatedCount == 0 || desktopWorkgroupCatalogRefreshCount == 0 || desktopWorkgroupCatalogUpdatedCount == 0) {
+		signals = append(signals, mobileLogSignal{
+			Code:           "desktop_catalog_refresh_gaps",
+			Title:          "Desktop follow-up refresh did not rebuild catalogs",
+			Count:          desktopCatalogRefreshFailureCount + maxInt(1, desktopFollowUpRefreshCount-desktopProjectCatalogUpdatedCount),
+			Recommendation: "Compare follow-up refresh runs with the later project-catalog update and workgroup-catalog refresh logs. If the desktop requests follow-up refreshes but catalog updates never land, the controller relay recovered without settling the remote indexes.",
+			Examples:       desktopCatalogRefreshExamples,
 		})
 	}
 
@@ -1141,6 +1307,13 @@ func classifyWorkgroupSchedulerFailure(lowerLine string) string {
 	default:
 		return ""
 	}
+}
+
+func maxInt(left int, right int) int {
+	if left > right {
+		return left
+	}
+	return right
 }
 
 const mobileLogsAdminHTML = `<!DOCTYPE html>

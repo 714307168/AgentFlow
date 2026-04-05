@@ -49,17 +49,25 @@ class RelayConnectionService : Service() {
         }
 
         serviceScope.launch {
-            container.relayWebSocket.authFailures.collect {
+            container.relayWebSocket.authFailures.collect { reason ->
                 val deviceId = container.tokenStore.getDeviceId().orEmpty()
                 if (deviceId.isBlank()) {
                     return@collect
                 }
+                CrashLogger.logInfo(
+                    "RelayConnectionService",
+                    "Starting auth error recovery reason=$reason"
+                )
 
                 container.authSessionManager.ensureValidToken(deviceId, forceRefresh = true)
                     .onSuccess { refreshedToken ->
                         if (refreshedToken.isBlank()) {
                             return@onSuccess
                         }
+                        CrashLogger.logInfo(
+                            "RelayConnectionService",
+                            "Refreshed mobile token after auth error; reconnecting relay reason=$reason"
+                        )
                         runCatching {
                             container.relayWebSocket.forceReconnect("auth-error-recovery")
                         }.onFailure { error ->
@@ -198,23 +206,35 @@ class RelayConnectionService : Service() {
     }
 
     private suspend fun syncAfterAuthentication(container: com.claudecode.remote.AppContainer) {
+        CrashLogger.logInfo("RelayConnectionService", "Starting post-auth session sync")
         runCatching {
             val syncResult = container.sessionRepository.syncFromServer(force = true)
-            if (syncResult.isSuccess) {
-                val sessions = container.sessionRepository.getSessions()
-                container.messageRepository.requestProjectSyncs(
-                    sessions = sessions,
-                    bypassDedupe = true
-                )
-                val trackedAgentIds = container.workgroupRepository.resolveTrackedAgentIds(
-                    sessions.map { it.agentId.trim() }.filter { it.isNotEmpty() }.distinct().sorted()
-                )
-                if (trackedAgentIds.isEmpty()) {
-                    container.workgroupRepository.retainAgentIds(emptyList())
-                } else {
-                    container.workgroupRepository.refresh(trackedAgentIds, force = true)
-                }
+            syncResult.getOrThrow()
+            val sessions = container.sessionRepository.getSessions()
+            CrashLogger.logInfo(
+                "RelayConnectionService",
+                "Post-auth session catalog refreshed sessionCount=${sessions.size}"
+            )
+            container.messageRepository.requestProjectSyncs(
+                sessions = sessions,
+                bypassDedupe = true
+            )
+            CrashLogger.logInfo(
+                "RelayConnectionService",
+                "Requested project syncs after relay authentication sessionCount=${sessions.size}"
+            )
+            val trackedAgentIds = container.workgroupRepository.resolveTrackedAgentIds(
+                sessions.map { it.agentId.trim() }.filter { it.isNotEmpty() }.distinct().sorted()
+            )
+            if (trackedAgentIds.isEmpty()) {
+                container.workgroupRepository.retainAgentIds(emptyList())
+            } else {
+                container.workgroupRepository.refresh(trackedAgentIds, force = true)
             }
+            CrashLogger.logInfo(
+                "RelayConnectionService",
+                "Completed post-auth workgroup refresh trackedAgentCount=${trackedAgentIds.size}"
+            )
         }.onFailure { error ->
             CrashLogger.logError(
                 "RelayConnectionService",
