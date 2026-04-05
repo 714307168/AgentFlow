@@ -56,6 +56,31 @@ type uploadedMobileLogAnalysis struct {
 	} `json:"signals"`
 }
 
+type uploadedMobileLogOverview struct {
+	Summary         string `json:"summary"`
+	LogCount        int    `json:"log_count"`
+	LogsWithSignals int    `json:"logs_with_signals"`
+	ErrorCount      int    `json:"error_count"`
+	WarningCount    int    `json:"warning_count"`
+	SourceCounts    []struct {
+		Source   string `json:"source"`
+		LogCount int    `json:"log_count"`
+	} `json:"source_counts"`
+	TopSignals []struct {
+		Code       string `json:"code"`
+		LogCount   int    `json:"log_count"`
+		TotalCount int    `json:"total_count"`
+	} `json:"top_signals"`
+	TopTraceIDs []struct {
+		Value    string `json:"value"`
+		LogCount int    `json:"log_count"`
+	} `json:"top_trace_ids"`
+	TopTaskIDs []struct {
+		Value    string `json:"value"`
+		LogCount int    `json:"log_count"`
+	} `json:"top_task_ids"`
+}
+
 func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 	t.Setenv("ADMIN_PASSWORD", "Admin12345A")
 	t.Setenv("ADMIN_USER", "")
@@ -168,7 +193,7 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 	if resp.StatusCode != http.StatusOK || !strings.Contains(string(pageBody), "Device Logs") {
 		t.Fatalf("unexpected mobile logs page response: status=%d", resp.StatusCode)
 	}
-	if !strings.Contains(string(pageBody), "log_id") || !strings.Contains(string(pageBody), "Copy Link") || !strings.Contains(string(pageBody), "history.replaceState") || !strings.Contains(string(pageBody), "Filter Text") || !strings.Contains(string(pageBody), "Filter Signal") {
+	if !strings.Contains(string(pageBody), "log_id") || !strings.Contains(string(pageBody), "Copy Link") || !strings.Contains(string(pageBody), "history.replaceState") || !strings.Contains(string(pageBody), "Filter Text") || !strings.Contains(string(pageBody), "Filter Signal") || !strings.Contains(string(pageBody), "/admin/api/mobile-logs/overview") || !strings.Contains(string(pageBody), "Current Filter Overview") || !strings.Contains(string(pageBody), "signal_code") {
 		t.Fatalf("expected admin page to expose deep-link jump helpers, got %s", string(pageBody))
 	}
 
@@ -253,6 +278,24 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 		t.Fatalf("expected post-auth sync incomplete signal, got %+v", analysis.Signals)
 	}
 
+	var overview uploadedMobileLogOverview
+	doJSON(t, adminClient, http.MethodGet, server.URL+"/admin/api/mobile-logs/overview", nil, http.StatusOK, &overview)
+	if overview.LogCount != 3 {
+		t.Fatalf("expected overview to include all 3 logs, got %+v", overview)
+	}
+	if overview.LogsWithSignals < 3 {
+		t.Fatalf("expected overview to count logs with signals, got %+v", overview)
+	}
+	if !hasOverviewSourceCount(overview.SourceCounts, "android", 2) || !hasOverviewSourceCount(overview.SourceCounts, "desktop", 1) {
+		t.Fatalf("unexpected overview source counts: %+v", overview.SourceCounts)
+	}
+	if !hasOverviewSignalCode(overview.TopSignals, "websocket_failures") {
+		t.Fatalf("expected overview to aggregate websocket failures, got %+v", overview.TopSignals)
+	}
+	if !hasOverviewBucketValue(overview.TopTraceIDs, "trace-alpha-001") {
+		t.Fatalf("expected overview to expose top trace ids, got %+v", overview.TopTraceIDs)
+	}
+
 	var traceFiltered []uploadedMobileLog
 	doJSON(t, adminClient, http.MethodGet, server.URL+"/admin/api/mobile-logs?trace_id=trace-alpha-001", nil, http.StatusOK, &traceFiltered)
 	if len(traceFiltered) != 1 || traceFiltered[0].ID != alphaLog.ID {
@@ -281,6 +324,12 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 	doJSON(t, adminClient, http.MethodGet, server.URL+"/admin/api/mobile-logs?dispatch_run_id=dispatch-run-7", nil, http.StatusOK, &runFiltered)
 	if len(runFiltered) != 1 || runFiltered[0].ID != desktopLog.ID {
 		t.Fatalf("expected dispatch run filter to return desktop log, got %+v", runFiltered)
+	}
+
+	var signalFiltered []uploadedMobileLog
+	doJSON(t, adminClient, http.MethodGet, server.URL+"/admin/api/mobile-logs?signal_code=auth_recovery_failures", nil, http.StatusOK, &signalFiltered)
+	if len(signalFiltered) != 1 || signalFiltered[0].ID != alphaLog.ID {
+		t.Fatalf("expected signal filter to return alpha log, got %+v", signalFiltered)
 	}
 
 	var desktopAnalysis uploadedMobileLogAnalysis
@@ -336,6 +385,18 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 	if len(desktopAnalysis.TaskIDs) == 0 || len(desktopAnalysis.DispatchRunIDs) == 0 {
 		t.Fatalf("expected desktop analysis to expose task and dispatch run ids, got %+v", desktopAnalysis)
 	}
+
+	var desktopOverview uploadedMobileLogOverview
+	doJSON(t, adminClient, http.MethodGet, server.URL+"/admin/api/mobile-logs/overview?source=desktop", nil, http.StatusOK, &desktopOverview)
+	if desktopOverview.LogCount != 1 {
+		t.Fatalf("expected desktop overview to narrow to one log, got %+v", desktopOverview)
+	}
+	if !hasOverviewSignalCode(desktopOverview.TopSignals, "desktop_dispatch_breaks") {
+		t.Fatalf("expected desktop overview to aggregate desktop dispatch breaks, got %+v", desktopOverview.TopSignals)
+	}
+	if !hasOverviewBucketValue(desktopOverview.TopTaskIDs, "wg-task-1") {
+		t.Fatalf("expected desktop overview to expose top task ids, got %+v", desktopOverview.TopTaskIDs)
+	}
 }
 
 func hasSignalCode(signals []struct {
@@ -344,6 +405,43 @@ func hasSignalCode(signals []struct {
 }, code string) bool {
 	for _, signal := range signals {
 		if signal.Code == code {
+			return true
+		}
+	}
+	return false
+}
+
+func hasOverviewSignalCode(signals []struct {
+	Code       string `json:"code"`
+	LogCount   int    `json:"log_count"`
+	TotalCount int    `json:"total_count"`
+}, code string) bool {
+	for _, signal := range signals {
+		if signal.Code == code {
+			return true
+		}
+	}
+	return false
+}
+
+func hasOverviewBucketValue(items []struct {
+	Value    string `json:"value"`
+	LogCount int    `json:"log_count"`
+}, value string) bool {
+	for _, item := range items {
+		if item.Value == value {
+			return true
+		}
+	}
+	return false
+}
+
+func hasOverviewSourceCount(items []struct {
+	Source   string `json:"source"`
+	LogCount int    `json:"log_count"`
+}, source string, count int) bool {
+	for _, item := range items {
+		if item.Source == source && item.LogCount == count {
 			return true
 		}
 	}

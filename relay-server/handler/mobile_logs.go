@@ -106,9 +106,44 @@ type mobileLogAnalysisResponse struct {
 	DispatchRunIDs []string          `json:"dispatch_run_ids,omitempty"`
 }
 
+type mobileLogOverviewSource struct {
+	Source   string `json:"source"`
+	LogCount int    `json:"log_count"`
+}
+
+type mobileLogOverviewSignal struct {
+	Code       string `json:"code"`
+	Title      string `json:"title"`
+	LogCount   int    `json:"log_count"`
+	TotalCount int    `json:"total_count"`
+}
+
+type mobileLogOverviewBucket struct {
+	Value        string `json:"value"`
+	LogCount     int    `json:"log_count"`
+	ErrorCount   int    `json:"error_count"`
+	WarningCount int    `json:"warning_count"`
+	SignalCount  int    `json:"signal_count"`
+}
+
+type mobileLogOverviewResponse struct {
+	Summary           string                    `json:"summary"`
+	LogCount          int                       `json:"log_count"`
+	LogsWithSignals   int                       `json:"logs_with_signals"`
+	ErrorCount        int                       `json:"error_count"`
+	WarningCount      int                       `json:"warning_count"`
+	SourceCounts      []mobileLogOverviewSource `json:"source_counts"`
+	TopSignals        []mobileLogOverviewSignal `json:"top_signals"`
+	TopTraceIDs       []mobileLogOverviewBucket `json:"top_trace_ids,omitempty"`
+	TopWorkgroupIDs   []mobileLogOverviewBucket `json:"top_workgroup_ids,omitempty"`
+	TopTaskIDs        []mobileLogOverviewBucket `json:"top_task_ids,omitempty"`
+	TopDispatchRunIDs []mobileLogOverviewBucket `json:"top_dispatch_run_ids,omitempty"`
+}
+
 type mobileLogFilter struct {
 	Query         string
 	Source        string
+	SignalCode    string
 	TraceID       string
 	WorkgroupID   string
 	TaskID        string
@@ -260,13 +295,20 @@ func AdminMobileLogsHandler(cfg *config.Config, database *db.DB) http.HandlerFun
 		filter := mobileLogFilter{
 			Query:         strings.TrimSpace(r.URL.Query().Get("q")),
 			Source:        strings.TrimSpace(r.URL.Query().Get("source")),
+			SignalCode:    strings.TrimSpace(r.URL.Query().Get("signal_code")),
 			TraceID:       strings.TrimSpace(r.URL.Query().Get("trace_id")),
 			WorkgroupID:   strings.TrimSpace(r.URL.Query().Get("workgroup_id")),
 			TaskID:        strings.TrimSpace(r.URL.Query().Get("task_id")),
 			DispatchRunID: strings.TrimSpace(r.URL.Query().Get("dispatch_run_id")),
 		}
-		if filter.Query != "" || filter.Source != "" || filter.TraceID != "" || filter.WorkgroupID != "" || filter.TaskID != "" || filter.DispatchRunID != "" {
+		if filter.Query != "" || filter.Source != "" || filter.SignalCode != "" || filter.TraceID != "" || filter.WorkgroupID != "" || filter.TaskID != "" || filter.DispatchRunID != "" {
 			records = filterStoredMobileLogs(records, filepath.Join(cfg.DataDir, "mobile-logs"), filter)
+		}
+
+		if remainder == "overview" {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(buildMobileLogOverview(records, filepath.Join(cfg.DataDir, "mobile-logs")))
+			return
 		}
 
 		if remainder == "" {
@@ -411,12 +453,13 @@ func readStoredMobileLogContent(storageDir string, record storedMobileLogMetadat
 }
 
 func filterStoredMobileLogs(records []storedMobileLogMetadata, storageDir string, filter mobileLogFilter) []storedMobileLogMetadata {
-	if filter.Query == "" && filter.Source == "" && filter.TraceID == "" && filter.WorkgroupID == "" && filter.TaskID == "" && filter.DispatchRunID == "" {
+	if filter.Query == "" && filter.Source == "" && filter.SignalCode == "" && filter.TraceID == "" && filter.WorkgroupID == "" && filter.TaskID == "" && filter.DispatchRunID == "" {
 		return records
 	}
 
 	query := strings.ToLower(strings.TrimSpace(filter.Query))
 	source := strings.ToLower(strings.TrimSpace(filter.Source))
+	signalCode := strings.ToLower(strings.TrimSpace(filter.SignalCode))
 	traceID := strings.ToLower(strings.TrimSpace(filter.TraceID))
 	workgroupID := strings.ToLower(strings.TrimSpace(filter.WorkgroupID))
 	taskID := strings.ToLower(strings.TrimSpace(filter.TaskID))
@@ -426,7 +469,7 @@ func filterStoredMobileLogs(records []storedMobileLogMetadata, storageDir string
 	for _, record := range records {
 		var content string
 		var err error
-		needsContent := query != "" || taskID != "" || dispatchRunID != "" || len(record.TraceIDs) == 0 || len(record.WorkgroupIDs) == 0
+		needsContent := query != "" || signalCode != "" || taskID != "" || dispatchRunID != "" || len(record.TraceIDs) == 0 || len(record.WorkgroupIDs) == 0
 		if needsContent {
 			content, err = readStoredMobileLogContent(storageDir, record)
 			if err != nil {
@@ -452,6 +495,12 @@ func filterStoredMobileLogs(records []storedMobileLogMetadata, storageDir string
 		if source != "" && strings.ToLower(strings.TrimSpace(record.Source)) != source {
 			continue
 		}
+		if signalCode != "" {
+			analysis := analyzeMobileLog(content, traceIDs, workgroupIDs, taskIDs, dispatchRunIDs)
+			if !containsSignalCode(analysis.Signals, signalCode) {
+				continue
+			}
+		}
 		if traceID != "" && !containsNormalizedID(traceIDs, traceID) {
 			continue
 		}
@@ -468,6 +517,149 @@ func filterStoredMobileLogs(records []storedMobileLogMetadata, storageDir string
 	}
 
 	return filtered
+}
+
+func buildMobileLogOverview(records []storedMobileLogMetadata, storageDir string) mobileLogOverviewResponse {
+	if len(records) == 0 {
+		return mobileLogOverviewResponse{
+			Summary: "No device logs matched the current filter.",
+		}
+	}
+
+	type signalAccumulator struct {
+		Code       string
+		Title      string
+		LogCount   int
+		TotalCount int
+	}
+	sourceCounts := make(map[string]int)
+	signalTotals := make(map[string]*signalAccumulator)
+	traceBuckets := make(map[string]*mobileLogOverviewBucket)
+	workgroupBuckets := make(map[string]*mobileLogOverviewBucket)
+	taskBuckets := make(map[string]*mobileLogOverviewBucket)
+	dispatchRunBuckets := make(map[string]*mobileLogOverviewBucket)
+	logsWithSignals := 0
+	errorCount := 0
+	warningCount := 0
+
+	updateBucket := func(target map[string]*mobileLogOverviewBucket, values []string, analysis mobileLogAnalysisResponse) {
+		signalWeight := 0
+		for _, signal := range analysis.Signals {
+			signalWeight += signal.Count
+		}
+		for _, value := range values {
+			key := strings.ToLower(strings.TrimSpace(value))
+			if key == "" {
+				continue
+			}
+			item := target[key]
+			if item == nil {
+				item = &mobileLogOverviewBucket{Value: strings.TrimSpace(value)}
+				target[key] = item
+			}
+			item.LogCount++
+			item.ErrorCount += analysis.ErrorCount
+			item.WarningCount += analysis.WarningCount
+			item.SignalCount += signalWeight
+		}
+	}
+
+	for _, record := range records {
+		content, err := readStoredMobileLogContent(storageDir, record)
+		if err != nil {
+			continue
+		}
+		traceIDs, workgroupIDs, taskIDs, dispatchRunIDs := mergeStoredAndExtractedIDs(record, content)
+		analysis := analyzeMobileLog(content, traceIDs, workgroupIDs, taskIDs, dispatchRunIDs)
+
+		source := strings.TrimSpace(record.Source)
+		if source == "" {
+			source = "unknown"
+		}
+		sourceCounts[source]++
+		errorCount += analysis.ErrorCount
+		warningCount += analysis.WarningCount
+		if len(analysis.Signals) > 0 {
+			logsWithSignals++
+		}
+		for _, signal := range analysis.Signals {
+			item := signalTotals[signal.Code]
+			if item == nil {
+				item = &signalAccumulator{
+					Code:  signal.Code,
+					Title: signal.Title,
+				}
+				signalTotals[signal.Code] = item
+			}
+			item.LogCount++
+			item.TotalCount += signal.Count
+		}
+
+		updateBucket(traceBuckets, traceIDs, analysis)
+		updateBucket(workgroupBuckets, workgroupIDs, analysis)
+		updateBucket(taskBuckets, taskIDs, analysis)
+		updateBucket(dispatchRunBuckets, dispatchRunIDs, analysis)
+	}
+
+	sourceItems := make([]mobileLogOverviewSource, 0, len(sourceCounts))
+	for source, count := range sourceCounts {
+		sourceItems = append(sourceItems, mobileLogOverviewSource{
+			Source:   source,
+			LogCount: count,
+		})
+	}
+	sort.Slice(sourceItems, func(i, j int) bool {
+		if sourceItems[i].LogCount == sourceItems[j].LogCount {
+			return sourceItems[i].Source < sourceItems[j].Source
+		}
+		return sourceItems[i].LogCount > sourceItems[j].LogCount
+	})
+
+	topSignals := make([]mobileLogOverviewSignal, 0, len(signalTotals))
+	for _, item := range signalTotals {
+		topSignals = append(topSignals, mobileLogOverviewSignal{
+			Code:       item.Code,
+			Title:      item.Title,
+			LogCount:   item.LogCount,
+			TotalCount: item.TotalCount,
+		})
+	}
+	sort.Slice(topSignals, func(i, j int) bool {
+		if topSignals[i].LogCount == topSignals[j].LogCount {
+			if topSignals[i].TotalCount == topSignals[j].TotalCount {
+				return topSignals[i].Title < topSignals[j].Title
+			}
+			return topSignals[i].TotalCount > topSignals[j].TotalCount
+		}
+		return topSignals[i].LogCount > topSignals[j].LogCount
+	})
+	if len(topSignals) > 6 {
+		topSignals = topSignals[:6]
+	}
+
+	summary := fmt.Sprintf("Current filter matched %d logs.", len(records))
+	switch {
+	case len(topSignals) > 0:
+		summary = fmt.Sprintf("Current filter matched %d logs; %d logs contain diagnostic signals. Most common: %s.", len(records), logsWithSignals, topSignals[0].Title)
+	case errorCount > 0:
+		summary = fmt.Sprintf("Current filter matched %d logs and %d total errors; no high-confidence signal matched yet.", len(records), errorCount)
+	case warningCount > 0:
+		summary = fmt.Sprintf("Current filter matched %d logs and %d total warnings; narrow further with trace_id or workgroup_id.", len(records), warningCount)
+	}
+
+	return mobileLogOverviewResponse{
+		Summary:           summary,
+		LogCount:          len(records),
+		LogsWithSignals:   logsWithSignals,
+		ErrorCount:        errorCount,
+		WarningCount:      warningCount,
+		SourceCounts:      sourceItems,
+		TopSignals:        topSignals,
+		TopTraceIDs:       limitOverviewBuckets(traceBuckets, 6),
+		TopWorkgroupIDs:   limitOverviewBuckets(workgroupBuckets, 6),
+		TopTaskIDs:        limitOverviewBuckets(taskBuckets, 6),
+		TopDispatchRunIDs: limitOverviewBuckets(dispatchRunBuckets, 6),
+	}
 }
 
 func sanitizeOriginalName(name string) string {
@@ -1264,6 +1456,45 @@ func containsNormalizedID(values []string, target string) bool {
 	return false
 }
 
+func containsSignalCode(signals []mobileLogSignal, target string) bool {
+	needle := strings.ToLower(strings.TrimSpace(target))
+	if needle == "" {
+		return true
+	}
+	for _, signal := range signals {
+		if strings.EqualFold(strings.TrimSpace(signal.Code), needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func limitOverviewBuckets(values map[string]*mobileLogOverviewBucket, limit int) []mobileLogOverviewBucket {
+	items := make([]mobileLogOverviewBucket, 0, len(values))
+	for _, value := range values {
+		if value == nil || strings.TrimSpace(value.Value) == "" {
+			continue
+		}
+		items = append(items, *value)
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].LogCount == items[j].LogCount {
+			if items[i].SignalCount == items[j].SignalCount {
+				if items[i].ErrorCount == items[j].ErrorCount {
+					return items[i].Value < items[j].Value
+				}
+				return items[i].ErrorCount > items[j].ErrorCount
+			}
+			return items[i].SignalCount > items[j].SignalCount
+		}
+		return items[i].LogCount > items[j].LogCount
+	})
+	if limit > 0 && len(items) > limit {
+		return items[:limit]
+	}
+	return items
+}
+
 var (
 	traceIDPattern       = regexp.MustCompile(`(?i)(?:trace[_-]?id["=: ]+|traceId["=: ]+)([a-z0-9:-]{6,})`)
 	workgroupIDPattern   = regexp.MustCompile(`(?i)(?:workgroup[_-]?id["=: ]+|workgroupId["=: ]+)([a-z0-9._:-]{3,})`)
@@ -1492,6 +1723,43 @@ const mobileLogsAdminHTML = `<!DOCTYPE html>
     flex-wrap: wrap;
     margin-top: 8px;
   }
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+    margin-top: 12px;
+  }
+  .stat-card {
+    background: rgba(255,255,255,0.72);
+    border: 1px solid rgba(111,87,55,0.12);
+    border-radius: 16px;
+    padding: 12px;
+  }
+  .stat-card strong {
+    display: block;
+    font-size: 20px;
+    line-height: 1.1;
+    margin-top: 4px;
+  }
+  .overview-list {
+    display: grid;
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .overview-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 14px;
+    background: rgba(255,255,255,0.72);
+    border: 1px solid rgba(111,87,55,0.12);
+  }
+  .overview-row .meta {
+    font-size: 12px;
+    color: var(--muted);
+  }
   .chip {
     padding: 6px 10px;
     border-radius: 999px;
@@ -1532,6 +1800,7 @@ const mobileLogsAdminHTML = `<!DOCTYPE html>
     body { padding: 10px; }
     .content { grid-template-columns: 1fr; padding: 16px; }
     .meta-grid { grid-template-columns: 1fr; }
+    .stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .topbar { flex-direction: column; align-items: flex-start; }
     .filters { grid-template-columns: 1fr; width: 100%; }
   }
@@ -1575,6 +1844,7 @@ const mobileLogsAdminHTML = `<!DOCTYPE html>
           <h2 style="margin:0 0 6px;">Details</h2>
           <p class="muted" style="margin:0;">Metadata, extracted identifiers, automated analysis, and raw log content are shown together.</p>
         </div>
+        <div class="pane" id="overviewPane"><div class="empty">Loading current filter overview.</div></div>
         <div class="pane" id="metaPane"><div class="empty">Select a log from the left list.</div></div>
         <div class="pane" id="analysisPane"></div>
         <div class="pane"><div class="mono" id="contentPane">No log selected.</div></div>
@@ -1587,9 +1857,11 @@ const state = {
   selectedId: "",
   detail: null,
   analysis: null,
+  overview: null,
   filters: {
     q: "",
     source: "",
+    signal_code: "",
     trace_id: "",
     workgroup_id: "",
     task_id: "",
@@ -1624,6 +1896,7 @@ function buildListUrl() {
   const params = new URLSearchParams();
   if (state.filters.q) params.set("q", state.filters.q);
   if (state.filters.source) params.set("source", state.filters.source);
+  if (state.filters.signal_code) params.set("signal_code", state.filters.signal_code);
   if (state.filters.trace_id) params.set("trace_id", state.filters.trace_id);
   if (state.filters.workgroup_id) params.set("workgroup_id", state.filters.workgroup_id);
   if (state.filters.task_id) params.set("task_id", state.filters.task_id);
@@ -1632,11 +1905,25 @@ function buildListUrl() {
   return "/admin/api/mobile-logs" + (query ? ("?" + query) : "");
 }
 
+function buildOverviewUrl() {
+  const params = new URLSearchParams();
+  if (state.filters.q) params.set("q", state.filters.q);
+  if (state.filters.source) params.set("source", state.filters.source);
+  if (state.filters.signal_code) params.set("signal_code", state.filters.signal_code);
+  if (state.filters.trace_id) params.set("trace_id", state.filters.trace_id);
+  if (state.filters.workgroup_id) params.set("workgroup_id", state.filters.workgroup_id);
+  if (state.filters.task_id) params.set("task_id", state.filters.task_id);
+  if (state.filters.dispatch_run_id) params.set("dispatch_run_id", state.filters.dispatch_run_id);
+  const query = params.toString();
+  return "/admin/api/mobile-logs/overview" + (query ? ("?" + query) : "");
+}
+
 function buildPageUrl(overrides = {}) {
   const params = new URLSearchParams();
   const filters = Object.assign({}, state.filters, overrides.filters || {});
   if (filters.q) params.set("q", filters.q);
   if (filters.source) params.set("source", filters.source);
+  if (filters.signal_code) params.set("signal_code", filters.signal_code);
   if (filters.trace_id) params.set("trace_id", filters.trace_id);
   if (filters.workgroup_id) params.set("workgroup_id", filters.workgroup_id);
   if (filters.task_id) params.set("task_id", filters.task_id);
@@ -1660,6 +1947,7 @@ function loadStateFromUrl() {
   const params = new URLSearchParams(window.location.search);
   state.filters.q = params.get("q") || "";
   state.filters.source = params.get("source") || "";
+  state.filters.signal_code = params.get("signal_code") || "";
   state.filters.trace_id = params.get("trace_id") || "";
   state.filters.workgroup_id = params.get("workgroup_id") || "";
   state.filters.task_id = params.get("task_id") || "";
@@ -1692,6 +1980,13 @@ function renderQueryChip(label, value) {
   return '<button type="button" class="chip actionable" data-query-value="' + esc(value) + '">' + esc(label) + '</button>';
 }
 
+function renderSignalChip(label, signal) {
+  if (!signal || !signal.code) {
+    return "";
+  }
+  return '<button type="button" class="chip actionable" data-signal-code="' + esc(signal.code) + '">' + esc(label) + '</button>';
+}
+
 function applyFilter(kind, value) {
   if (kind === "trace_id") {
     state.filters.trace_id = value;
@@ -1707,6 +2002,11 @@ function applyFilter(kind, value) {
 
 function applyQueryFilter(value) {
   state.filters.q = String(value || "").trim();
+  syncInputsFromState();
+}
+
+function applySignalFilter(value) {
+  state.filters.signal_code = String(value || "").trim();
   syncInputsFromState();
 }
 
@@ -1728,6 +2028,14 @@ function bindFilterChipHandlers(root) {
       await refresh();
     });
   });
+  root.querySelectorAll("[data-signal-code]").forEach((button) => {
+    button.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      const value = button.getAttribute("data-signal-code") || "";
+      applySignalFilter(value);
+      await refresh();
+    });
+  });
 }
 
 function renderActiveFilters() {
@@ -1735,6 +2043,7 @@ function renderActiveFilters() {
   const items = [];
   if (state.filters.q) items.push({ label: "q", value: state.filters.q });
   if (state.filters.source) items.push({ label: "source", value: state.filters.source });
+  if (state.filters.signal_code) items.push({ label: "signal_code", value: state.filters.signal_code });
   if (state.filters.trace_id) items.push({ label: "trace_id", value: state.filters.trace_id });
   if (state.filters.workgroup_id) items.push({ label: "workgroup_id", value: state.filters.workgroup_id });
   if (state.filters.task_id) items.push({ label: "task_id", value: state.filters.task_id });
@@ -1816,6 +2125,30 @@ function renderExampleBlock(lines) {
   return lines.map((line) => renderExampleLine(line)).join("");
 }
 
+function renderOverviewBucketSection(title, items, kind) {
+  if (!Array.isArray(items) || items.length === 0) {
+    return '<div style="margin-top:10px;"><strong>' + esc(title) + '</strong><div class="muted" style="margin-top:6px;">-</div></div>';
+  }
+  return '<div style="margin-top:10px;"><strong>' + esc(title) + '</strong><div class="overview-list">' + items.map((item) =>
+    '<div class="overview-row">' +
+      '<div><button type="button" class="chip actionable" data-filter-kind="' + esc(kind) + '" data-filter-value="' + esc(item.value) + '">' + esc(item.value) + '</button></div>' +
+      '<div class="meta">logs ' + esc(item.log_count || 0) + ' | signals ' + esc(item.signal_count || 0) + ' | errors ' + esc(item.error_count || 0) + '</div>' +
+    '</div>'
+  ).join("") + '</div></div>';
+}
+
+function renderOverviewSignals(items) {
+  if (!Array.isArray(items) || items.length === 0) {
+    return '<div class="muted" style="margin-top:6px;">No aggregated signal matched the current filter.</div>';
+  }
+  return '<div class="overview-list">' + items.map((item) =>
+    '<div class="overview-row">' +
+      '<div><strong>' + esc(item.title || item.code || "-") + '</strong><div class="meta" style="margin-top:4px;">code: ' + esc(item.code || "-") + '</div></div>' +
+      '<div style="text-align:right;"><div class="meta">logs ' + esc(item.log_count || 0) + ' | hits ' + esc(item.total_count || 0) + '</div><div class="chips" style="justify-content:flex-end;">' + renderSignalChip("Filter Signal", item) + '</div></div>' +
+    '</div>'
+  ).join("") + '</div>';
+}
+
 function renderList() {
   const root = document.getElementById("logList");
   if (!Array.isArray(state.logs) || state.logs.length === 0) {
@@ -1891,11 +2224,39 @@ function renderAnalysis() {
       '<div class="signal">' +
       '<div><strong>' + esc(signal.title) + '</strong> ? ' + esc(signal.count) + '</div>' +
       '<div class="muted" style="margin:4px 0 8px;">' + esc(signal.recommendation) + '</div>' +
-      '<div class="chips">' + renderQueryChip("Filter Signal", signal.title || "") + '</div>' +
+      '<div class="chips">' + renderSignalChip("Filter Signal", signal) + '</div>' +
       '<div style="margin-top:6px;">' + renderExampleBlock(signal.examples || []) + '</div>' +
       '</div>'
     ).join("")) +
     (recentErrors.length === 0 ? '' : '<div><strong>Recent Errors</strong><div style="margin-top:6px;">' + renderExampleBlock(recentErrors) + '</div></div>');
+}
+
+function renderOverview() {
+  const pane = document.getElementById("overviewPane");
+  if (!state.overview) {
+    pane.innerHTML = '<div class="empty">No overview loaded.</div>';
+    return;
+  }
+  const sourceCounts = Array.isArray(state.overview.source_counts) ? state.overview.source_counts : [];
+  pane.innerHTML =
+    '<div><strong>Current Filter Overview</strong><div class="muted" style="margin-top:6px;">' + esc(state.overview.summary || "-") + '</div></div>' +
+    '<div class="stat-grid">' +
+      '<div class="stat-card"><div class="meta-label">Logs</div><strong>' + esc(state.overview.log_count || 0) + '</strong></div>' +
+      '<div class="stat-card"><div class="meta-label">Logs With Signals</div><strong>' + esc(state.overview.logs_with_signals || 0) + '</strong></div>' +
+      '<div class="stat-card"><div class="meta-label">Errors</div><strong>' + esc(state.overview.error_count || 0) + '</strong></div>' +
+      '<div class="stat-card"><div class="meta-label">Warnings</div><strong>' + esc(state.overview.warning_count || 0) + '</strong></div>' +
+    '</div>' +
+    '<div style="margin-top:10px;"><strong>Sources</strong>' +
+      (sourceCounts.length === 0 ? '<div class="muted" style="margin-top:6px;">-</div>' : '<div class="chips">' + sourceCounts.map((item) =>
+        '<span class="chip">' + esc((item.source || "unknown").toUpperCase()) + ' ? ' + esc(item.log_count || 0) + '</span>'
+      ).join("") + '</div>') +
+    '</div>' +
+    '<div style="margin-top:10px;"><strong>Top Signals</strong>' + renderOverviewSignals(state.overview.top_signals || []) + '</div>' +
+    renderOverviewBucketSection("Top Trace IDs", state.overview.top_trace_ids || [], "trace_id") +
+    renderOverviewBucketSection("Top Workgroup IDs", state.overview.top_workgroup_ids || [], "workgroup_id") +
+    renderOverviewBucketSection("Top Task IDs", state.overview.top_task_ids || [], "task_id") +
+    renderOverviewBucketSection("Top Dispatch Run IDs", state.overview.top_dispatch_run_ids || [], "dispatch_run_id");
+  bindFilterChipHandlers(pane);
 }
 
 function renderContent() {
@@ -1915,7 +2276,9 @@ async function selectLog(id) {
 }
 
 async function refresh() {
-  state.logs = await api(buildListUrl());
+  const [logs, overview] = await Promise.all([api(buildListUrl()), api(buildOverviewUrl())]);
+  state.logs = logs;
+  state.overview = overview;
   if (state.selectedId && !state.logs.some((item) => item.id === state.selectedId)) {
     state.selectedId = "";
   }
@@ -1924,12 +2287,14 @@ async function refresh() {
   }
   syncUrlState();
   renderActiveFilters();
+  renderOverview();
   renderList();
   if (state.selectedId) {
     await selectLog(state.selectedId);
   } else {
     state.detail = null;
     state.analysis = null;
+    renderOverview();
     renderMeta();
     renderAnalysis();
     renderContent();
@@ -1938,7 +2303,7 @@ async function refresh() {
 
 document.getElementById('refreshBtn').addEventListener('click', () => { void refresh(); });
 document.getElementById('clearFiltersBtn').addEventListener('click', () => {
-  state.filters = { q: "", source: "", trace_id: "", workgroup_id: "", task_id: "", dispatch_run_id: "" };
+  state.filters = { q: "", source: "", signal_code: "", trace_id: "", workgroup_id: "", task_id: "", dispatch_run_id: "" };
   syncInputsFromState();
   void refresh();
 });

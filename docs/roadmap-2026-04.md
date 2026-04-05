@@ -97,7 +97,7 @@
 
 - 阶段一完成度约 `92%`
 - 阶段二完成度约 `92%`
-- 阶段三完成度约 `95%`
+- 阶段三完成度约 `96%`
 - 阶段四完成度约 `86%`
 
 ### 已完成
@@ -156,6 +156,7 @@
 - 服务端日志分析页已补 URL 深链与一键回查：当前筛选和 `log_id` 会写入地址栏，`traceId / workgroupId / taskId / dispatchRunId` 可直接点进过滤后的诊断视图，便于分享和回放同一组日志上下文
 - 桌面端已补 `Requested active remote project sync` / `Remote session snapshot updated` 锚点，服务端日志分析可继续区分“catalog 已更新”与“active project snapshot 仍未落下”的链路断点
 - 服务端日志分析页已补 signal / example 快捷联动入口：可直接按 signal 标题或示例日志正文过滤，并从单条示例里抽取 `traceId / workgroupId / taskId / dispatchRunId` 一键回查，减少手工复制日志正文
+- 服务端日志分析页已补当前筛选范围的 overview 统计：可聚合查看命中日志数、source 分布、Top signals，以及 `traceId / workgroupId / taskId / dispatchRunId` 热点；signal 快捷按钮也已改成真正按 `signal_code` 过滤日志
 
 ### 进行中
 
@@ -166,7 +167,7 @@
 
 1. 结合真实上传日志，再补一轮桌面 / 安卓重连与补拉问题的分析规则
 2. 继续把 controller relay 恢复链路拆成“认证恢复 / catalog 刷新 / active snapshot 落库”三个稳定面板
-3. 再补分析页针对 session / signal 的统计概览，减少逐条打开日志的频率
+3. 再补一轮 signal 聚类和 overview 排序策略，优先把“后台恢复后不补拉 / 需要手动重连”的日志模式单独拎出来
 
 ## 5. 后续顺序
 
