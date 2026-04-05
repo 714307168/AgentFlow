@@ -85,6 +85,16 @@ type uploadedMobileLogOverview struct {
 		Value    string `json:"value"`
 		LogCount int    `json:"log_count"`
 	} `json:"top_task_ids"`
+	RecoveryPanels []struct {
+		Key           string `json:"key"`
+		Status        string `json:"status"`
+		SignalCode    string `json:"signal_code"`
+		LogCount      int    `json:"log_count"`
+		HealthyCount  int    `json:"healthy_count"`
+		WarningCount  int    `json:"warning_count"`
+		CriticalCount int    `json:"critical_count"`
+		IdleCount     int    `json:"idle_count"`
+	} `json:"recovery_panels"`
 }
 
 func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
@@ -199,7 +209,7 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 	if resp.StatusCode != http.StatusOK || !strings.Contains(string(pageBody), "Device Logs") {
 		t.Fatalf("unexpected mobile logs page response: status=%d", resp.StatusCode)
 	}
-	if !strings.Contains(string(pageBody), "log_id") || !strings.Contains(string(pageBody), "Copy Link") || !strings.Contains(string(pageBody), "history.replaceState") || !strings.Contains(string(pageBody), "Filter Text") || !strings.Contains(string(pageBody), "Filter Signal") || !strings.Contains(string(pageBody), "/admin/api/mobile-logs/overview") || !strings.Contains(string(pageBody), "Current Filter Overview") || !strings.Contains(string(pageBody), "Controller Recovery Panels") || !strings.Contains(string(pageBody), "signal_code") {
+	if !strings.Contains(string(pageBody), "log_id") || !strings.Contains(string(pageBody), "Copy Link") || !strings.Contains(string(pageBody), "history.replaceState") || !strings.Contains(string(pageBody), "Filter Text") || !strings.Contains(string(pageBody), "Filter Signal") || !strings.Contains(string(pageBody), "/admin/api/mobile-logs/overview") || !strings.Contains(string(pageBody), "Current Filter Overview") || !strings.Contains(string(pageBody), "Controller Recovery Panels") || !strings.Contains(string(pageBody), "Recovery Health") || !strings.Contains(string(pageBody), "signal_code") {
 		t.Fatalf("expected admin page to expose deep-link jump helpers, got %s", string(pageBody))
 	}
 
@@ -306,6 +316,12 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 	}
 	if !hasOverviewBucketValue(overview.TopTraceIDs, "trace-alpha-001") {
 		t.Fatalf("expected overview to expose top trace ids, got %+v", overview.TopTraceIDs)
+	}
+	if len(overview.RecoveryPanels) != 3 {
+		t.Fatalf("expected overview to expose aggregated recovery panels, got %+v", overview.RecoveryPanels)
+	}
+	if !hasOverviewRecoveryPanel(overview.RecoveryPanels, "desktop_auth_recovery", "critical", 1, 1, "desktop_auth_recovery_failures") {
+		t.Fatalf("expected overview auth panel aggregation, got %+v", overview.RecoveryPanels)
 	}
 
 	var traceFiltered []uploadedMobileLog
@@ -421,6 +437,12 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 	if len(desktopOverview.TopSignals) == 0 || desktopOverview.TopSignals[0].Code != "desktop_resume_catchup_stalled" {
 		t.Fatalf("expected desktop overview to prioritize resume catch-up stalled signal, got %+v", desktopOverview.TopSignals)
 	}
+	if !hasOverviewRecoveryPanel(desktopOverview.RecoveryPanels, "desktop_catalog_refresh", "healthy", 1, 0, "") {
+		t.Fatalf("expected desktop overview to expose healthy catalog panel, got %+v", desktopOverview.RecoveryPanels)
+	}
+	if !hasOverviewRecoveryPanel(desktopOverview.RecoveryPanels, "desktop_active_snapshot", "warning", 1, 0, "desktop_remote_snapshot_gaps") {
+		t.Fatalf("expected desktop overview to expose warning active snapshot panel, got %+v", desktopOverview.RecoveryPanels)
+	}
 	if !hasOverviewBucketValue(desktopOverview.TopTaskIDs, "wg-task-1") {
 		t.Fatalf("expected desktop overview to expose top task ids, got %+v", desktopOverview.TopTaskIDs)
 	}
@@ -471,6 +493,34 @@ func hasOverviewSourceCount(items []struct {
 		if item.Source == source && item.LogCount == count {
 			return true
 		}
+	}
+	return false
+}
+
+func hasOverviewRecoveryPanel(items []struct {
+	Key           string `json:"key"`
+	Status        string `json:"status"`
+	SignalCode    string `json:"signal_code"`
+	LogCount      int    `json:"log_count"`
+	HealthyCount  int    `json:"healthy_count"`
+	WarningCount  int    `json:"warning_count"`
+	CriticalCount int    `json:"critical_count"`
+	IdleCount     int    `json:"idle_count"`
+}, key, status string, logCount int, criticalCount int, signalCode string) bool {
+	for _, item := range items {
+		if item.Key != key {
+			continue
+		}
+		if item.Status != status || item.LogCount != logCount || item.CriticalCount != criticalCount {
+			return false
+		}
+		if signalCode != "" && item.SignalCode != signalCode {
+			return false
+		}
+		if signalCode == "" && item.SignalCode != "" {
+			return false
+		}
+		return true
 	}
 	return false
 }

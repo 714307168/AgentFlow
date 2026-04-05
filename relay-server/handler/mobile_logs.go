@@ -137,18 +137,32 @@ type mobileLogOverviewBucket struct {
 	SignalCount  int    `json:"signal_count"`
 }
 
+type mobileLogOverviewRecoveryPanel struct {
+	Key           string `json:"key"`
+	Title         string `json:"title"`
+	Status        string `json:"status"`
+	Summary       string `json:"summary"`
+	SignalCode    string `json:"signal_code,omitempty"`
+	LogCount      int    `json:"log_count"`
+	HealthyCount  int    `json:"healthy_count"`
+	WarningCount  int    `json:"warning_count"`
+	CriticalCount int    `json:"critical_count"`
+	IdleCount     int    `json:"idle_count"`
+}
+
 type mobileLogOverviewResponse struct {
-	Summary           string                    `json:"summary"`
-	LogCount          int                       `json:"log_count"`
-	LogsWithSignals   int                       `json:"logs_with_signals"`
-	ErrorCount        int                       `json:"error_count"`
-	WarningCount      int                       `json:"warning_count"`
-	SourceCounts      []mobileLogOverviewSource `json:"source_counts"`
-	TopSignals        []mobileLogOverviewSignal `json:"top_signals"`
-	TopTraceIDs       []mobileLogOverviewBucket `json:"top_trace_ids,omitempty"`
-	TopWorkgroupIDs   []mobileLogOverviewBucket `json:"top_workgroup_ids,omitempty"`
-	TopTaskIDs        []mobileLogOverviewBucket `json:"top_task_ids,omitempty"`
-	TopDispatchRunIDs []mobileLogOverviewBucket `json:"top_dispatch_run_ids,omitempty"`
+	Summary           string                           `json:"summary"`
+	LogCount          int                              `json:"log_count"`
+	LogsWithSignals   int                              `json:"logs_with_signals"`
+	ErrorCount        int                              `json:"error_count"`
+	WarningCount      int                              `json:"warning_count"`
+	SourceCounts      []mobileLogOverviewSource        `json:"source_counts"`
+	TopSignals        []mobileLogOverviewSignal        `json:"top_signals"`
+	RecoveryPanels    []mobileLogOverviewRecoveryPanel `json:"recovery_panels,omitempty"`
+	TopTraceIDs       []mobileLogOverviewBucket        `json:"top_trace_ids,omitempty"`
+	TopWorkgroupIDs   []mobileLogOverviewBucket        `json:"top_workgroup_ids,omitempty"`
+	TopTaskIDs        []mobileLogOverviewBucket        `json:"top_task_ids,omitempty"`
+	TopDispatchRunIDs []mobileLogOverviewBucket        `json:"top_dispatch_run_ids,omitempty"`
 }
 
 type mobileLogFilter struct {
@@ -543,8 +557,19 @@ func buildMobileLogOverview(records []storedMobileLogMetadata, storageDir string
 		LogCount   int
 		TotalCount int
 	}
+	type recoveryPanelAccumulator struct {
+		Key           string
+		Title         string
+		LogCount      int
+		HealthyCount  int
+		WarningCount  int
+		CriticalCount int
+		IdleCount     int
+		SignalCode    string
+	}
 	sourceCounts := make(map[string]int)
 	signalTotals := make(map[string]*signalAccumulator)
+	recoveryPanelTotals := make(map[string]*recoveryPanelAccumulator)
 	traceBuckets := make(map[string]*mobileLogOverviewBucket)
 	workgroupBuckets := make(map[string]*mobileLogOverviewBucket)
 	taskBuckets := make(map[string]*mobileLogOverviewBucket)
@@ -605,6 +630,30 @@ func buildMobileLogOverview(records []storedMobileLogMetadata, storageDir string
 			item.LogCount++
 			item.TotalCount += signal.Count
 		}
+		for _, panel := range analysis.RecoveryPanels {
+			item := recoveryPanelTotals[panel.Key]
+			if item == nil {
+				item = &recoveryPanelAccumulator{
+					Key:   panel.Key,
+					Title: panel.Title,
+				}
+				recoveryPanelTotals[panel.Key] = item
+			}
+			item.LogCount++
+			switch strings.ToLower(strings.TrimSpace(panel.Status)) {
+			case "critical":
+				item.CriticalCount++
+			case "warning":
+				item.WarningCount++
+			case "healthy":
+				item.HealthyCount++
+			default:
+				item.IdleCount++
+			}
+			if item.SignalCode == "" && strings.TrimSpace(panel.SignalCode) != "" {
+				item.SignalCode = panel.SignalCode
+			}
+		}
 
 		updateBucket(traceBuckets, traceIDs, analysis)
 		updateBucket(workgroupBuckets, workgroupIDs, analysis)
@@ -653,6 +702,48 @@ func buildMobileLogOverview(records []storedMobileLogMetadata, storageDir string
 		topSignals = topSignals[:6]
 	}
 
+	recoveryPanels := make([]mobileLogOverviewRecoveryPanel, 0, len(recoveryPanelTotals))
+	for _, item := range recoveryPanelTotals {
+		status := "idle"
+		summary := fmt.Sprintf("No desktop recovery stage was observed across %d matching log(s).", item.LogCount)
+		if item.CriticalCount > 0 {
+			status = "critical"
+			summary = fmt.Sprintf("%d log(s) reached a critical state in this stage.", item.CriticalCount)
+		} else if item.WarningCount > 0 {
+			status = "warning"
+			summary = fmt.Sprintf("%d log(s) hit warnings in this stage; %d remained healthy.", item.WarningCount, item.HealthyCount)
+		} else if item.HealthyCount > 0 {
+			status = "healthy"
+			summary = fmt.Sprintf("%d log(s) completed this stage cleanly.", item.HealthyCount)
+		}
+		recoveryPanels = append(recoveryPanels, mobileLogOverviewRecoveryPanel{
+			Key:           item.Key,
+			Title:         item.Title,
+			Status:        status,
+			Summary:       summary,
+			SignalCode:    item.SignalCode,
+			LogCount:      item.LogCount,
+			HealthyCount:  item.HealthyCount,
+			WarningCount:  item.WarningCount,
+			CriticalCount: item.CriticalCount,
+			IdleCount:     item.IdleCount,
+		})
+	}
+	sort.Slice(recoveryPanels, func(i, j int) bool {
+		leftPriority := recoveryPanelKeyPriority(recoveryPanels[i].Key)
+		rightPriority := recoveryPanelKeyPriority(recoveryPanels[j].Key)
+		if leftPriority != rightPriority {
+			return leftPriority < rightPriority
+		}
+		if recoveryPanels[i].CriticalCount == recoveryPanels[j].CriticalCount {
+			if recoveryPanels[i].WarningCount == recoveryPanels[j].WarningCount {
+				return recoveryPanels[i].Title < recoveryPanels[j].Title
+			}
+			return recoveryPanels[i].WarningCount > recoveryPanels[j].WarningCount
+		}
+		return recoveryPanels[i].CriticalCount > recoveryPanels[j].CriticalCount
+	})
+
 	summary := fmt.Sprintf("Current filter matched %d logs.", len(records))
 	switch {
 	case len(topSignals) > 0:
@@ -671,6 +762,7 @@ func buildMobileLogOverview(records []storedMobileLogMetadata, storageDir string
 		WarningCount:      warningCount,
 		SourceCounts:      sourceItems,
 		TopSignals:        topSignals,
+		RecoveryPanels:    recoveryPanels,
 		TopTraceIDs:       limitOverviewBuckets(traceBuckets, 6),
 		TopWorkgroupIDs:   limitOverviewBuckets(workgroupBuckets, 6),
 		TopTaskIDs:        limitOverviewBuckets(taskBuckets, 6),
@@ -1687,6 +1779,19 @@ func buildDesktopRecoveryPanels(
 	}
 }
 
+func recoveryPanelKeyPriority(key string) int {
+	switch strings.TrimSpace(key) {
+	case "desktop_auth_recovery":
+		return 1
+	case "desktop_catalog_refresh":
+		return 2
+	case "desktop_active_snapshot":
+		return 3
+	default:
+		return 100
+	}
+}
+
 var (
 	traceIDPattern       = regexp.MustCompile(`(?i)(?:trace[_-]?id["=: ]+|traceId["=: ]+)([a-z0-9:-]{6,})`)
 	workgroupIDPattern   = regexp.MustCompile(`(?i)(?:workgroup[_-]?id["=: ]+|workgroupId["=: ]+)([a-z0-9._:-]{3,})`)
@@ -2371,6 +2476,28 @@ function renderRecoveryPanels(items) {
   }).join('') + '</div></div>';
 }
 
+function renderOverviewRecoveryPanels(items) {
+  if (!Array.isArray(items) || items.length === 0) {
+    return '';
+  }
+  return '<div style="margin-top:10px;"><strong>Recovery Health</strong><div class="panel-grid">' + items.map((item) => {
+    const status = String(item.status || 'idle').toLowerCase();
+    const chips = [];
+    if (item.signal_code) {
+      chips.push(renderSignalChip("Filter Signal", { code: item.signal_code }));
+    }
+    chips.push('<span class="chip">logs ' + esc(item.log_count || 0) + '</span>');
+    chips.push('<span class="chip">critical ' + esc(item.critical_count || 0) + '</span>');
+    chips.push('<span class="chip">warning ' + esc(item.warning_count || 0) + '</span>');
+    chips.push('<span class="chip">healthy ' + esc(item.healthy_count || 0) + '</span>');
+    return '<div class="recovery-panel ' + esc(status) + '">' +
+      '<div class="toolbar" style="margin:0 0 6px;"><div><strong>' + esc(item.title || "-") + '</strong></div><div class="status-pill">' + esc(status) + '</div></div>' +
+      '<div>' + esc(item.summary || "-") + '</div>' +
+      '<div class="chips">' + chips.join('') + '</div>' +
+      '</div>';
+  }).join('') + '</div></div>';
+}
+
 function renderOverviewBucketSection(title, items, kind) {
   if (!Array.isArray(items) || items.length === 0) {
     return '<div style="margin-top:10px;"><strong>' + esc(title) + '</strong><div class="muted" style="margin-top:6px;">-</div></div>';
@@ -2494,6 +2621,7 @@ function renderOverview() {
       '<div class="stat-card"><div class="meta-label">Errors</div><strong>' + esc(state.overview.error_count || 0) + '</strong></div>' +
       '<div class="stat-card"><div class="meta-label">Warnings</div><strong>' + esc(state.overview.warning_count || 0) + '</strong></div>' +
     '</div>' +
+    renderOverviewRecoveryPanels(state.overview.recovery_panels || []) +
     '<div style="margin-top:10px;"><strong>Sources</strong>' +
       (sourceCounts.length === 0 ? '<div class="muted" style="margin-top:6px;">-</div>' : '<div class="chips">' + sourceCounts.map((item) =>
         '<span class="chip">' + esc((item.source || "unknown").toUpperCase()) + ' ? ' + esc(item.log_count || 0) + '</span>'
