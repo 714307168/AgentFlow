@@ -525,6 +525,10 @@ func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string, 
 	workgroupSchedulerReentryCount := 0
 	workgroupSchedulerReentryExamples := make([]string, 0, 3)
 	workgroupSchedulerOpenDispatches := make(map[string]string)
+	restartResidueCount := 0
+	restartResidueExamples := make([]string, 0, 3)
+	recoveryJitterCount := 0
+	recoveryJitterExamples := make([]string, 0, 3)
 
 	type signalPattern struct {
 		code           string
@@ -747,6 +751,28 @@ func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string, 
 			}
 		}
 
+		if strings.Contains(lowerLine, "recovered scheduled task with stale in-flight state") ||
+			strings.Contains(lowerLine, "recovered scheduled workgroup task with stale in-flight state") ||
+			strings.Contains(lowerLine, "desktop restarted before the scheduled task finished") ||
+			strings.Contains(lowerLine, "desktop restarted before the scheduled workgroup task finished") {
+			restartResidueCount++
+			if len(restartResidueExamples) < 3 {
+				restartResidueExamples = append(restartResidueExamples, line)
+			}
+		}
+
+		if strings.Contains(lowerLine, "triggered relay watchdog recovery") ||
+			strings.Contains(lowerLine, "recovering stalled websocket") ||
+			strings.Contains(lowerLine, "force reconnecting websocket") ||
+			strings.Contains(lowerLine, "reconnecting stalled socket during") ||
+			strings.Contains(lowerLine, "reconnecting unauthenticated socket during") ||
+			strings.Contains(lowerLine, "reconnecting stale socket during") {
+			recoveryJitterCount++
+			if len(recoveryJitterExamples) < 3 {
+				recoveryJitterExamples = append(recoveryJitterExamples, line)
+			}
+		}
+
 		for _, pattern := range patterns {
 			matched := false
 			for _, token := range pattern.matches {
@@ -802,6 +828,26 @@ func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string, 
 			Count:          schedulerRetryLoopCount,
 			Recommendation: "Check whether the same scheduled task keeps failing with increasing retryCount or a moving retryRunAt. Repeated retries usually mean the runtime path is broken even though the scheduler itself is alive.",
 			Examples:       examples,
+		})
+	}
+
+	if restartResidueCount > 0 {
+		signals = append(signals, mobileLogSignal{
+			Code:           "desktop_restart_recovery_residue",
+			Title:          "Desktop restart left scheduled-task residue behind",
+			Count:          restartResidueCount,
+			Recommendation: "Check the restart window around startup or resume. These logs show queued/running scheduled tasks that were only cleaned up after reconciliation, which usually means the previous process exited before completion callbacks cleared task state.",
+			Examples:       restartResidueExamples,
+		})
+	}
+
+	if recoveryJitterCount > 1 {
+		signals = append(signals, mobileLogSignal{
+			Code:           "desktop_recovery_jitter",
+			Title:          "Desktop recovery jitter detected",
+			Count:          recoveryJitterCount,
+			Recommendation: "Inspect whether relay recovery is oscillating between watchdog recovery, stale-socket reconnects, and forced reconnects. When these cluster tightly, the client is not settling into a stable connected state after resume or network change.",
+			Examples:       recoveryJitterExamples,
 		})
 	}
 

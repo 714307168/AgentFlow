@@ -1192,6 +1192,15 @@ function maybeRecoverRelayClient(
   }
 
   const nextRecoveryAt = Date.now();
+  appLogger.warn("relay", "Triggered relay watchdog recovery.", {
+    reason: `watchdog-${reason}`,
+    state: snapshot.state,
+    disconnectedForMs,
+    authStalledForMs,
+    consecutiveFailureCount: snapshot.consecutiveFailureCount,
+    reconnectAttemptCount: snapshot.reconnectAttemptCount,
+    lastErrorMessage: snapshot.lastErrorMessage ?? null,
+  });
   void recover(`watchdog-${reason}`);
   return nextRecoveryAt;
 }

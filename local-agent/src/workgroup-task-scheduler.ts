@@ -141,6 +141,15 @@ class WorkgroupTaskScheduler {
         lastDispatchResult: nextDispatchResult,
         nextRunAt,
       });
+      if (nextStatus === "error" && task.status !== "error") {
+        appLogger.warn("scheduler", "Recovered scheduled workgroup task with stale in-flight state.", this.buildTaskLogMeta(task, {
+          previousStatus: task.status,
+          previousDispatchRunId: task.dispatchRunId ?? null,
+          reason,
+          recoveryState: "restart-residue",
+          nextRunAt,
+        }));
+      }
       changed = true;
     }
 

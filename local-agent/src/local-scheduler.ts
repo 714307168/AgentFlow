@@ -165,6 +165,15 @@ class LocalScheduler {
             state: "recovered-error",
           },
         });
+        appLogger.warn("scheduler", "Recovered scheduled task with stale in-flight state.", {
+          taskId: task.id,
+          projectId: task.projectId,
+          runId: task.activeRunId ?? null,
+          previousStatus: task.lastRunStatus,
+          reason,
+          recoveryState: "restart-residue",
+          nextRunAt,
+        });
       }
       changed = true;
     }
