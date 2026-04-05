@@ -626,6 +626,118 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 	}
 }
 
+func TestMobileLogOverviewPrioritizesRecoverySignalsOverSchedulerNoise(t *testing.T) {
+	t.Setenv("ADMIN_PASSWORD", "Admin12345A")
+	t.Setenv("ADMIN_USER", "")
+
+	dataDir := t.TempDir()
+	database, err := db.Open(dataDir)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer database.Close()
+
+	if err := database.InitializeDefaultUser(); err != nil {
+		t.Fatalf("init default user: %v", err)
+	}
+
+	cfg := &config.Config{
+		JWTSecret:    "relay-test-secret-20260405",
+		PingInterval: 30,
+		QueueSize:    100,
+		CORSOrigins:  "*",
+		DataDir:      dataDir,
+		DatabasePath: dataDir,
+	}
+	st := store.NewStore(database)
+	h := hub.NewHub(cfg, st)
+
+	if _, err := database.CreateUser("bob", "Bob12345A", false); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	bob, err := database.GetUserByUsername("bob")
+	if err != nil {
+		t.Fatalf("get bob: %v", err)
+	}
+	if err := database.RegisterAgent("agent-b", bob.ID, "Bob desktop"); err != nil {
+		t.Fatalf("register agent: %v", err)
+	}
+	if err := database.RegisterDevice("device-b", bob.ID, "agent-b", "Bob phone"); err != nil {
+		t.Fatalf("register device: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/auth/login", handler.LoginHandler(database, cfg))
+	mux.HandleFunc("/api/device/logs", handler.DeviceLogUploadHandler(cfg, database))
+	mux.HandleFunc("/admin/api/login", handler.AdminLoginHandler(database))
+	mux.HandleFunc("/admin/api/mobile-logs", handler.AdminMobileLogsHandler(cfg, database, h))
+	mux.HandleFunc("/admin/api/mobile-logs/", handler.AdminMobileLogsHandler(cfg, database, h))
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	var deviceLogin deviceLoginResponse
+	doJSON(t, http.DefaultClient, http.MethodPost, server.URL+"/api/auth/login", map[string]any{
+		"username":    "bob",
+		"password":    "Bob12345A",
+		"client_type": "device",
+		"client_id":   "device-b",
+	}, http.StatusOK, &deviceLogin)
+	if deviceLogin.Token == "" {
+		t.Fatal("expected device token")
+	}
+
+	doJSONWithBearer(t, http.DefaultClient, http.MethodPost, server.URL+"/api/device/logs", deviceLogin.Token, map[string]any{
+		"file_name": "desktop-priority.log",
+		"content": "[2026-04-05T10:00:00.000Z] WARN [scheduler] Recovered scheduled task with stale in-flight state. taskId=task-a projectId=p-a runId=run-a previousStatus=running reason=startup recoveryState=restart-residue trace_id=trace-priority-001 workgroup_id=priority-workgroup\n" +
+			"[2026-04-05T10:00:01.000Z] WARN [scheduler] Scheduled task failed. taskId=task-a projectId=p-a trigger=scheduled error=relay timeout retryCount=1 maxRetries=3 retryRunAt=2026-04-05T10:05:01.000Z trace_id=trace-priority-001 workgroup_id=priority-workgroup\n" +
+			"[2026-04-05T10:00:02.000Z] WARN [scheduler] Scheduled task failed. taskId=task-a projectId=p-a trigger=scheduled error=relay timeout retryCount=2 maxRetries=3 retryRunAt=2026-04-05T10:10:02.000Z trace_id=trace-priority-001 workgroup_id=priority-workgroup\n" +
+			"[2026-04-05T10:00:03.000Z] WARN [scheduler] Scheduled workgroup task failed. taskId=wg-a workgroupId=priority-workgroup assigneeMemberId=member-a trigger=scheduled error=no eligible member trace_id=trace-priority-001 workgroup_id=priority-workgroup\n" +
+			"[2026-04-05T10:00:04.000Z] WARN [scheduler] Scheduled workgroup task failed. taskId=wg-a workgroupId=priority-workgroup assigneeMemberId=member-a trigger=scheduled error=no eligible member trace_id=trace-priority-001 workgroup_id=priority-workgroup\n",
+		"app_version":     "1.1.116",
+		"device_model":    "Desktop Test Host",
+		"source":          "desktop",
+		"connection_note": "host=priority-host; platform=linux; agent=connected; controller=connected",
+	}, http.StatusOK, nil)
+
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatalf("cookie jar: %v", err)
+	}
+	adminClient := &http.Client{Jar: jar}
+	doJSON(t, adminClient, http.MethodPost, server.URL+"/admin/api/login", map[string]any{
+		"username": "admin",
+		"password": "Admin12345A",
+	}, http.StatusOK, nil)
+
+	var logs []uploadedMobileLog
+	doJSON(t, adminClient, http.MethodGet, server.URL+"/admin/api/mobile-logs?source=desktop", nil, http.StatusOK, &logs)
+	if len(logs) != 1 {
+		t.Fatalf("expected 1 uploaded desktop log, got %d", len(logs))
+	}
+
+	var analysis uploadedMobileLogAnalysis
+	doJSON(t, adminClient, http.MethodGet, server.URL+"/admin/api/mobile-logs/"+logs[0].ID+"/analysis", nil, http.StatusOK, &analysis)
+	if !hasSignalCode(analysis.Signals, "desktop_restart_recovery_residue") {
+		t.Fatalf("expected recovery residue signal, got %+v", analysis.Signals)
+	}
+	if !hasSignalCode(analysis.Signals, "desktop_scheduled_task_failures") {
+		t.Fatalf("expected scheduler failure signal, got %+v", analysis.Signals)
+	}
+	if !hasSignalCode(analysis.Signals, "desktop_scheduled_workgroup_task_failures") {
+		t.Fatalf("expected scheduler workgroup failure signal, got %+v", analysis.Signals)
+	}
+
+	var overview uploadedMobileLogOverview
+	doJSON(t, adminClient, http.MethodGet, server.URL+"/admin/api/mobile-logs/overview?source=desktop", nil, http.StatusOK, &overview)
+	if len(overview.TopSignals) == 0 || overview.TopSignals[0].Code != "desktop_restart_recovery_residue" {
+		t.Fatalf("expected recovery residue to outrank scheduler noise, got %+v", overview.TopSignals)
+	}
+	if !hasConnectionHotspot(overview.ConnectionSummary.Hotspots, "connected", "connected", "priority-host", "linux", 1, 1, 0, 0, "desktop_restart_recovery_residue", "trace-priority-001", "priority-workgroup", "task-a", "run-a") {
+		t.Fatalf("expected hotspot top signal to prefer recovery residue, got %+v", overview.ConnectionSummary.Hotspots)
+	}
+}
+
 func hasSignalCode(signals []struct {
 	Code  string `json:"code"`
 	Count int    `json:"count"`

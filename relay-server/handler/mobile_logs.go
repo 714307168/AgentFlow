@@ -2147,8 +2147,21 @@ func signalPriority(code string) int {
 		return 250
 	case "auth_recovery_failures", "desktop_auth_recovery_failures", "websocket_failures", "session_sync_failures":
 		return 200
+	case "desktop_restart_recovery_residue", "desktop_recovery_jitter":
+		return 180
 	case "project_sync_gap_recovery", "workgroup_sync_failures", "send_ack_retry_loops", "desktop_relay_recovery_loops", "desktop_dispatch_breaks":
 		return 160
+	case "desktop_scheduled_task_failures",
+		"desktop_scheduled_task_retry_loops",
+		"desktop_scheduled_workgroup_task_failures",
+		"desktop_scheduled_workgroup_task_config_gaps",
+		"desktop_scheduled_workgroup_task_dispatch_blocked",
+		"desktop_scheduled_workgroup_task_member_unavailable",
+		"desktop_scheduled_workgroup_task_dispatch_failures",
+		"desktop_scheduled_workgroup_task_repeat_failures",
+		"desktop_scheduled_workgroup_task_stalled_after_dispatch",
+		"desktop_scheduled_workgroup_task_reentry":
+		return 80
 	default:
 		return 100
 	}

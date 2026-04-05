@@ -98,7 +98,7 @@
 - 阶段一完成度约 `92%`
 - 阶段二完成度约 `92%`
 - 阶段三完成度约 `100%`
-- 阶段四完成度约 `91%`
+- 阶段四完成度约 `92%`
 
 ### 已完成
 
@@ -166,6 +166,7 @@
 - 服务端 device logs overview 已补 connection snapshot 联动筛选：`agent_state / controller_state / host / platform` 现在可从概览 chip 直接下钻到过滤后的日志列表与详情
 - 服务端 device logs overview 已补 connection hotspot 聚类：可直接看到哪类 `agent/controller/host/platform` 组合更容易命中 critical / warning，以及对应的 top signal
 - 服务端 device logs overview 已补 connection hotspot 一跳回查：每个热点现在会同时带出最相关的 `trace_id / workgroup_id / task_id / dispatch_run_id`，点一下就能进入过滤后的日志上下文
+- 服务端 device logs overview 已补 signal 降噪权重：`desktop_restart_recovery_residue / desktop_recovery_jitter` 已抬权，scheduler 系列 signal 已整体降权，减少高频调度噪音把真正的恢复链路问题顶到前面
 
 ### 进行中
 
@@ -175,12 +176,13 @@
 - 继续考虑把 connection snapshot 与具体 signal / recovery panel 形成更明确的交叉聚类，减少人工比对
 - 继续考虑把 connection hotspot 和 trace_id / workgroup_id / task_id 的热点一起打通，减少聚类后还要手工回查
 - 继续考虑把 hotspot 的热点回查从“单个 top id”推进到“成组上下文回放”，减少边界场景下的 tie-break 误差
+- 继续结合真实上传日志微调 signal 权重和排序阈值，避免单一测试样本下的排序过拟合
 
 ### 下一刀
 
 1. 结合真实上传日志，再补一轮桌面 / 安卓重连与补拉问题的分析规则
 2. 结合真实故障日志再细化 signal 权重和排序阈值，减少单条高频 scheduler 日志把真正的恢复问题挤下去
-3. 继续收敛阶段四，把日志诊断、device logs overview、connection snapshot、hotspot 聚类、一跳回查、交叉筛选和客户端连接态观测串起来，减少只能靠上传日志定位的问题
+3. 继续收敛阶段四，把日志诊断、device logs overview、connection snapshot、hotspot 聚类、一跳回查、signal 降噪排序、交叉筛选和客户端连接态观测串起来，减少只能靠上传日志定位的问题
 
 ## 5. 后续顺序
 
