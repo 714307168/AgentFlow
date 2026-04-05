@@ -858,6 +858,126 @@ func TestMobileLogAnalysisFlagsMissingDesktopActiveSyncAfterFollowUpCompletion(t
 	}
 }
 
+func TestMobileLogAnalysisFlagsMissingAndroidPostAuthRecoveryStart(t *testing.T) {
+	t.Setenv("ADMIN_PASSWORD", "Admin12345A")
+	t.Setenv("ADMIN_USER", "")
+
+	dataDir := t.TempDir()
+	database, err := db.Open(dataDir)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer database.Close()
+
+	if err := database.InitializeDefaultUser(); err != nil {
+		t.Fatalf("init default user: %v", err)
+	}
+
+	cfg := &config.Config{
+		JWTSecret:    "relay-test-secret-20260406-android",
+		PingInterval: 30,
+		QueueSize:    100,
+		CORSOrigins:  "*",
+		DataDir:      dataDir,
+		DatabasePath: dataDir,
+	}
+	st := store.NewStore(database)
+	h := hub.NewHub(cfg, st)
+
+	if _, err := database.CreateUser("dora", "Dora12345A", false); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	dora, err := database.GetUserByUsername("dora")
+	if err != nil {
+		t.Fatalf("get dora: %v", err)
+	}
+	if err := database.RegisterAgent("agent-d", dora.ID, "Dora desktop"); err != nil {
+		t.Fatalf("register agent: %v", err)
+	}
+	if err := database.RegisterDevice("device-d", dora.ID, "agent-d", "Dora phone"); err != nil {
+		t.Fatalf("register device: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/auth/login", handler.LoginHandler(database, cfg))
+	mux.HandleFunc("/api/device/logs", handler.DeviceLogUploadHandler(cfg, database))
+	mux.HandleFunc("/admin/api/login", handler.AdminLoginHandler(database))
+	mux.HandleFunc("/admin/api/mobile-logs", handler.AdminMobileLogsHandler(cfg, database, h))
+	mux.HandleFunc("/admin/api/mobile-logs/", handler.AdminMobileLogsHandler(cfg, database, h))
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	var deviceLogin deviceLoginResponse
+	doJSON(t, http.DefaultClient, http.MethodPost, server.URL+"/api/auth/login", map[string]any{
+		"username":    "dora",
+		"password":    "Dora12345A",
+		"client_type": "device",
+		"client_id":   "device-d",
+	}, http.StatusOK, &deviceLogin)
+	if deviceLogin.Token == "" {
+		t.Fatal("expected device token")
+	}
+
+	doJSONWithBearer(t, http.DefaultClient, http.MethodPost, server.URL+"/api/device/logs", deviceLogin.Token, map[string]any{
+		"file_name": "android-missing-post-auth.log",
+		"content": "[2026-04-06 08:00:00.000] INFO [MainActivity] Scheduling foreground recovery passes reason=activity-resume forceReconnectInitial=true passCount=3 trace_id=trace-android-005 workgroup_id=android-gap-workgroup\n" +
+			"[2026-04-06 08:00:00.500] INFO [MainActivity] Running foreground recovery pass reason=activity-resume:0 forceReconnect=true trace_id=trace-android-005 workgroup_id=android-gap-workgroup\n" +
+			"[2026-04-06 08:00:01.000] INFO [RelayConnectionService] Starting auth error recovery reason=auth-error trace_id=trace-android-005 workgroup_id=android-gap-workgroup\n" +
+			"[2026-04-06 08:00:01.300] ERROR [RelayConnectionService] Failed to reconnect relay after token refresh trace_id=trace-android-005 workgroup_id=android-gap-workgroup\n" +
+			"[2026-04-06 08:00:01.600] ERROR [MainActivity] Failed to verify relay connection on resume trace_id=trace-android-005 workgroup_id=android-gap-workgroup\n" +
+			"[2026-04-06 08:00:01.900] INFO [MainActivity] Foreground session catalog refreshed reason=activity-resume:0 sessionCount=4 trace_id=trace-android-005 workgroup_id=android-gap-workgroup\n" +
+			"[2026-04-06 08:00:02.100] INFO [MainActivity] Skipping foreground project sync because relay is not connected: activity-resume:0 trace_id=trace-android-005 workgroup_id=android-gap-workgroup\n",
+		"app_version":  "1.2.11",
+		"app_build":    95,
+		"device_model": "Pixel Test",
+		"source":       "android",
+	}, http.StatusOK, nil)
+
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatalf("cookie jar: %v", err)
+	}
+	adminClient := &http.Client{Jar: jar}
+	doJSON(t, adminClient, http.MethodPost, server.URL+"/admin/api/login", map[string]any{
+		"username": "admin",
+		"password": "Admin12345A",
+	}, http.StatusOK, nil)
+
+	var logs []uploadedMobileLog
+	doJSON(t, adminClient, http.MethodGet, server.URL+"/admin/api/mobile-logs?source=android", nil, http.StatusOK, &logs)
+	if len(logs) != 1 {
+		t.Fatalf("expected 1 uploaded android log, got %d", len(logs))
+	}
+
+	var analysis uploadedMobileLogAnalysis
+	doJSON(t, adminClient, http.MethodGet, server.URL+"/admin/api/mobile-logs/"+logs[0].ID+"/analysis", nil, http.StatusOK, &analysis)
+	if !hasSignalCode(analysis.Signals, "post_auth_sync_incomplete") {
+		t.Fatalf("expected post-auth incomplete signal, got %+v", analysis.Signals)
+	}
+	if !hasSignalCode(analysis.Signals, "android_manual_reconnect_likely") {
+		t.Fatalf("expected android manual reconnect likely signal, got %+v", analysis.Signals)
+	}
+	if !hasRecoveryPanelStatus(analysis.RecoveryPanels, "android_auth_recovery", "critical", "auth_recovery_failures") {
+		t.Fatalf("expected android auth recovery to be critical, got %+v", analysis.RecoveryPanels)
+	}
+	if !hasRecoveryPanelStatus(analysis.RecoveryPanels, "android_project_sync", "warning", "post_auth_sync_incomplete") {
+		t.Fatalf("expected android project sync panel to warn, got %+v", analysis.RecoveryPanels)
+	}
+	if !hasRecoveryPanelStatus(analysis.RecoveryPanels, "android_workgroup_refresh", "warning", "foreground_recovery_follow_up_gaps") {
+		t.Fatalf("expected android workgroup refresh panel to warn, got %+v", analysis.RecoveryPanels)
+	}
+
+	var overview uploadedMobileLogOverview
+	doJSON(t, adminClient, http.MethodGet, server.URL+"/admin/api/mobile-logs/overview?source=android", nil, http.StatusOK, &overview)
+	if len(overview.TopSignals) == 0 || overview.TopSignals[0].Code != "android_manual_reconnect_likely" {
+		t.Fatalf("expected android overview to prioritize manual reconnect likely, got %+v", overview.TopSignals)
+	}
+	if !hasOverviewRecoveryPanel(overview.RecoveryPanels, "android_project_sync", "warning", 1, 0, "post_auth_sync_incomplete") {
+		t.Fatalf("expected android overview project sync aggregation to warn, got %+v", overview.RecoveryPanels)
+	}
+}
+
 func hasSignalCode(signals []struct {
 	Code  string `json:"code"`
 	Count int    `json:"count"`

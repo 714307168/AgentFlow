@@ -1766,25 +1766,51 @@ func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string, 
 		})
 	}
 
-	if postAuthSyncStartCount > 0 && (postAuthSyncFailureCount > 0 || postAuthSessionCatalogCount < postAuthSyncStartCount || postAuthProjectSyncRequestedCount < postAuthSyncStartCount || postAuthWorkgroupRefreshCount < postAuthSyncStartCount) {
+	postAuthMissingAfterForegroundRecovery := postAuthSyncStartCount == 0 &&
+		(authRecoveryFailureCount > 0 || foregroundRecoveryFailureCount > 0 || foregroundProjectSyncSkippedCount > 0)
+
+	if (postAuthSyncStartCount > 0 && (postAuthSyncFailureCount > 0 || postAuthSessionCatalogCount < postAuthSyncStartCount || postAuthProjectSyncRequestedCount < postAuthSyncStartCount || postAuthWorkgroupRefreshCount < postAuthSyncStartCount)) ||
+		postAuthMissingAfterForegroundRecovery {
+		postAuthGapCount := postAuthSyncFailureCount + maxInt(1, postAuthSyncStartCount-postAuthProjectSyncRequestedCount)
+		postAuthExamplesOut := postAuthSyncExamples
+		postAuthRecommendation := "Inspect the post-auth chain in order: session catalog refresh, project sync request, and workgroup refresh. If authentication succeeded but these follow-up steps are missing, the relay resumed without rebuilding catalogs and session state."
+		if postAuthMissingAfterForegroundRecovery {
+			postAuthGapCount += authRecoveryFailureCount + foregroundRecoveryFailureCount + foregroundProjectSyncSkippedCount
+			postAuthExamplesOut = mergeExampleLists(4, authRecoveryFailureExamples, foregroundRecoveryExamples, postAuthSyncExamples)
+			postAuthRecommendation = "Inspect the resume chain after foreground recovery and auth repair. If foreground recovery already skipped project sync or hit reconnect/auth errors and no post-auth session sync ever starts, the app resumed without entering the catch-up phase that rebuilds message state."
+		}
 		signals = append(signals, mobileLogSignal{
 			Code:           "post_auth_sync_incomplete",
 			Title:          "Post-auth sync chain did not settle",
-			Count:          postAuthSyncFailureCount + maxInt(1, postAuthSyncStartCount-postAuthProjectSyncRequestedCount),
-			Recommendation: "Inspect the post-auth chain in order: session catalog refresh, project sync request, and workgroup refresh. If authentication succeeded but these follow-up steps are missing, the relay resumed without rebuilding catalogs and session state.",
-			Examples:       postAuthSyncExamples,
+			Count:          maxInt(1, postAuthGapCount),
+			Recommendation: postAuthRecommendation,
+			Examples:       postAuthExamplesOut,
 		})
 	}
 
-	if foregroundRecoveryPassCount > 0 && postAuthSyncStartCount > 0 &&
-		(foregroundRecoveryFailureCount > 0 || foregroundProjectSyncSkippedCount > 0) &&
-		(postAuthSyncFailureCount > 0 || postAuthProjectSyncRequestedCount < postAuthSyncStartCount || postAuthWorkgroupRefreshCount < postAuthSyncStartCount) {
+	androidManualReconnectLikely := foregroundRecoveryPassCount > 0 &&
+		(authRecoveryFailureCount > 0 || foregroundRecoveryFailureCount > 0 || foregroundProjectSyncSkippedCount > 0) &&
+		(postAuthMissingAfterForegroundRecovery ||
+			(postAuthSyncStartCount > 0 &&
+				(postAuthSyncFailureCount > 0 ||
+					postAuthProjectSyncRequestedCount < postAuthSyncStartCount ||
+					postAuthWorkgroupRefreshCount < postAuthSyncStartCount)))
+
+	if androidManualReconnectLikely {
+		manualReconnectCount := foregroundRecoveryFailureCount + foregroundProjectSyncSkippedCount + postAuthSyncFailureCount + maxInt(1, postAuthSyncStartCount-postAuthProjectSyncRequestedCount)
+		manualReconnectRecommendation := "Treat foreground recovery, auth resume, and catch-up sync as one broken chain. When resume verification fails, project sync is skipped, and post-auth sync still does not settle, the app usually recovered transport only partially and still needed a manual reconnect to refresh messages."
+		manualReconnectExamples := mergeExampleLists(4, foregroundRecoveryExamples, postAuthSyncExamples, authRecoveryFailureExamples)
+		if postAuthMissingAfterForegroundRecovery {
+			manualReconnectCount = authRecoveryFailureCount + foregroundRecoveryFailureCount + foregroundProjectSyncSkippedCount + 1
+			manualReconnectRecommendation = "Treat foreground recovery, auth resume, and catch-up sync as one broken chain. If foreground recovery already hit reconnect/auth trouble and no post-auth sync ever started, the app usually came back with transport or state only partially restored and still needed a manual reconnect to refresh messages."
+			manualReconnectExamples = mergeExampleLists(4, authRecoveryFailureExamples, foregroundRecoveryExamples, postAuthSyncExamples)
+		}
 		signals = append(signals, mobileLogSignal{
 			Code:           "android_manual_reconnect_likely",
 			Title:          "Android resume likely still needed a manual reconnect",
-			Count:          foregroundRecoveryFailureCount + foregroundProjectSyncSkippedCount + postAuthSyncFailureCount + maxInt(1, postAuthSyncStartCount-postAuthProjectSyncRequestedCount),
-			Recommendation: "Treat foreground recovery, auth resume, and catch-up sync as one broken chain. When resume verification fails, project sync is skipped, and post-auth sync still does not settle, the app usually recovered transport only partially and still needed a manual reconnect to refresh messages.",
-			Examples:       mergeExampleLists(4, foregroundRecoveryExamples, postAuthSyncExamples, authRecoveryFailureExamples),
+			Count:          maxInt(1, manualReconnectCount),
+			Recommendation: manualReconnectRecommendation,
+			Examples:       manualReconnectExamples,
 		})
 	}
 
