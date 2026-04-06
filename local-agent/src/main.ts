@@ -5403,7 +5403,7 @@ app.whenReady().then(async () => {
   const silentLaunch = appSettingsStore.get("silentLaunch") as boolean;
   const launchedFromUpdate = process.argv.some((entry) => entry === "--updated");
   if (launchedFromUpdate || !silentLaunch) {
-    showWorkspaceWindow(getAllProjects()[0]?.id);
+    showWorkspaceWindow();
   }
 });
 
