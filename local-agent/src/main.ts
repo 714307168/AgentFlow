@@ -3264,9 +3264,7 @@ function createWorkspaceWindow(): BrowserWindow {
         win.webContents.send("project-session-snapshot", snapshot);
       }
     }
-    if (activeWorkspaceProjectId) {
-      win.webContents.send("project-id", activeWorkspaceProjectId);
-    }
+    win.webContents.send("project-id", activeWorkspaceProjectId);
     triggerWindowRemoteRefresh("workspace-did-finish-load");
   });
 
@@ -3298,9 +3296,7 @@ function showWorkspaceWindow(projectId?: string): void {
 
   if (workspaceWindow && !workspaceWindow.isDestroyed()) {
     workspaceWindow.setTitle(getWorkspaceWindowTitle(activeWorkspaceProjectId));
-    if (activeWorkspaceProjectId) {
-      workspaceWindow.webContents.send("project-id", activeWorkspaceProjectId);
-    }
+    workspaceWindow.webContents.send("project-id", activeWorkspaceProjectId);
     revealWindow(workspaceWindow);
     return;
   }
