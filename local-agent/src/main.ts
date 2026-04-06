@@ -1295,6 +1295,11 @@ workgroupCollaborationService.on("snapshot", (workgroupId: string, snapshot: Wor
 
 function broadcastProjectsChanged(): void {
   const projects = getAllProjects();
+  const previousActiveProjectId = activeWorkspaceProjectId;
+  if (previousActiveProjectId && !projects.some((project) => project.id === previousActiveProjectId)) {
+    activeWorkspaceProjectId = projects[0]?.id ?? null;
+    activeWorkgroupCollaborationId = null;
+  }
 
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send("projects-changed", projects);
@@ -1302,6 +1307,9 @@ function broadcastProjectsChanged(): void {
 
   if (workspaceWindow && !workspaceWindow.isDestroyed()) {
     workspaceWindow.webContents.send("projects-changed", projects);
+    if (previousActiveProjectId !== activeWorkspaceProjectId) {
+      workspaceWindow.webContents.send("project-id", activeWorkspaceProjectId);
+    }
   }
 
   broadcastWorkgroupsChanged();
@@ -1373,10 +1381,17 @@ function getAllWorkgroupCollaborationSummaries(): WorkgroupCollaborationSummary[
 }
 
 function broadcastWorkgroupCollaborationSummaries(): void {
+  const summaries = getAllWorkgroupCollaborationSummaries();
+  if (
+    activeWorkgroupCollaborationId
+    && !summaries.some((entry) => entry.id === activeWorkgroupCollaborationId)
+  ) {
+    activeWorkgroupCollaborationId = null;
+  }
   if (workspaceWindow && !workspaceWindow.isDestroyed()) {
     workspaceWindow.webContents.send(
       "workgroup-collaboration-summaries",
-      getAllWorkgroupCollaborationSummaries(),
+      summaries,
     );
   }
   broadcastWorkgroupCollaborationRelaySummaries();

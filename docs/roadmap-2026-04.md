@@ -166,6 +166,7 @@
 - 桌面端工作区窗口打开与首屏完成加载时，会顺手触发 remote project catalog / remote workgroup catalog 刷新，再叠加后续 snapshot 补拉，减少“目录本身还是旧的，得手动再刷一次”的窗口
 - 桌面端工作区从后台切回并重新获得焦点时，也会继续触发 remote project / remote workgroup 的优先补拉，不再只刷新目录而让当前会话和预览继续停在旧状态
 - 桌面端工作区的 `show / restore / focus / did-finish-load` 已统一走同一套 remote refresh 入口；窗口重新显示、从最小化恢复或首屏就绪时，都会补 catalog + prioritized snapshot，减少不同窗口事件之间恢复行为不一致
+- 桌面端项目目录或 remote 协作组目录变化后，会自动清理已经失效的 active target；如果当前 remote project 已消失，会回退到第一个可用项目，避免界面继续挂在已失效目标上
 - 服务端日志分析页已补 signal / example 快捷联动入口：可直接按 signal 标题或示例日志正文过滤，并从单条示例里抽取 `traceId / workgroupId / taskId / dispatchRunId` 一键回查，减少手工复制日志正文
 - 服务端日志分析页已补当前筛选范围的 overview 统计：可聚合查看命中日志数、source 分布、Top signals，以及 `traceId / workgroupId / taskId / dispatchRunId` 热点；signal 快捷按钮也已改成真正按 `signal_code` 过滤日志
 - 服务端日志分析已补“安卓后台恢复后仍需手动重连”和“桌面重连后传输恢复但活动态未恢复”两类复合 signal；overview 排序也已提高恢复链路问题的优先级，避免被高频 scheduler 噪音淹没
