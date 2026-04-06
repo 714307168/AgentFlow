@@ -147,8 +147,8 @@ contextBridge.exposeInMainWorld('claudeAgent', {
   revokeAccessGrant: (data: { controllerUserId: number; targetAgentId?: string | null }) => ipcRenderer.invoke('revoke-access-grant', data),
   saveConfig: (config: Record<string, string>) => ipcRenderer.invoke('save-config', config),
   login: (data: { username: string; password: string; agentId: string }) => ipcRenderer.invoke('login', data),
-  onProjectId: (callback: (id: string) => void) => {
-    ipcRenderer.on('project-id', (_event, id: string) => callback(id));
+  onProjectId: (callback: (id: string | null) => void) => {
+    ipcRenderer.on('project-id', (_event, id: string | null) => callback(id));
   },
   getE2EStatus: () => ipcRenderer.invoke('get-e2e-status'),
   setE2EEnabled: (enabled: boolean) => ipcRenderer.invoke('set-e2e-enabled', enabled),

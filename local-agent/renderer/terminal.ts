@@ -71,7 +71,7 @@ interface ClaudeAgentApi {
   }>;
   stopProjectRun: (projectId: string) => Promise<{ success: boolean; error?: string }>;
   removeQueuedProjectPrompt: (data: { projectId: string; runId: string }) => Promise<{ success: boolean; error?: string }>;
-  onProjectId: (callback: (projectId: string) => void) => void;
+  onProjectId: (callback: (projectId: string | null) => void) => void;
   getLang?: () => Promise<Lang>;
   getI18nMessages?: () => Promise<Record<string, string>>;
   onLangChanged?: (callback: (payload: LangPayload) => void) => void;
@@ -3828,6 +3828,26 @@ async function selectProject(projectId: string): Promise<void> {
   focusComposerAtEnd();
 }
 
+async function applyProjectSelectionFromMain(projectId: string | null): Promise<void> {
+  if (!projectId) {
+    if (state.workgroupId) {
+      return;
+    }
+    if (state.projectId === null) {
+      return;
+    }
+    setActiveProject(null);
+    syncActiveViewForCurrentProject();
+    if (state.messageSearchQuery.trim()) {
+      scheduleMessageSearch();
+    }
+    render();
+    return;
+  }
+
+  await selectProject(projectId);
+}
+
 async function selectWorkgroup(workgroupId: string): Promise<void> {
   if (!state.workgroups.some((workgroup) => workgroup.id === workgroupId)) {
     return;
@@ -4843,7 +4863,7 @@ elements.cliTrace?.addEventListener("scroll", () => {
 });
 
 api.onProjectId((projectId) => {
-  void selectProject(projectId);
+  void applyProjectSelectionFromMain(projectId);
 });
 
 api.onProjectSessionSnapshot((snapshot) => {
