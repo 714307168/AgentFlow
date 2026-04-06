@@ -98,7 +98,7 @@
 - 阶段一完成度约 `92%`
 - 阶段二完成度约 `92%`
 - 阶段三完成度约 `100%`
-- 阶段四完成度约 `96%`
+- 阶段四完成度约 `97%`
 
 ### 已完成
 
@@ -171,6 +171,7 @@
 - 服务端 device logs 分析已补安卓 post-auth 缺口：当前台恢复已出现 auth / reconnect 异常、前台 project sync 被跳过，且后续连 `Starting post-auth session sync` 都没出现时，现在也会直接命中 `post_auth_sync_incomplete / android_manual_reconnect_likely`，减少“后台回来后不刷新，只能手动重连”的漏报
 - 服务端 device logs 分析已补安卓 foreground project sync 显式失败规则：当前台 catalog 已刷新，但 `Failed to request project syncs on foreground` 仍然出现时，现在会单独命中 `foreground_project_sync_failures`，并把 `android_project_sync` 面板标成 warning，避免把“catalog 正常、消息补拉没发出去”继续混成笼统恢复慢
 - 服务端 device logs 分析已补安卓 foreground workgroup refresh 显式失败规则：当前台 catalog 已刷新、project sync 已发起，但 `Failed to refresh workgroups on foreground` 仍然出现时，现在会单独命中 `foreground_workgroup_refresh_failures`，并只把 `android_workgroup_refresh` 面板标成 warning，便于区分“项目聊天已补拉、但协作组线程仍旧没刷新”
+- 服务端 device logs 分析已补安卓 post-auth 分段失败规则：当 `post-auth session catalog refreshed` 之后链路在 project sync 前失败时，会命中 `post_auth_project_sync_failures`；当 project sync 已发起、但 workgroup refresh 没完成就失败时，会命中 `post_auth_workgroup_refresh_failures`，`android_project_sync / android_workgroup_refresh` 面板现在可以直接看出 post-auth 断点
 
 ### 进行中
 
@@ -184,7 +185,7 @@
 
 ### 下一刀
 
-1. 继续结合真实上传日志，补安卓 post-auth 链路里 project sync / workgroup refresh 显式失败与部分恢复的分析规则
+1. 继续结合真实上传日志，补安卓恢复链路与 `device logs overview` 的交叉联动，让安卓 recovery panel / signal / connection snapshot 能更快串到同一批问题日志
 2. 结合真实故障日志再细化 signal 权重和排序阈值，减少单条高频 scheduler 日志把真正的恢复问题挤下去
 3. 继续收敛阶段四，把日志诊断、device logs overview、connection snapshot、hotspot 聚类、一跳回查、signal 降噪排序、交叉筛选和客户端连接态观测串起来，减少只能靠上传日志定位的问题
 

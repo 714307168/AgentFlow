@@ -1305,6 +1305,10 @@ func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string, 
 	postAuthWorkgroupRefreshCount := 0
 	postAuthSyncFailureCount := 0
 	postAuthSyncExamples := make([]string, 0, 3)
+	postAuthProjectSyncFailureCount := 0
+	postAuthProjectSyncFailureExamples := make([]string, 0, 3)
+	postAuthWorkgroupRefreshFailureCount := 0
+	postAuthWorkgroupRefreshFailureExamples := make([]string, 0, 3)
 	desktopAuthRecoveryFailureCount := 0
 	desktopAuthRecoveryFailureExamples := make([]string, 0, 3)
 	desktopFollowUpRefreshCount := 0
@@ -1643,6 +1647,17 @@ func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string, 
 			if len(postAuthSyncExamples) < 3 {
 				postAuthSyncExamples = append(postAuthSyncExamples, line)
 			}
+			if postAuthSessionCatalogCount > postAuthProjectSyncRequestedCount {
+				postAuthProjectSyncFailureCount++
+				if len(postAuthProjectSyncFailureExamples) < 3 {
+					postAuthProjectSyncFailureExamples = append(postAuthProjectSyncFailureExamples, line)
+				}
+			} else if postAuthProjectSyncRequestedCount > postAuthWorkgroupRefreshCount {
+				postAuthWorkgroupRefreshFailureCount++
+				if len(postAuthWorkgroupRefreshFailureExamples) < 3 {
+					postAuthWorkgroupRefreshFailureExamples = append(postAuthWorkgroupRefreshFailureExamples, line)
+				}
+			}
 		}
 
 		if strings.Contains(lowerLine, "agent relay auth recovery aborted because token refresh failed") ||
@@ -1807,6 +1822,26 @@ func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string, 
 			Count:          foregroundWorkgroupRefreshFailureCount,
 			Recommendation: "Compare foreground project sync dispatch with the later workgroup refresh call. If project sync already ran but workgroup refresh still failed, project chat may catch up while collaboration threads remain stale until another refresh path succeeds.",
 			Examples:       mergeExampleLists(4, foregroundWorkgroupRefreshFailureExamples, foregroundRecoveryExamples),
+		})
+	}
+
+	if postAuthSessionCatalogCount > 0 && postAuthProjectSyncFailureCount > 0 {
+		signals = append(signals, mobileLogSignal{
+			Code:           "post_auth_project_sync_failures",
+			Title:          "Post-auth catalog recovered but project sync dispatch failed",
+			Count:          postAuthProjectSyncFailureCount,
+			Recommendation: "Compare post-auth session catalog refresh with the later project sync request log. If the post-auth catalog refreshed but project sync request never appeared before the sync chain failed, authentication recovery finished only halfway and message catch-up never started.",
+			Examples:       mergeExampleLists(4, postAuthProjectSyncFailureExamples, postAuthSyncExamples),
+		})
+	}
+
+	if postAuthProjectSyncRequestedCount > 0 && postAuthWorkgroupRefreshFailureCount > 0 {
+		signals = append(signals, mobileLogSignal{
+			Code:           "post_auth_workgroup_refresh_failures",
+			Title:          "Post-auth project sync recovered but workgroup refresh failed",
+			Count:          postAuthWorkgroupRefreshFailureCount,
+			Recommendation: "Compare post-auth project sync dispatch with the later workgroup refresh completion log. If project sync already ran but post-auth workgroup refresh never completed before the chain failed, project chat may recover while collaboration threads remain stale.",
+			Examples:       mergeExampleLists(4, postAuthWorkgroupRefreshFailureExamples, postAuthSyncExamples),
 		})
 	}
 
@@ -2036,7 +2071,11 @@ func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string, 
 				postAuthSyncStartCount,
 				postAuthSessionCatalogCount,
 				postAuthProjectSyncRequestedCount,
+				postAuthProjectSyncFailureCount,
+				postAuthProjectSyncFailureExamples,
 				postAuthWorkgroupRefreshCount,
+				postAuthWorkgroupRefreshFailureCount,
+				postAuthWorkgroupRefreshFailureExamples,
 				postAuthSyncFailureCount,
 				postAuthSyncExamples,
 			),
@@ -2233,8 +2272,12 @@ func signalPriority(code string) int {
 		return 300
 	case "foreground_recovery_follow_up_gaps", "post_auth_sync_incomplete", "desktop_catalog_refresh_gaps", "desktop_remote_snapshot_gaps":
 		return 250
+	case "post_auth_project_sync_failures":
+		return 245
 	case "foreground_project_sync_failures":
 		return 240
+	case "post_auth_workgroup_refresh_failures":
+		return 235
 	case "foreground_workgroup_refresh_failures":
 		return 230
 	case "auth_recovery_failures", "desktop_auth_recovery_failures", "websocket_failures", "session_sync_failures":
@@ -2379,7 +2422,11 @@ func buildAndroidRecoveryPanels(
 	postAuthSyncStartCount int,
 	postAuthSessionCatalogCount int,
 	postAuthProjectSyncRequestedCount int,
+	postAuthProjectSyncFailureCount int,
+	postAuthProjectSyncFailureExamples []string,
 	postAuthWorkgroupRefreshCount int,
+	postAuthWorkgroupRefreshFailureCount int,
+	postAuthWorkgroupRefreshFailureExamples []string,
 	postAuthSyncFailureCount int,
 	postAuthSyncExamples []string,
 ) []mobileLogRecoveryPanel {
@@ -2396,7 +2443,9 @@ func buildAndroidRecoveryPanels(
 		postAuthSyncStartCount == 0 &&
 		postAuthSessionCatalogCount == 0 &&
 		postAuthProjectSyncRequestedCount == 0 &&
+		postAuthProjectSyncFailureCount == 0 &&
 		postAuthWorkgroupRefreshCount == 0 &&
+		postAuthWorkgroupRefreshFailureCount == 0 &&
 		postAuthSyncFailureCount == 0 {
 		return nil
 	}
@@ -2433,19 +2482,24 @@ func buildAndroidRecoveryPanels(
 	projectSyncSummary := "No Android project sync request was observed in this log window."
 	projectSyncSignalCode := ""
 	projectSyncExamplesOut := []string(nil)
-	if foregroundProjectSyncRequestedCount > 0 || foregroundProjectSyncFailureCount > 0 || foregroundProjectSyncSkippedCount > 0 || postAuthProjectSyncRequestedCount > 0 || postAuthSyncFailureCount > 0 {
+	if foregroundProjectSyncRequestedCount > 0 || foregroundProjectSyncFailureCount > 0 || foregroundProjectSyncSkippedCount > 0 || postAuthProjectSyncRequestedCount > 0 || postAuthProjectSyncFailureCount > 0 || postAuthSyncFailureCount > 0 {
 		projectSyncStatus = "healthy"
-		projectSyncSummary = fmt.Sprintf("Foreground project syncs=%d, foreground project sync failures=%d, post-auth project syncs=%d.", foregroundProjectSyncRequestedCount, foregroundProjectSyncFailureCount, postAuthProjectSyncRequestedCount)
+		projectSyncSummary = fmt.Sprintf("Foreground project syncs=%d, foreground project sync failures=%d, post-auth project syncs=%d, post-auth project sync failures=%d.", foregroundProjectSyncRequestedCount, foregroundProjectSyncFailureCount, postAuthProjectSyncRequestedCount, postAuthProjectSyncFailureCount)
 		if foregroundProjectSyncFailureCount > 0 {
 			projectSyncStatus = "warning"
 			projectSyncSignalCode = "foreground_project_sync_failures"
 			projectSyncExamplesOut = mergeExampleLists(4, foregroundProjectSyncFailureExamples, foregroundRecoveryExamples)
 			projectSyncSummary = fmt.Sprintf("Foreground catalog refresh completed, but project sync dispatch failed %d time(s).", foregroundProjectSyncFailureCount)
-		} else if foregroundProjectSyncSkippedCount > 0 || postAuthSyncFailureCount > 0 || (postAuthSyncStartCount > 0 && postAuthProjectSyncRequestedCount < postAuthSyncStartCount) {
+		} else if postAuthProjectSyncFailureCount > 0 {
+			projectSyncStatus = "warning"
+			projectSyncSignalCode = "post_auth_project_sync_failures"
+			projectSyncExamplesOut = mergeExampleLists(4, postAuthProjectSyncFailureExamples, postAuthSyncExamples)
+			projectSyncSummary = fmt.Sprintf("Post-auth catalog refresh completed, but project sync dispatch failed %d time(s).", postAuthProjectSyncFailureCount)
+		} else if foregroundProjectSyncSkippedCount > 0 || (postAuthSyncStartCount > 0 && postAuthProjectSyncRequestedCount < postAuthSyncStartCount) {
 			projectSyncStatus = "warning"
 			projectSyncSignalCode = "post_auth_sync_incomplete"
 			projectSyncExamplesOut = mergeExampleLists(4, foregroundRecoveryExamples, postAuthSyncExamples)
-			projectSyncSummary = fmt.Sprintf("Project sync requests did not settle cleanly. foreground skipped=%d, post-auth failures=%d.", foregroundProjectSyncSkippedCount, postAuthSyncFailureCount)
+			projectSyncSummary = fmt.Sprintf("Project sync requests did not settle cleanly. foreground skipped=%d, post-auth requested=%d/%d.", foregroundProjectSyncSkippedCount, postAuthProjectSyncRequestedCount, postAuthSyncStartCount)
 		}
 	}
 
@@ -2453,14 +2507,19 @@ func buildAndroidRecoveryPanels(
 	workgroupSummary := "No Android workgroup refresh was observed in this log window."
 	workgroupSignalCode := ""
 	workgroupExamplesOut := []string(nil)
-	if foregroundWorkgroupRefreshCount > 0 || foregroundWorkgroupRefreshFailureCount > 0 || postAuthWorkgroupRefreshCount > 0 || foregroundRecoveryPassCount > 0 || postAuthSyncStartCount > 0 {
+	if foregroundWorkgroupRefreshCount > 0 || foregroundWorkgroupRefreshFailureCount > 0 || postAuthWorkgroupRefreshCount > 0 || postAuthWorkgroupRefreshFailureCount > 0 || foregroundRecoveryPassCount > 0 || postAuthSyncStartCount > 0 {
 		workgroupStatus = "healthy"
-		workgroupSummary = fmt.Sprintf("Foreground workgroup refreshes=%d, foreground workgroup refresh failures=%d, post-auth workgroup refreshes=%d.", foregroundWorkgroupRefreshCount, foregroundWorkgroupRefreshFailureCount, postAuthWorkgroupRefreshCount)
+		workgroupSummary = fmt.Sprintf("Foreground workgroup refreshes=%d, foreground workgroup refresh failures=%d, post-auth workgroup refreshes=%d, post-auth workgroup refresh failures=%d.", foregroundWorkgroupRefreshCount, foregroundWorkgroupRefreshFailureCount, postAuthWorkgroupRefreshCount, postAuthWorkgroupRefreshFailureCount)
 		if foregroundWorkgroupRefreshFailureCount > 0 {
 			workgroupStatus = "warning"
 			workgroupSignalCode = "foreground_workgroup_refresh_failures"
 			workgroupExamplesOut = mergeExampleLists(4, foregroundWorkgroupRefreshFailureExamples, foregroundRecoveryExamples)
 			workgroupSummary = fmt.Sprintf("Foreground project sync recovered, but workgroup refresh failed %d time(s).", foregroundWorkgroupRefreshFailureCount)
+		} else if postAuthWorkgroupRefreshFailureCount > 0 {
+			workgroupStatus = "warning"
+			workgroupSignalCode = "post_auth_workgroup_refresh_failures"
+			workgroupExamplesOut = mergeExampleLists(4, postAuthWorkgroupRefreshFailureExamples, postAuthSyncExamples)
+			workgroupSummary = fmt.Sprintf("Post-auth project sync recovered, but workgroup refresh failed %d time(s).", postAuthWorkgroupRefreshFailureCount)
 		} else if (foregroundRecoveryPassCount > 0 && foregroundWorkgroupRefreshCount == 0) || (postAuthSyncStartCount > 0 && postAuthWorkgroupRefreshCount < postAuthSyncStartCount) {
 			workgroupStatus = "warning"
 			workgroupSignalCode = "foreground_recovery_follow_up_gaps"
