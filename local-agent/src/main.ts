@@ -3216,8 +3216,10 @@ function createWorkspaceWindow(): BrowserWindow {
 
   win.on("focus", () => {
     runRelayHealthCheck("workspace-focus");
-    requestRemoteProjectCatalogRefresh();
-    void refreshRemoteWorkgroupCatalog(true);
+    requestRemoteProjectCatalogRefresh("workspace-focus");
+    void refreshRemoteWorkgroupCatalog(true, "workspace-focus");
+    requestPrioritizedRemoteProjectSyncs("workspace-focus");
+    requestPrioritizedRemoteWorkgroupSessionSyncs("workspace-focus");
   });
 
   win.webContents.on("did-finish-load", () => {
