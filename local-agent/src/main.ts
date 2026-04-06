@@ -3234,6 +3234,8 @@ function createWorkspaceWindow(): BrowserWindow {
     if (activeWorkspaceProjectId) {
       win.webContents.send("project-id", activeWorkspaceProjectId);
     }
+    requestRemoteProjectCatalogRefresh("workspace-did-finish-load");
+    void refreshRemoteWorkgroupCatalog(false, "workspace-did-finish-load");
     requestPrioritizedRemoteProjectSyncs("workspace-did-finish-load");
     requestPrioritizedRemoteWorkgroupSessionSyncs("workspace-did-finish-load");
   });
@@ -3258,6 +3260,9 @@ function showWorkspaceWindow(projectId?: string): void {
       }
     }
   }
+
+  requestRemoteProjectCatalogRefresh("show-workspace-window");
+  void refreshRemoteWorkgroupCatalog(false, "show-workspace-window");
 
   if (workspaceWindow && !workspaceWindow.isDestroyed()) {
     workspaceWindow.setTitle(getWorkspaceWindowTitle(activeWorkspaceProjectId));

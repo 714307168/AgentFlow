@@ -163,6 +163,7 @@
 - 桌面端 remote project / remote workgroup 的消息搜索入口也会触发后台补拉，避免搜索还停留在旧缓存命中结果
 - 桌面端工作区首次加载与远程列表刷新时，也会主动触发 remote project / remote workgroup 的优先补拉；同时工作区首屏的协作组 summaries 已改为本地 + remote 合并结果，减少“刚打开桌面端看不到远程协作组或预览仍旧旧的”的窗口
 - 桌面端托盘菜单、启动默认项目与 `open-project-window` 入口已切到统一使用 `getAllProjects()` / `getProjectById()`，remote project 不再因为仍走本地项目列表而出现“某些入口打不开”的割裂
+- 桌面端工作区窗口打开与首屏完成加载时，会顺手触发 remote project catalog / remote workgroup catalog 刷新，再叠加后续 snapshot 补拉，减少“目录本身还是旧的，得手动再刷一次”的窗口
 - 服务端日志分析页已补 signal / example 快捷联动入口：可直接按 signal 标题或示例日志正文过滤，并从单条示例里抽取 `traceId / workgroupId / taskId / dispatchRunId` 一键回查，减少手工复制日志正文
 - 服务端日志分析页已补当前筛选范围的 overview 统计：可聚合查看命中日志数、source 分布、Top signals，以及 `traceId / workgroupId / taskId / dispatchRunId` 热点；signal 快捷按钮也已改成真正按 `signal_code` 过滤日志
 - 服务端日志分析已补“安卓后台恢复后仍需手动重连”和“桌面重连后传输恢复但活动态未恢复”两类复合 signal；overview 排序也已提高恢复链路问题的优先级，避免被高频 scheduler 噪音淹没
