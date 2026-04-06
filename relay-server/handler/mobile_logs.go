@@ -3280,6 +3280,23 @@ function renderSignalChip(label, signal) {
   return '<button type="button" class="chip actionable" data-signal-code="' + esc(signal.code) + '">' + esc(label) + '</button>';
 }
 
+function renderFilterPresetChip(label, filters) {
+  if (!filters || typeof filters !== "object") {
+    return "";
+  }
+  const cleaned = {};
+  Object.keys(filters).forEach((key) => {
+    const value = String(filters[key] || "").trim();
+    if (value) {
+      cleaned[key] = value;
+    }
+  });
+  if (Object.keys(cleaned).length === 0) {
+    return "";
+  }
+  return '<button type="button" class="chip actionable" data-filter-preset="' + esc(JSON.stringify(cleaned)) + '">' + esc(label) + '</button>';
+}
+
 function applyFilter(kind, value) {
   if (kind === "trace_id") {
     state.filters.trace_id = value;
@@ -3311,6 +3328,26 @@ function applySignalFilter(value) {
   syncInputsFromState();
 }
 
+function applyFilterPreset(filters) {
+  if (!filters || typeof filters !== "object") {
+    return;
+  }
+  Object.keys(filters).forEach((key) => {
+    const value = String(filters[key] || "").trim();
+    if (!value) {
+      return;
+    }
+    if (key === "signal_code") {
+      state.filters.signal_code = value;
+    } else if (key === "q") {
+      state.filters.q = value;
+    } else if (Object.prototype.hasOwnProperty.call(state.filters, key)) {
+      state.filters[key] = value;
+    }
+  });
+  syncInputsFromState();
+}
+
 function bindFilterChipHandlers(root) {
   root.querySelectorAll("[data-filter-kind]").forEach((button) => {
     button.addEventListener("click", async (event) => {
@@ -3335,6 +3372,20 @@ function bindFilterChipHandlers(root) {
       const value = button.getAttribute("data-signal-code") || "";
       applySignalFilter(value);
       await refresh();
+    });
+  });
+  root.querySelectorAll("[data-filter-preset]").forEach((button) => {
+    button.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      const raw = button.getAttribute("data-filter-preset") || "";
+      if (!raw) {
+        return;
+      }
+      try {
+        applyFilterPreset(JSON.parse(raw));
+        await refresh();
+      } catch (_error) {
+      }
     });
   });
 }
@@ -3460,6 +3511,15 @@ function renderOverviewRecoveryPanels(items) {
     if (item.signal_code) {
       chips.push(renderSignalChip("Filter Signal", { code: item.signal_code }));
     }
+    chips.push(renderFilterPresetChip("Apply Top Context", {
+      signal_code: item.signal_code || "",
+      trace_id: item.top_trace_id || "",
+      workgroup_id: item.top_workgroup_id || "",
+      agent_state: item.top_agent_state || "",
+      controller_state: item.top_controller_state || "",
+      host: item.top_host || "",
+      platform: item.top_platform || "",
+    }));
     if (item.top_trace_id) {
       chips.push('<button type="button" class="chip actionable" data-filter-kind="trace_id" data-filter-value="' + esc(item.top_trace_id) + '">trace_id=' + esc(item.top_trace_id) + '</button>');
     }
@@ -3573,6 +3633,15 @@ function renderConnectionHotspots(items) {
       chips.push('<button type="button" class="chip actionable" data-filter-kind="dispatch_run_id" data-filter-value="' + esc(item.top_dispatch_run_id) + '">dispatch_run_id=' + esc(item.top_dispatch_run_id) + '</button>');
     }
     const right = [
+      renderFilterPresetChip('Apply Hotspot Context', {
+        signal_code: item.top_signal_code || item.top_recovery_panel_signal_code || '',
+        trace_id: item.top_trace_id || '',
+        workgroup_id: item.top_workgroup_id || '',
+        agent_state: item.agent_state || '',
+        controller_state: item.controller_state || '',
+        host: item.host || '',
+        platform: item.platform || '',
+      }),
       '<span class="chip">logs ' + esc(item.log_count || 0) + '</span>',
       '<span class="chip">signals ' + esc(item.logs_with_signals || 0) + '</span>',
       '<span class="chip">critical ' + esc(item.critical_count || 0) + '</span>',

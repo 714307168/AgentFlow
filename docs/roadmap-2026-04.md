@@ -98,7 +98,7 @@
 - 阶段一完成度约 `92%`
 - 阶段二完成度约 `92%`
 - 阶段三完成度约 `100%`
-- 阶段四完成度约 `99%`
+- 阶段四完成度约 `100%`
 
 ### 已完成
 
@@ -174,6 +174,7 @@
 - 服务端 device logs 分析已补安卓 post-auth 分段失败规则：当 `post-auth session catalog refreshed` 之后链路在 project sync 前失败时，会命中 `post_auth_project_sync_failures`；当 project sync 已发起、但 workgroup refresh 没完成就失败时，会命中 `post_auth_workgroup_refresh_failures`，`android_project_sync / android_workgroup_refresh` 面板现在可以直接看出 post-auth 断点
 - 服务端 device logs overview 已补 hotspot 与 recovery stage 联动：每个 `connection hotspot` 现在除了 `top signal` 外，还会带出最常见的 `top recovery stage`、状态和对应 `signal_code`，后台概览可直接看出某类 `agent/controller/host/platform` 组合更容易卡在 `Auth / Project Sync / Workgroup Refresh` 的哪一段
 - 服务端 device logs overview 已补 recovery panel 回钻上下文：`Recovery Health` 里的每个 stage 现在会直接带出最相关的 `trace_id / workgroup_id / agent_state / controller_state / host / platform`，可以从 stage 面板一跳切到同一批问题日志，不用先去对照 hotspot 再回查
+- 服务端 device logs 后台已补组合过滤快捷入口：`Recovery Health` 与 `Connection Hotspots` 现在都支持一键套用 `signal + trace/workgroup + connection snapshot` 组合上下文，阶段四所需的日志诊断、overview、snapshot、hotspot 与 recovery panel 交叉收口已全部打通
 
 ### 进行中
 
@@ -187,7 +188,7 @@
 
 ### 下一刀
 
-1. 继续结合真实上传日志，补安卓恢复链路与 `device logs overview` 的最终收口，例如把 recovery stage / hotspot / signal 之间的交叉过滤进一步压缩成更少的手工点击
+1. 阶段四已完成，下一步转回桌面端 / 安卓端真实链路优化与真实故障日志回放验证
 2. 结合真实故障日志再细化 signal 权重和排序阈值，减少单条高频 scheduler 日志把真正的恢复问题挤下去
 3. 继续收敛阶段四，把日志诊断、device logs overview、connection snapshot、hotspot 聚类、一跳回查、signal 降噪排序、交叉筛选和客户端连接态观测串起来，减少只能靠上传日志定位的问题
 
