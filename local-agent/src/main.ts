@@ -284,12 +284,14 @@ const RELAY_STALE_CONNECTION_TIMEOUT_MS = 75_000;
 const RELAY_RECOVERY_COOLDOWN_MS = 45_000;
 const RELAY_FORCE_RECOVERY_AFTER_MS = 90_000;
 const ACTIVE_REMOTE_PROJECT_SYNC_MIN_INTERVAL_MS = 3_000;
+const REMOTE_PROJECT_FOLLOW_UP_SYNC_LIMIT = 4;
 let lastRemoteProjectCatalogRefreshAt = 0;
 let remoteProjectCatalogRefreshTimer: NodeJS.Timeout | null = null;
 let lastRemoteWorkgroupCatalogRefreshAt = 0;
 let relayHealthCheckTimer: NodeJS.Timeout | null = null;
 let relayMaintenanceTimer: NodeJS.Timeout | null = null;
 let lastActiveRemoteProjectSyncAt = 0;
+const lastRemoteProjectSyncRequestedAtByProject = new Map<string, number>();
 let lastAgentRelayRecoveryAt = 0;
 let lastControllerRelayRecoveryAt = 0;
 const relayFollowUpRefreshTimers = new Set<NodeJS.Timeout>();
@@ -2569,9 +2571,138 @@ function clearRelayFollowUpRefreshTimers(): void {
   relayFollowUpRefreshTimers.clear();
 }
 
-function requestActiveRemoteProjectSync(_reason: string, force: boolean = false): void {
+function getRemoteProjectSyncRecency(projectId: string): number {
+  const snapshot = remoteSessionStore?.getSnapshot(projectId);
+  if (!snapshot) {
+    return 0;
+  }
+
+  const latestConversationAt = snapshot.conversations.reduce(
+    (maxUpdatedAt, conversation) => Math.max(maxUpdatedAt, Number(conversation.updatedAt) || 0),
+    0,
+  );
+  const latestQueuedAt = snapshot.queue.reduce(
+    (maxQueuedAt, entry) => Math.max(maxQueuedAt, Number(entry.queuedAt) || 0),
+    0,
+  );
+  const latestMessageAt = snapshot.messages.reduce(
+    (maxUpdatedAt, entry) => Math.max(maxUpdatedAt, Number(entry.updatedAt) || 0),
+    0,
+  );
+  const latestActivityAt = snapshot.activities.reduce(
+    (maxUpdatedAt, entry) => Math.max(maxUpdatedAt, Number(entry.updatedAt) || 0),
+    0,
+  );
+
+  return Math.max(
+    Number(snapshot.currentStartedAt) || 0,
+    latestConversationAt,
+    latestQueuedAt,
+    latestMessageAt,
+    latestActivityAt,
+  );
+}
+
+function requestRemoteProjectSync(projectId: string, reason: string, force: boolean = false): boolean {
+  const normalizedProjectId = projectId.trim();
+  if (!normalizedProjectId || !remoteSessionStore || !isRemoteProject(normalizedProjectId)) {
+    return false;
+  }
+
+  const project = remoteSessionStore.getProject(normalizedProjectId);
+  if (project?.online === false) {
+    return false;
+  }
+
+  const now = Date.now();
+  const lastRequestedAt = lastRemoteProjectSyncRequestedAtByProject.get(normalizedProjectId) ?? 0;
+  if (!force && now - lastRequestedAt < ACTIVE_REMOTE_PROJECT_SYNC_MIN_INTERVAL_MS) {
+    return false;
+  }
+
+  lastRemoteProjectSyncRequestedAtByProject.set(normalizedProjectId, now);
+  remoteSessionStore.requestSessionSync(normalizedProjectId, { limit: 30 });
+  appLogger.info("relay", "Requested remote project sync.", {
+    reason,
+    force,
+    projectId: normalizedProjectId,
+    isActiveProject: normalizedProjectId === (activeWorkspaceProjectId?.trim() ?? ""),
+  });
+  return true;
+}
+
+function getPrioritizedRemoteProjectSyncIds(limit: number = REMOTE_PROJECT_FOLLOW_UP_SYNC_LIMIT): string[] {
+  if (!remoteSessionStore || limit <= 0) {
+    return [];
+  }
+
+  const activeProjectId = activeWorkspaceProjectId?.trim() ?? "";
+  const seen = new Set<string>();
+  const projectIds: string[] = [];
+  const pushProjectId = (projectId: string): void => {
+    const normalizedProjectId = projectId.trim();
+    if (!normalizedProjectId || seen.has(normalizedProjectId) || !isRemoteProject(normalizedProjectId)) {
+      return;
+    }
+    const project = remoteSessionStore?.getProject(normalizedProjectId);
+    if (project?.online === false) {
+      return;
+    }
+    seen.add(normalizedProjectId);
+    projectIds.push(normalizedProjectId);
+  };
+
+  pushProjectId(activeProjectId);
+  const rankedProjects = remoteSessionStore
+    .getProjects()
+    .filter((project) => project.online !== false)
+    .map((project) => {
+      const snapshot = remoteSessionStore?.getSnapshot(project.id);
+      return {
+        id: project.id,
+        name: project.name,
+        isActive: project.id === activeProjectId,
+        isRunning: Boolean(snapshot?.isRunning),
+        queuedCount: snapshot?.queuedCount ?? 0,
+        recency: getRemoteProjectSyncRecency(project.id),
+      };
+    })
+    .sort((left, right) =>
+      Number(right.isActive) - Number(left.isActive)
+      || Number(right.isRunning) - Number(left.isRunning)
+      || right.queuedCount - left.queuedCount
+      || right.recency - left.recency
+      || left.name.localeCompare(right.name, "zh-CN"),
+    );
+
+  for (const project of rankedProjects) {
+    pushProjectId(project.id);
+    if (projectIds.length >= limit) {
+      break;
+    }
+  }
+
+  return projectIds.slice(0, limit);
+}
+
+function requestPrioritizedRemoteProjectSyncs(reason: string, force: boolean = false): number {
+  const projectIds = getPrioritizedRemoteProjectSyncIds();
+  const requestedProjectIds = projectIds.filter((projectId) => requestRemoteProjectSync(projectId, reason, force));
+  if (requestedProjectIds.length > 0) {
+    appLogger.info("relay", "Requested prioritized remote project sync batch.", {
+      reason,
+      force,
+      projectCount: requestedProjectIds.length,
+      projectIds: requestedProjectIds.join(","),
+      activeProjectId: activeWorkspaceProjectId?.trim() || null,
+    });
+  }
+  return requestedProjectIds.length;
+}
+
+function requestActiveRemoteProjectSync(reason: string, force: boolean = false): void {
   const projectId = activeWorkspaceProjectId?.trim() ?? "";
-  if (!projectId || !isRemoteProject(projectId) || !remoteSessionStore) {
+  if (!projectId) {
     return;
   }
 
@@ -2580,13 +2711,16 @@ function requestActiveRemoteProjectSync(_reason: string, force: boolean = false)
     return;
   }
 
+  if (!requestRemoteProjectSync(projectId, reason, force)) {
+    return;
+  }
+
   lastActiveRemoteProjectSyncAt = now;
   appLogger.info("relay", "Requested active remote project sync.", {
-    reason: _reason,
+    reason,
     force,
     projectId,
   });
-  remoteSessionStore.requestSessionSync(projectId, { limit: 30 });
 }
 
 async function runRelayFollowUpRefresh(reason: string): Promise<void> {
@@ -2604,9 +2738,10 @@ async function runRelayFollowUpRefresh(reason: string): Promise<void> {
 
   requestRemoteProjectCatalogRefresh(`follow-up:${reason}`);
   await refreshRemoteWorkgroupCatalog(true, `follow-up:${reason}`);
-  requestActiveRemoteProjectSync(`follow-up:${reason}`, true);
+  const requestedProjectSyncCount = requestPrioritizedRemoteProjectSyncs(`follow-up:${reason}`, true);
   appLogger.info("relay", "Completed relay follow-up refresh.", {
     reason,
+    requestedProjectSyncCount,
     requestedActiveProjectSync: Boolean(activeWorkspaceProjectId?.trim() && isRemoteProject(activeWorkspaceProjectId)),
   });
 }
@@ -3186,7 +3321,7 @@ function initRemoteRelay(config: AgentConfig): void {
     });
     broadcastProjectsChanged();
     updateWindowTitles();
-    requestActiveRemoteProjectSync("remote-projects-changed");
+    requestPrioritizedRemoteProjectSyncs("remote-projects-changed");
   });
   remoteSessionStore.on("snapshot", (projectId: string, snapshot: ProjectSessionSnapshot) => {
     appLogger.info("relay", "Remote session snapshot updated.", {
@@ -3903,6 +4038,7 @@ ipcMain.handle("reconnect-relay", async () => {
   await refreshControllerToken(false);
   clearRelayFollowUpRefreshTimers();
   lastActiveRemoteProjectSyncAt = 0;
+  lastRemoteProjectSyncRequestedAtByProject.clear();
   if (relayClient) {
     relayClient.disconnect();
   }
