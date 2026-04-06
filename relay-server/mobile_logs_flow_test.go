@@ -151,14 +151,20 @@ type uploadedMobileLogOverview struct {
 		LogCount int    `json:"log_count"`
 	} `json:"top_task_ids"`
 	RecoveryPanels []struct {
-		Key           string `json:"key"`
-		Status        string `json:"status"`
-		SignalCode    string `json:"signal_code"`
-		LogCount      int    `json:"log_count"`
-		HealthyCount  int    `json:"healthy_count"`
-		WarningCount  int    `json:"warning_count"`
-		CriticalCount int    `json:"critical_count"`
-		IdleCount     int    `json:"idle_count"`
+		Key                string `json:"key"`
+		Status             string `json:"status"`
+		SignalCode         string `json:"signal_code"`
+		TopTraceID         string `json:"top_trace_id"`
+		TopWorkgroupID     string `json:"top_workgroup_id"`
+		TopAgentState      string `json:"top_agent_state"`
+		TopControllerState string `json:"top_controller_state"`
+		TopHost            string `json:"top_host"`
+		TopPlatform        string `json:"top_platform"`
+		LogCount           int    `json:"log_count"`
+		HealthyCount       int    `json:"healthy_count"`
+		WarningCount       int    `json:"warning_count"`
+		CriticalCount      int    `json:"critical_count"`
+		IdleCount          int    `json:"idle_count"`
 	} `json:"recovery_panels"`
 }
 
@@ -451,8 +457,14 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 	if !hasOverviewRecoveryPanel(overview.RecoveryPanels, "android_auth_recovery", "critical", 1, 1, "auth_recovery_failures") {
 		t.Fatalf("expected overview android auth panel aggregation, got %+v", overview.RecoveryPanels)
 	}
+	if !hasOverviewRecoveryPanelContext(overview.RecoveryPanels, "android_auth_recovery", "trace-alpha-001", "fyzy-workgroup", "", "", "", "") {
+		t.Fatalf("expected overview android auth panel to expose top context, got %+v", overview.RecoveryPanels)
+	}
 	if !hasOverviewRecoveryPanel(overview.RecoveryPanels, "desktop_auth_recovery", "critical", 1, 1, "desktop_auth_recovery_failures") {
 		t.Fatalf("expected overview auth panel aggregation, got %+v", overview.RecoveryPanels)
+	}
+	if !hasOverviewRecoveryPanelContext(overview.RecoveryPanels, "desktop_auth_recovery", "trace-desktop-003", "desktop-workgroup", "connected", "connected", "test-host", "linux") {
+		t.Fatalf("expected overview desktop auth panel to expose top context, got %+v", overview.RecoveryPanels)
 	}
 
 	var traceFiltered []uploadedMobileLog
@@ -609,6 +621,9 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 	}
 	if !hasOverviewRecoveryPanel(desktopOverview.RecoveryPanels, "desktop_catalog_refresh", "healthy", 1, 0, "") {
 		t.Fatalf("expected desktop overview to expose healthy catalog panel, got %+v", desktopOverview.RecoveryPanels)
+	}
+	if !hasOverviewRecoveryPanelContext(desktopOverview.RecoveryPanels, "desktop_active_snapshot", "trace-desktop-003", "desktop-workgroup", "connected", "connected", "test-host", "linux") {
+		t.Fatalf("expected desktop overview active snapshot panel to expose top context, got %+v", desktopOverview.RecoveryPanels)
 	}
 	if !hasOverviewRecoveryPanel(desktopOverview.RecoveryPanels, "desktop_active_snapshot", "warning", 1, 0, "desktop_remote_snapshot_gaps") {
 		t.Fatalf("expected desktop overview to expose warning active snapshot panel, got %+v", desktopOverview.RecoveryPanels)
@@ -1497,14 +1512,20 @@ func hasOverviewSourceCount(items []struct {
 }
 
 func hasOverviewRecoveryPanel(items []struct {
-	Key           string `json:"key"`
-	Status        string `json:"status"`
-	SignalCode    string `json:"signal_code"`
-	LogCount      int    `json:"log_count"`
-	HealthyCount  int    `json:"healthy_count"`
-	WarningCount  int    `json:"warning_count"`
-	CriticalCount int    `json:"critical_count"`
-	IdleCount     int    `json:"idle_count"`
+	Key                string `json:"key"`
+	Status             string `json:"status"`
+	SignalCode         string `json:"signal_code"`
+	TopTraceID         string `json:"top_trace_id"`
+	TopWorkgroupID     string `json:"top_workgroup_id"`
+	TopAgentState      string `json:"top_agent_state"`
+	TopControllerState string `json:"top_controller_state"`
+	TopHost            string `json:"top_host"`
+	TopPlatform        string `json:"top_platform"`
+	LogCount           int    `json:"log_count"`
+	HealthyCount       int    `json:"healthy_count"`
+	WarningCount       int    `json:"warning_count"`
+	CriticalCount      int    `json:"critical_count"`
+	IdleCount          int    `json:"idle_count"`
 }, key, status string, logCount int, criticalCount int, signalCode string) bool {
 	for _, item := range items {
 		if item.Key != key {
@@ -1517,6 +1538,49 @@ func hasOverviewRecoveryPanel(items []struct {
 			return false
 		}
 		if signalCode == "" && item.SignalCode != "" {
+			return false
+		}
+		return true
+	}
+	return false
+}
+
+func hasOverviewRecoveryPanelContext(items []struct {
+	Key                string `json:"key"`
+	Status             string `json:"status"`
+	SignalCode         string `json:"signal_code"`
+	TopTraceID         string `json:"top_trace_id"`
+	TopWorkgroupID     string `json:"top_workgroup_id"`
+	TopAgentState      string `json:"top_agent_state"`
+	TopControllerState string `json:"top_controller_state"`
+	TopHost            string `json:"top_host"`
+	TopPlatform        string `json:"top_platform"`
+	LogCount           int    `json:"log_count"`
+	HealthyCount       int    `json:"healthy_count"`
+	WarningCount       int    `json:"warning_count"`
+	CriticalCount      int    `json:"critical_count"`
+	IdleCount          int    `json:"idle_count"`
+}, key, traceID, workgroupID, agentState, controllerState, host, platform string) bool {
+	for _, item := range items {
+		if item.Key != key {
+			continue
+		}
+		if traceID != "" && item.TopTraceID != traceID {
+			return false
+		}
+		if workgroupID != "" && item.TopWorkgroupID != workgroupID {
+			return false
+		}
+		if agentState != "" && item.TopAgentState != agentState {
+			return false
+		}
+		if controllerState != "" && item.TopControllerState != controllerState {
+			return false
+		}
+		if host != "" && item.TopHost != host {
+			return false
+		}
+		if platform != "" && item.TopPlatform != platform {
 			return false
 		}
 		return true
