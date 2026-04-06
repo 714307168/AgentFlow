@@ -135,6 +135,9 @@ contextBridge.exposeInMainWorld('claudeAgent', {
   onWorkgroupCollaborationSnapshot: (callback: (snapshot: unknown) => void) => {
     ipcRenderer.on('workgroup-collaboration-snapshot', (_event, snapshot: unknown) => callback(snapshot));
   },
+  onWorkgroupCollaborationId: (callback: (id: string | null) => void) => {
+    ipcRenderer.on('workgroup-collaboration-id', (_event, id: string | null) => callback(id));
+  },
   addProject: (data: { name: string; path: string; groupName?: string | null; cliProvider?: string; cliModel?: string | null; projectPrompt?: string | null }) => ipcRenderer.invoke('add-project', data),
   updateProject: (data: { projectId: string; updates: Record<string, string | null> }) => ipcRenderer.invoke('update-project', data),
   deleteProject: (projectId: string) => ipcRenderer.invoke('delete-project', projectId),
@@ -179,6 +182,7 @@ contextBridge.exposeInMainWorld('claudeAgent', {
     ipcRenderer.on('settings-pane-changed', (_event, pane: string) => callback(pane));
   },
   setActiveProject: (projectId: string | null) => ipcRenderer.send('set-active-project', projectId),
+  setActiveWorkgroupCollaboration: (workgroupId: string | null) => ipcRenderer.send('set-active-workgroup-collaboration', workgroupId),
   minimizeWindow: () => ipcRenderer.send('minimize-window'),
   maximizeWindow: () => ipcRenderer.send('maximize-window'),
   closeWindow: () => ipcRenderer.send('close-window'),

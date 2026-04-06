@@ -1222,6 +1222,14 @@ function updateWindowTitles(): void {
   }
 }
 
+function broadcastWorkspaceSelectionState(): void {
+  if (!workspaceWindow || workspaceWindow.isDestroyed()) {
+    return;
+  }
+  workspaceWindow.webContents.send("project-id", activeWorkspaceProjectId);
+  workspaceWindow.webContents.send("workgroup-collaboration-id", activeWorkgroupCollaborationId);
+}
+
 function broadcastLangChange(): void {
   const payload = getLangPayload();
 
@@ -1279,11 +1287,8 @@ updateManager.on("state-changed", (state: UpdateState) => {
   broadcastUpdateState(state);
 });
 
-workgroupCollaborationService.on("summaries", (summaries: WorkgroupCollaborationSummary[]) => {
-  if (workspaceWindow && !workspaceWindow.isDestroyed()) {
-    workspaceWindow.webContents.send("workgroup-collaboration-summaries", summaries);
-  }
-  broadcastWorkgroupCollaborationRelaySummaries();
+workgroupCollaborationService.on("summaries", (_summaries: WorkgroupCollaborationSummary[]) => {
+  broadcastWorkgroupCollaborationSummaries();
 });
 
 workgroupCollaborationService.on("snapshot", (workgroupId: string, snapshot: WorkgroupCollaborationSessionSnapshot) => {
@@ -1312,7 +1317,7 @@ function broadcastProjectsChanged(): void {
   if (workspaceWindow && !workspaceWindow.isDestroyed()) {
     workspaceWindow.webContents.send("projects-changed", projects);
     if (previousActiveProjectId !== activeWorkspaceProjectId) {
-      workspaceWindow.webContents.send("project-id", activeWorkspaceProjectId);
+      broadcastWorkspaceSelectionState();
     }
   }
 
@@ -1386,6 +1391,7 @@ function getAllWorkgroupCollaborationSummaries(): WorkgroupCollaborationSummary[
 
 function broadcastWorkgroupCollaborationSummaries(): void {
   const summaries = getAllWorkgroupCollaborationSummaries();
+  const previousActiveWorkgroupId = activeWorkgroupCollaborationId;
   if (
     activeWorkgroupCollaborationId
     && !summaries.some((entry) => entry.id === activeWorkgroupCollaborationId)
@@ -1397,6 +1403,9 @@ function broadcastWorkgroupCollaborationSummaries(): void {
       "workgroup-collaboration-summaries",
       summaries,
     );
+    if (previousActiveWorkgroupId !== activeWorkgroupCollaborationId) {
+      broadcastWorkspaceSelectionState();
+    }
   }
   broadcastWorkgroupCollaborationRelaySummaries();
 }
@@ -3264,7 +3273,7 @@ function createWorkspaceWindow(): BrowserWindow {
         win.webContents.send("project-session-snapshot", snapshot);
       }
     }
-    win.webContents.send("project-id", activeWorkspaceProjectId);
+    broadcastWorkspaceSelectionState();
     triggerWindowRemoteRefresh("workspace-did-finish-load");
   });
 
@@ -3296,7 +3305,7 @@ function showWorkspaceWindow(projectId?: string): void {
 
   if (workspaceWindow && !workspaceWindow.isDestroyed()) {
     workspaceWindow.setTitle(getWorkspaceWindowTitle(activeWorkspaceProjectId));
-    workspaceWindow.webContents.send("project-id", activeWorkspaceProjectId);
+    broadcastWorkspaceSelectionState();
     revealWindow(workspaceWindow);
     return;
   }
@@ -4413,6 +4422,17 @@ ipcMain.on("set-active-project", (_event, projectId: string | null) => {
   updateWindowTitles();
 });
 
+ipcMain.on("set-active-workgroup-collaboration", (_event, workgroupId: string | null) => {
+  activeWorkgroupCollaborationId = workgroupId?.trim() || null;
+  if (activeWorkgroupCollaborationId) {
+    activeWorkspaceProjectId = null;
+    if (parseCompositeWorkgroupId(activeWorkgroupCollaborationId)) {
+      requestRemoteWorkgroupSessionSync(activeWorkgroupCollaborationId, "workspace-workgroup-activated");
+    }
+  }
+  updateWindowTitles();
+});
+
 ipcMain.handle("get-project-session", (_event, projectId: string) => {
   const project = getProjectById(projectId);
   if (!project) {
@@ -4910,8 +4930,8 @@ ipcMain.handle("list-workgroup-collaborations", () => {
 });
 
 ipcMain.handle("get-workgroup-collaboration-session", async (_event, workgroupId: string) => {
+  activeWorkgroupCollaborationId = workgroupId.trim() || null;
   if (parseCompositeWorkgroupId(workgroupId)) {
-    activeWorkgroupCollaborationId = workgroupId.trim() || null;
     const existingRemoteSession = remoteWorkgroupStore?.getSession(workgroupId);
     if (existingRemoteSession) {
       requestRemoteWorkgroupSessionSync(workgroupId, "open-remote-workgroup-session");
@@ -4922,8 +4942,6 @@ ipcMain.handle("get-workgroup-collaboration-session", async (_event, workgroupId
       error: "Remote workgroup collaboration not found",
     }));
   }
-  activeWorkgroupCollaborationId = null;
-
   const session = workgroupCollaborationService.getSession(workgroupId);
   if (!session) {
     return { success: false, error: "Workgroup collaboration not found" };
@@ -4939,8 +4957,8 @@ ipcMain.handle("get-workgroup-collaboration-history-page", async (_event, data: 
   beforeId?: string | null;
   limit?: number;
 }) => {
+  activeWorkgroupCollaborationId = data.workgroupId.trim() || null;
   if (parseCompositeWorkgroupId(data.workgroupId)) {
-    activeWorkgroupCollaborationId = data.workgroupId.trim() || null;
     const existingPage = remoteWorkgroupStore?.getHistoryPage(data.workgroupId, {
       beforeId: data.beforeId,
       limit: data.limit,
@@ -4988,8 +5006,8 @@ ipcMain.handle("search-workgroup-collaboration-messages", (_event, data: {
   query: string;
   limit?: number;
 }) => {
+  activeWorkgroupCollaborationId = data.workgroupId.trim() || null;
   if (parseCompositeWorkgroupId(data.workgroupId)) {
-    activeWorkgroupCollaborationId = data.workgroupId.trim() || null;
     requestRemoteWorkgroupSessionSync(data.workgroupId, "search-remote-workgroup-messages");
     const items = remoteWorkgroupStore?.searchMessages(data.workgroupId, {
       query: data.query,
@@ -5018,8 +5036,8 @@ ipcMain.handle("search-workgroup-collaboration-messages", (_event, data: {
 });
 
 ipcMain.handle("send-workgroup-collaboration-message", async (_event, data: { workgroupId: string; content: string }) => {
+  activeWorkgroupCollaborationId = data.workgroupId.trim() || null;
   if (parseCompositeWorkgroupId(data.workgroupId)) {
-    activeWorkgroupCollaborationId = data.workgroupId.trim() || null;
     return await (remoteWorkgroupStore?.sendMessage(data.workgroupId, data.content) ?? Promise.resolve({
       success: false,
       error: "Remote workgroup collaboration not found",

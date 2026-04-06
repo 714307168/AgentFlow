@@ -170,6 +170,7 @@
 - 桌面端在 active project 因目录变化被回退到新的 remote project 时，会继续对新的 fallback 目标立刻补拉 snapshot，并同步刷新窗口标题，避免“虽然切走了旧目标，但新目标仍停在旧缓存”
 - 桌面端主进程下发 `project-id = null` 时，渲染层现在会正确清空失效的 active project 选择，不再因为 IPC 类型过窄而把界面继续挂在已经被移除的远程项目上
 - 桌面端工作区窗口首次加载、重新打开或恢复显示时，也会显式下发当前 `project-id`（包括 `null`），避免“当前已无活动项目但窗口仍残留上一次远程项目”的首屏脏状态
+- 桌面端已补齐 active workgroup 选择同步：渲染层切换协作组会显式上报主进程，工作区首屏、恢复与协作组目录变化时也会下发当前 `workgroup-collaboration-id`，避免协作组会话恢复后又掉回错误目标
 - 服务端日志分析页已补 signal / example 快捷联动入口：可直接按 signal 标题或示例日志正文过滤，并从单条示例里抽取 `traceId / workgroupId / taskId / dispatchRunId` 一键回查，减少手工复制日志正文
 - 服务端日志分析页已补当前筛选范围的 overview 统计：可聚合查看命中日志数、source 分布、Top signals，以及 `traceId / workgroupId / taskId / dispatchRunId` 热点；signal 快捷按钮也已改成真正按 `signal_code` 过滤日志
 - 服务端日志分析已补“安卓后台恢复后仍需手动重连”和“桌面重连后传输恢复但活动态未恢复”两类复合 signal；overview 排序也已提高恢复链路问题的优先级，避免被高频 scheduler 噪音淹没

@@ -25,6 +25,7 @@ interface ClaudeAgentApi {
   listWorkgroupCollaborations?: () => Promise<{ success: boolean; workgroups?: WorkgroupSummary[]; error?: string }>;
   onWorkgroupCollaborationSummaries?: (callback: (workgroups: WorkgroupSummary[]) => void) => void;
   onWorkgroupCollaborationSnapshot?: (callback: (snapshot: WorkgroupSessionSnapshot) => void) => void;
+  onWorkgroupCollaborationId?: (callback: (workgroupId: string | null) => void) => void;
   getProjectSession: (projectId: string) => Promise<ProjectSessionResponse>;
   getProjectHistoryPage?: (data: {
     projectId: string;
@@ -77,6 +78,7 @@ interface ClaudeAgentApi {
   onLangChanged?: (callback: (payload: LangPayload) => void) => void;
   openSettingsWindow?: (pane?: "connection" | "project" | "system") => void;
   setActiveProject?: (projectId: string | null) => void;
+  setActiveWorkgroupCollaboration?: (workgroupId: string | null) => void;
   pickLocalDataRoot?: (currentPath?: string | null) => Promise<{ success: boolean; path?: string | null; error?: string }>;
   openLocalDataRoot?: (currentPath?: string | null) => Promise<{ success: boolean; error?: string }>;
   changeLocalDataRoot?: (nextPath?: string | null) => Promise<{ success: boolean; changed?: boolean; restartRequired?: boolean; localDataRoot?: string; error?: string }>;
@@ -1908,6 +1910,9 @@ function setActiveProject(projectId: string | null): void {
     state.forceDockScroll = "messages";
   }
   api.setActiveProject?.(projectId);
+  if (!projectId) {
+    api.setActiveWorkgroupCollaboration?.(null);
+  }
   restoreWorkspaceDraft(nextWorkspaceKey);
 }
 
@@ -1925,6 +1930,7 @@ function setActiveWorkgroup(workgroupId: string | null): void {
     state.forceDockScroll = "messages";
   }
   api.setActiveProject?.(null);
+  api.setActiveWorkgroupCollaboration?.(workgroupId);
   restoreWorkspaceDraft(nextWorkspaceKey);
 }
 
@@ -3865,6 +3871,25 @@ async function selectWorkgroup(workgroupId: string): Promise<void> {
   focusComposerAtEnd();
 }
 
+async function applyWorkgroupSelectionFromMain(workgroupId: string | null): Promise<void> {
+  if (!workgroupId) {
+    if (state.projectId) {
+      return;
+    }
+    if (state.workgroupId === null) {
+      return;
+    }
+    setActiveWorkgroup(null);
+    if (state.messageSearchQuery.trim()) {
+      scheduleMessageSearch();
+    }
+    render();
+    return;
+  }
+
+  await selectWorkgroup(workgroupId);
+}
+
 function clearMessageSearchResults(): void {
   state.messageSearchWorkspaceKey = null;
   state.messageSearchProjectResults = null;
@@ -4864,6 +4889,10 @@ elements.cliTrace?.addEventListener("scroll", () => {
 
 api.onProjectId((projectId) => {
   void applyProjectSelectionFromMain(projectId);
+});
+
+api.onWorkgroupCollaborationId?.((workgroupId) => {
+  void applyWorkgroupSelectionFromMain(workgroupId);
 });
 
 api.onProjectSessionSnapshot((snapshot) => {
