@@ -906,13 +906,25 @@ function getSettingsWindowTitle(pane: SettingsPane = activeSettingsPane): string
   return `${getSettingsPaneTitle(pane)} - ${t("app.name")}`;
 }
 
-function getWorkspaceWindowTitle(projectId?: string | null): string {
-  if (!projectId) {
-    return t("app.name");
+function getWorkspaceWindowTitle(
+  projectId: string | null = activeWorkspaceProjectId,
+  workgroupId: string | null = activeWorkgroupCollaborationId,
+): string {
+  if (workgroupId) {
+    const workgroup = getAllWorkgroupCollaborationSummaries().find((entry) => entry.id === workgroupId);
+    if (workgroup) {
+      return `${workgroup.name} - ${t("app.name")}`;
+    }
   }
 
-  const project = getProjectById(projectId);
-  return project ? `${project.name} - ${t("app.name")}` : t("app.name");
+  if (projectId) {
+    const project = getProjectById(projectId);
+    if (project) {
+      return `${project.name} - ${t("app.name")}`;
+    }
+  }
+
+  return t("app.name");
 }
 
 function getLangPayload(): { lang: Lang; messages: Record<string, string> } {
@@ -1404,6 +1416,7 @@ function broadcastWorkgroupCollaborationSummaries(): void {
       summaries,
     );
     if (previousActiveWorkgroupId !== activeWorkgroupCollaborationId) {
+      updateWindowTitles();
       broadcastWorkspaceSelectionState();
     }
   }
@@ -3145,7 +3158,7 @@ function createTray(): Tray {
   trayInstance.setToolTip(t("tray.disconnected"));
   rebuildTrayMenu(trayInstance);
   trayInstance.on("click", () => {
-    showWorkspaceWindow(activeWorkspaceProjectId ?? getAllProjects()[0]?.id);
+    showWorkspaceWindow();
   });
   return trayInstance;
 }
