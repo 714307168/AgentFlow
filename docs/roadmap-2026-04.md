@@ -157,6 +157,7 @@
 - 桌面端已补 `Requested active remote project sync` / `Remote session snapshot updated` 锚点，服务端日志分析可继续区分“catalog 已更新”与“active project snapshot 仍未落下”的链路断点
 - 桌面端 relay follow-up refresh 与 remote project catalog 更新后，已不再只补拉当前 active remote project，而会按 active / running / queued / 最近活跃优先补拉多条 remote project snapshot，减少“已连上但消息列表和活动预览仍停在旧状态”的恢复缺口
 - 桌面端 remote workgroup collaboration 恢复已补优先会话补拉：打开过的 remote workgroup 会被记为当前关注会话，relay follow-up refresh 后会按“当前关注 / 运行中 / 最近活跃”优先补拉多条协作组 session，减少“协作组列表恢复了但聊天线程还是旧消息”的缺口
+- 桌面端打开 remote workgroup 会话或第一页历史时，若本地已有缓存，也会立即后台补拉最新 session，而不是只停留在旧缓存，减少“刚点开协作组看到旧消息，要等很久才刷新”的窗口
 - 服务端日志分析页已补 signal / example 快捷联动入口：可直接按 signal 标题或示例日志正文过滤，并从单条示例里抽取 `traceId / workgroupId / taskId / dispatchRunId` 一键回查，减少手工复制日志正文
 - 服务端日志分析页已补当前筛选范围的 overview 统计：可聚合查看命中日志数、source 分布、Top signals，以及 `traceId / workgroupId / taskId / dispatchRunId` 热点；signal 快捷按钮也已改成真正按 `signal_code` 过滤日志
 - 服务端日志分析已补“安卓后台恢复后仍需手动重连”和“桌面重连后传输恢复但活动态未恢复”两类复合 signal；overview 排序也已提高恢复链路问题的优先级，避免被高频 scheduler 噪音淹没

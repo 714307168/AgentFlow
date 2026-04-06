@@ -4859,6 +4859,7 @@ ipcMain.handle("get-workgroup-collaboration-session", async (_event, workgroupId
     activeWorkgroupCollaborationId = workgroupId.trim() || null;
     const existingRemoteSession = remoteWorkgroupStore?.getSession(workgroupId);
     if (existingRemoteSession) {
+      requestRemoteWorkgroupSessionSync(workgroupId, "open-remote-workgroup-session");
       return { success: true, session: existingRemoteSession };
     }
     return await (remoteWorkgroupStore?.requestSession(workgroupId, { limit: 30 }) ?? Promise.resolve({
@@ -4889,6 +4890,9 @@ ipcMain.handle("get-workgroup-collaboration-history-page", async (_event, data: 
       beforeId: data.beforeId,
       limit: data.limit,
     });
+    if (!data.beforeId && existingPage && existingPage.items.length > 0) {
+      requestRemoteWorkgroupSessionSync(data.workgroupId, "open-remote-workgroup-history-page");
+    }
     if ((!existingPage || (existingPage.items.length === 0 && existingPage.hasMore && data.beforeId)) && remoteWorkgroupStore) {
       const result = await remoteWorkgroupStore.requestSession(data.workgroupId, {
         beforeId: data.beforeId,
