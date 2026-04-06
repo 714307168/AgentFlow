@@ -1299,6 +1299,10 @@ function broadcastProjectsChanged(): void {
   if (previousActiveProjectId && !projects.some((project) => project.id === previousActiveProjectId)) {
     activeWorkspaceProjectId = projects[0]?.id ?? null;
     activeWorkgroupCollaborationId = null;
+    if (activeWorkspaceProjectId && isRemoteProject(activeWorkspaceProjectId)) {
+      requestRemoteProjectSync(activeWorkspaceProjectId, "fallback-active-project", true);
+    }
+    updateWindowTitles();
   }
 
   if (mainWindow && !mainWindow.isDestroyed()) {
