@@ -84,6 +84,8 @@ func main() {
 	mux.HandleFunc("/api/agent/wakeup", handler.WakeupHandler(h, cfg))
 	mux.HandleFunc("/api/device/sync", handler.SyncHandler(h, cfg, st))
 	mux.HandleFunc("/api/device/logs", handler.DeviceLogUploadHandler(cfg, database))
+	mux.HandleFunc("/api/transfers", handler.TransfersHandler(cfg, database))
+	mux.HandleFunc("/api/transfers/", handler.TransfersHandler(cfg, database))
 	mux.HandleFunc("/api/update/check", handler.UpdateCheckHandler(cfg, database))
 	mux.HandleFunc("/api/update/download/", handler.UpdateDownloadHandler(cfg, database))
 

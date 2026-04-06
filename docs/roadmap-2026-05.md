@@ -507,3 +507,11 @@
 3. `微信小程序` 明确做 Lite，不追求和 Android 完全一致
 
 这样能在不打散现有主链路的情况下，把下一期真正做成“多端扩展”，而不是再次进入零散补丁模式。
+## Progress Update 2026-04-07
+
+- [x] Desktop settings information architecture refactor: overview / message / automation / advanced panes landed.
+- [x] Desktop settings overview now exposes local runtime metrics for attachments, updates, history, and logs.
+- [x] Relay server transfer MVP landed.
+- [x] Relay transfer APIs now support upload / list / detail / download / receipt.
+- [x] Relay transfer flow is covered by end-to-end Go tests.
+- [ ] Next step: wire desktop / Android transfer center to the new relay transfer domain.

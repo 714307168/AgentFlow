@@ -163,6 +163,41 @@ func (db *DB) initSchema() error {
 		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 	);
 
+	-- Cross-client file transfer metadata.
+	CREATE TABLE IF NOT EXISTS transfers (
+		id TEXT PRIMARY KEY,
+		user_id INTEGER NOT NULL,
+		sender_type TEXT NOT NULL,
+		sender_agent_id TEXT NOT NULL DEFAULT '',
+		sender_device_id TEXT NOT NULL DEFAULT '',
+		target_type TEXT NOT NULL DEFAULT '',
+		target_id TEXT NOT NULL DEFAULT '',
+		project_id TEXT NOT NULL DEFAULT '',
+		workgroup_id TEXT NOT NULL DEFAULT '',
+		file_name TEXT NOT NULL,
+		mime_type TEXT NOT NULL DEFAULT 'application/octet-stream',
+		size_bytes INTEGER NOT NULL DEFAULT 0,
+		sha256 TEXT NOT NULL,
+		storage_path TEXT NOT NULL,
+		status TEXT NOT NULL DEFAULT 'available',
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		expires_at DATETIME,
+		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+	);
+
+	CREATE TABLE IF NOT EXISTS transfer_receipts (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		transfer_id TEXT NOT NULL,
+		client_type TEXT NOT NULL,
+		agent_id TEXT NOT NULL DEFAULT '',
+		device_id TEXT NOT NULL DEFAULT '',
+		status TEXT NOT NULL,
+		note TEXT NOT NULL DEFAULT '',
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE(transfer_id, client_type, agent_id, device_id, status),
+		FOREIGN KEY (transfer_id) REFERENCES transfers(id) ON DELETE CASCADE
+	);
+
 	-- Indexes
 	CREATE INDEX IF NOT EXISTS idx_agents_user_id ON agents(user_id);
 	CREATE INDEX IF NOT EXISTS idx_devices_user_id ON devices(user_id);
@@ -175,6 +210,9 @@ func (db *DB) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_collaboration_groups_owner ON collaboration_groups(owner_user_id, updated_at);
 	CREATE INDEX IF NOT EXISTS idx_collaboration_groups_host_agent ON collaboration_groups(host_agent_id, updated_at);
 	CREATE INDEX IF NOT EXISTS idx_collaboration_group_memberships_user ON collaboration_group_memberships(user_id, created_at);
+	CREATE INDEX IF NOT EXISTS idx_transfers_user_created ON transfers(user_id, created_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_transfers_target ON transfers(user_id, target_type, target_id, created_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_transfer_receipts_transfer_created ON transfer_receipts(transfer_id, created_at ASC);
 	`
 
 	if _, err := db.Exec(schema); err != nil {
