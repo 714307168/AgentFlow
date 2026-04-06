@@ -2891,6 +2891,7 @@ async function runRelayFollowUpRefresh(reason: string): Promise<void> {
     requestedProjectSyncCount,
     requestedWorkgroupSyncCount,
     requestedActiveProjectSync: Boolean(activeWorkspaceProjectId?.trim() && isRemoteProject(activeWorkspaceProjectId)),
+    requestedActiveWorkgroupSync: Boolean(activeWorkgroupCollaborationId?.trim() && parseCompositeWorkgroupId(activeWorkgroupCollaborationId)),
   });
 }
 
@@ -3516,6 +3517,12 @@ function initRemoteRelay(config: AgentConfig): void {
     broadcastWorkgroupCollaborationSummaries();
   });
   remoteWorkgroupStore.on("snapshot", (_workgroupId: string, snapshot: WorkgroupCollaborationSessionSnapshot) => {
+    appLogger.info("workgroup", "Remote workgroup session snapshot updated.", {
+      workgroupId: snapshot.workgroupId,
+      isActiveWorkgroup: snapshot.workgroupId === (activeWorkgroupCollaborationId?.trim() ?? ""),
+      messageCount: Array.isArray(snapshot.messages) ? snapshot.messages.length : 0,
+      updatedAt: snapshot.updatedAt,
+    });
     if (workspaceWindow && !workspaceWindow.isDestroyed()) {
       workspaceWindow.webContents.send("workgroup-collaboration-snapshot", snapshot);
     }

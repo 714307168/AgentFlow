@@ -1455,10 +1455,14 @@ func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string, 
 	desktopProjectCatalogUpdatedCount := 0
 	desktopActiveProjectSyncRequestedCount := 0
 	desktopActiveProjectSyncExamples := make([]string, 0, 3)
+	desktopActiveWorkgroupSyncRequestedCount := 0
+	desktopActiveWorkgroupSyncExamples := make([]string, 0, 3)
 	desktopFollowUpRefreshExpectedActiveSyncCount := 0
 	desktopFollowUpRefreshExpectedActiveSyncExamples := make([]string, 0, 3)
 	desktopRemoteSessionSnapshotCount := 0
 	desktopRemoteSessionSnapshotExamples := make([]string, 0, 3)
+	desktopRemoteWorkgroupSessionSnapshotCount := 0
+	desktopRemoteWorkgroupSessionSnapshotExamples := make([]string, 0, 3)
 	desktopWorkgroupCatalogRefreshCount := 0
 	desktopWorkgroupCatalogUpdatedCount := 0
 	desktopCatalogRefreshFailureCount := 0
@@ -1822,16 +1826,29 @@ func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string, 
 				desktopActiveProjectSyncExamples = append(desktopActiveProjectSyncExamples, line)
 			}
 		}
-		if strings.Contains(lowerLine, "completed relay follow-up refresh") && strings.Contains(lowerLine, "requestedactiveprojectsync=true") {
+		if strings.Contains(lowerLine, "requested remote workgroup session sync") && strings.Contains(lowerLine, "isactiveworkgroup=true") {
+			desktopActiveWorkgroupSyncRequestedCount++
+			if len(desktopActiveWorkgroupSyncExamples) < 3 {
+				desktopActiveWorkgroupSyncExamples = append(desktopActiveWorkgroupSyncExamples, line)
+			}
+		}
+		if strings.Contains(lowerLine, "completed relay follow-up refresh") &&
+			(strings.Contains(lowerLine, "requestedactiveprojectsync=true") || strings.Contains(lowerLine, "requestedactiveworkgroupsync=true")) {
 			desktopFollowUpRefreshExpectedActiveSyncCount++
 			if len(desktopFollowUpRefreshExpectedActiveSyncExamples) < 3 {
 				desktopFollowUpRefreshExpectedActiveSyncExamples = append(desktopFollowUpRefreshExpectedActiveSyncExamples, line)
 			}
 		}
-		if strings.Contains(lowerLine, "remote session snapshot updated") {
+		if strings.Contains(lowerLine, "remote session snapshot updated") && strings.Contains(lowerLine, "isactiveproject=true") {
 			desktopRemoteSessionSnapshotCount++
 			if len(desktopRemoteSessionSnapshotExamples) < 3 {
 				desktopRemoteSessionSnapshotExamples = append(desktopRemoteSessionSnapshotExamples, line)
+			}
+		}
+		if strings.Contains(lowerLine, "remote workgroup session snapshot updated") && strings.Contains(lowerLine, "isactiveworkgroup=true") {
+			desktopRemoteWorkgroupSessionSnapshotCount++
+			if len(desktopRemoteWorkgroupSessionSnapshotExamples) < 3 {
+				desktopRemoteWorkgroupSessionSnapshotExamples = append(desktopRemoteWorkgroupSessionSnapshotExamples, line)
 			}
 		}
 		if strings.Contains(lowerLine, "completed remote workgroup catalog refresh") {
@@ -2053,31 +2070,35 @@ func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string, 
 		})
 	}
 
-	desktopExpectedActiveProjectSyncCount := maxInt(desktopActiveProjectSyncRequestedCount, desktopFollowUpRefreshExpectedActiveSyncCount)
-	desktopExpectedActiveProjectSyncExamples := mergeExampleLists(4, desktopFollowUpRefreshExpectedActiveSyncExamples, desktopActiveProjectSyncExamples)
+	desktopActiveTargetSyncRequestedCount := desktopActiveProjectSyncRequestedCount + desktopActiveWorkgroupSyncRequestedCount
+	desktopActiveTargetSyncRequestedExamples := mergeExampleLists(4, desktopActiveProjectSyncExamples, desktopActiveWorkgroupSyncExamples)
+	desktopActiveTargetRemoteSnapshotCount := desktopRemoteSessionSnapshotCount + desktopRemoteWorkgroupSessionSnapshotCount
+	desktopActiveTargetRemoteSnapshotExamples := mergeExampleLists(4, desktopRemoteSessionSnapshotExamples, desktopRemoteWorkgroupSessionSnapshotExamples)
+	desktopExpectedActiveTargetSyncCount := maxInt(desktopActiveTargetSyncRequestedCount, desktopFollowUpRefreshExpectedActiveSyncCount)
+	desktopExpectedActiveTargetSyncExamples := mergeExampleLists(4, desktopFollowUpRefreshExpectedActiveSyncExamples, desktopActiveTargetSyncRequestedExamples)
 
-	if desktopExpectedActiveProjectSyncCount > 0 && desktopRemoteSessionSnapshotCount < desktopExpectedActiveProjectSyncCount {
-		examples := desktopExpectedActiveProjectSyncExamples
+	if desktopExpectedActiveTargetSyncCount > 0 && desktopActiveTargetRemoteSnapshotCount < desktopExpectedActiveTargetSyncCount {
+		examples := desktopExpectedActiveTargetSyncExamples
 		if len(examples) == 0 {
-			examples = desktopRemoteSessionSnapshotExamples
+			examples = desktopActiveTargetRemoteSnapshotExamples
 		}
 		signals = append(signals, mobileLogSignal{
 			Code:           "desktop_remote_snapshot_gaps",
-			Title:          "Desktop active remote project sync chain did not settle",
-			Count:          maxInt(1, desktopExpectedActiveProjectSyncCount-desktopRemoteSessionSnapshotCount),
-			Recommendation: "Compare follow-up refresh completion, active remote project sync requests, and later remote session snapshot updates. If follow-up refresh says an active sync should run but the request or snapshot never lands, the desktop recovered transport without rebuilding the visible conversation state.",
-			Examples:       mergeExampleLists(4, examples, desktopRemoteSessionSnapshotExamples),
+			Title:          "Desktop active target sync chain did not settle",
+			Count:          maxInt(1, desktopExpectedActiveTargetSyncCount-desktopActiveTargetRemoteSnapshotCount),
+			Recommendation: "Compare follow-up refresh completion, active remote project/workgroup sync requests, and later remote snapshot updates. If follow-up refresh says an active sync should run but the request or snapshot never lands, the desktop recovered transport without rebuilding the visible conversation state.",
+			Examples:       mergeExampleLists(4, examples, desktopActiveTargetRemoteSnapshotExamples),
 		})
 	}
 
 	if desktopFollowUpRefreshCount > 0 &&
-		(desktopAuthRecoveryFailureCount > 0 || desktopCatalogRefreshFailureCount > 0 || desktopExpectedActiveProjectSyncCount > desktopRemoteSessionSnapshotCount) {
+		(desktopAuthRecoveryFailureCount > 0 || desktopCatalogRefreshFailureCount > 0 || desktopExpectedActiveTargetSyncCount > desktopActiveTargetRemoteSnapshotCount) {
 		signals = append(signals, mobileLogSignal{
 			Code:           "desktop_resume_catchup_stalled",
 			Title:          "Desktop reconnect recovered transport but not active state",
-			Count:          desktopAuthRecoveryFailureCount + desktopCatalogRefreshFailureCount + maxInt(1, desktopExpectedActiveProjectSyncCount-desktopRemoteSessionSnapshotCount),
-			Recommendation: "Inspect desktop resume as a full chain: auth recovery, follow-up catalog refresh, active project sync expectation/request, and remote snapshot update. If follow-up refresh completed but the active sync request or snapshot never landed, operators usually see a desktop that looks connected yet still needs a manual reconnect or relaunch before chats catch up.",
-			Examples:       mergeExampleLists(4, desktopAuthRecoveryFailureExamples, desktopCatalogRefreshExamples, desktopExpectedActiveProjectSyncExamples, desktopRemoteSessionSnapshotExamples),
+			Count:          desktopAuthRecoveryFailureCount + desktopCatalogRefreshFailureCount + maxInt(1, desktopExpectedActiveTargetSyncCount-desktopActiveTargetRemoteSnapshotCount),
+			Recommendation: "Inspect desktop resume as a full chain: auth recovery, follow-up catalog refresh, active target sync expectation/request, and remote snapshot update. If follow-up refresh completed but the active sync request or snapshot never landed, operators usually see a desktop that looks connected yet still needs a manual reconnect or relaunch before chats catch up.",
+			Examples:       mergeExampleLists(4, desktopAuthRecoveryFailureExamples, desktopCatalogRefreshExamples, desktopExpectedActiveTargetSyncExamples, desktopActiveTargetRemoteSnapshotExamples),
 		})
 	}
 
@@ -2228,11 +2249,11 @@ func analyzeMobileLog(content string, traceIDs []string, workgroupIDs []string, 
 				desktopWorkgroupCatalogUpdatedCount,
 				desktopCatalogRefreshFailureCount,
 				desktopCatalogRefreshExamples,
-				desktopActiveProjectSyncRequestedCount,
-				desktopExpectedActiveProjectSyncCount,
-				desktopExpectedActiveProjectSyncExamples,
-				desktopRemoteSessionSnapshotCount,
-				desktopRemoteSessionSnapshotExamples,
+				desktopActiveTargetSyncRequestedCount,
+				desktopExpectedActiveTargetSyncCount,
+				desktopExpectedActiveTargetSyncExamples,
+				desktopActiveTargetRemoteSnapshotCount,
+				desktopActiveTargetRemoteSnapshotExamples,
 			)...,
 		),
 		RecentErrors:   recentErrors,
@@ -2498,7 +2519,7 @@ func buildDesktopRecoveryPanels(
 	}
 
 	snapshotStatus := "idle"
-	snapshotSummary := "No active project sync request was observed in this log window."
+	snapshotSummary := "No active target sync request was observed in this log window."
 	snapshotSignalCode := ""
 	snapshotExamplesOut := []string(nil)
 	if activeProjectSyncExpectedCount > 0 || activeProjectSyncRequestedCount > 0 || remoteSessionSnapshotCount > 0 {
@@ -2536,7 +2557,7 @@ func buildDesktopRecoveryPanels(
 			Title:          "3. Active Snapshot",
 			Status:         snapshotStatus,
 			Summary:        snapshotSummary,
-			Recommendation: "Compare active project sync requests with later remote session snapshot updates. Missing snapshots usually explain why transport looked healthy but the visible conversation stayed stale.",
+			Recommendation: "Compare active project/workgroup sync requests with later remote snapshot updates. Missing snapshots usually explain why transport looked healthy but the visible conversation stayed stale.",
 			SignalCode:     snapshotSignalCode,
 			Examples:       snapshotExamplesOut,
 		},

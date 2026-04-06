@@ -172,6 +172,7 @@
 - 桌面端工作区窗口首次加载、重新打开或恢复显示时，也会显式下发当前 `project-id`（包括 `null`），避免“当前已无活动项目但窗口仍残留上一次远程项目”的首屏脏状态
 - 桌面端已补齐 active workgroup 选择同步：渲染层切换协作组会显式上报主进程，工作区首屏、恢复与协作组目录变化时也会下发当前 `workgroup-collaboration-id`，避免协作组会话恢复后又掉回错误目标
 - 桌面端工作区标题与托盘恢复入口现在会优先保留当前激活的协作组目标，不再因为标题只认项目或托盘默认回退第一个项目而把协作组上下文打断
+- 桌面端 follow-up 恢复日志与服务端诊断已扩到 active workgroup：`Completed relay follow-up refresh` 现在会显式标记 `requestedActiveWorkgroupSync`，而 `Remote workgroup session snapshot updated` 也会进入诊断链路，减少协作组恢复缺口被误判成“只有项目链路正常”的噪音
 - 服务端日志分析页已补 signal / example 快捷联动入口：可直接按 signal 标题或示例日志正文过滤，并从单条示例里抽取 `traceId / workgroupId / taskId / dispatchRunId` 一键回查，减少手工复制日志正文
 - 服务端日志分析页已补当前筛选范围的 overview 统计：可聚合查看命中日志数、source 分布、Top signals，以及 `traceId / workgroupId / taskId / dispatchRunId` 热点；signal 快捷按钮也已改成真正按 `signal_code` 过滤日志
 - 服务端日志分析已补“安卓后台恢复后仍需手动重连”和“桌面重连后传输恢复但活动态未恢复”两类复合 signal；overview 排序也已提高恢复链路问题的优先级，避免被高频 scheduler 噪音淹没
@@ -184,7 +185,7 @@
 - 服务端 device logs overview 已补 connection hotspot 聚类：可直接看到哪类 `agent/controller/host/platform` 组合更容易命中 critical / warning，以及对应的 top signal
 - 服务端 device logs overview 已补 connection hotspot 一跳回查：每个热点现在会同时带出最相关的 `trace_id / workgroup_id / task_id / dispatch_run_id`，点一下就能进入过滤后的日志上下文
 - 服务端 device logs overview 已补 signal 降噪权重：`desktop_restart_recovery_residue / desktop_recovery_jitter` 已抬权，scheduler 系列 signal 已整体降权，减少高频调度噪音把真正的恢复链路问题顶到前面
-- 服务端 device logs 分析已补桌面 follow-up 收口缺口：当 `Completed relay follow-up refresh` 已标记 `requestedActiveProjectSync=true`，但后续没有看到 active sync 请求或 remote snapshot 落地时，现在会直接命中 `desktop_remote_snapshot_gaps / desktop_resume_catchup_stalled`，减少“看起来连上了但聊天没刷新”的漏报
+- 服务端 device logs 分析已补桌面 follow-up 收口缺口：当 `Completed relay follow-up refresh` 已标记 `requestedActiveProjectSync=true` 或 `requestedActiveWorkgroupSync=true`，但后续没有看到 active sync 请求或 remote snapshot 落地时，现在会直接命中 `desktop_remote_snapshot_gaps / desktop_resume_catchup_stalled`，减少“看起来连上了但聊天没刷新”的漏报
 - 服务端 device logs 分析已补安卓 post-auth 缺口：当前台恢复已出现 auth / reconnect 异常、前台 project sync 被跳过，且后续连 `Starting post-auth session sync` 都没出现时，现在也会直接命中 `post_auth_sync_incomplete / android_manual_reconnect_likely`，减少“后台回来后不刷新，只能手动重连”的漏报
 - 服务端 device logs 分析已补安卓 foreground project sync 显式失败规则：当前台 catalog 已刷新，但 `Failed to request project syncs on foreground` 仍然出现时，现在会单独命中 `foreground_project_sync_failures`，并把 `android_project_sync` 面板标成 warning，避免把“catalog 正常、消息补拉没发出去”继续混成笼统恢复慢
 - 服务端 device logs 分析已补安卓 foreground workgroup refresh 显式失败规则：当前台 catalog 已刷新、project sync 已发起，但 `Failed to refresh workgroups on foreground` 仍然出现时，现在会单独命中 `foreground_workgroup_refresh_failures`，并只把 `android_workgroup_refresh` 面板标成 warning，便于区分“项目聊天已补拉、但协作组线程仍旧没刷新”
