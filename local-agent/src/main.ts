@@ -3117,7 +3117,7 @@ function createTray(): Tray {
   trayInstance.setToolTip(t("tray.disconnected"));
   rebuildTrayMenu(trayInstance);
   trayInstance.on("click", () => {
-    showWorkspaceWindow(activeWorkspaceProjectId ?? projectStore.getAll()[0]?.id);
+    showWorkspaceWindow(activeWorkspaceProjectId ?? getAllProjects()[0]?.id);
   });
   return trayInstance;
 }
@@ -3125,7 +3125,7 @@ function createTray(): Tray {
 function rebuildTrayMenu(trayInstance?: Tray): void {
   const tr = trayInstance ?? tray;
   if (!tr) return;
-  const projects = projectStore.getAll();
+  const projects = getAllProjects();
   const projectItems: Electron.MenuItemConstructorOptions[] = projects.map((p) => ({
     label: p.name,
     click: () => showWorkspaceWindow(p.id),
@@ -3981,7 +3981,7 @@ ipcMain.handle("delete-project", (_event, projectId: string) => {
 });
 
 ipcMain.on("open-project-window", (_event, projectId: string) => {
-  const project = projectStore.getById(projectId);
+  const project = getProjectById(projectId);
   if (project) showWorkspaceWindow(project.id);
 });
 
@@ -5332,7 +5332,7 @@ app.whenReady().then(async () => {
   const silentLaunch = appSettingsStore.get("silentLaunch") as boolean;
   const launchedFromUpdate = process.argv.some((entry) => entry === "--updated");
   if (launchedFromUpdate || !silentLaunch) {
-    showWorkspaceWindow(projectStore.getAll()[0]?.id);
+    showWorkspaceWindow(getAllProjects()[0]?.id);
   }
 });
 
