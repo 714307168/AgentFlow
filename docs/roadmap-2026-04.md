@@ -96,7 +96,7 @@
 ### 当前状态（2026-04-05）
 
 - 阶段一完成度约 `97%`
-- 阶段二完成度约 `96%`
+- 阶段二完成度约 `97%`
 - 阶段三完成度约 `100%`
 - 阶段四完成度约 `100%`
 
@@ -165,6 +165,7 @@
 - 桌面端托盘菜单、启动默认项目与 `open-project-window` 入口已切到统一使用 `getAllProjects()` / `getProjectById()`，remote project 不再因为仍走本地项目列表而出现“某些入口打不开”的割裂
 - 桌面端工作区窗口打开与首屏完成加载时，会顺手触发 remote project catalog / remote workgroup catalog 刷新，再叠加后续 snapshot 补拉，减少“目录本身还是旧的，得手动再刷一次”的窗口
 - 桌面端工作区从后台切回并重新获得焦点时，也会继续触发 remote project / remote workgroup 的优先补拉，不再只刷新目录而让当前会话和预览继续停在旧状态
+- 桌面端工作区的 `show / restore / focus / did-finish-load` 已统一走同一套 remote refresh 入口；窗口重新显示、从最小化恢复或首屏就绪时，都会补 catalog + prioritized snapshot，减少不同窗口事件之间恢复行为不一致
 - 服务端日志分析页已补 signal / example 快捷联动入口：可直接按 signal 标题或示例日志正文过滤，并从单条示例里抽取 `traceId / workgroupId / taskId / dispatchRunId` 一键回查，减少手工复制日志正文
 - 服务端日志分析页已补当前筛选范围的 overview 统计：可聚合查看命中日志数、source 分布、Top signals，以及 `traceId / workgroupId / taskId / dispatchRunId` 热点；signal 快捷按钮也已改成真正按 `signal_code` 过滤日志
 - 服务端日志分析已补“安卓后台恢复后仍需手动重连”和“桌面重连后传输恢复但活动态未恢复”两类复合 signal；overview 排序也已提高恢复链路问题的优先级，避免被高频 scheduler 噪音淹没

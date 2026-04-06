@@ -3214,12 +3214,24 @@ function createWorkspaceWindow(): BrowserWindow {
     revealWindow(win);
   });
 
+  const triggerWindowRemoteRefresh = (reason: string, forceWorkgroupCatalog: boolean = false) => {
+    runRelayHealthCheck(reason);
+    requestRemoteProjectCatalogRefresh(reason);
+    void refreshRemoteWorkgroupCatalog(forceWorkgroupCatalog, reason);
+    requestPrioritizedRemoteProjectSyncs(reason);
+    requestPrioritizedRemoteWorkgroupSessionSyncs(reason);
+  };
+
   win.on("focus", () => {
-    runRelayHealthCheck("workspace-focus");
-    requestRemoteProjectCatalogRefresh("workspace-focus");
-    void refreshRemoteWorkgroupCatalog(true, "workspace-focus");
-    requestPrioritizedRemoteProjectSyncs("workspace-focus");
-    requestPrioritizedRemoteWorkgroupSessionSyncs("workspace-focus");
+    triggerWindowRemoteRefresh("workspace-focus", true);
+  });
+
+  win.on("show", () => {
+    triggerWindowRemoteRefresh("workspace-show");
+  });
+
+  win.on("restore", () => {
+    triggerWindowRemoteRefresh("workspace-restore");
   });
 
   win.webContents.on("did-finish-load", () => {
@@ -3236,10 +3248,7 @@ function createWorkspaceWindow(): BrowserWindow {
     if (activeWorkspaceProjectId) {
       win.webContents.send("project-id", activeWorkspaceProjectId);
     }
-    requestRemoteProjectCatalogRefresh("workspace-did-finish-load");
-    void refreshRemoteWorkgroupCatalog(false, "workspace-did-finish-load");
-    requestPrioritizedRemoteProjectSyncs("workspace-did-finish-load");
-    requestPrioritizedRemoteWorkgroupSessionSyncs("workspace-did-finish-load");
+    triggerWindowRemoteRefresh("workspace-did-finish-load");
   });
 
   win.on("closed", () => {
@@ -3265,6 +3274,8 @@ function showWorkspaceWindow(projectId?: string): void {
 
   requestRemoteProjectCatalogRefresh("show-workspace-window");
   void refreshRemoteWorkgroupCatalog(false, "show-workspace-window");
+  requestPrioritizedRemoteProjectSyncs("show-workspace-window");
+  requestPrioritizedRemoteWorkgroupSessionSyncs("show-workspace-window");
 
   if (workspaceWindow && !workspaceWindow.isDestroyed()) {
     workspaceWindow.setTitle(getWorkspaceWindowTitle(activeWorkspaceProjectId));
