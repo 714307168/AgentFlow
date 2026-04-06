@@ -89,7 +89,7 @@ interface AppSettings {
   localDataRoot: string;
 }
 
-type SettingsPane = "connection" | "project" | "system";
+type SettingsPane = "overview" | "connection" | "project" | "message" | "automation" | "advanced";
 
 interface PersistedWindowState {
   x?: number;
@@ -229,7 +229,7 @@ let mainWindow: BrowserWindow | null = null;
 let workspaceWindow: BrowserWindow | null = null;
 let activeWorkspaceProjectId: string | null = null;
 let activeWorkgroupCollaborationId: string | null = null;
-let activeSettingsPane: SettingsPane = "system";
+let activeSettingsPane: SettingsPane = "overview";
 let relayClient: RelayClient | null = null;
 let controllerRelayClient: RelayClient | null = null;
 let remoteSessionStore: RemoteSessionStore | null = null;
@@ -465,6 +465,74 @@ function buildDesktopLogUploadSegment(fileName: string, content: string, remaini
   return {
     segment,
     bytes: Buffer.byteLength(segment, "utf8"),
+  };
+}
+
+function summarizeDirectoryTree(targetPath: string): { fileCount: number; totalBytes: number } {
+  if (!targetPath || !fs.existsSync(targetPath)) {
+    return { fileCount: 0, totalBytes: 0 };
+  }
+
+  const pendingPaths = [targetPath];
+  let fileCount = 0;
+  let totalBytes = 0;
+
+  while (pendingPaths.length > 0) {
+    const currentPath = pendingPaths.pop();
+    if (!currentPath) {
+      continue;
+    }
+
+    let stat: fs.Stats;
+    try {
+      stat = fs.statSync(currentPath);
+    } catch (_error) {
+      continue;
+    }
+
+    if (stat.isFile()) {
+      fileCount += 1;
+      totalBytes += stat.size;
+      continue;
+    }
+
+    if (!stat.isDirectory()) {
+      continue;
+    }
+
+    let entries: string[] = [];
+    try {
+      entries = fs.readdirSync(currentPath);
+    } catch (_error) {
+      continue;
+    }
+
+    for (const entry of entries) {
+      pendingPaths.push(path.join(currentPath, entry));
+    }
+  }
+
+  return { fileCount, totalBytes };
+}
+
+function buildLocalDataMetrics(): {
+  localDataRoot: string;
+  logDirectory: string;
+  attachments: { fileCount: number; totalBytes: number };
+  updates: { fileCount: number; totalBytes: number };
+  history: { fileCount: number; totalBytes: number };
+  logs: { fileCount: number; totalBytes: number };
+} {
+  const localDataRoot = getPersistedLocalDataRoot();
+  const logDirectory = appLogger.getLogDirectory();
+
+  return {
+    localDataRoot,
+    logDirectory,
+    attachments: summarizeDirectoryTree(path.join(localDataRoot, "runtime-attachments")),
+    updates: summarizeDirectoryTree(path.join(localDataRoot, "updates")),
+    history: summarizeDirectoryTree(path.join(localDataRoot, "runtime-history")),
+    logs: summarizeDirectoryTree(logDirectory),
   };
 }
 
@@ -868,15 +936,24 @@ async function executeScheduledTask(
 }
 
 function normalizeSettingsPane(pane?: string | null): SettingsPane {
-  if (pane === "connection" || pane === "project" || pane === "system") {
+  if (
+    pane === "overview"
+    || pane === "connection"
+    || pane === "project"
+    || pane === "message"
+    || pane === "automation"
+    || pane === "advanced"
+  ) {
     return pane;
   }
-  return "system";
+  return "overview";
 }
 
 function getSettingsPaneTitle(pane: SettingsPane): string {
   if (getLang() === "zh") {
     switch (pane) {
+      case "overview":
+        return "设置总览";
       case "connection":
         return "服务器连接";
       case "project":
@@ -887,10 +964,18 @@ function getSettingsPaneTitle(pane: SettingsPane): string {
   }
 
   switch (pane) {
+    case "overview":
+      return "Settings Overview";
     case "connection":
       return "Server Connection";
     case "project":
       return "Project Settings";
+    case "message":
+      return "Messages & Files";
+    case "automation":
+      return "Tasks & Automation";
+    case "advanced":
+      return "Advanced Settings";
     default:
       return "System Settings";
   }
@@ -3327,7 +3412,7 @@ function showWorkspaceWindow(projectId?: string): void {
   workspaceWindow = createWorkspaceWindow();
 }
 
-function openSettingsWindow(pane: SettingsPane = "system"): void {
+function openSettingsWindow(pane: SettingsPane = "overview"): void {
   activeSettingsPane = normalizeSettingsPane(pane);
   showMainWindow(workspaceWindow);
 }
@@ -4265,6 +4350,10 @@ ipcMain.handle("get-app-settings", () => {
     defaultLocalDataRoot: getDefaultLocalDataRoot(),
     logDirectory: appLogger.getLogDirectory(),
   };
+});
+
+ipcMain.handle("get-local-data-metrics", () => {
+  return buildLocalDataMetrics();
 });
 
 ipcMain.handle("set-app-settings", (_event, settings: Partial<AppSettings>) => {

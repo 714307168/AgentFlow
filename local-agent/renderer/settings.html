@@ -69,10 +69,18 @@
       overflow: auto;
     }
     .settings-shell {
-      display: block;
+      display: grid;
+      grid-template-columns: 240px minmax(0, 1fr);
+      gap: 20px;
+      align-items: start;
     }
     .settings-nav {
-      display: none;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      position: sticky;
+      top: 0;
+      align-self: start;
     }
     .settings-nav-item {
       display: flex;
@@ -188,6 +196,50 @@
       font-size: 12px;
       line-height: 1.5;
       margin: -6px 0 14px;
+    }
+    .overview-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 14px;
+    }
+    .overview-card {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 14px;
+      min-height: 110px;
+    }
+    .overview-card-label {
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
+    .overview-card-value {
+      font-size: 22px;
+      font-weight: 700;
+      line-height: 1.15;
+    }
+    .overview-card-note {
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 8px;
+      line-height: 1.5;
+      word-break: break-word;
+    }
+    .scope-pill-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .scope-pill {
+      border: 1px solid rgba(88, 166, 255, 0.24);
+      background: rgba(88, 166, 255, 0.1);
+      color: var(--accent-hover);
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 11px;
+      font-weight: 600;
     }
     .runtime-grid {
       display: grid;
@@ -564,6 +616,14 @@
       font-size: 12px;
     }
     @media (max-width: 960px) {
+      .settings-shell {
+        grid-template-columns: 1fr;
+      }
+      .settings-nav {
+        position: static;
+        flex-direction: row;
+        flex-wrap: wrap;
+      }
       .content {
         padding: 16px;
       }
@@ -595,12 +655,74 @@
 
     <div class="settings-shell">
       <aside class="settings-nav">
+        <button class="settings-nav-item" id="overviewMenuItem" type="button" data-pane="overview">Overview</button>
         <button class="settings-nav-item" id="connectionMenuItem" type="button" data-pane="connection">Connection</button>
-        <button class="settings-nav-item" id="projectMenuItem" type="button" data-pane="project">Projects</button>
-        <button class="settings-nav-item" id="systemMenuItem" type="button" data-pane="system">System</button>
+        <button class="settings-nav-item" id="projectMenuItem" type="button" data-pane="project">Projects & Workgroups</button>
+        <button class="settings-nav-item" id="messageMenuItem" type="button" data-pane="message">Messages & Files</button>
+        <button class="settings-nav-item" id="automationMenuItem" type="button" data-pane="automation">Automation</button>
+        <button class="settings-nav-item" id="advancedMenuItem" type="button" data-pane="advanced">Advanced</button>
       </aside>
 
       <div class="settings-main">
+        <section class="settings-pane hidden" id="overviewPane" data-pane-content="overview">
+          <div class="section">
+            <div class="section-title" id="overviewSection">Overview</div>
+            <div class="section-subtitle" id="overviewSectionHint">See the current desktop connection, update, storage, and automation health before diving into detailed settings.</div>
+            <div class="overview-grid">
+              <div class="overview-card">
+                <div class="overview-card-label" id="overviewConnectionLabel">Relay Connection</div>
+                <div class="overview-card-value" id="overviewConnectionValue">—</div>
+                <div class="overview-card-note" id="overviewConnectionNote">No connection snapshot yet.</div>
+              </div>
+              <div class="overview-card">
+                <div class="overview-card-label" id="overviewLoginLabel">Login State</div>
+                <div class="overview-card-value" id="overviewLoginValue">—</div>
+                <div class="overview-card-note" id="overviewLoginNote">Waiting for login status.</div>
+              </div>
+              <div class="overview-card">
+                <div class="overview-card-label" id="overviewProjectsLabel">Projects</div>
+                <div class="overview-card-value" id="overviewProjectsValue">0</div>
+                <div class="overview-card-note" id="overviewProjectsNote">No project catalog loaded yet.</div>
+              </div>
+              <div class="overview-card">
+                <div class="overview-card-label" id="overviewWorkgroupsLabel">Workgroups</div>
+                <div class="overview-card-value" id="overviewWorkgroupsValue">0</div>
+                <div class="overview-card-note" id="overviewWorkgroupsNote">No collaboration rooms loaded yet.</div>
+              </div>
+              <div class="overview-card">
+                <div class="overview-card-label" id="overviewTasksLabel">Scheduled Tasks</div>
+                <div class="overview-card-value" id="overviewTasksValue">0</div>
+                <div class="overview-card-note" id="overviewTasksNote">No automation snapshot loaded yet.</div>
+              </div>
+              <div class="overview-card">
+                <div class="overview-card-label" id="overviewUpdateLabel">Update Channel</div>
+                <div class="overview-card-value" id="overviewUpdateValue">—</div>
+                <div class="overview-card-note" id="overviewUpdateNote">No update check has run yet.</div>
+              </div>
+              <div class="overview-card">
+                <div class="overview-card-label" id="overviewLogsLabel">Local Logs</div>
+                <div class="overview-card-value" id="overviewLogsValue">0</div>
+                <div class="overview-card-note" id="overviewLogsNote">No log files detected.</div>
+              </div>
+              <div class="overview-card">
+                <div class="overview-card-label" id="overviewAttachmentsLabel">Attachment Cache</div>
+                <div class="overview-card-value" id="overviewAttachmentsValue">0</div>
+                <div class="overview-card-note" id="overviewAttachmentsNote">No cached attachments detected.</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="section">
+            <div class="section-title" id="overviewQuickActionsSection">Quick Actions</div>
+            <div class="btn-row">
+              <button class="btn-primary" id="overviewReconnectBtn">Reconnect Relay</button>
+              <button class="btn-secondary" id="overviewUploadLogsBtn">Upload Latest Logs</button>
+              <button class="btn-secondary" id="overviewCheckUpdatesBtn">Check for Updates</button>
+              <button class="btn-secondary" id="overviewOpenFilesBtn">Open Data Folder</button>
+            </div>
+          </div>
+        </section>
+
         <section class="settings-pane hidden" id="connectionPane" data-pane-content="connection">
           <div class="section" id="connectionSectionCard">
             <div class="section-title" id="serverSection">Server Connection</div>
@@ -881,7 +1003,74 @@
           </div>
         </section>
 
-        <section class="settings-pane" id="systemPane" data-pane-content="system">
+        <section class="settings-pane hidden" id="messagePane" data-pane-content="message">
+          <div class="section">
+            <div class="section-title" id="transferCenterSection">Transfer Center</div>
+            <div class="section-subtitle" id="transferCenterHint">Desktop-side file and cache readiness for the upcoming cross-device transfer protocol.</div>
+            <div class="overview-grid">
+              <div class="overview-card">
+                <div class="overview-card-label" id="transferAttachmentLabel">Attachments</div>
+                <div class="overview-card-value" id="transferAttachmentValue">0</div>
+                <div class="overview-card-note" id="transferAttachmentNote">No cached desktop attachments yet.</div>
+              </div>
+              <div class="overview-card">
+                <div class="overview-card-label" id="transferUpdateLabel">Downloaded Updates</div>
+                <div class="overview-card-value" id="transferUpdateValue">0</div>
+                <div class="overview-card-note" id="transferUpdateNote">No cached update packages yet.</div>
+              </div>
+              <div class="overview-card">
+                <div class="overview-card-label" id="transferHistoryLabel">History Files</div>
+                <div class="overview-card-value" id="transferHistoryValue">0</div>
+                <div class="overview-card-note" id="transferHistoryNote">No persisted history files detected.</div>
+              </div>
+            </div>
+            <div class="scope-pill-row">
+              <span class="scope-pill" id="transferScopeDesktop">Desktop sender ready</span>
+              <span class="scope-pill" id="transferScopeMobile">Android / iOS receivers next</span>
+              <span class="scope-pill" id="transferScopeMiniProgram">Mini Program receiver planned</span>
+            </div>
+            <div class="btn-row" style="margin-top: 14px;">
+              <button class="btn-secondary" id="messageOpenFilesBtn">Open Data Folder</button>
+              <button class="btn-secondary" id="messageUploadLogsBtn">Upload Latest Logs</button>
+              <button class="btn-secondary" id="messageOpenAdvancedBtn">Open Advanced Settings</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="settings-pane hidden" id="automationPane" data-pane-content="automation">
+          <div class="section">
+            <div class="section-title" id="automationOverviewSection">Automation Overview</div>
+            <div class="section-subtitle" id="automationOverviewHint">A lighter control layer for the scheduler while the full task editor remains in advanced settings.</div>
+            <div class="overview-grid">
+              <div class="overview-card">
+                <div class="overview-card-label" id="automationTotalLabel">Total Tasks</div>
+                <div class="overview-card-value" id="automationTotalValue">0</div>
+                <div class="overview-card-note" id="automationTotalNote">No scheduled task snapshot yet.</div>
+              </div>
+              <div class="overview-card">
+                <div class="overview-card-label" id="automationActiveLabel">Enabled Tasks</div>
+                <div class="overview-card-value" id="automationActiveValue">0</div>
+                <div class="overview-card-note" id="automationActiveNote">No enabled task detected.</div>
+              </div>
+              <div class="overview-card">
+                <div class="overview-card-label" id="automationBusyLabel">Queued / Running</div>
+                <div class="overview-card-value" id="automationBusyValue">0</div>
+                <div class="overview-card-note" id="automationBusyNote">No in-flight scheduled run detected.</div>
+              </div>
+              <div class="overview-card">
+                <div class="overview-card-label" id="automationFailedLabel">Failures</div>
+                <div class="overview-card-value" id="automationFailedValue">0</div>
+                <div class="overview-card-note" id="automationFailedNote">No failed task detected.</div>
+              </div>
+            </div>
+            <div class="btn-row" style="margin-top: 14px;">
+              <button class="btn-secondary" id="automationRefreshBtn">Refresh Task Snapshot</button>
+              <button class="btn-secondary" id="automationOpenAdvancedBtn">Open Advanced Scheduler</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="settings-pane hidden" id="advancedPane" data-pane-content="advanced">
           <div class="section" id="generalSectionCard">
             <div class="section-title" id="langSection">Language</div>
             <div class="field">
@@ -1178,9 +1367,13 @@
     const api = window.claudeAgent;
     let currentLang = "en";
     let msgs = {};
-    let activeSettingsPane = "system";
+    let activeSettingsPane = "overview";
     let latestUpdateState = null;
     let latestAccessState = null;
+    let latestConfig = null;
+    let latestAppSettings = null;
+    let latestConnectionSnapshot = null;
+    let latestLocalDataMetrics = null;
     let latestProjectCatalog = [];
     let latestScheduledTasks = [];
     let scheduledTaskFilter = "all";
@@ -1215,6 +1408,9 @@
       accessLoaded: false,
       accessDirty: true,
       accessPromise: null,
+      localDataLoaded: false,
+      localDataDirty: true,
+      localDataPromise: null,
       projectsLoaded: false,
       projectsDirty: true,
       projectsPromise: null,
@@ -1227,17 +1423,23 @@
     };
 
     function normalizeSettingsPane(pane) {
-      return ["connection", "project", "system"].includes(pane) ? pane : "system";
+      return ["overview", "connection", "project", "message", "automation", "advanced"].includes(pane) ? pane : "overview";
     }
 
     function getSettingsPaneTitle(pane = activeSettingsPane) {
       switch (normalizeSettingsPane(pane)) {
+        case "overview":
+          return inlineText("Settings Overview", "设置总览");
         case "connection":
           return inlineText("Server Connection", "服务器连接");
         case "project":
-          return inlineText("Project Settings", "项目设置");
+          return inlineText("Projects & Workgroups", "项目与协作组");
+        case "message":
+          return inlineText("Messages & Files", "消息与文件");
+        case "automation":
+          return inlineText("Tasks & Automation", "任务与自动化");
         default:
-          return inlineText("System Settings", "系统设置");
+          return inlineText("Advanced Settings", "高级设置");
       }
     }
 
@@ -1276,8 +1478,166 @@
       return currentLang === "zh" ? zh : en;
     }
 
+    function formatCount(value) {
+      return new Intl.NumberFormat(currentLang === "zh" ? "zh-CN" : "en-US").format(Math.max(0, Number(value) || 0));
+    }
+
+    function formatBytes(value) {
+      const size = Math.max(0, Number(value) || 0);
+      if (size < 1024) {
+        return `${size} B`;
+      }
+      if (size < 1024 * 1024) {
+        return `${(size / 1024).toFixed(1)} KB`;
+      }
+      if (size < 1024 * 1024 * 1024) {
+        return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+      }
+      return `${(size / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+    }
+
+    function setText(id, value) {
+      const node = document.getElementById(id);
+      if (node) {
+        node.textContent = value;
+      }
+    }
+
+    function renderOverviewDashboard() {
+      const connectionState = latestConnectionSnapshot?.state || "disconnected";
+      const connectionLabel = {
+        connected: inlineText("Connected", "已连接"),
+        connecting: inlineText("Connecting", "连接中"),
+        disconnected: inlineText("Disconnected", "已断开"),
+      }[connectionState] || inlineText("Disconnected", "已断开");
+      setText("overviewConnectionValue", connectionLabel);
+      setText("overviewConnectionNote", latestConnectionSnapshot?.detail || inlineText("No connection snapshot yet.", "暂无连接快照。"));
+
+      const loggedIn = Boolean(latestConfig?.token);
+      setText("overviewLoginValue", loggedIn ? inlineText("Ready", "已登录") : inlineText("Offline", "未登录"));
+      setText(
+        "overviewLoginNote",
+        loggedIn
+          ? (latestConfig?.username ? inlineText(`User: ${latestConfig.username}`, `用户：${latestConfig.username}`) : inlineText("Credential cached locally.", "凭据已缓存到本地。"))
+          : inlineText("Login is required before remote sync resumes.", "需要先登录才能恢复远程同步。")
+      );
+
+      setText("overviewProjectsValue", formatCount(latestProjectCatalog.length));
+      setText("overviewProjectsNote", inlineText("Local and remote project catalog combined.", "本地与远程项目目录合并统计。"));
+      setText("overviewWorkgroupsValue", formatCount(latestWorkgroups.length));
+      setText("overviewWorkgroupsNote", inlineText("Published and joined collaboration rooms.", "已发布和已加入的协作组统计。"));
+
+      const enabledTaskCount = latestScheduledTasks.filter((task) => task.enabled !== false).length;
+      setText("overviewTasksValue", formatCount(latestScheduledTasks.length));
+      setText(
+        "overviewTasksNote",
+        enabledTaskCount > 0
+          ? inlineText(`${formatCount(enabledTaskCount)} task(s) currently enabled.`, `当前有 ${formatCount(enabledTaskCount)} 个启用中的任务。`)
+          : inlineText("No enabled scheduled tasks.", "当前没有启用中的定时任务。")
+      );
+
+      const updateVersion = latestUpdateState?.latestVersion || latestUpdateState?.currentVersion || "—";
+      setText("overviewUpdateValue", updateVersion);
+      setText("overviewUpdateNote", localizeUpdateStatus(latestUpdateState));
+
+      setText("overviewLogsValue", formatCount(latestLocalDataMetrics?.logs?.fileCount || 0));
+      setText(
+        "overviewLogsNote",
+        inlineText(
+          `${formatBytes(latestLocalDataMetrics?.logs?.totalBytes || 0)} stored in local runtime logs.`,
+          `本地运行日志占用 ${formatBytes(latestLocalDataMetrics?.logs?.totalBytes || 0)}。`
+        )
+      );
+
+      setText("overviewAttachmentsValue", formatCount(latestLocalDataMetrics?.attachments?.fileCount || 0));
+      setText(
+        "overviewAttachmentsNote",
+        inlineText(
+          `${formatBytes(latestLocalDataMetrics?.attachments?.totalBytes || 0)} ready for desktop-side file handoff.`,
+          `桌面侧文件交接缓存占用 ${formatBytes(latestLocalDataMetrics?.attachments?.totalBytes || 0)}。`
+        )
+      );
+    }
+
+    function renderTransferCenter() {
+      setText("transferAttachmentValue", formatCount(latestLocalDataMetrics?.attachments?.fileCount || 0));
+      setText(
+        "transferAttachmentNote",
+        inlineText(
+          `${formatBytes(latestLocalDataMetrics?.attachments?.totalBytes || 0)} currently stored in desktop attachments.`,
+          `桌面附件缓存当前占用 ${formatBytes(latestLocalDataMetrics?.attachments?.totalBytes || 0)}。`
+        )
+      );
+      setText("transferUpdateValue", formatCount(latestLocalDataMetrics?.updates?.fileCount || 0));
+      setText(
+        "transferUpdateNote",
+        inlineText(
+          `${formatBytes(latestLocalDataMetrics?.updates?.totalBytes || 0)} cached under updates.`,
+          `更新包缓存当前占用 ${formatBytes(latestLocalDataMetrics?.updates?.totalBytes || 0)}。`
+        )
+      );
+      setText("transferHistoryValue", formatCount(latestLocalDataMetrics?.history?.fileCount || 0));
+      setText(
+        "transferHistoryNote",
+        inlineText(
+          `${formatBytes(latestLocalDataMetrics?.history?.totalBytes || 0)} persisted under runtime history.`,
+          `历史文件当前占用 ${formatBytes(latestLocalDataMetrics?.history?.totalBytes || 0)}。`
+        )
+      );
+    }
+
+    function renderAutomationOverview() {
+      const enabledTasks = latestScheduledTasks.filter((task) => task.enabled !== false);
+      const busyTasks = latestScheduledTasks.filter((task) => ["queued", "running"].includes(String(task.lastRunStatus || "")));
+      const failedTasks = latestScheduledTasks.filter((task) => ["error", "failed"].includes(String(task.lastRunStatus || "")) || task.lastError);
+      setText("automationTotalValue", formatCount(latestScheduledTasks.length));
+      setText("automationTotalNote", inlineText("Current scheduler snapshot on this desktop.", "当前桌面端调度器快照。"));
+      setText("automationActiveValue", formatCount(enabledTasks.length));
+      setText("automationActiveNote", inlineText("Tasks that can still auto-trigger.", "仍可自动触发的任务数。"));
+      setText("automationBusyValue", formatCount(busyTasks.length));
+      setText("automationBusyNote", inlineText("Runs that are queued or still executing.", "仍在排队或执行中的任务。"));
+      setText("automationFailedValue", formatCount(failedTasks.length));
+      setText("automationFailedNote", inlineText("Tasks with recent failures or lastError.", "最近失败或仍带 lastError 的任务。"));
+    }
+
+    async function refreshLocalDataMetrics(options = {}) {
+      const force = options.force === true;
+      if (!force && paneLoadState.localDataPromise) {
+        await paneLoadState.localDataPromise;
+        return;
+      }
+      if (!force && paneLoadState.localDataLoaded && !paneLoadState.localDataDirty) {
+        renderOverviewDashboard();
+        renderTransferCenter();
+        return;
+      }
+      try {
+        paneLoadState.localDataPromise = (async () => {
+          latestLocalDataMetrics = await api.getLocalDataMetrics();
+          paneLoadState.localDataLoaded = true;
+          paneLoadState.localDataDirty = false;
+        })();
+        await paneLoadState.localDataPromise;
+        renderOverviewDashboard();
+        renderTransferCenter();
+      } catch (error) {
+        console.error("Failed to load local data metrics:", error);
+      } finally {
+        paneLoadState.localDataPromise = null;
+      }
+    }
+
     async function ensurePaneDataLoaded(pane = activeSettingsPane) {
       const normalizedPane = normalizeSettingsPane(pane);
+      if (normalizedPane === "overview") {
+        await Promise.all([
+          refreshLocalDataMetrics(),
+          loadAccessGrants(),
+          refreshProjectPaneData(),
+          loadScheduledTasks(),
+        ]);
+        return;
+      }
       if (normalizedPane === "connection") {
         await loadAccessGrants();
         return;
@@ -1286,9 +1646,18 @@
         await refreshProjectPaneData();
         return;
       }
-      if (normalizedPane === "system") {
-        await loadScheduledTasks();
+      if (normalizedPane === "message") {
+        await refreshLocalDataMetrics();
+        return;
       }
+      if (normalizedPane === "automation") {
+        await loadScheduledTasks();
+        return;
+      }
+      await Promise.all([
+        refreshLocalDataMetrics(),
+        loadScheduledTasks(),
+      ]);
     }
 
     async function refreshProjectPaneData(force = false) {
@@ -1307,7 +1676,7 @@
       paneLoadState.projectsDirty = true;
       paneLoadState.workgroupsDirty = true;
       clearProjectPaneRefreshTimer();
-      if (activeSettingsPane !== "project") {
+      if (!["project", "overview"].includes(activeSettingsPane)) {
         return;
       }
       projectPaneRefreshTimer = setTimeout(() => {
@@ -1328,7 +1697,7 @@
       });
       applyPageChrome();
       syncConnectionStatusPolling();
-      if (activeSettingsPane === "connection") {
+      if (activeSettingsPane === "overview" || activeSettingsPane === "connection") {
         void Promise.all([updateConnectionStatus(), updateLoginStatus()]);
       }
       void ensurePaneDataLoaded(activeSettingsPane);
@@ -1343,7 +1712,7 @@
 
     function syncConnectionStatusPolling() {
       clearConnectionStatusTimer();
-      if (activeSettingsPane !== "connection") {
+      if (!["overview", "connection"].includes(activeSettingsPane)) {
         return;
       }
       connectionStatusTimer = setTimeout(async () => {
@@ -1377,9 +1746,22 @@
     function applyI18n() {
       applyPageChrome();
       document.getElementById("savedText").textContent = msg("settings.saved.short", "Saved");
+      document.getElementById("overviewMenuItem").textContent = inlineText("Overview", "总览");
       document.getElementById("connectionMenuItem").textContent = inlineText("Server Connection", "服务器连接");
-      document.getElementById("projectMenuItem").textContent = inlineText("Project Settings", "项目设置");
-      document.getElementById("systemMenuItem").textContent = inlineText("System Settings", "系统设置");
+      document.getElementById("projectMenuItem").textContent = inlineText("Projects & Workgroups", "项目与协作组");
+      document.getElementById("messageMenuItem").textContent = inlineText("Messages & Files", "消息与文件");
+      document.getElementById("automationMenuItem").textContent = inlineText("Automation", "自动化");
+      document.getElementById("advancedMenuItem").textContent = inlineText("Advanced", "高级");
+      document.getElementById("overviewSection").textContent = inlineText("Overview", "总览");
+      document.getElementById("overviewSectionHint").textContent = inlineText(
+        "See the current desktop connection, update, storage, and automation health before diving into detailed settings.",
+        "先看当前桌面端的连接、更新、存储和自动化健康度，再进入详细设置。"
+      );
+      document.getElementById("overviewQuickActionsSection").textContent = inlineText("Quick Actions", "快捷操作");
+      document.getElementById("overviewReconnectBtn").textContent = inlineText("Reconnect Relay", "重连 Relay");
+      document.getElementById("overviewUploadLogsBtn").textContent = inlineText("Upload Latest Logs", "上传最近日志");
+      document.getElementById("overviewCheckUpdatesBtn").textContent = inlineText("Check for Updates", "检查更新");
+      document.getElementById("overviewOpenFilesBtn").textContent = inlineText("Open Data Folder", "打开数据目录");
       document.getElementById("langSection").textContent = msg("settings.language", "Language");
       document.getElementById("langLabel").textContent = msg("settings.languageLabel", "Interface Language");
       document.getElementById("projectSection").textContent = msg("settings.projects", "Projects");
@@ -1490,6 +1872,31 @@
       document.getElementById("workgroupRegistryQuery").placeholder = inlineText("Enter group number", "输入群号");
       document.getElementById("searchWorkgroupRegistryBtn").textContent = inlineText("Search", "搜索");
       document.getElementById("workgroupRegistryResultList").setAttribute("data-empty-message", inlineText("No matching workgroup.", "没有匹配的协作组。"));
+      document.getElementById("transferCenterSection").textContent = inlineText("Transfer Center", "传输中心");
+      document.getElementById("transferCenterHint").textContent = inlineText(
+        "Desktop-side file and cache readiness for the upcoming cross-device transfer protocol.",
+        "用于承接后续跨端文件传输协议的桌面侧文件与缓存状态。"
+      );
+      document.getElementById("transferAttachmentLabel").textContent = inlineText("Attachments", "附件缓存");
+      document.getElementById("transferUpdateLabel").textContent = inlineText("Downloaded Updates", "更新包");
+      document.getElementById("transferHistoryLabel").textContent = inlineText("History Files", "历史文件");
+      document.getElementById("transferScopeDesktop").textContent = inlineText("Desktop sender ready", "桌面发送端已就绪");
+      document.getElementById("transferScopeMobile").textContent = inlineText("Android / iOS receivers next", "Android / iOS 接收端下一步接入");
+      document.getElementById("transferScopeMiniProgram").textContent = inlineText("Mini Program receiver planned", "小程序接收端已纳入规划");
+      document.getElementById("messageOpenFilesBtn").textContent = inlineText("Open Data Folder", "打开数据目录");
+      document.getElementById("messageUploadLogsBtn").textContent = inlineText("Upload Latest Logs", "上传最近日志");
+      document.getElementById("messageOpenAdvancedBtn").textContent = inlineText("Open Advanced Settings", "打开高级设置");
+      document.getElementById("automationOverviewSection").textContent = inlineText("Automation Overview", "自动化总览");
+      document.getElementById("automationOverviewHint").textContent = inlineText(
+        "A lighter control layer for the scheduler while the full task editor remains in advanced settings.",
+        "先提供更轻量的调度总览与操作入口，完整任务编辑器暂时保留在高级设置里。"
+      );
+      document.getElementById("automationTotalLabel").textContent = inlineText("Total Tasks", "任务总数");
+      document.getElementById("automationActiveLabel").textContent = inlineText("Enabled Tasks", "启用任务");
+      document.getElementById("automationBusyLabel").textContent = inlineText("Queued / Running", "排队 / 运行中");
+      document.getElementById("automationFailedLabel").textContent = inlineText("Failures", "失败任务");
+      document.getElementById("automationRefreshBtn").textContent = inlineText("Refresh Task Snapshot", "刷新任务快照");
+      document.getElementById("automationOpenAdvancedBtn").textContent = inlineText("Open Advanced Scheduler", "打开高级调度设置");
       document.getElementById("launchSection").textContent = msg("settings.launch", "Launch");
       document.getElementById("autoStartLabel").textContent = msg("settings.autoStart", "Start on Boot");
       document.getElementById("silentLaunchLabel").textContent = msg("settings.silentLaunch", "Silent Launch (minimize to tray)");
@@ -1656,6 +2063,18 @@
     }
 
     async function saveConnectionConfig() {
+      latestConfig = {
+        ...(latestConfig || {}),
+        serverUrl: document.getElementById("serverUrl").value.trim(),
+        username: document.getElementById("username").value.trim(),
+        password: document.getElementById("password").value,
+        agentId: document.getElementById("agentId").value.trim(),
+        openaiBaseUrl: document.getElementById("openaiBaseUrl").value.trim(),
+        openaiDefaultModel: document.getElementById("openaiDefaultModel").value.trim(),
+        anthropicBaseUrl: document.getElementById("anthropicBaseUrl").value.trim(),
+        anthropicDefaultModel: document.getElementById("anthropicDefaultModel").value.trim(),
+        cliProvider: document.getElementById("cliProvider").value,
+      };
       await api.saveConfig({
         serverUrl: document.getElementById("serverUrl").value.trim(),
         username: document.getElementById("username").value.trim(),
@@ -1669,12 +2088,14 @@
         anthropicDefaultModel: document.getElementById("anthropicDefaultModel").value.trim(),
         cliProvider: document.getElementById("cliProvider").value,
       });
+      renderOverviewDashboard();
       flashSaved();
     }
 
     async function updateLoginStatus() {
       try {
         const config = await api.getConfig();
+        latestConfig = config || null;
         const statusEl = document.getElementById("loginStatus");
         const textEl = document.getElementById("loginStatusText");
         if (config.token) {
@@ -1684,6 +2105,7 @@
           statusEl.className = "connection-status disconnected";
           textEl.textContent = msg("settings.loggedOut", "Not logged in");
         }
+        renderOverviewDashboard();
       } catch (error) {
         console.error("Failed to update login status:", error);
       }
@@ -1696,6 +2118,7 @@
       connectionStatusInFlight = true;
       try {
         const status = await api.getConnectionStatus();
+        latestConnectionSnapshot = status || null;
         const statusEl = document.getElementById("connectionStatus");
         const textEl = document.getElementById("statusText");
         const detailEl = document.getElementById("connectionStatusDetail");
@@ -1709,6 +2132,7 @@
         if (detailEl) {
           detailEl.textContent = status.detail || inlineText("No monitoring detail yet.", "暂无监测详情。");
         }
+        renderOverviewDashboard();
       } catch (error) {
         console.error("Failed to get connection status:", error);
       } finally {
@@ -1752,6 +2176,7 @@
       document.getElementById("updateNotes").textContent = normalized.notes || "—";
       document.getElementById("downloadUpdateBtn").disabled = !["available", "error"].includes(normalized.status);
       document.getElementById("installUpdateBtn").disabled = normalized.status !== "downloaded";
+      renderOverviewDashboard();
     }
 
     function showStatus(text, isError) {
@@ -2209,6 +2634,8 @@
         })();
         await paneLoadState.scheduledTasksPromise;
         renderScheduledTasks();
+        renderOverviewDashboard();
+        renderAutomationOverview();
         const editingTask = latestScheduledTasks.find((task) => task.id === editingScheduledTaskId) || null;
         resetScheduledTaskForm(editingTask);
       } catch (error) {
@@ -2395,6 +2822,7 @@
         })();
         await paneLoadState.projectsPromise;
         renderProjects();
+        renderOverviewDashboard();
       } catch (error) {
         console.error("Failed to load projects:", error);
       } finally {
@@ -2808,6 +3236,7 @@
         await paneLoadState.workgroupsPromise;
         renderWorkgroups();
         renderWorkgroupRegistryResults();
+        renderOverviewDashboard();
         void loadCurrentWorkgroupRegistryMembers();
       } catch (error) {
         console.error("Failed to load workgroups:", error);
@@ -3289,7 +3718,10 @@
       if (paneLoadState.accessLoaded) {
         renderAccessGrants(latestAccessState);
       }
-      if (activeSettingsPane === "connection") {
+      renderOverviewDashboard();
+      renderTransferCenter();
+      renderAutomationOverview();
+      if (activeSettingsPane === "overview" || activeSettingsPane === "connection") {
         await Promise.all([updateConnectionStatus(), updateLoginStatus()]);
       }
       void ensurePaneDataLoaded(activeSettingsPane);
@@ -3304,6 +3736,8 @@
         api.getAppSettings(),
         api.getUpdateState(),
       ]);
+      latestConfig = config || null;
+      latestAppSettings = appSettings || null;
       document.getElementById("serverUrl").value = config.serverUrl || "";
       document.getElementById("username").value = config.username || "";
       document.getElementById("password").value = config.password || "";
@@ -3333,6 +3767,9 @@
       document.getElementById("localDataRoot").dataset.defaultPath = appSettings.defaultLocalDataRoot || "";
       document.getElementById("logPath").textContent = appSettings.logDirectory || "—";
       renderUpdateState(updateState);
+      renderOverviewDashboard();
+      renderTransferCenter();
+      renderAutomationOverview();
       await syncLanguage(lang || "en", i18nMessages || {});
     }
 
@@ -3387,7 +3824,10 @@
       if (paneLoadState.accessLoaded) {
         renderAccessGrants(latestAccessState);
       }
-      if (activeSettingsPane === "connection") {
+      renderOverviewDashboard();
+      renderTransferCenter();
+      renderAutomationOverview();
+      if (activeSettingsPane === "overview" || activeSettingsPane === "connection") {
         await Promise.all([updateConnectionStatus(), updateLoginStatus()]);
       }
       flashSaved();
@@ -3410,6 +3850,8 @@
 
     document.getElementById("saveLogsToggle").addEventListener("change", async (event) => {
       await api.setAppSettings({ saveLogs: event.target.checked });
+      paneLoadState.localDataDirty = true;
+      await refreshLocalDataMetrics({ force: true });
       flashSaved();
     });
 
@@ -3449,6 +3891,8 @@
           return;
         }
         flashSaved();
+        paneLoadState.localDataDirty = true;
+        await refreshLocalDataMetrics({ force: true });
         showStatus(
           inlineText(
             "Desktop logs uploaded for analysis. Log ID: " + (result.logId || "-"),
@@ -3505,12 +3949,18 @@
       const historyRetentionDays = Math.max(1, parseInt(rawValue || "30", 10) || 30);
       document.getElementById("historyRetentionDays").value = String(historyRetentionDays);
       await api.setAppSettings({ historyRetentionDays });
+      latestAppSettings = {
+        ...(latestAppSettings || {}),
+        historyRetentionDays,
+      };
       flashSaved();
     });
 
     document.getElementById("clearHistoryCacheBtn").addEventListener("click", async () => {
       try {
         const result = await api.clearHistoryCache();
+        paneLoadState.localDataDirty = true;
+        await refreshLocalDataMetrics({ force: true });
         flashSaved();
         showStatus(
           inlineText(
@@ -3565,6 +4015,8 @@
           showStatus(result?.error || inlineText("Failed to repair chat history.", "修复聊天记录失败。"), true);
           return;
         }
+        paneLoadState.localDataDirty = true;
+        await refreshLocalDataMetrics({ force: true });
         flashSaved();
         const repaired = Number(result.repaired || 0);
         const reset = Number(result.reset || 0);
@@ -3780,10 +4232,23 @@
     document.getElementById("cancelWorkgroupMemberBtn").addEventListener("click", () => { resetMemberForm(null); });
     document.getElementById("saveWorkgroupTaskBtn").addEventListener("click", () => { void saveWorkgroupTask(); });
     document.getElementById("cancelWorkgroupTaskBtn").addEventListener("click", () => { resetTaskForm(null); });
+    document.getElementById("overviewReconnectBtn").addEventListener("click", () => { document.getElementById("reconnectBtn").click(); });
+    document.getElementById("overviewUploadLogsBtn").addEventListener("click", () => { document.getElementById("uploadDesktopLogsBtn").click(); });
+    document.getElementById("overviewCheckUpdatesBtn").addEventListener("click", () => { document.getElementById("checkUpdatesBtn").click(); });
+    document.getElementById("overviewOpenFilesBtn").addEventListener("click", () => { document.getElementById("openLocalDataRootBtn").click(); });
+    document.getElementById("messageOpenFilesBtn").addEventListener("click", () => { document.getElementById("openLocalDataRootBtn").click(); });
+    document.getElementById("messageUploadLogsBtn").addEventListener("click", () => { document.getElementById("uploadDesktopLogsBtn").click(); });
+    document.getElementById("messageOpenAdvancedBtn").addEventListener("click", () => { setActiveSettingsPane("advanced"); });
+    document.getElementById("automationRefreshBtn").addEventListener("click", async () => {
+      paneLoadState.scheduledTasksDirty = true;
+      await loadScheduledTasks({ force: true });
+      flashSaved();
+    });
+    document.getElementById("automationOpenAdvancedBtn").addEventListener("click", () => { setActiveSettingsPane("advanced"); });
 
     document.querySelectorAll("[data-pane]").forEach((item) => {
       item.addEventListener("click", () => {
-        setActiveSettingsPane(item.dataset.pane || "system");
+        setActiveSettingsPane(item.dataset.pane || "overview");
       });
     });
 
@@ -3795,7 +4260,7 @@
       api.onProjectsChanged(() => {
         scheduleProjectPaneRefresh(true);
         paneLoadState.scheduledTasksDirty = true;
-        if (activeSettingsPane === "system") {
+        if (activeSettingsPane === "automation" || activeSettingsPane === "overview" || activeSettingsPane === "advanced") {
           void loadScheduledTasks({ force: true });
         }
       });
@@ -3807,6 +4272,8 @@
         paneLoadState.scheduledTasksLoaded = true;
         paneLoadState.scheduledTasksDirty = false;
         renderScheduledTasks();
+        renderOverviewDashboard();
+        renderAutomationOverview();
         const editingTask = latestScheduledTasks.find((task) => task.id === editingScheduledTaskId) || null;
         resetScheduledTaskForm(editingTask);
       });
@@ -3816,7 +4283,7 @@
       api.onWorkgroupsChanged(() => {
         paneLoadState.workgroupsDirty = true;
         clearProjectPaneRefreshTimer();
-        if (activeSettingsPane === "project") {
+        if (activeSettingsPane === "project" || activeSettingsPane === "overview") {
           projectPaneRefreshTimer = setTimeout(() => {
             projectPaneRefreshTimer = null;
             void loadWorkgroups({ force: true });
@@ -3831,7 +4298,7 @@
 
     if (typeof api.onSettingsPaneChanged === "function") {
       api.onSettingsPaneChanged((pane) => {
-        setActiveSettingsPane(pane || "system");
+        setActiveSettingsPane(pane || "overview");
       });
     }
 
