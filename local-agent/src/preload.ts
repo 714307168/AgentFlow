@@ -164,6 +164,8 @@ contextBridge.exposeInMainWorld('claudeAgent', {
   },
   getAppSettings: () => ipcRenderer.invoke('get-app-settings'),
   getLocalDataMetrics: () => ipcRenderer.invoke('get-local-data-metrics'),
+  listRelayTransfers: (limit?: number) => ipcRenderer.invoke('list-relay-transfers', limit),
+  createRelayTransfer: () => ipcRenderer.invoke('create-relay-transfer'),
   setAppSettings: (settings: Record<string, boolean | number>) => ipcRenderer.invoke('set-app-settings', settings),
   uploadDesktopLogs: () => ipcRenderer.invoke('upload-desktop-logs'),
   pickLocalDataRoot: (currentPath?: string | null) => ipcRenderer.invoke('pick-local-data-root', currentPath),

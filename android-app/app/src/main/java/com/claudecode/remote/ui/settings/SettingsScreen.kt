@@ -1,5 +1,9 @@
 package com.claudecode.remote.ui.settings
 
+import android.content.ActivityNotFoundException
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
@@ -12,6 +16,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -44,8 +49,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -68,6 +71,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.claudecode.remote.R
+import com.claudecode.remote.domain.TransferCenterItem
 import com.claudecode.remote.update.AppUpdateState
 import com.claudecode.remote.update.AppUpdateStatus
 import com.claudecode.remote.util.CrashLogFileInfo
@@ -78,6 +82,7 @@ import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.time.Instant
 
 data class SettingsState(
     val serverUrl: String = "",
@@ -103,6 +108,9 @@ fun SettingsScreen(
     onSaveConnection: (serverUrl: String, deviceId: String) -> Unit,
     onLogin: (serverUrl: String, username: String, password: String, deviceId: String) -> Unit,
     onUploadCrashLog: suspend (fileName: String, content: String) -> Result<String>,
+    onListTransfers: suspend () -> Result<List<TransferCenterItem>>,
+    onDownloadTransfer: suspend (transferId: String) -> Result<TransferCenterItem>,
+    onMarkTransferOpened: suspend (transferId: String) -> Result<Unit>,
     onE2EEnabledChange: (Boolean) -> Unit,
     onAutoUpdateCheckChange: (Boolean) -> Unit,
     onAutoUpdateDownloadChange: (Boolean) -> Unit,
@@ -124,6 +132,7 @@ fun SettingsScreen(
     var crashLogsEnabled by remember(initialState.crashLogsEnabled) { mutableStateOf(initialState.crashLogsEnabled) }
     var showLogDialog by remember { mutableStateOf(false) }
     var bannerMessage by remember(initialState.message) { mutableStateOf(initialState.message) }
+    val context = androidx.compose.ui.platform.LocalContext.current
     val loginRequestSentMessage = stringResource(R.string.settings_login_request_sent)
     val saveReconnectMessage = stringResource(R.string.save_reconnect)
 
@@ -362,6 +371,20 @@ fun SettingsScreen(
                 }
 
                 SettingsSection(
+                    icon = Icons.Default.Link,
+                    title = stringResource(R.string.settings_transfers_title),
+                    subtitle = stringResource(R.string.settings_transfers_subtitle)
+                ) {
+                    TransferCenterSection(
+                        context = context,
+                        onListTransfers = onListTransfers,
+                        onDownloadTransfer = onDownloadTransfer,
+                        onMarkTransferOpened = onMarkTransferOpened,
+                        onBannerMessage = { bannerMessage = it }
+                    )
+                }
+
+                SettingsSection(
                     icon = Icons.Default.Lock,
                     title = stringResource(R.string.e2e_encryption),
                     subtitle = stringResource(R.string.settings_security_subtitle)
@@ -511,6 +534,202 @@ fun SettingsScreen(
             onDismiss = { showLogDialog = false },
             onUploadCrashLog = onUploadCrashLog
         )
+    }
+}
+
+@Composable
+private fun TransferCenterSection(
+    context: Context,
+    onListTransfers: suspend () -> Result<List<TransferCenterItem>>,
+    onDownloadTransfer: suspend (transferId: String) -> Result<TransferCenterItem>,
+    onMarkTransferOpened: suspend (transferId: String) -> Result<Unit>,
+    onBannerMessage: (String) -> Unit
+) {
+    val coroutineScope = rememberCoroutineScope()
+    val transferLoadFailedMessage = stringResource(R.string.settings_transfers_load_failed)
+    var refreshToken by remember { mutableStateOf(0) }
+    var transfers by remember { mutableStateOf(emptyList<TransferCenterItem>()) }
+    var isRefreshing by remember { mutableStateOf(true) }
+    var busyTransferId by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(refreshToken) {
+        isRefreshing = true
+        onListTransfers().fold(
+            onSuccess = { transfers = it },
+            onFailure = {
+                transfers = emptyList()
+                onBannerMessage(it.message ?: transferLoadFailedMessage)
+            }
+        )
+        isRefreshing = false
+    }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = stringResource(R.string.settings_transfers_summary, transfers.size),
+                style = MaterialTheme.typography.bodyLarge
+            )
+            Text(
+                text = stringResource(R.string.settings_transfers_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Spacer(modifier = Modifier.width(12.dp))
+        OutlinedButton(
+            onClick = { refreshToken += 1 },
+            enabled = !isRefreshing
+        ) {
+            Text(stringResource(R.string.action_refresh))
+        }
+    }
+
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f),
+        shape = RoundedCornerShape(18.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        if (isRefreshing && transfers.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(18.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = stringResource(R.string.settings_transfers_loading),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        } else if (transfers.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(18.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = stringResource(R.string.settings_transfers_empty),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 360.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                items(transfers, key = { it.id }) { item ->
+                    Surface(
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.84f),
+                        shape = RoundedCornerShape(16.dp),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.12f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = item.fileName,
+                                style = MaterialTheme.typography.titleSmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = listOf(
+                                    formatFileSize(item.sizeBytes),
+                                    item.mimeType,
+                                    formatTransferTimestamp(item.createdAt)
+                                ).joinToString(" · "),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = buildString {
+                                    append(stringResource(R.string.settings_transfers_sender_label, item.senderType.ifBlank { "desktop" }))
+                                    if (!item.targetType.isNullOrBlank()) {
+                                        append(" · ")
+                                        append(stringResource(R.string.settings_transfers_target_label, item.targetType))
+                                        if (!item.targetId.isNullOrBlank()) {
+                                            append(" ")
+                                            append(item.targetId)
+                                        }
+                                    }
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Button(
+                                    onClick = {
+                                        coroutineScope.launch {
+                                            busyTransferId = item.id
+                                            onDownloadTransfer(item.id).fold(
+                                                onSuccess = { updated ->
+                                                    transfers = transfers.map { candidate ->
+                                                        if (candidate.id == updated.id) updated else candidate
+                                                    }
+                                                    onBannerMessage(
+                                                        context.getString(R.string.settings_transfers_downloaded, updated.fileName)
+                                                    )
+                                                },
+                                                onFailure = {
+                                                    onBannerMessage(it.message ?: context.getString(R.string.settings_transfers_download_failed))
+                                                }
+                                            )
+                                            busyTransferId = null
+                                        }
+                                    },
+                                    enabled = busyTransferId == null,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text(
+                                        if (busyTransferId == item.id) {
+                                            stringResource(R.string.chat_downloading_attachment)
+                                        } else if (item.downloaded) {
+                                            stringResource(R.string.chat_download_attachment)
+                                        } else {
+                                            stringResource(R.string.chat_download_attachment)
+                                        }
+                                    )
+                                }
+                                OutlinedButton(
+                                    onClick = {
+                                        val openResult = openTransferFile(context, item)
+                                        if (openResult.isSuccess) {
+                                            coroutineScope.launch { onMarkTransferOpened(item.id) }
+                                        } else {
+                                            onBannerMessage(
+                                                openResult.exceptionOrNull()?.message
+                                                    ?: context.getString(R.string.settings_transfers_open_failed)
+                                            )
+                                        }
+                                    },
+                                    enabled = item.downloaded,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text(stringResource(R.string.chat_open_attachment))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -1032,3 +1251,27 @@ private fun formatFileSize(sizeBytes: Long): String =
 
 private fun formatTimestamp(timestamp: Long): String =
     SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(Date(timestamp))
+
+private fun formatTransferTimestamp(value: String): String {
+    return runCatching {
+        val instant = Instant.parse(value)
+        formatTimestamp(instant.toEpochMilli())
+    }.getOrDefault(value.ifBlank { "-" })
+}
+
+private fun openTransferFile(context: Context, item: TransferCenterItem): Result<Unit> {
+    return runCatching {
+        val localUri = item.localUri?.takeIf { it.isNotBlank() }
+            ?: throw IllegalStateException(context.getString(R.string.settings_transfers_open_failed))
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(Uri.parse(localUri), item.mimeType.ifBlank { "application/octet-stream" })
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        try {
+            context.startActivity(intent)
+        } catch (error: ActivityNotFoundException) {
+            throw IllegalStateException(context.getString(R.string.settings_transfers_open_failed), error)
+        }
+    }
+}

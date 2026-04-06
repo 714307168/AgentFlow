@@ -4,11 +4,14 @@ import com.claudecode.remote.data.model.CreateSessionRequest
 import com.claudecode.remote.data.model.CreateSessionResponse
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import okhttp3.ResponseBody
 import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.Header
 import retrofit2.http.POST
+import retrofit2.http.Path
 import retrofit2.http.Query
+import retrofit2.http.Streaming
 
 interface RelayApi {
     @POST("api/session")
@@ -67,6 +70,32 @@ interface RelayApi {
         @Header("Authorization") auth: String,
         @Body request: DeviceLogUploadRequest
     ): DeviceLogUploadResponse
+
+    @GET("api/transfers")
+    suspend fun listTransfers(
+        @Header("Authorization") auth: String,
+        @Query("limit") limit: Int = 20
+    ): List<TransferRecordResponse>
+
+    @GET("api/transfers/{id}")
+    suspend fun getTransferDetail(
+        @Header("Authorization") auth: String,
+        @Path("id") transferId: String
+    ): TransferRecordResponse
+
+    @Streaming
+    @GET("api/transfers/{id}/download")
+    suspend fun downloadTransfer(
+        @Header("Authorization") auth: String,
+        @Path("id") transferId: String
+    ): ResponseBody
+
+    @POST("api/transfers/{id}/receipts")
+    suspend fun createTransferReceipt(
+        @Header("Authorization") auth: String,
+        @Path("id") transferId: String,
+        @Body request: TransferReceiptRequest
+    ): TransferReceiptResponse
 
     @POST("api/workgroups/registry/join")
     suspend fun joinWorkgroupRegistry(
@@ -153,6 +182,44 @@ data class DeviceLogUploadResponse(
     val success: Boolean = false,
     @SerialName("log_id") val logId: String? = null,
     @SerialName("uploaded_at") val uploadedAt: String? = null
+)
+
+@Serializable
+data class TransferRecordResponse(
+    val id: String,
+    @SerialName("sender_type") val senderType: String = "",
+    @SerialName("sender_agent_id") val senderAgentId: String? = null,
+    @SerialName("sender_device_id") val senderDeviceId: String? = null,
+    @SerialName("target_type") val targetType: String? = null,
+    @SerialName("target_id") val targetId: String? = null,
+    @SerialName("project_id") val projectId: String? = null,
+    @SerialName("workgroup_id") val workgroupId: String? = null,
+    @SerialName("file_name") val fileName: String,
+    @SerialName("mime_type") val mimeType: String = "application/octet-stream",
+    @SerialName("size_bytes") val sizeBytes: Long = 0L,
+    val sha256: String = "",
+    val status: String = "available",
+    @SerialName("created_at") val createdAt: String = "",
+    @SerialName("expires_at") val expiresAt: String? = null,
+    @SerialName("download_url") val downloadUrl: String? = null,
+    val receipts: List<TransferReceiptResponse> = emptyList()
+)
+
+@Serializable
+data class TransferReceiptRequest(
+    val status: String,
+    val note: String? = null
+)
+
+@Serializable
+data class TransferReceiptResponse(
+    val id: Long = 0L,
+    @SerialName("client_type") val clientType: String = "",
+    @SerialName("agent_id") val agentId: String? = null,
+    @SerialName("device_id") val deviceId: String? = null,
+    val status: String = "",
+    val note: String? = null,
+    @SerialName("created_at") val createdAt: String = ""
 )
 
 @Serializable

@@ -11,6 +11,7 @@ import com.claudecode.remote.data.remote.RelayWebSocket
 import com.claudecode.remote.domain.MessageRepository
 import com.claudecode.remote.domain.MobileLogRepository
 import com.claudecode.remote.domain.SessionRepository
+import com.claudecode.remote.domain.TransferRepository
 import com.claudecode.remote.domain.WorkgroupRepository
 import com.claudecode.remote.update.AppUpdateManager
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
@@ -85,6 +86,13 @@ class AppContainer(private val appContext: Context) {
         relayApiProvider = { relayApi },
         authSessionManager = authSessionManager,
         tokenStore = tokenStore
+    )
+
+    val transferRepository = TransferRepository(
+        relayApiProvider = { relayApi },
+        authSessionManager = authSessionManager,
+        tokenStore = tokenStore,
+        context = appContext
     )
 
     fun updateServerUrl(rawUrl: String) {

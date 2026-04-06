@@ -514,4 +514,6 @@
 - [x] Relay server transfer MVP landed.
 - [x] Relay transfer APIs now support upload / list / detail / download / receipt.
 - [x] Relay transfer flow is covered by end-to-end Go tests.
-- [ ] Next step: wire desktop / Android transfer center to the new relay transfer domain.
+- [x] Desktop transfer center now supports relay upload and recent transfer history in settings.
+- [x] Android settings now include a transfer center with refresh / download / open actions.
+- [ ] Next step: add richer transfer targeting, receipts, and workgroup / project scoped handoff.

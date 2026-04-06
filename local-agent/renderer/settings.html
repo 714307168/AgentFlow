@@ -1026,14 +1026,18 @@
             </div>
             <div class="scope-pill-row">
               <span class="scope-pill" id="transferScopeDesktop">Desktop sender ready</span>
-              <span class="scope-pill" id="transferScopeMobile">Android / iOS receivers next</span>
+              <span class="scope-pill" id="transferScopeMobile">Android / iOS receivers enabled</span>
               <span class="scope-pill" id="transferScopeMiniProgram">Mini Program receiver planned</span>
             </div>
             <div class="btn-row" style="margin-top: 14px;">
+              <button class="btn-primary" id="messageSendFileBtn">Send File to Mobile</button>
+              <button class="btn-secondary" id="messageRefreshTransfersBtn">Refresh Transfers</button>
               <button class="btn-secondary" id="messageOpenFilesBtn">Open Data Folder</button>
               <button class="btn-secondary" id="messageUploadLogsBtn">Upload Latest Logs</button>
               <button class="btn-secondary" id="messageOpenAdvancedBtn">Open Advanced Settings</button>
             </div>
+            <div class="section-subtitle" id="transferRecentHint" style="margin-top: 14px;">Recent relay transfers are shared with mobile clients that are logged into the same account.</div>
+            <div class="project-list" id="transferList" data-empty-message="No recent relay transfers."></div>
           </div>
         </section>
 
@@ -1374,6 +1378,7 @@
     let latestAppSettings = null;
     let latestConnectionSnapshot = null;
     let latestLocalDataMetrics = null;
+    let latestRelayTransfers = [];
     let latestProjectCatalog = [];
     let latestScheduledTasks = [];
     let scheduledTaskFilter = "all";
@@ -1384,6 +1389,7 @@
       accessIncoming: "",
       accessControllable: "",
       projects: "",
+      transferList: "",
       scheduledTaskProjects: "",
       scheduledTasks: "",
       workgroupProjectPicker: "",
@@ -1411,6 +1417,9 @@
       localDataLoaded: false,
       localDataDirty: true,
       localDataPromise: null,
+      transfersLoaded: false,
+      transfersDirty: true,
+      transfersPromise: null,
       projectsLoaded: false,
       projectsDirty: true,
       projectsPromise: null,
@@ -1494,6 +1503,19 @@
         return `${(size / (1024 * 1024)).toFixed(1)} MB`;
       }
       return `${(size / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+    }
+
+    function formatDateTime(value) {
+      if (!value) {
+        return inlineText("Unknown time", "未知时间");
+      }
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) {
+        return String(value);
+      }
+      return date.toLocaleString(currentLang === "zh" ? "zh-CN" : undefined, {
+        hour12: false,
+      });
     }
 
     function setText(id, value) {
@@ -1584,6 +1606,36 @@
           `历史文件当前占用 ${formatBytes(latestLocalDataMetrics?.history?.totalBytes || 0)}。`
         )
       );
+      const transferMarkup = latestRelayTransfers.length === 0
+        ? ""
+        : latestRelayTransfers.map((item) => {
+            const receiptSummary = Array.isArray(item.receipts) && item.receipts.length > 0
+              ? `${inlineText("Receipts", "回执")}: ${item.receipts.map((receipt) => receipt.status).join(", ")}`
+              : inlineText("No device receipts yet.", "暂时还没有设备回执。");
+            const scopeSummary = [item.target_type ? `${inlineText("Target", "目标")}: ${item.target_type}` : "", item.target_id || ""].filter(Boolean).join(" ");
+            return `
+              <div class="project-item">
+                <div class="project-info">
+                  <div class="project-name">${escapeHtml(item.file_name || "transfer")}</div>
+                  <div class="project-path">${escapeHtml([formatFileSizeLabel(item.size_bytes), item.mime_type || "application/octet-stream", formatDateTime(item.created_at)].join(" · "))}</div>
+                  <div class="project-path">${escapeHtml(scopeSummary || inlineText("Visible to mobile clients under the same account.", "同账号下的移动端客户端均可见。"))}</div>
+                  <div class="project-path">${escapeHtml(receiptSummary)}</div>
+                </div>
+                <div class="project-actions">
+                  <span class="scope-pill">${escapeHtml(item.status || inlineText("available", "可用"))}</span>
+                </div>
+              </div>
+            `;
+          }).join("");
+      const listEl = document.getElementById("transferList");
+      if (renderSignatures.transferList !== transferMarkup) {
+        renderSignatures.transferList = transferMarkup;
+        listEl.innerHTML = transferMarkup;
+      }
+    }
+
+    function formatFileSizeLabel(value) {
+      return formatBytes(value || 0);
     }
 
     function renderAutomationOverview() {
@@ -1627,6 +1679,38 @@
       }
     }
 
+    async function refreshRelayTransfers(options = {}) {
+      const force = options.force === true;
+      if (!force && paneLoadState.transfersPromise) {
+        await paneLoadState.transfersPromise;
+        return;
+      }
+      if (!force && paneLoadState.transfersLoaded && !paneLoadState.transfersDirty) {
+        renderTransferCenter();
+        return;
+      }
+      try {
+        paneLoadState.transfersPromise = (async () => {
+          const result = await api.listRelayTransfers(12);
+          if (!result?.success) {
+            throw new Error(result?.error || inlineText("Failed to load relay transfers.", "加载 relay 传输记录失败。"));
+          }
+          latestRelayTransfers = Array.isArray(result.items) ? result.items : [];
+          paneLoadState.transfersLoaded = true;
+          paneLoadState.transfersDirty = false;
+        })();
+        await paneLoadState.transfersPromise;
+        renderTransferCenter();
+      } catch (error) {
+        console.error("Failed to load relay transfers:", error);
+        if (force) {
+          showStatus(getErrorMessage(error), true);
+        }
+      } finally {
+        paneLoadState.transfersPromise = null;
+      }
+    }
+
     async function ensurePaneDataLoaded(pane = activeSettingsPane) {
       const normalizedPane = normalizeSettingsPane(pane);
       if (normalizedPane === "overview") {
@@ -1647,7 +1731,10 @@
         return;
       }
       if (normalizedPane === "message") {
-        await refreshLocalDataMetrics();
+        await Promise.all([
+          refreshLocalDataMetrics(),
+          refreshRelayTransfers(),
+        ]);
         return;
       }
       if (normalizedPane === "automation") {
@@ -1881,11 +1968,18 @@
       document.getElementById("transferUpdateLabel").textContent = inlineText("Downloaded Updates", "更新包");
       document.getElementById("transferHistoryLabel").textContent = inlineText("History Files", "历史文件");
       document.getElementById("transferScopeDesktop").textContent = inlineText("Desktop sender ready", "桌面发送端已就绪");
-      document.getElementById("transferScopeMobile").textContent = inlineText("Android / iOS receivers next", "Android / iOS 接收端下一步接入");
+      document.getElementById("transferScopeMobile").textContent = inlineText("Android / iOS receivers enabled", "Android / iOS 接收端已可用");
       document.getElementById("transferScopeMiniProgram").textContent = inlineText("Mini Program receiver planned", "小程序接收端已纳入规划");
+      document.getElementById("messageSendFileBtn").textContent = inlineText("Send File to Mobile", "发送文件到移动端");
+      document.getElementById("messageRefreshTransfersBtn").textContent = inlineText("Refresh Transfers", "刷新传输记录");
       document.getElementById("messageOpenFilesBtn").textContent = inlineText("Open Data Folder", "打开数据目录");
       document.getElementById("messageUploadLogsBtn").textContent = inlineText("Upload Latest Logs", "上传最近日志");
       document.getElementById("messageOpenAdvancedBtn").textContent = inlineText("Open Advanced Settings", "打开高级设置");
+      document.getElementById("transferRecentHint").textContent = inlineText(
+        "Recent relay transfers are shared with mobile clients that are logged into the same account.",
+        "最近的 relay 传输记录会同步给同账号下已登录的移动端客户端。"
+      );
+      document.getElementById("transferList").setAttribute("data-empty-message", inlineText("No recent relay transfers.", "暂时还没有最近传输记录。"));
       document.getElementById("automationOverviewSection").textContent = inlineText("Automation Overview", "自动化总览");
       document.getElementById("automationOverviewHint").textContent = inlineText(
         "A lighter control layer for the scheduler while the full task editor remains in advanced settings.",
@@ -4239,6 +4333,27 @@
     document.getElementById("messageOpenFilesBtn").addEventListener("click", () => { document.getElementById("openLocalDataRootBtn").click(); });
     document.getElementById("messageUploadLogsBtn").addEventListener("click", () => { document.getElementById("uploadDesktopLogsBtn").click(); });
     document.getElementById("messageOpenAdvancedBtn").addEventListener("click", () => { setActiveSettingsPane("advanced"); });
+    document.getElementById("messageRefreshTransfersBtn").addEventListener("click", async () => {
+      paneLoadState.transfersDirty = true;
+      await refreshRelayTransfers({ force: true });
+    });
+    document.getElementById("messageSendFileBtn").addEventListener("click", async () => {
+      try {
+        const result = await api.createRelayTransfer();
+        if (result?.success) {
+          paneLoadState.transfersDirty = true;
+          await refreshRelayTransfers({ force: true });
+          showStatus(inlineText("File uploaded. Mobile clients can download it now.", "文件已上传，移动端现在可以下载了。"), false);
+          return;
+        }
+        if (result?.canceled) {
+          return;
+        }
+        showStatus(result?.error || inlineText("Failed to upload transfer file.", "上传传输文件失败。"), true);
+      } catch (error) {
+        showStatus(getErrorMessage(error), true);
+      }
+    });
     document.getElementById("automationRefreshBtn").addEventListener("click", async () => {
       paneLoadState.scheduledTasksDirty = true;
       await loadScheduledTasks({ force: true });

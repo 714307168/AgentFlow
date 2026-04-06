@@ -464,6 +464,15 @@ class MainActivity : ComponentActivity() {
                                         }
                                     }
                                 },
+                                onListTransfers = {
+                                    appContainer.transferRepository.listRecentTransfers()
+                                },
+                                onDownloadTransfer = { transferId ->
+                                    appContainer.transferRepository.downloadTransfer(transferId)
+                                },
+                                onMarkTransferOpened = { transferId ->
+                                    appContainer.transferRepository.markTransferOpened(transferId)
+                                },
                                 onCheckForUpdates = {
                                     coroutineScope.launch { appUpdateManager.checkForUpdates(manual = true) }
                                 },

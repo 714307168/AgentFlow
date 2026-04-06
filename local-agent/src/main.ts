@@ -41,6 +41,7 @@ import {
   buildImagePreviewDataUrlFromNativeImage,
   createRunAttachmentFromPath,
   getUniqueAttachmentPath,
+  guessMimeType,
   isImageAttachment,
 } from "./attachment-utils";
 import {
@@ -87,6 +88,36 @@ interface AppSettings {
   silentUpdateInstall: boolean;
   historyRetentionDays: number;
   localDataRoot: string;
+}
+
+interface RelayTransferReceiptSummary {
+  id: number;
+  client_type: string;
+  agent_id?: string;
+  device_id?: string;
+  status: string;
+  note?: string;
+  created_at: string;
+}
+
+interface RelayTransferRecord {
+  id: string;
+  sender_type: string;
+  sender_agent_id?: string;
+  sender_device_id?: string;
+  target_type?: string;
+  target_id?: string;
+  project_id?: string;
+  workgroup_id?: string;
+  file_name: string;
+  mime_type: string;
+  size_bytes: number;
+  sha256: string;
+  status: string;
+  created_at: string;
+  expires_at?: string;
+  download_url?: string;
+  receipts?: RelayTransferReceiptSummary[];
 }
 
 type SettingsPane = "overview" | "connection" | "project" | "message" | "automation" | "advanced";
@@ -672,6 +703,91 @@ async function uploadDesktopLogs(): Promise<{ success: boolean; error?: string; 
       error: error instanceof Error ? error.message : String(error),
     };
   }
+}
+
+async function ensureDesktopTransferAuthToken(): Promise<string> {
+  const refreshed = await refreshAgentToken(false);
+  const nextConfig = loadConfig();
+  const token = nextConfig.token?.trim() ?? "";
+  if (!refreshed || !token) {
+    throw new Error("Desktop agent token is unavailable. Please log in again.");
+  }
+  return token;
+}
+
+async function listRelayTransfers(limit = 12): Promise<RelayTransferRecord[]> {
+  const config = loadConfig();
+  if (!config.serverUrl.trim()) {
+    throw new Error("Server URL is not configured.");
+  }
+
+  const token = await ensureDesktopTransferAuthToken();
+  const query = new URLSearchParams();
+  query.set("limit", String(Math.max(1, Math.min(50, Math.floor(Number(limit) || 12)))));
+
+  const response = await fetch(`${toHttpBaseUrl(config.serverUrl)}/api/transfers?${query.toString()}`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!response.ok) {
+    const errorText = (await response.text()).trim();
+    throw new Error(errorText || response.statusText || "Failed to load relay transfers.");
+  }
+
+  const payload = await response.json() as RelayTransferRecord[];
+  if (!Array.isArray(payload)) {
+    return [];
+  }
+  return payload;
+}
+
+async function createRelayTransferFromDesktop(senderWindow?: BrowserWindow | null): Promise<RelayTransferRecord> {
+  const config = loadConfig();
+  if (!config.serverUrl.trim()) {
+    throw new Error("Server URL is not configured.");
+  }
+
+  const token = await ensureDesktopTransferAuthToken();
+  const dialogOptions: Electron.OpenDialogOptions = {
+    title: getLang() === "zh" ? "选择要发送到移动端的文件" : "Choose a file to send to mobile",
+    properties: ["openFile"],
+  };
+  const result = senderWindow
+    ? await dialog.showOpenDialog(senderWindow, dialogOptions)
+    : await dialog.showOpenDialog(dialogOptions);
+  if (result.canceled || !result.filePaths[0]) {
+    throw new Error("__TRANSFER_PICK_CANCELED__");
+  }
+
+  const selectedPath = path.resolve(result.filePaths[0]);
+  const stats = fs.statSync(selectedPath);
+  if (!stats.isFile()) {
+    throw new Error("Selected item is not a file.");
+  }
+
+  const fileName = path.basename(selectedPath);
+  const mimeType = guessMimeType(selectedPath);
+  const buffer = fs.readFileSync(selectedPath);
+  const form = new FormData();
+  form.set("file", new Blob([buffer], { type: mimeType }), fileName);
+
+  const response = await fetch(`${toHttpBaseUrl(config.serverUrl)}/api/transfers`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: form,
+  });
+
+  if (!response.ok) {
+    const errorText = (await response.text()).trim();
+    throw new Error(errorText || response.statusText || "Failed to upload relay transfer.");
+  }
+
+  return await response.json() as RelayTransferRecord;
 }
 
 function isTokenExpiringSoon(expiresAt?: string, nowMs: number = Date.now()): boolean {
@@ -4354,6 +4470,45 @@ ipcMain.handle("get-app-settings", () => {
 
 ipcMain.handle("get-local-data-metrics", () => {
   return buildLocalDataMetrics();
+});
+
+ipcMain.handle("list-relay-transfers", async (_event, limit?: number) => {
+  try {
+    const items = await listRelayTransfers(limit);
+    return {
+      success: true,
+      items,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+      items: [],
+    };
+  }
+});
+
+ipcMain.handle("create-relay-transfer", async (event) => {
+  try {
+    const senderWindow = BrowserWindow.fromWebContents(event.sender) ?? mainWindow ?? workspaceWindow ?? null;
+    const transfer = await createRelayTransferFromDesktop(senderWindow);
+    return {
+      success: true,
+      transfer,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message === "__TRANSFER_PICK_CANCELED__") {
+      return {
+        success: false,
+        canceled: true,
+      };
+    }
+    return {
+      success: false,
+      error: message,
+    };
+  }
 });
 
 ipcMain.handle("set-app-settings", (_event, settings: Partial<AppSettings>) => {
