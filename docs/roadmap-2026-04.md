@@ -95,7 +95,7 @@
 
 ### 当前状态（2026-04-05）
 
-- 阶段一完成度约 `95%`
+- 阶段一完成度约 `96%`
 - 阶段二完成度约 `94%`
 - 阶段三完成度约 `100%`
 - 阶段四完成度约 `100%`
@@ -157,6 +157,7 @@
 - 桌面端已补 `Requested active remote project sync` / `Remote session snapshot updated` 锚点，服务端日志分析可继续区分“catalog 已更新”与“active project snapshot 仍未落下”的链路断点
 - 桌面端 relay follow-up refresh 与 remote project catalog 更新后，已不再只补拉当前 active remote project，而会按 active / running / queued / 最近活跃优先补拉多条 remote project snapshot，减少“已连上但消息列表和活动预览仍停在旧状态”的恢复缺口
 - 桌面端打开 remote project 会话、第一页历史与会话列表时，若本地已有缓存，也会立即后台补拉最新 snapshot，而不是只停留在旧缓存，减少“刚点开项目聊天还是旧状态”的窗口
+- 桌面端切换或激活 remote project 时，也会立刻触发一次强制补拉，减少“切到另一个远程项目后还停在上次缓存”的窗口
 - 桌面端 remote workgroup collaboration 恢复已补优先会话补拉：打开过的 remote workgroup 会被记为当前关注会话，relay follow-up refresh 后会按“当前关注 / 运行中 / 最近活跃”优先补拉多条协作组 session，减少“协作组列表恢复了但聊天线程还是旧消息”的缺口
 - 桌面端打开 remote workgroup 会话或第一页历史时，若本地已有缓存，也会立即后台补拉最新 session，而不是只停留在旧缓存，减少“刚点开协作组看到旧消息，要等很久才刷新”的窗口
 - 桌面端 remote project / remote workgroup 的消息搜索入口也会触发后台补拉，避免搜索还停留在旧缓存命中结果

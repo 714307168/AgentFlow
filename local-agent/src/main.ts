@@ -3247,7 +3247,14 @@ function createWorkspaceWindow(): BrowserWindow {
 
 function showWorkspaceWindow(projectId?: string): void {
   if (projectId) {
-    activeWorkspaceProjectId = projectId;
+    const normalizedProjectId = projectId.trim();
+    activeWorkspaceProjectId = normalizedProjectId || null;
+    if (normalizedProjectId) {
+      activeWorkgroupCollaborationId = null;
+      if (isRemoteProject(normalizedProjectId)) {
+        requestRemoteProjectSync(normalizedProjectId, "workspace-window-open", true);
+      }
+    }
   }
 
   if (workspaceWindow && !workspaceWindow.isDestroyed()) {
@@ -4360,7 +4367,13 @@ ipcMain.on("open-settings-window", (event, pane?: SettingsPane) => {
 });
 
 ipcMain.on("set-active-project", (_event, projectId: string | null) => {
-  activeWorkspaceProjectId = projectId;
+  activeWorkspaceProjectId = projectId?.trim() || null;
+  if (activeWorkspaceProjectId) {
+    activeWorkgroupCollaborationId = null;
+    if (isRemoteProject(activeWorkspaceProjectId)) {
+      requestRemoteProjectSync(activeWorkspaceProjectId, "workspace-project-activated", true);
+    }
+  }
   updateWindowTitles();
 });
 
