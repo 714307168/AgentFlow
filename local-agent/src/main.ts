@@ -3224,7 +3224,7 @@ function createWorkspaceWindow(): BrowserWindow {
     win.webContents.send("lang-changed", getLangPayload());
     win.webContents.send("update-state-changed", updateManager.getState());
     win.webContents.send("projects-changed", getAllProjects());
-    win.webContents.send("workgroup-collaboration-summaries", workgroupCollaborationService.listSummaries());
+    win.webContents.send("workgroup-collaboration-summaries", getAllWorkgroupCollaborationSummaries());
     for (const project of getAllProjects()) {
       const snapshot = getProjectSnapshot(project.id);
       if (snapshot) {
@@ -3234,6 +3234,8 @@ function createWorkspaceWindow(): BrowserWindow {
     if (activeWorkspaceProjectId) {
       win.webContents.send("project-id", activeWorkspaceProjectId);
     }
+    requestPrioritizedRemoteProjectSyncs("workspace-did-finish-load");
+    requestPrioritizedRemoteWorkgroupSessionSyncs("workspace-did-finish-load");
   });
 
   win.on("closed", () => {
@@ -3849,6 +3851,7 @@ async function handleDispatchWorkgroupTaskRequest(taskId: string) {
 ipcMain.handle("get-projects", (_event, options?: { refreshRemote?: boolean } | null) => {
   if (options?.refreshRemote) {
     requestRemoteProjectCatalogRefresh();
+    requestPrioritizedRemoteProjectSyncs("refresh-remote-project-list");
   }
   return getAllProjects();
 });
@@ -4866,6 +4869,7 @@ ipcMain.handle("search-project-messages", (_event, data: {
 
 ipcMain.handle("list-workgroup-collaborations", () => {
   void refreshRemoteWorkgroupCatalog();
+  requestPrioritizedRemoteWorkgroupSessionSyncs("list-workgroup-collaborations");
   return {
     success: true,
     workgroups: getAllWorkgroupCollaborationSummaries(),
