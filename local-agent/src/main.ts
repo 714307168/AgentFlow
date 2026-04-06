@@ -4371,7 +4371,7 @@ ipcMain.handle("get-project-session", (_event, projectId: string) => {
   }
 
   if (isRemoteProject(projectId)) {
-    remoteSessionStore?.requestSessionSync(projectId, { limit: 30 });
+    requestRemoteProjectSync(projectId, "open-remote-project-session", true);
   }
 
   return {
@@ -4394,6 +4394,9 @@ ipcMain.handle("get-project-history-page", async (_event, data: {
   }
 
   if (isRemoteProject(data.projectId)) {
+    if (!data.beforeId) {
+      requestRemoteProjectSync(data.projectId, "open-remote-project-history-page");
+    }
     const page = await remoteSessionStore?.loadHistoryPage(data.projectId, data.kind, {
       beforeId: data.beforeId,
       limit: data.limit,
@@ -4426,6 +4429,7 @@ ipcMain.handle("list-project-conversations", (_event, projectId: string) => {
   }
 
   if (isRemoteProject(projectId)) {
+    requestRemoteProjectSync(projectId, "list-remote-project-conversations");
     const snapshot = remoteSessionStore?.getSnapshot(projectId);
     return {
       success: true,
@@ -4826,6 +4830,7 @@ ipcMain.handle("search-project-messages", (_event, data: {
   }
 
   if (isRemoteProject(data.projectId)) {
+    requestRemoteProjectSync(data.projectId, "search-remote-project-messages");
     return {
       success: true,
       items: remoteSessionStore?.searchMessages(data.projectId, {
@@ -4934,6 +4939,8 @@ ipcMain.handle("search-workgroup-collaboration-messages", (_event, data: {
   limit?: number;
 }) => {
   if (parseCompositeWorkgroupId(data.workgroupId)) {
+    activeWorkgroupCollaborationId = data.workgroupId.trim() || null;
+    requestRemoteWorkgroupSessionSync(data.workgroupId, "search-remote-workgroup-messages");
     const items = remoteWorkgroupStore?.searchMessages(data.workgroupId, {
       query: data.query,
       limit: data.limit,
