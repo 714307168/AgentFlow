@@ -190,10 +190,19 @@ type connectionHotspotAccumulator struct {
 	WarningCount    int
 	SignalTotals    map[string]int
 	SignalTitles    map[string]string
+	RecoveryPanels  map[string]*connectionHotspotRecoveryPanelAccumulator
 	TraceTotals     map[string]int
 	WorkgroupTotals map[string]int
 	TaskTotals      map[string]int
 	DispatchTotals  map[string]int
+}
+
+type connectionHotspotRecoveryPanelAccumulator struct {
+	Key        string
+	Title      string
+	Status     string
+	SignalCode string
+	LogCount   int
 }
 
 type mobileLogOverviewConnectionSummary struct {
@@ -209,20 +218,24 @@ type mobileLogOverviewConnectionSummary struct {
 }
 
 type mobileLogOverviewConnectionHotspot struct {
-	AgentState       string `json:"agent_state,omitempty"`
-	ControllerState  string `json:"controller_state,omitempty"`
-	Host             string `json:"host,omitempty"`
-	Platform         string `json:"platform,omitempty"`
-	LogCount         int    `json:"log_count"`
-	LogsWithSignals  int    `json:"logs_with_signals"`
-	CriticalCount    int    `json:"critical_count"`
-	WarningCount     int    `json:"warning_count"`
-	TopSignalCode    string `json:"top_signal_code,omitempty"`
-	TopSignalTitle   string `json:"top_signal_title,omitempty"`
-	TopTraceID       string `json:"top_trace_id,omitempty"`
-	TopWorkgroupID   string `json:"top_workgroup_id,omitempty"`
-	TopTaskID        string `json:"top_task_id,omitempty"`
-	TopDispatchRunID string `json:"top_dispatch_run_id,omitempty"`
+	AgentState                 string `json:"agent_state,omitempty"`
+	ControllerState            string `json:"controller_state,omitempty"`
+	Host                       string `json:"host,omitempty"`
+	Platform                   string `json:"platform,omitempty"`
+	LogCount                   int    `json:"log_count"`
+	LogsWithSignals            int    `json:"logs_with_signals"`
+	CriticalCount              int    `json:"critical_count"`
+	WarningCount               int    `json:"warning_count"`
+	TopSignalCode              string `json:"top_signal_code,omitempty"`
+	TopSignalTitle             string `json:"top_signal_title,omitempty"`
+	TopRecoveryPanelKey        string `json:"top_recovery_panel_key,omitempty"`
+	TopRecoveryPanelTitle      string `json:"top_recovery_panel_title,omitempty"`
+	TopRecoveryPanelStatus     string `json:"top_recovery_panel_status,omitempty"`
+	TopRecoveryPanelSignalCode string `json:"top_recovery_panel_signal_code,omitempty"`
+	TopTraceID                 string `json:"top_trace_id,omitempty"`
+	TopWorkgroupID             string `json:"top_workgroup_id,omitempty"`
+	TopTaskID                  string `json:"top_task_id,omitempty"`
+	TopDispatchRunID           string `json:"top_dispatch_run_id,omitempty"`
 }
 
 type mobileLogOverviewResponse struct {
@@ -797,6 +810,7 @@ func buildMobileLogOverview(records []storedMobileLogMetadata, storageDir string
 				Platform:        platform,
 				SignalTotals:    make(map[string]int),
 				SignalTitles:    make(map[string]string),
+				RecoveryPanels:  make(map[string]*connectionHotspotRecoveryPanelAccumulator),
 				TraceTotals:     make(map[string]int),
 				WorkgroupTotals: make(map[string]int),
 				TaskTotals:      make(map[string]int),
@@ -816,6 +830,24 @@ func buildMobileLogOverview(records []storedMobileLogMetadata, storageDir string
 				hasCritical = true
 			case "warning":
 				hasWarning = true
+			}
+			panelStatus := strings.ToLower(strings.TrimSpace(panel.Status))
+			if panelStatus == "critical" || panelStatus == "warning" {
+				panelKey := strings.TrimSpace(panel.Key)
+				if panelKey != "" {
+					compositeKey := panelKey + "|" + panelStatus + "|" + strings.TrimSpace(panel.SignalCode)
+					entry := item.RecoveryPanels[compositeKey]
+					if entry == nil {
+						entry = &connectionHotspotRecoveryPanelAccumulator{
+							Key:        panelKey,
+							Title:      strings.TrimSpace(panel.Title),
+							Status:     panelStatus,
+							SignalCode: strings.TrimSpace(panel.SignalCode),
+						}
+						item.RecoveryPanels[compositeKey] = entry
+					}
+					entry.LogCount++
+				}
 			}
 		}
 		if hasCritical {
@@ -1171,25 +1203,56 @@ func buildConnectionHotspots(values map[string]*connectionHotspotAccumulator, li
 				topSignalWeight = weight
 			}
 		}
+		topRecoveryPanelKey := ""
+		topRecoveryPanelTitle := ""
+		topRecoveryPanelStatus := ""
+		topRecoveryPanelSignalCode := ""
+		topRecoveryPanelCount := 0
+		for _, panel := range value.RecoveryPanels {
+			if topRecoveryPanelKey == "" {
+				topRecoveryPanelKey = panel.Key
+				topRecoveryPanelTitle = panel.Title
+				topRecoveryPanelStatus = panel.Status
+				topRecoveryPanelSignalCode = panel.SignalCode
+				topRecoveryPanelCount = panel.LogCount
+				continue
+			}
+			currentPriority := recoveryPanelStatusPriority(panel.Status)
+			bestPriority := recoveryPanelStatusPriority(topRecoveryPanelStatus)
+			if currentPriority > bestPriority ||
+				(currentPriority == bestPriority &&
+					(panel.LogCount > topRecoveryPanelCount ||
+						(panel.LogCount == topRecoveryPanelCount && panel.Key < topRecoveryPanelKey))) {
+				topRecoveryPanelKey = panel.Key
+				topRecoveryPanelTitle = panel.Title
+				topRecoveryPanelStatus = panel.Status
+				topRecoveryPanelSignalCode = panel.SignalCode
+				topRecoveryPanelCount = panel.LogCount
+			}
+		}
 		topTraceID := topConnectionHotspotValue(value.TraceTotals)
 		topWorkgroupID := topConnectionHotspotValue(value.WorkgroupTotals)
 		topTaskID := topConnectionHotspotValue(value.TaskTotals)
 		topDispatchRunID := topConnectionHotspotValue(value.DispatchTotals)
 		items = append(items, mobileLogOverviewConnectionHotspot{
-			AgentState:       value.AgentState,
-			ControllerState:  value.ControllerState,
-			Host:             value.Host,
-			Platform:         value.Platform,
-			LogCount:         value.LogCount,
-			LogsWithSignals:  value.LogsWithSignals,
-			CriticalCount:    value.CriticalCount,
-			WarningCount:     value.WarningCount,
-			TopSignalCode:    topSignalCode,
-			TopSignalTitle:   topSignalTitle,
-			TopTraceID:       topTraceID,
-			TopWorkgroupID:   topWorkgroupID,
-			TopTaskID:        topTaskID,
-			TopDispatchRunID: topDispatchRunID,
+			AgentState:                 value.AgentState,
+			ControllerState:            value.ControllerState,
+			Host:                       value.Host,
+			Platform:                   value.Platform,
+			LogCount:                   value.LogCount,
+			LogsWithSignals:            value.LogsWithSignals,
+			CriticalCount:              value.CriticalCount,
+			WarningCount:               value.WarningCount,
+			TopSignalCode:              topSignalCode,
+			TopSignalTitle:             topSignalTitle,
+			TopRecoveryPanelKey:        topRecoveryPanelKey,
+			TopRecoveryPanelTitle:      topRecoveryPanelTitle,
+			TopRecoveryPanelStatus:     topRecoveryPanelStatus,
+			TopRecoveryPanelSignalCode: topRecoveryPanelSignalCode,
+			TopTraceID:                 topTraceID,
+			TopWorkgroupID:             topWorkgroupID,
+			TopTaskID:                  topTaskID,
+			TopDispatchRunID:           topDispatchRunID,
 		})
 	}
 	sort.Slice(items, func(i, j int) bool {
@@ -1223,6 +1286,19 @@ func topConnectionHotspotValue(values map[string]int) string {
 		}
 	}
 	return bestValue
+}
+
+func recoveryPanelStatusPriority(status string) int {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "critical":
+		return 3
+	case "warning":
+		return 2
+	case "healthy":
+		return 1
+	default:
+		return 0
+	}
 }
 
 func sanitizeOriginalName(name string) string {
@@ -3419,9 +3495,13 @@ function renderConnectionHotspots(items) {
       '<span class="chip">warning ' + esc(item.warning_count || 0) + '</span>',
       renderSignalChip('Top Signal', { code: item.top_signal_code || '' }),
     ].filter(Boolean);
+    const recoveryMeta = item.top_recovery_panel_title
+      ? ('Top Recovery Stage: ' + esc(item.top_recovery_panel_title) + ' (' + esc(item.top_recovery_panel_status || 'warning') + ')' + (item.top_recovery_panel_signal_code ? (' | signal: ' + esc(item.top_recovery_panel_signal_code)) : ''))
+      : 'No dominant recovery stage yet';
     return '<div class="overview-row">' +
       '<div><div class="chips">' + chips.join('') + '</div>' +
-      '<div class="meta" style="margin-top:4px;">' + esc(item.top_signal_title || 'No dominant signal yet') + '</div></div>' +
+      '<div class="meta" style="margin-top:4px;">' + esc(item.top_signal_title || 'No dominant signal yet') + '</div>' +
+      '<div class="meta" style="margin-top:4px;">' + recoveryMeta + '</div></div>' +
       '<div class="chips" style="justify-content:flex-end;">' + right.join('') + '</div>' +
       '</div>';
   }).join('') + '</div></div>';

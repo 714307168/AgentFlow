@@ -103,20 +103,24 @@ type uploadedMobileLogOverview struct {
 			LogCount int    `json:"log_count"`
 		} `json:"freeform_notes"`
 		Hotspots []struct {
-			AgentState       string `json:"agent_state"`
-			ControllerState  string `json:"controller_state"`
-			Host             string `json:"host"`
-			Platform         string `json:"platform"`
-			LogCount         int    `json:"log_count"`
-			LogsWithSignals  int    `json:"logs_with_signals"`
-			CriticalCount    int    `json:"critical_count"`
-			WarningCount     int    `json:"warning_count"`
-			TopSignalCode    string `json:"top_signal_code"`
-			TopSignalTitle   string `json:"top_signal_title"`
-			TopTraceID       string `json:"top_trace_id"`
-			TopWorkgroupID   string `json:"top_workgroup_id"`
-			TopTaskID        string `json:"top_task_id"`
-			TopDispatchRunID string `json:"top_dispatch_run_id"`
+			AgentState                 string `json:"agent_state"`
+			ControllerState            string `json:"controller_state"`
+			Host                       string `json:"host"`
+			Platform                   string `json:"platform"`
+			LogCount                   int    `json:"log_count"`
+			LogsWithSignals            int    `json:"logs_with_signals"`
+			CriticalCount              int    `json:"critical_count"`
+			WarningCount               int    `json:"warning_count"`
+			TopSignalCode              string `json:"top_signal_code"`
+			TopSignalTitle             string `json:"top_signal_title"`
+			TopRecoveryPanelKey        string `json:"top_recovery_panel_key"`
+			TopRecoveryPanelTitle      string `json:"top_recovery_panel_title"`
+			TopRecoveryPanelStatus     string `json:"top_recovery_panel_status"`
+			TopRecoveryPanelSignalCode string `json:"top_recovery_panel_signal_code"`
+			TopTraceID                 string `json:"top_trace_id"`
+			TopWorkgroupID             string `json:"top_workgroup_id"`
+			TopTaskID                  string `json:"top_task_id"`
+			TopDispatchRunID           string `json:"top_dispatch_run_id"`
 		} `json:"hotspots"`
 	} `json:"connection_summary"`
 	LivePresence []struct {
@@ -432,6 +436,9 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 	if !hasConnectionHotspot(overview.ConnectionSummary.Hotspots, "connected", "connected", "test-host", "linux", 1, 1, 1, 1, "desktop_resume_catchup_stalled", "trace-desktop-003", "desktop-workgroup", "task-1", "dispatch-run-7") {
 		t.Fatalf("expected overview to expose connection hotspot, got %+v", overview.ConnectionSummary.Hotspots)
 	}
+	if !hasConnectionHotspotRecoveryStage(overview.ConnectionSummary.Hotspots, "test-host", "desktop_auth_recovery", "critical", "desktop_auth_recovery_failures") {
+		t.Fatalf("expected overview hotspot to expose top recovery stage, got %+v", overview.ConnectionSummary.Hotspots)
+	}
 	if !hasOverviewPresence(overview.LivePresence, "agent", "agent-a", true, 3) {
 		t.Fatalf("expected overview to expose live agent presence, got %+v", overview.LivePresence)
 	}
@@ -590,6 +597,9 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 	}
 	if !hasConnectionHotspot(desktopOverview.ConnectionSummary.Hotspots, "connected", "connected", "test-host", "linux", 1, 1, 1, 1, "desktop_resume_catchup_stalled", "trace-desktop-003", "desktop-workgroup", "task-1", "dispatch-run-7") {
 		t.Fatalf("expected desktop overview to expose hotspot correlation, got %+v", desktopOverview.ConnectionSummary.Hotspots)
+	}
+	if !hasConnectionHotspotRecoveryStage(desktopOverview.ConnectionSummary.Hotspots, "test-host", "desktop_auth_recovery", "critical", "desktop_auth_recovery_failures") {
+		t.Fatalf("expected desktop overview hotspot to expose top recovery stage, got %+v", desktopOverview.ConnectionSummary.Hotspots)
 	}
 	if len(desktopOverview.TopSignals) == 0 || desktopOverview.TopSignals[0].Code != "desktop_resume_catchup_stalled" {
 		t.Fatalf("expected desktop overview to prioritize resume catch-up stalled signal, got %+v", desktopOverview.TopSignals)
@@ -855,6 +865,9 @@ func TestMobileLogAnalysisFlagsMissingDesktopActiveSyncAfterFollowUpCompletion(t
 	}
 	if !hasConnectionHotspot(overview.ConnectionSummary.Hotspots, "connected", "connected", "snapshot-gap-host", "linux", 1, 1, 0, 1, "desktop_resume_catchup_stalled", "trace-desktop-004", "desktop-workgroup-gap", "", "") {
 		t.Fatalf("expected hotspot to surface missing active sync follow-up, got %+v", overview.ConnectionSummary.Hotspots)
+	}
+	if !hasConnectionHotspotRecoveryStage(overview.ConnectionSummary.Hotspots, "snapshot-gap-host", "desktop_active_snapshot", "warning", "desktop_remote_snapshot_gaps") {
+		t.Fatalf("expected snapshot-gap hotspot to expose top recovery stage, got %+v", overview.ConnectionSummary.Hotspots)
 	}
 }
 
@@ -1524,20 +1537,24 @@ func hasOverviewConnectionItem(items []struct {
 }
 
 func hasConnectionHotspot(items []struct {
-	AgentState       string `json:"agent_state"`
-	ControllerState  string `json:"controller_state"`
-	Host             string `json:"host"`
-	Platform         string `json:"platform"`
-	LogCount         int    `json:"log_count"`
-	LogsWithSignals  int    `json:"logs_with_signals"`
-	CriticalCount    int    `json:"critical_count"`
-	WarningCount     int    `json:"warning_count"`
-	TopSignalCode    string `json:"top_signal_code"`
-	TopSignalTitle   string `json:"top_signal_title"`
-	TopTraceID       string `json:"top_trace_id"`
-	TopWorkgroupID   string `json:"top_workgroup_id"`
-	TopTaskID        string `json:"top_task_id"`
-	TopDispatchRunID string `json:"top_dispatch_run_id"`
+	AgentState                 string `json:"agent_state"`
+	ControllerState            string `json:"controller_state"`
+	Host                       string `json:"host"`
+	Platform                   string `json:"platform"`
+	LogCount                   int    `json:"log_count"`
+	LogsWithSignals            int    `json:"logs_with_signals"`
+	CriticalCount              int    `json:"critical_count"`
+	WarningCount               int    `json:"warning_count"`
+	TopSignalCode              string `json:"top_signal_code"`
+	TopSignalTitle             string `json:"top_signal_title"`
+	TopRecoveryPanelKey        string `json:"top_recovery_panel_key"`
+	TopRecoveryPanelTitle      string `json:"top_recovery_panel_title"`
+	TopRecoveryPanelStatus     string `json:"top_recovery_panel_status"`
+	TopRecoveryPanelSignalCode string `json:"top_recovery_panel_signal_code"`
+	TopTraceID                 string `json:"top_trace_id"`
+	TopWorkgroupID             string `json:"top_workgroup_id"`
+	TopTaskID                  string `json:"top_task_id"`
+	TopDispatchRunID           string `json:"top_dispatch_run_id"`
 }, agentState, controllerState, host, platform string, logCount, logsWithSignals, criticalCount, warningCount int, topSignalCode string, topTraceID string, topWorkgroupID string, topTaskID string, topDispatchRunID string) bool {
 	for _, item := range items {
 		if item.AgentState == agentState &&
@@ -1555,6 +1572,44 @@ func hasConnectionHotspot(items []struct {
 			item.TopDispatchRunID == topDispatchRunID {
 			return true
 		}
+	}
+	return false
+}
+
+func hasConnectionHotspotRecoveryStage(items []struct {
+	AgentState                 string `json:"agent_state"`
+	ControllerState            string `json:"controller_state"`
+	Host                       string `json:"host"`
+	Platform                   string `json:"platform"`
+	LogCount                   int    `json:"log_count"`
+	LogsWithSignals            int    `json:"logs_with_signals"`
+	CriticalCount              int    `json:"critical_count"`
+	WarningCount               int    `json:"warning_count"`
+	TopSignalCode              string `json:"top_signal_code"`
+	TopSignalTitle             string `json:"top_signal_title"`
+	TopRecoveryPanelKey        string `json:"top_recovery_panel_key"`
+	TopRecoveryPanelTitle      string `json:"top_recovery_panel_title"`
+	TopRecoveryPanelStatus     string `json:"top_recovery_panel_status"`
+	TopRecoveryPanelSignalCode string `json:"top_recovery_panel_signal_code"`
+	TopTraceID                 string `json:"top_trace_id"`
+	TopWorkgroupID             string `json:"top_workgroup_id"`
+	TopTaskID                  string `json:"top_task_id"`
+	TopDispatchRunID           string `json:"top_dispatch_run_id"`
+}, host, panelKey, status, signalCode string) bool {
+	for _, item := range items {
+		if item.Host != host {
+			continue
+		}
+		if item.TopRecoveryPanelKey != panelKey || item.TopRecoveryPanelStatus != status {
+			return false
+		}
+		if signalCode != "" && item.TopRecoveryPanelSignalCode != signalCode {
+			return false
+		}
+		if signalCode == "" && item.TopRecoveryPanelSignalCode != "" {
+			return false
+		}
+		return true
 	}
 	return false
 }
