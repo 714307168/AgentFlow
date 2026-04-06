@@ -228,6 +228,7 @@ let tray: Tray | null = null;
 let mainWindow: BrowserWindow | null = null;
 let workspaceWindow: BrowserWindow | null = null;
 let activeWorkspaceProjectId: string | null = null;
+let activeWorkgroupCollaborationId: string | null = null;
 let activeSettingsPane: SettingsPane = "system";
 let relayClient: RelayClient | null = null;
 let controllerRelayClient: RelayClient | null = null;
@@ -285,6 +286,8 @@ const RELAY_RECOVERY_COOLDOWN_MS = 45_000;
 const RELAY_FORCE_RECOVERY_AFTER_MS = 90_000;
 const ACTIVE_REMOTE_PROJECT_SYNC_MIN_INTERVAL_MS = 3_000;
 const REMOTE_PROJECT_FOLLOW_UP_SYNC_LIMIT = 4;
+const REMOTE_WORKGROUP_SESSION_SYNC_MIN_INTERVAL_MS = 3_000;
+const REMOTE_WORKGROUP_FOLLOW_UP_SYNC_LIMIT = 4;
 let lastRemoteProjectCatalogRefreshAt = 0;
 let remoteProjectCatalogRefreshTimer: NodeJS.Timeout | null = null;
 let lastRemoteWorkgroupCatalogRefreshAt = 0;
@@ -292,6 +295,8 @@ let relayHealthCheckTimer: NodeJS.Timeout | null = null;
 let relayMaintenanceTimer: NodeJS.Timeout | null = null;
 let lastActiveRemoteProjectSyncAt = 0;
 const lastRemoteProjectSyncRequestedAtByProject = new Map<string, number>();
+const lastRemoteWorkgroupSessionRequestedAtByCompositeId = new Map<string, number>();
+const pendingRemoteWorkgroupSessionSyncs = new Set<string>();
 let lastAgentRelayRecoveryAt = 0;
 let lastControllerRelayRecoveryAt = 0;
 const relayFollowUpRefreshTimers = new Set<NodeJS.Timeout>();
@@ -2700,6 +2705,106 @@ function requestPrioritizedRemoteProjectSyncs(reason: string, force: boolean = f
   return requestedProjectIds.length;
 }
 
+function requestRemoteWorkgroupSessionSync(compositeId: string, reason: string, force: boolean = false): boolean {
+  const normalizedCompositeId = compositeId.trim();
+  if (!normalizedCompositeId || !remoteWorkgroupStore || !parseCompositeWorkgroupId(normalizedCompositeId)) {
+    return false;
+  }
+
+  const summary = remoteWorkgroupStore
+    .listSummaries()
+    .find((entry) => entry.id === normalizedCompositeId);
+  if (!summary) {
+    return false;
+  }
+
+  const now = Date.now();
+  const lastRequestedAt = lastRemoteWorkgroupSessionRequestedAtByCompositeId.get(normalizedCompositeId) ?? 0;
+  if (!force && now - lastRequestedAt < REMOTE_WORKGROUP_SESSION_SYNC_MIN_INTERVAL_MS) {
+    return false;
+  }
+  if (!force && pendingRemoteWorkgroupSessionSyncs.has(normalizedCompositeId)) {
+    return false;
+  }
+
+  lastRemoteWorkgroupSessionRequestedAtByCompositeId.set(normalizedCompositeId, now);
+  pendingRemoteWorkgroupSessionSyncs.add(normalizedCompositeId);
+  appLogger.info("workgroup", "Requested remote workgroup session sync.", {
+    reason,
+    force,
+    workgroupId: normalizedCompositeId,
+    isActiveWorkgroup: normalizedCompositeId === (activeWorkgroupCollaborationId?.trim() ?? ""),
+  });
+  void remoteWorkgroupStore.requestSession(normalizedCompositeId, { limit: 30 })
+    .then((result) => {
+      if (!result.success) {
+        appLogger.warn("workgroup", "Remote workgroup session sync failed.", {
+          reason,
+          workgroupId: normalizedCompositeId,
+          error: result.error ?? "unknown",
+        });
+      }
+    })
+    .finally(() => {
+      pendingRemoteWorkgroupSessionSyncs.delete(normalizedCompositeId);
+    });
+  return true;
+}
+
+function getPrioritizedRemoteWorkgroupSessionIds(limit: number = REMOTE_WORKGROUP_FOLLOW_UP_SYNC_LIMIT): string[] {
+  if (!remoteWorkgroupStore || limit <= 0) {
+    return [];
+  }
+
+  const activeCompositeId = activeWorkgroupCollaborationId?.trim() ?? "";
+  const seen = new Set<string>();
+  const compositeIds: string[] = [];
+  const pushCompositeId = (compositeId: string): void => {
+    const normalizedCompositeId = compositeId.trim();
+    if (!normalizedCompositeId || seen.has(normalizedCompositeId) || !parseCompositeWorkgroupId(normalizedCompositeId)) {
+      return;
+    }
+    seen.add(normalizedCompositeId);
+    compositeIds.push(normalizedCompositeId);
+  };
+
+  pushCompositeId(activeCompositeId);
+  const rankedSummaries = remoteWorkgroupStore
+    .listSummaries()
+    .filter((summary) => Boolean(parseCompositeWorkgroupId(summary.id)))
+    .sort((left, right) =>
+      Number(right.id === activeCompositeId) - Number(left.id === activeCompositeId)
+      || Number(right.isRunning) - Number(left.isRunning)
+      || right.updatedAt - left.updatedAt
+      || right.messageCount - left.messageCount
+      || left.name.localeCompare(right.name, "zh-CN"),
+    );
+
+  for (const summary of rankedSummaries) {
+    pushCompositeId(summary.id);
+    if (compositeIds.length >= limit) {
+      break;
+    }
+  }
+
+  return compositeIds.slice(0, limit);
+}
+
+function requestPrioritizedRemoteWorkgroupSessionSyncs(reason: string, force: boolean = false): number {
+  const compositeIds = getPrioritizedRemoteWorkgroupSessionIds();
+  const requestedCompositeIds = compositeIds.filter((compositeId) => requestRemoteWorkgroupSessionSync(compositeId, reason, force));
+  if (requestedCompositeIds.length > 0) {
+    appLogger.info("workgroup", "Requested prioritized remote workgroup session sync batch.", {
+      reason,
+      force,
+      workgroupCount: requestedCompositeIds.length,
+      workgroupIds: requestedCompositeIds.join(","),
+      activeWorkgroupId: activeWorkgroupCollaborationId?.trim() || null,
+    });
+  }
+  return requestedCompositeIds.length;
+}
+
 function requestActiveRemoteProjectSync(reason: string, force: boolean = false): void {
   const projectId = activeWorkspaceProjectId?.trim() ?? "";
   if (!projectId) {
@@ -2739,9 +2844,11 @@ async function runRelayFollowUpRefresh(reason: string): Promise<void> {
   requestRemoteProjectCatalogRefresh(`follow-up:${reason}`);
   await refreshRemoteWorkgroupCatalog(true, `follow-up:${reason}`);
   const requestedProjectSyncCount = requestPrioritizedRemoteProjectSyncs(`follow-up:${reason}`, true);
+  const requestedWorkgroupSyncCount = requestPrioritizedRemoteWorkgroupSessionSyncs(`follow-up:${reason}`, true);
   appLogger.info("relay", "Completed relay follow-up refresh.", {
     reason,
     requestedProjectSyncCount,
+    requestedWorkgroupSyncCount,
     requestedActiveProjectSync: Boolean(activeWorkspaceProjectId?.trim() && isRemoteProject(activeWorkspaceProjectId)),
   });
 }
@@ -4039,6 +4146,8 @@ ipcMain.handle("reconnect-relay", async () => {
   clearRelayFollowUpRefreshTimers();
   lastActiveRemoteProjectSyncAt = 0;
   lastRemoteProjectSyncRequestedAtByProject.clear();
+  lastRemoteWorkgroupSessionRequestedAtByCompositeId.clear();
+  pendingRemoteWorkgroupSessionSyncs.clear();
   if (relayClient) {
     relayClient.disconnect();
   }
@@ -4747,6 +4856,7 @@ ipcMain.handle("list-workgroup-collaborations", () => {
 
 ipcMain.handle("get-workgroup-collaboration-session", async (_event, workgroupId: string) => {
   if (parseCompositeWorkgroupId(workgroupId)) {
+    activeWorkgroupCollaborationId = workgroupId.trim() || null;
     const existingRemoteSession = remoteWorkgroupStore?.getSession(workgroupId);
     if (existingRemoteSession) {
       return { success: true, session: existingRemoteSession };
@@ -4756,6 +4866,7 @@ ipcMain.handle("get-workgroup-collaboration-session", async (_event, workgroupId
       error: "Remote workgroup collaboration not found",
     }));
   }
+  activeWorkgroupCollaborationId = null;
 
   const session = workgroupCollaborationService.getSession(workgroupId);
   if (!session) {
@@ -4773,6 +4884,7 @@ ipcMain.handle("get-workgroup-collaboration-history-page", async (_event, data: 
   limit?: number;
 }) => {
   if (parseCompositeWorkgroupId(data.workgroupId)) {
+    activeWorkgroupCollaborationId = data.workgroupId.trim() || null;
     const existingPage = remoteWorkgroupStore?.getHistoryPage(data.workgroupId, {
       beforeId: data.beforeId,
       limit: data.limit,
@@ -4846,6 +4958,7 @@ ipcMain.handle("search-workgroup-collaboration-messages", (_event, data: {
 
 ipcMain.handle("send-workgroup-collaboration-message", async (_event, data: { workgroupId: string; content: string }) => {
   if (parseCompositeWorkgroupId(data.workgroupId)) {
+    activeWorkgroupCollaborationId = data.workgroupId.trim() || null;
     return await (remoteWorkgroupStore?.sendMessage(data.workgroupId, data.content) ?? Promise.resolve({
       success: false,
       error: "Remote workgroup collaboration not found",
