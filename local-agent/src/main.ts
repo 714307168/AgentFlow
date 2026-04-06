@@ -120,6 +120,32 @@ interface RelayTransferRecord {
   receipts?: RelayTransferReceiptSummary[];
 }
 
+interface RelayDeviceSummary {
+  id: string;
+  user_id: number;
+  username: string;
+  agent_id?: string;
+  note?: string;
+  created_at: string;
+}
+
+interface RelayTransferListOptions {
+  limit?: number;
+  targetType?: string | null;
+  targetId?: string | null;
+  projectId?: string | null;
+  workgroupId?: string | null;
+  includeReceipts?: boolean;
+}
+
+interface RelayTransferCreateOptions {
+  targetType?: string | null;
+  targetId?: string | null;
+  projectId?: string | null;
+  workgroupId?: string | null;
+  expiresInHours?: number | null;
+}
+
 type SettingsPane = "overview" | "connection" | "project" | "message" | "automation" | "advanced";
 
 interface PersistedWindowState {
@@ -716,6 +742,10 @@ async function ensureDesktopTransferAuthToken(): Promise<string> {
 }
 
 async function listRelayTransfers(limit = 12): Promise<RelayTransferRecord[]> {
+  return await listRelayTransfersWithOptions({ limit });
+}
+
+async function listRelayTransfersWithOptions(options: RelayTransferListOptions = {}): Promise<RelayTransferRecord[]> {
   const config = loadConfig();
   if (!config.serverUrl.trim()) {
     throw new Error("Server URL is not configured.");
@@ -723,7 +753,22 @@ async function listRelayTransfers(limit = 12): Promise<RelayTransferRecord[]> {
 
   const token = await ensureDesktopTransferAuthToken();
   const query = new URLSearchParams();
-  query.set("limit", String(Math.max(1, Math.min(50, Math.floor(Number(limit) || 12)))));
+  query.set("limit", String(Math.max(1, Math.min(50, Math.floor(Number(options.limit) || 12)))));
+  if (options.targetType?.trim()) {
+    query.set("target_type", options.targetType.trim());
+  }
+  if (options.targetId?.trim()) {
+    query.set("target_id", options.targetId.trim());
+  }
+  if (options.projectId?.trim()) {
+    query.set("project_id", options.projectId.trim());
+  }
+  if (options.workgroupId?.trim()) {
+    query.set("workgroup_id", options.workgroupId.trim());
+  }
+  if (options.includeReceipts !== false) {
+    query.set("include_receipts", "1");
+  }
 
   const response = await fetch(`${toHttpBaseUrl(config.serverUrl)}/api/transfers?${query.toString()}`, {
     method: "GET",
@@ -744,7 +789,33 @@ async function listRelayTransfers(limit = 12): Promise<RelayTransferRecord[]> {
   return payload;
 }
 
-async function createRelayTransferFromDesktop(senderWindow?: BrowserWindow | null): Promise<RelayTransferRecord> {
+async function listRelayDevices(): Promise<RelayDeviceSummary[]> {
+  const config = loadConfig();
+  if (!config.serverUrl.trim()) {
+    throw new Error("Server URL is not configured.");
+  }
+
+  const token = await ensureDesktopTransferAuthToken();
+  const response = await fetch(`${toHttpBaseUrl(config.serverUrl)}/api/devices`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!response.ok) {
+    const errorText = (await response.text()).trim();
+    throw new Error(errorText || response.statusText || "Failed to load relay devices.");
+  }
+
+  const payload = await response.json() as RelayDeviceSummary[];
+  return Array.isArray(payload) ? payload : [];
+}
+
+async function createRelayTransferFromDesktop(
+  options: RelayTransferCreateOptions = {},
+  senderWindow?: BrowserWindow | null,
+): Promise<RelayTransferRecord> {
   const config = loadConfig();
   if (!config.serverUrl.trim()) {
     throw new Error("Server URL is not configured.");
@@ -773,6 +844,21 @@ async function createRelayTransferFromDesktop(senderWindow?: BrowserWindow | nul
   const buffer = fs.readFileSync(selectedPath);
   const form = new FormData();
   form.set("file", new Blob([buffer], { type: mimeType }), fileName);
+  if (options.targetType?.trim()) {
+    form.set("target_type", options.targetType.trim());
+  }
+  if (options.targetId?.trim()) {
+    form.set("target_id", options.targetId.trim());
+  }
+  if (options.projectId?.trim()) {
+    form.set("project_id", options.projectId.trim());
+  }
+  if (options.workgroupId?.trim()) {
+    form.set("workgroup_id", options.workgroupId.trim());
+  }
+  if (Number.isFinite(options.expiresInHours) && Number(options.expiresInHours) > 0) {
+    form.set("expires_in_hours", String(Math.floor(Number(options.expiresInHours))));
+  }
 
   const response = await fetch(`${toHttpBaseUrl(config.serverUrl)}/api/transfers`, {
     method: "POST",
@@ -4472,9 +4558,9 @@ ipcMain.handle("get-local-data-metrics", () => {
   return buildLocalDataMetrics();
 });
 
-ipcMain.handle("list-relay-transfers", async (_event, limit?: number) => {
+ipcMain.handle("list-relay-transfers", async (_event, options?: number | RelayTransferListOptions) => {
   try {
-    const items = await listRelayTransfers(limit);
+    const items = await listRelayTransfersWithOptions(typeof options === "object" && options !== null ? options : { limit: options });
     return {
       success: true,
       items,
@@ -4488,10 +4574,26 @@ ipcMain.handle("list-relay-transfers", async (_event, limit?: number) => {
   }
 });
 
-ipcMain.handle("create-relay-transfer", async (event) => {
+ipcMain.handle("list-relay-devices", async () => {
+  try {
+    const items = await listRelayDevices();
+    return {
+      success: true,
+      items,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+      items: [],
+    };
+  }
+});
+
+ipcMain.handle("create-relay-transfer", async (event, options?: RelayTransferCreateOptions) => {
   try {
     const senderWindow = BrowserWindow.fromWebContents(event.sender) ?? mainWindow ?? workspaceWindow ?? null;
-    const transfer = await createRelayTransferFromDesktop(senderWindow);
+    const transfer = await createRelayTransferFromDesktop(options ?? {}, senderWindow);
     return {
       success: true,
       transfer,

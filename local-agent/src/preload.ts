@@ -164,8 +164,22 @@ contextBridge.exposeInMainWorld('claudeAgent', {
   },
   getAppSettings: () => ipcRenderer.invoke('get-app-settings'),
   getLocalDataMetrics: () => ipcRenderer.invoke('get-local-data-metrics'),
-  listRelayTransfers: (limit?: number) => ipcRenderer.invoke('list-relay-transfers', limit),
-  createRelayTransfer: () => ipcRenderer.invoke('create-relay-transfer'),
+  listRelayTransfers: (options?: number | {
+    limit?: number;
+    targetType?: string | null;
+    targetId?: string | null;
+    projectId?: string | null;
+    workgroupId?: string | null;
+    includeReceipts?: boolean;
+  }) => ipcRenderer.invoke('list-relay-transfers', options),
+  listRelayDevices: () => ipcRenderer.invoke('list-relay-devices'),
+  createRelayTransfer: (options?: {
+    targetType?: string | null;
+    targetId?: string | null;
+    projectId?: string | null;
+    workgroupId?: string | null;
+    expiresInHours?: number | null;
+  }) => ipcRenderer.invoke('create-relay-transfer', options),
   setAppSettings: (settings: Record<string, boolean | number>) => ipcRenderer.invoke('set-app-settings', settings),
   uploadDesktopLogs: () => ipcRenderer.invoke('upload-desktop-logs'),
   pickLocalDataRoot: (currentPath?: string | null) => ipcRenderer.invoke('pick-local-data-root', currentPath),

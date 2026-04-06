@@ -157,6 +157,7 @@
     }
     .field { margin-bottom: 14px; }
     .field:last-child { margin-bottom: 0; }
+    .field.hidden { display: none; }
     label {
       display: block;
       margin-bottom: 8px;
@@ -501,6 +502,17 @@
       border: 1px solid var(--border);
       border-radius: 14px;
       padding: 14px;
+      background: rgba(255, 255, 255, 0.03);
+    }
+    .transfer-receipts {
+      display: grid;
+      gap: 8px;
+      margin-top: 6px;
+    }
+    .transfer-receipt-item {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 10px 12px;
       background: rgba(255, 255, 255, 0.03);
     }
     .workgroup-card-title {
@@ -1029,6 +1041,74 @@
               <span class="scope-pill" id="transferScopeMobile">Android / iOS receivers enabled</span>
               <span class="scope-pill" id="transferScopeMiniProgram">Mini Program receiver planned</span>
             </div>
+            <div class="split-grid" style="margin-top: 14px;">
+              <div class="workgroup-card">
+                <div class="workgroup-card-title" id="transferSendConfigTitle">Send Scope</div>
+                <div class="field">
+                  <label id="transferTargetTypeLabel">Target</label>
+                  <select id="transferTargetType">
+                    <option value="broadcast">All Mobile Clients</option>
+                    <option value="device">Specific Device</option>
+                    <option value="project">Specific Project</option>
+                    <option value="workgroup">Specific Workgroup</option>
+                  </select>
+                </div>
+                <div class="field hidden" id="transferTargetDeviceField">
+                  <label id="transferTargetDeviceLabel">Device</label>
+                  <select id="transferTargetDevice"></select>
+                </div>
+                <div class="field hidden" id="transferTargetProjectField">
+                  <label id="transferTargetProjectLabel">Project</label>
+                  <select id="transferTargetProject"></select>
+                </div>
+                <div class="field hidden" id="transferTargetWorkgroupField">
+                  <label id="transferTargetWorkgroupLabel">Workgroup</label>
+                  <select id="transferTargetWorkgroup"></select>
+                </div>
+                <div class="field">
+                  <label id="transferExpiryLabel">Expires In</label>
+                  <select id="transferExpiresHours">
+                    <option value="24">24 hours</option>
+                    <option value="72">72 hours</option>
+                    <option value="168">7 days</option>
+                  </select>
+                </div>
+              </div>
+              <div class="workgroup-card">
+                <div class="workgroup-card-title" id="transferFilterConfigTitle">Recent Filters</div>
+                <div class="field">
+                  <label id="transferFilterTypeLabel">View</label>
+                  <select id="transferFilterType">
+                    <option value="all">All Recent Transfers</option>
+                    <option value="project">Filter by Project</option>
+                    <option value="workgroup">Filter by Workgroup</option>
+                    <option value="device">Filter by Device</option>
+                  </select>
+                </div>
+                <div class="field hidden" id="transferFilterProjectField">
+                  <label id="transferFilterProjectLabel">Project</label>
+                  <select id="transferFilterProject"></select>
+                </div>
+                <div class="field hidden" id="transferFilterWorkgroupField">
+                  <label id="transferFilterWorkgroupLabel">Workgroup</label>
+                  <select id="transferFilterWorkgroup"></select>
+                </div>
+                <div class="field hidden" id="transferFilterDeviceField">
+                  <label id="transferFilterDeviceLabel">Device</label>
+                  <select id="transferFilterDevice"></select>
+                </div>
+                <div class="toggle-row">
+                  <div class="toggle-copy">
+                    <label id="transferReceiptsToggleLabel">Include Receipts</label>
+                    <div class="toggle-help" id="transferReceiptsToggleHint">Load delivery and open confirmations together with the recent transfer list.</div>
+                  </div>
+                  <label class="toggle">
+                    <input type="checkbox" id="transferIncludeReceipts" checked>
+                    <span class="slider"></span>
+                  </label>
+                </div>
+              </div>
+            </div>
             <div class="btn-row" style="margin-top: 14px;">
               <button class="btn-primary" id="messageSendFileBtn">Send File to Mobile</button>
               <button class="btn-secondary" id="messageRefreshTransfersBtn">Refresh Transfers</button>
@@ -1379,6 +1459,7 @@
     let latestConnectionSnapshot = null;
     let latestLocalDataMetrics = null;
     let latestRelayTransfers = [];
+    let latestRelayDevices = [];
     let latestProjectCatalog = [];
     let latestScheduledTasks = [];
     let scheduledTaskFilter = "all";
@@ -1420,6 +1501,9 @@
       transfersLoaded: false,
       transfersDirty: true,
       transfersPromise: null,
+      transferDevicesLoaded: false,
+      transferDevicesDirty: true,
+      transferDevicesPromise: null,
       projectsLoaded: false,
       projectsDirty: true,
       projectsPromise: null,
@@ -1581,6 +1665,155 @@
       );
     }
 
+    function setSelectOptions(selectId, options, selectedValue = "") {
+      const selectEl = document.getElementById(selectId);
+      if (!selectEl) {
+        return;
+      }
+      const markup = options.join("");
+      if (selectEl.dataset.optionMarkup !== markup) {
+        selectEl.dataset.optionMarkup = markup;
+        selectEl.innerHTML = markup;
+      }
+      const nextValue = String(selectedValue || "");
+      if (nextValue && Array.from(selectEl.options).some((option) => option.value === nextValue)) {
+        selectEl.value = nextValue;
+      } else if (!nextValue && selectEl.options.length > 0) {
+        selectEl.value = selectEl.options[0].value;
+      }
+    }
+
+    function resolveRelayDeviceLabel(deviceId) {
+      const device = latestRelayDevices.find((entry) => entry.id === deviceId);
+      if (!device) {
+        return deviceId || inlineText("Unknown device", "未知设备");
+      }
+      const note = String(device.note || "").trim();
+      return note ? `${note} (${device.id})` : device.id;
+    }
+
+    function resolveProjectLabel(projectId) {
+      const project = latestProjectCatalog.find((entry) => entry.id === projectId);
+      return project?.name || projectId || inlineText("Unknown project", "未知项目");
+    }
+
+    function resolveWorkgroupLabel(workgroupId) {
+      const workgroup = latestWorkgroups.find((entry) => entry.id === workgroupId);
+      return workgroup?.name || workgroupId || inlineText("Unknown workgroup", "未知协作组");
+    }
+
+    function renderTransferControlOptions() {
+      setSelectOptions("transferTargetType", [
+        `<option value="broadcast">${escapeHtml(inlineText("All Mobile Clients", "所有移动端"))}</option>`,
+        `<option value="device">${escapeHtml(inlineText("Specific Device", "指定设备"))}</option>`,
+        `<option value="project">${escapeHtml(inlineText("Specific Project", "指定项目"))}</option>`,
+        `<option value="workgroup">${escapeHtml(inlineText("Specific Workgroup", "指定协作组"))}</option>`,
+      ], document.getElementById("transferTargetType")?.value || "broadcast");
+      setSelectOptions("transferFilterType", [
+        `<option value="all">${escapeHtml(inlineText("All Recent Transfers", "全部最近记录"))}</option>`,
+        `<option value="project">${escapeHtml(inlineText("Filter by Project", "按项目筛选"))}</option>`,
+        `<option value="workgroup">${escapeHtml(inlineText("Filter by Workgroup", "按协作组筛选"))}</option>`,
+        `<option value="device">${escapeHtml(inlineText("Filter by Device", "按设备筛选"))}</option>`,
+      ], document.getElementById("transferFilterType")?.value || "all");
+      setSelectOptions("transferExpiresHours", [
+        `<option value="24">${escapeHtml(inlineText("24 hours", "24 小时"))}</option>`,
+        `<option value="72">${escapeHtml(inlineText("72 hours", "72 小时"))}</option>`,
+        `<option value="168">${escapeHtml(inlineText("7 days", "7 天"))}</option>`,
+      ], document.getElementById("transferExpiresHours")?.value || "24");
+
+      const projectOptions = [
+        `<option value="">${escapeHtml(inlineText("Choose a project", "选择项目"))}</option>`,
+        ...sortProjectsForWorkgroups(latestProjectCatalog).map((project) => (
+          `<option value="${escapeHtml(project.id)}">${escapeHtml(project.name)}</option>`
+        )),
+      ];
+      const workgroupOptions = [
+        `<option value="">${escapeHtml(inlineText("Choose a workgroup", "选择协作组"))}</option>`,
+        ...latestWorkgroups.map((workgroup) => (
+          `<option value="${escapeHtml(workgroup.id)}">${escapeHtml(workgroup.name)}</option>`
+        )),
+      ];
+      const deviceOptions = [
+        `<option value="">${escapeHtml(inlineText("Choose a device", "选择设备"))}</option>`,
+        ...latestRelayDevices.map((device) => (
+          `<option value="${escapeHtml(device.id)}">${escapeHtml(resolveRelayDeviceLabel(device.id))}</option>`
+        )),
+      ];
+
+      setSelectOptions("transferTargetProject", projectOptions, document.getElementById("transferTargetProject")?.value || "");
+      setSelectOptions("transferFilterProject", projectOptions, document.getElementById("transferFilterProject")?.value || "");
+      setSelectOptions("transferTargetWorkgroup", workgroupOptions, document.getElementById("transferTargetWorkgroup")?.value || "");
+      setSelectOptions("transferFilterWorkgroup", workgroupOptions, document.getElementById("transferFilterWorkgroup")?.value || "");
+      setSelectOptions("transferTargetDevice", deviceOptions, document.getElementById("transferTargetDevice")?.value || "");
+      setSelectOptions("transferFilterDevice", deviceOptions, document.getElementById("transferFilterDevice")?.value || "");
+      syncTransferTargetFields();
+      syncTransferFilterFields();
+    }
+
+    function syncTransferTargetFields() {
+      const targetType = document.getElementById("transferTargetType").value || "broadcast";
+      document.getElementById("transferTargetDeviceField").classList.toggle("hidden", targetType !== "device");
+      document.getElementById("transferTargetProjectField").classList.toggle("hidden", targetType !== "project");
+      document.getElementById("transferTargetWorkgroupField").classList.toggle("hidden", targetType !== "workgroup");
+    }
+
+    function syncTransferFilterFields() {
+      const filterType = document.getElementById("transferFilterType").value || "all";
+      document.getElementById("transferFilterProjectField").classList.toggle("hidden", filterType !== "project");
+      document.getElementById("transferFilterWorkgroupField").classList.toggle("hidden", filterType !== "workgroup");
+      document.getElementById("transferFilterDeviceField").classList.toggle("hidden", filterType !== "device");
+    }
+
+    function buildTransferScopeSummary(item) {
+      const targetType = String(item?.target_type || "").trim();
+      const targetId = String(item?.target_id || "").trim();
+      const parts = [];
+      if (!targetType) {
+        parts.push(inlineText("Visible to all mobile clients under the same account.", "同账号下的所有移动端均可见。"));
+      } else if (targetType === "device") {
+        parts.push(`${inlineText("Device", "设备")}: ${resolveRelayDeviceLabel(targetId)}`);
+      } else if (targetType === "project") {
+        parts.push(`${inlineText("Project", "项目")}: ${resolveProjectLabel(targetId)}`);
+      } else if (targetType === "workgroup") {
+        parts.push(`${inlineText("Workgroup", "协作组")}: ${resolveWorkgroupLabel(targetId)}`);
+      } else {
+        parts.push(`${inlineText("Target", "目标")}: ${targetType}${targetId ? ` ${targetId}` : ""}`);
+      }
+      if (item?.project_id && item.project_id !== targetId) {
+        parts.push(`${inlineText("Project scope", "项目范围")}: ${resolveProjectLabel(item.project_id)}`);
+      }
+      if (item?.workgroup_id && item.workgroup_id !== targetId) {
+        parts.push(`${inlineText("Workgroup scope", "协作组范围")}: ${resolveWorkgroupLabel(item.workgroup_id)}`);
+      }
+      if (item?.expires_at) {
+        parts.push(`${inlineText("Expires", "过期时间")}: ${formatDateTime(item.expires_at)}`);
+      }
+      return parts.join(" · ");
+    }
+
+    function buildTransferReceiptMarkup(item) {
+      if (!Array.isArray(item?.receipts) || item.receipts.length === 0) {
+        return `<div class="project-path">${escapeHtml(inlineText("No device receipts yet.", "暂时还没有设备回执。"))}</div>`;
+      }
+      const receiptItems = item.receipts.map((receipt) => {
+        const targetLabel = receipt.device_id
+          ? resolveRelayDeviceLabel(receipt.device_id)
+          : receipt.agent_id || inlineText("Unknown client", "未知客户端");
+        const note = String(receipt.note || "").trim();
+        return `
+          <div class="transfer-receipt-item">
+            <div class="project-meta-row">
+              <span class="scope-pill">${escapeHtml(receipt.status || inlineText("received", "已接收"))}</span>
+              <span class="project-provider-badge">${escapeHtml(receipt.client_type || inlineText("client", "客户端"))}</span>
+            </div>
+            <div class="project-path">${escapeHtml(`${targetLabel} · ${formatDateTime(receipt.created_at)}`)}</div>
+            ${note ? `<div class="project-path">${escapeHtml(note)}</div>` : ""}
+          </div>
+        `;
+      }).join("");
+      return `<div class="transfer-receipts">${receiptItems}</div>`;
+    }
+
     function renderTransferCenter() {
       setText("transferAttachmentValue", formatCount(latestLocalDataMetrics?.attachments?.fileCount || 0));
       setText(
@@ -1609,20 +1842,17 @@
       const transferMarkup = latestRelayTransfers.length === 0
         ? ""
         : latestRelayTransfers.map((item) => {
-            const receiptSummary = Array.isArray(item.receipts) && item.receipts.length > 0
-              ? `${inlineText("Receipts", "回执")}: ${item.receipts.map((receipt) => receipt.status).join(", ")}`
-              : inlineText("No device receipts yet.", "暂时还没有设备回执。");
-            const scopeSummary = [item.target_type ? `${inlineText("Target", "目标")}: ${item.target_type}` : "", item.target_id || ""].filter(Boolean).join(" ");
             return `
               <div class="project-item">
                 <div class="project-info">
                   <div class="project-name">${escapeHtml(item.file_name || "transfer")}</div>
                   <div class="project-path">${escapeHtml([formatFileSizeLabel(item.size_bytes), item.mime_type || "application/octet-stream", formatDateTime(item.created_at)].join(" · "))}</div>
-                  <div class="project-path">${escapeHtml(scopeSummary || inlineText("Visible to mobile clients under the same account.", "同账号下的移动端客户端均可见。"))}</div>
-                  <div class="project-path">${escapeHtml(receiptSummary)}</div>
+                  <div class="project-path">${escapeHtml(buildTransferScopeSummary(item))}</div>
+                  ${buildTransferReceiptMarkup(item)}
                 </div>
                 <div class="project-actions">
                   <span class="scope-pill">${escapeHtml(item.status || inlineText("available", "可用"))}</span>
+                  <span class="scope-pill">${escapeHtml(`${Array.isArray(item.receipts) ? item.receipts.length : 0} ${inlineText("receipts", "回执")}`)}</span>
                 </div>
               </div>
             `;
@@ -1679,6 +1909,66 @@
       }
     }
 
+    async function loadRelayDevices(options = {}) {
+      const force = options.force === true;
+      if (!force && paneLoadState.transferDevicesPromise) {
+        await paneLoadState.transferDevicesPromise;
+        return;
+      }
+      if (!force && paneLoadState.transferDevicesLoaded && !paneLoadState.transferDevicesDirty) {
+        renderTransferControlOptions();
+        renderTransferCenter();
+        return;
+      }
+      try {
+        paneLoadState.transferDevicesPromise = (async () => {
+          const result = await api.listRelayDevices();
+          if (!result?.success) {
+            throw new Error(result?.error || inlineText("Failed to load relay devices.", "加载 relay 设备失败。"));
+          }
+          latestRelayDevices = Array.isArray(result.items) ? result.items : [];
+          paneLoadState.transferDevicesLoaded = true;
+          paneLoadState.transferDevicesDirty = false;
+        })();
+        await paneLoadState.transferDevicesPromise;
+        renderTransferControlOptions();
+        renderTransferCenter();
+      } catch (error) {
+        console.error("Failed to load relay devices:", error);
+        if (force) {
+          showStatus(getErrorMessage(error), true);
+        }
+      } finally {
+        paneLoadState.transferDevicesPromise = null;
+      }
+    }
+
+    function buildRelayTransferQuery() {
+      const filterType = document.getElementById("transferFilterType").value || "all";
+      const query = {
+        limit: 12,
+        includeReceipts: document.getElementById("transferIncludeReceipts").checked !== false,
+      };
+      if (filterType === "project") {
+        const projectId = document.getElementById("transferFilterProject").value.trim();
+        if (projectId) {
+          query.projectId = projectId;
+        }
+      } else if (filterType === "workgroup") {
+        const workgroupId = document.getElementById("transferFilterWorkgroup").value.trim();
+        if (workgroupId) {
+          query.workgroupId = workgroupId;
+        }
+      } else if (filterType === "device") {
+        const deviceId = document.getElementById("transferFilterDevice").value.trim();
+        if (deviceId) {
+          query.targetType = "device";
+          query.targetId = deviceId;
+        }
+      }
+      return query;
+    }
+
     async function refreshRelayTransfers(options = {}) {
       const force = options.force === true;
       if (!force && paneLoadState.transfersPromise) {
@@ -1691,7 +1981,7 @@
       }
       try {
         paneLoadState.transfersPromise = (async () => {
-          const result = await api.listRelayTransfers(12);
+          const result = await api.listRelayTransfers(buildRelayTransferQuery());
           if (!result?.success) {
             throw new Error(result?.error || inlineText("Failed to load relay transfers.", "加载 relay 传输记录失败。"));
           }
@@ -1733,6 +2023,9 @@
       if (normalizedPane === "message") {
         await Promise.all([
           refreshLocalDataMetrics(),
+          loadProjects(),
+          loadWorkgroups(),
+          loadRelayDevices(),
           refreshRelayTransfers(),
         ]);
         return;
@@ -1970,16 +2263,33 @@
       document.getElementById("transferScopeDesktop").textContent = inlineText("Desktop sender ready", "桌面发送端已就绪");
       document.getElementById("transferScopeMobile").textContent = inlineText("Android / iOS receivers enabled", "Android / iOS 接收端已可用");
       document.getElementById("transferScopeMiniProgram").textContent = inlineText("Mini Program receiver planned", "小程序接收端已纳入规划");
+      document.getElementById("transferSendConfigTitle").textContent = inlineText("Send Scope", "发送范围");
+      document.getElementById("transferTargetTypeLabel").textContent = inlineText("Target", "目标");
+      document.getElementById("transferTargetDeviceLabel").textContent = inlineText("Device", "设备");
+      document.getElementById("transferTargetProjectLabel").textContent = inlineText("Project", "项目");
+      document.getElementById("transferTargetWorkgroupLabel").textContent = inlineText("Workgroup", "协作组");
+      document.getElementById("transferExpiryLabel").textContent = inlineText("Expires In", "过期时间");
+      document.getElementById("transferFilterConfigTitle").textContent = inlineText("Recent Filters", "最近记录筛选");
+      document.getElementById("transferFilterTypeLabel").textContent = inlineText("View", "查看范围");
+      document.getElementById("transferFilterProjectLabel").textContent = inlineText("Project", "项目");
+      document.getElementById("transferFilterWorkgroupLabel").textContent = inlineText("Workgroup", "协作组");
+      document.getElementById("transferFilterDeviceLabel").textContent = inlineText("Device", "设备");
+      document.getElementById("transferReceiptsToggleLabel").textContent = inlineText("Include Receipts", "包含回执");
+      document.getElementById("transferReceiptsToggleHint").textContent = inlineText(
+        "Load delivery and open confirmations together with the recent transfer list.",
+        "加载最近传输记录时，一并带上送达与打开回执。"
+      );
       document.getElementById("messageSendFileBtn").textContent = inlineText("Send File to Mobile", "发送文件到移动端");
       document.getElementById("messageRefreshTransfersBtn").textContent = inlineText("Refresh Transfers", "刷新传输记录");
       document.getElementById("messageOpenFilesBtn").textContent = inlineText("Open Data Folder", "打开数据目录");
       document.getElementById("messageUploadLogsBtn").textContent = inlineText("Upload Latest Logs", "上传最近日志");
       document.getElementById("messageOpenAdvancedBtn").textContent = inlineText("Open Advanced Settings", "打开高级设置");
       document.getElementById("transferRecentHint").textContent = inlineText(
-        "Recent relay transfers are shared with mobile clients that are logged into the same account.",
-        "最近的 relay 传输记录会同步给同账号下已登录的移动端客户端。"
+        "Recent relay transfers can now be scoped by device, project, or workgroup and show delivery receipts.",
+        "最近的 relay 传输记录现在支持按设备、项目或协作组定向，并显示送达回执。"
       );
       document.getElementById("transferList").setAttribute("data-empty-message", inlineText("No recent relay transfers.", "暂时还没有最近传输记录。"));
+      renderTransferControlOptions();
       document.getElementById("automationOverviewSection").textContent = inlineText("Automation Overview", "自动化总览");
       document.getElementById("automationOverviewHint").textContent = inlineText(
         "A lighter control layer for the scheduler while the full task editor remains in advanced settings.",
@@ -2917,6 +3227,7 @@
         await paneLoadState.projectsPromise;
         renderProjects();
         renderOverviewDashboard();
+        renderTransferControlOptions();
       } catch (error) {
         console.error("Failed to load projects:", error);
       } finally {
@@ -3331,6 +3642,7 @@
         renderWorkgroups();
         renderWorkgroupRegistryResults();
         renderOverviewDashboard();
+        renderTransferControlOptions();
         void loadCurrentWorkgroupRegistryMembers();
       } catch (error) {
         console.error("Failed to load workgroups:", error);
@@ -4333,17 +4645,74 @@
     document.getElementById("messageOpenFilesBtn").addEventListener("click", () => { document.getElementById("openLocalDataRootBtn").click(); });
     document.getElementById("messageUploadLogsBtn").addEventListener("click", () => { document.getElementById("uploadDesktopLogsBtn").click(); });
     document.getElementById("messageOpenAdvancedBtn").addEventListener("click", () => { setActiveSettingsPane("advanced"); });
+    document.getElementById("transferTargetType").addEventListener("change", () => {
+      syncTransferTargetFields();
+    });
+    document.getElementById("transferFilterType").addEventListener("change", async () => {
+      syncTransferFilterFields();
+      paneLoadState.transfersDirty = true;
+      await refreshRelayTransfers({ force: true });
+    });
+    document.getElementById("transferFilterProject").addEventListener("change", async () => {
+      paneLoadState.transfersDirty = true;
+      await refreshRelayTransfers({ force: true });
+    });
+    document.getElementById("transferFilterWorkgroup").addEventListener("change", async () => {
+      paneLoadState.transfersDirty = true;
+      await refreshRelayTransfers({ force: true });
+    });
+    document.getElementById("transferFilterDevice").addEventListener("change", async () => {
+      paneLoadState.transfersDirty = true;
+      await refreshRelayTransfers({ force: true });
+    });
+    document.getElementById("transferIncludeReceipts").addEventListener("change", async () => {
+      paneLoadState.transfersDirty = true;
+      await refreshRelayTransfers({ force: true });
+    });
     document.getElementById("messageRefreshTransfersBtn").addEventListener("click", async () => {
       paneLoadState.transfersDirty = true;
+      paneLoadState.transferDevicesDirty = true;
+      await loadRelayDevices({ force: true });
       await refreshRelayTransfers({ force: true });
     });
     document.getElementById("messageSendFileBtn").addEventListener("click", async () => {
       try {
-        const result = await api.createRelayTransfer();
+        const targetType = document.getElementById("transferTargetType").value || "broadcast";
+        const options = {
+          expiresInHours: Number(document.getElementById("transferExpiresHours").value || 24) || 24,
+        };
+        if (targetType === "device") {
+          const deviceId = document.getElementById("transferTargetDevice").value.trim();
+          if (!deviceId) {
+            showStatus(inlineText("Choose a target device first.", "请先选择目标设备。"), true);
+            return;
+          }
+          options.targetType = "device";
+          options.targetId = deviceId;
+        } else if (targetType === "project") {
+          const projectId = document.getElementById("transferTargetProject").value.trim();
+          if (!projectId) {
+            showStatus(inlineText("Choose a target project first.", "请先选择目标项目。"), true);
+            return;
+          }
+          options.targetType = "project";
+          options.targetId = projectId;
+          options.projectId = projectId;
+        } else if (targetType === "workgroup") {
+          const workgroupId = document.getElementById("transferTargetWorkgroup").value.trim();
+          if (!workgroupId) {
+            showStatus(inlineText("Choose a target workgroup first.", "请先选择目标协作组。"), true);
+            return;
+          }
+          options.targetType = "workgroup";
+          options.targetId = workgroupId;
+          options.workgroupId = workgroupId;
+        }
+        const result = await api.createRelayTransfer(options);
         if (result?.success) {
           paneLoadState.transfersDirty = true;
           await refreshRelayTransfers({ force: true });
-          showStatus(inlineText("File uploaded. Mobile clients can download it now.", "文件已上传，移动端现在可以下载了。"), false);
+          showStatus(inlineText("File uploaded. Target clients can download it now.", "文件已上传，目标客户端现在可以下载了。"), false);
           return;
         }
         if (result?.canceled) {

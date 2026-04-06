@@ -516,4 +516,7 @@
 - [x] Relay transfer flow is covered by end-to-end Go tests.
 - [x] Desktop transfer center now supports relay upload and recent transfer history in settings.
 - [x] Android settings now include a transfer center with refresh / download / open actions.
-- [ ] Next step: add richer transfer targeting, receipts, and workgroup / project scoped handoff.
+- [x] Relay transfer APIs now support scoped filters and signed-in device discovery for richer targeting.
+- [x] Desktop transfer center now supports device / project / workgroup targeting, scoped filters, and receipt details.
+- [x] Android transfer center now shows project / workgroup scope, expiry, and receipt details.
+- [ ] Next step: surface transfer actions directly inside project and workgroup conversation views instead of settings only.

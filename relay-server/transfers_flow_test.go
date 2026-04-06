@@ -87,6 +87,7 @@ func TestTransferUploadListDownloadAndReceipts(t *testing.T) {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/auth/login", handler.LoginHandler(database, cfg))
+	mux.HandleFunc("/api/devices", handler.ClientDevicesHandler(cfg, database))
 	mux.HandleFunc("/api/transfers", handler.TransfersHandler(cfg, database))
 	mux.HandleFunc("/api/transfers/", handler.TransfersHandler(cfg, database))
 
@@ -113,6 +114,16 @@ func TestTransferUploadListDownloadAndReceipts(t *testing.T) {
 	}, http.StatusOK, &aliceDevice)
 	if aliceDevice.Token == "" {
 		t.Fatal("expected alice device token")
+	}
+
+	var devices []struct {
+		ID      string `json:"id"`
+		AgentID string `json:"agent_id"`
+		Note    string `json:"note"`
+	}
+	doJSONWithBearer(t, http.DefaultClient, http.MethodGet, server.URL+"/api/devices", aliceAgent.Token, nil, http.StatusOK, &devices)
+	if len(devices) != 1 || devices[0].ID != "device-a" {
+		t.Fatalf("unexpected device list: %+v", devices)
 	}
 
 	var bobDevice deviceLoginResponse
@@ -200,6 +211,16 @@ func TestTransferUploadListDownloadAndReceipts(t *testing.T) {
 	doJSONWithBearer(t, http.DefaultClient, http.MethodPost, server.URL+"/api/transfers/"+created.ID+"/receipts", aliceDevice.Token, map[string]any{
 		"status": "opened",
 	}, http.StatusCreated, nil)
+
+	doJSONWithBearer(t, http.DefaultClient, http.MethodGet, server.URL+"/api/transfers?limit=10&project_id=project-remote-1&include_receipts=1", aliceAgent.Token, nil, http.StatusOK, &listed)
+	if len(listed) != 1 || len(listed[0].Receipts) != 2 {
+		t.Fatalf("expected filtered transfer list with receipts, got %+v", listed)
+	}
+
+	doJSONWithBearer(t, http.DefaultClient, http.MethodGet, server.URL+"/api/transfers?limit=10&workgroup_id=wg-missing", aliceAgent.Token, nil, http.StatusOK, &listed)
+	if len(listed) != 0 {
+		t.Fatalf("expected empty workgroup filtered list, got %+v", listed)
+	}
 
 	doJSONWithBearer(t, http.DefaultClient, http.MethodGet, server.URL+"/api/transfers/"+created.ID, aliceAgent.Token, nil, http.StatusOK, &detail)
 	if len(detail.Receipts) != 2 {

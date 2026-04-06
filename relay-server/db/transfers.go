@@ -46,6 +46,13 @@ type CreateTransferInput struct {
 	ExpiresAt      *time.Time
 }
 
+type TransferListFilter struct {
+	TargetType  string
+	TargetID    string
+	ProjectID   string
+	WorkgroupID string
+}
+
 type TransferReceipt struct {
 	ID         int64
 	TransferID string
@@ -147,12 +154,13 @@ func (db *DB) GetTransferByIDForUser(transferID string, userID int) (*Transfer, 
 	return scanTransfer(row)
 }
 
-func (db *DB) ListTransfersForUser(userID, limit int) ([]Transfer, error) {
+func (db *DB) ListTransfersForUser(userID, limit int, filter TransferListFilter) ([]Transfer, error) {
 	if limit <= 0 {
 		limit = 50
 	}
 
-	rows, err := db.Query(`
+	var query strings.Builder
+	query.WriteString(`
 		SELECT
 			id,
 			user_id,
@@ -173,9 +181,29 @@ func (db *DB) ListTransfersForUser(userID, limit int) ([]Transfer, error) {
 			expires_at
 		FROM transfers
 		WHERE user_id = ?
-		ORDER BY created_at DESC, id DESC
-		LIMIT ?
-	`, userID, limit)
+	`)
+
+	args := []interface{}{userID}
+	if value := strings.TrimSpace(filter.TargetType); value != "" {
+		query.WriteString(" AND target_type = ?")
+		args = append(args, value)
+	}
+	if value := strings.TrimSpace(filter.TargetID); value != "" {
+		query.WriteString(" AND target_id = ?")
+		args = append(args, value)
+	}
+	if value := strings.TrimSpace(filter.ProjectID); value != "" {
+		query.WriteString(" AND project_id = ?")
+		args = append(args, value)
+	}
+	if value := strings.TrimSpace(filter.WorkgroupID); value != "" {
+		query.WriteString(" AND workgroup_id = ?")
+		args = append(args, value)
+	}
+	query.WriteString(" ORDER BY created_at DESC, id DESC LIMIT ?")
+	args = append(args, limit)
+
+	rows, err := db.Query(query.String(), args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list transfers: %w", err)
 	}

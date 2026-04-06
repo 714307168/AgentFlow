@@ -74,7 +74,12 @@ interface RelayApi {
     @GET("api/transfers")
     suspend fun listTransfers(
         @Header("Authorization") auth: String,
-        @Query("limit") limit: Int = 20
+        @Query("limit") limit: Int = 20,
+        @Query("target_type") targetType: String? = null,
+        @Query("target_id") targetId: String? = null,
+        @Query("project_id") projectId: String? = null,
+        @Query("workgroup_id") workgroupId: String? = null,
+        @Query("include_receipts") includeReceipts: Boolean = false
     ): List<TransferRecordResponse>
 
     @GET("api/transfers/{id}")

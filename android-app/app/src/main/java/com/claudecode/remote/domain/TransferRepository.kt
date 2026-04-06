@@ -11,6 +11,15 @@ import com.claudecode.remote.data.remote.TransferRecordResponse
 import java.io.File
 import java.io.FileOutputStream
 
+data class TransferReceiptItem(
+    val clientType: String,
+    val agentId: String?,
+    val deviceId: String?,
+    val status: String,
+    val note: String?,
+    val createdAt: String
+)
+
 data class TransferCenterItem(
     val id: String,
     val fileName: String,
@@ -19,8 +28,14 @@ data class TransferCenterItem(
     val status: String,
     val createdAt: String,
     val senderType: String,
+    val senderAgentId: String?,
+    val senderDeviceId: String?,
     val targetType: String?,
     val targetId: String?,
+    val projectId: String?,
+    val workgroupId: String?,
+    val expiresAt: String?,
+    val receipts: List<TransferReceiptItem> = emptyList(),
     val localPath: String? = null,
     val localUri: String? = null,
     val downloaded: Boolean = false
@@ -37,7 +52,8 @@ class TransferRepository(
             val token = ensureToken()
             relayApiProvider().listTransfers(
                 auth = "Bearer $token",
-                limit = limit.coerceIn(1, 50)
+                limit = limit.coerceIn(1, 50),
+                includeReceipts = true
             ).map { it.toTransferCenterItem() }
         }
     }
@@ -108,8 +124,23 @@ class TransferRepository(
             status = status.ifBlank { "available" },
             createdAt = createdAt,
             senderType = senderType,
+            senderAgentId = senderAgentId,
+            senderDeviceId = senderDeviceId,
             targetType = targetType,
             targetId = targetId,
+            projectId = projectId,
+            workgroupId = workgroupId,
+            expiresAt = expiresAt,
+            receipts = receipts.map { receipt ->
+                TransferReceiptItem(
+                    clientType = receipt.clientType,
+                    agentId = receipt.agentId,
+                    deviceId = receipt.deviceId,
+                    status = receipt.status,
+                    note = receipt.note,
+                    createdAt = receipt.createdAt
+                )
+            },
             localPath = localFile.absolutePath,
             localUri = localUri,
             downloaded = downloaded

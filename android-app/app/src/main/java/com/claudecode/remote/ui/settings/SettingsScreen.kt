@@ -72,6 +72,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.claudecode.remote.R
 import com.claudecode.remote.domain.TransferCenterItem
+import com.claudecode.remote.domain.TransferReceiptItem
 import com.claudecode.remote.update.AppUpdateState
 import com.claudecode.remote.update.AppUpdateStatus
 import com.claudecode.remote.util.CrashLogFileInfo
@@ -657,19 +658,85 @@ private fun TransferCenterSection(
                             )
                             Text(
                                 text = buildString {
-                                    append(stringResource(R.string.settings_transfers_sender_label, item.senderType.ifBlank { "desktop" }))
+                                    append(
+                                        stringResource(
+                                            R.string.settings_transfers_sender_label,
+                                            formatTransferSender(item)
+                                        )
+                                    )
                                     if (!item.targetType.isNullOrBlank()) {
                                         append(" · ")
-                                        append(stringResource(R.string.settings_transfers_target_label, item.targetType))
-                                        if (!item.targetId.isNullOrBlank()) {
-                                            append(" ")
-                                            append(item.targetId)
-                                        }
+                                        append(
+                                            stringResource(
+                                                R.string.settings_transfers_target_label,
+                                                formatTransferTarget(context, item)
+                                            )
+                                        )
                                     }
                                 },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
+                            val scopeSummary = buildTransferScopeSummary(context, item)
+                            if (scopeSummary.isNotBlank()) {
+                                Text(
+                                    text = scopeSummary,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            if (item.receipts.isNotEmpty()) {
+                                Text(
+                                    text = stringResource(R.string.settings_transfers_receipts_title, item.receipts.size),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Column(
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    item.receipts.forEach { receipt ->
+                                        Surface(
+                                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f),
+                                            shape = RoundedCornerShape(12.dp),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Column(
+                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                                            ) {
+                                                Text(
+                                                    text = buildString {
+                                                        append(formatTransferReceiptTarget(context, receipt))
+                                                        append(" · ")
+                                                        append(receipt.status.ifBlank {
+                                                            context.getString(R.string.settings_transfers_receipt_unknown)
+                                                        })
+                                                    },
+                                                    style = MaterialTheme.typography.bodySmall
+                                                )
+                                                Text(
+                                                    text = formatTransferTimestamp(receipt.createdAt),
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                                if (!receipt.note.isNullOrBlank()) {
+                                                    Text(
+                                                        text = receipt.note,
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                Text(
+                                    text = stringResource(R.string.settings_transfers_receipts_empty),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -1257,6 +1324,62 @@ private fun formatTransferTimestamp(value: String): String {
         val instant = Instant.parse(value)
         formatTimestamp(instant.toEpochMilli())
     }.getOrDefault(value.ifBlank { "-" })
+}
+
+private fun formatTransferSender(item: TransferCenterItem): String {
+    val senderType = item.senderType.ifBlank { "desktop" }
+    return when {
+        !item.senderDeviceId.isNullOrBlank() -> "$senderType ${item.senderDeviceId}"
+        !item.senderAgentId.isNullOrBlank() -> "$senderType ${item.senderAgentId}"
+        else -> senderType
+    }
+}
+
+private fun formatTransferTarget(context: Context, item: TransferCenterItem): String {
+    val targetType = item.targetType?.takeIf { it.isNotBlank() }
+        ?: return context.getString(R.string.settings_transfers_target_all_mobile)
+    val targetId = item.targetId?.takeIf { it.isNotBlank() }
+    return when (targetType) {
+        "device" -> listOf(context.getString(R.string.settings_transfers_target_device), targetId).filterNotNull().joinToString(" ")
+        "project" -> listOf(context.getString(R.string.settings_transfers_target_project), targetId).filterNotNull().joinToString(" ")
+        "workgroup" -> listOf(context.getString(R.string.settings_transfers_target_workgroup), targetId).filterNotNull().joinToString(" ")
+        else -> listOf(targetType, targetId).filterNotNull().joinToString(" ")
+    }
+}
+
+private fun buildTransferScopeSummary(context: Context, item: TransferCenterItem): String {
+    val parts = mutableListOf<String>()
+    if (!item.projectId.isNullOrBlank()) {
+        parts += context.getString(R.string.settings_transfers_project_scope, item.projectId)
+    }
+    if (!item.workgroupId.isNullOrBlank()) {
+        parts += context.getString(R.string.settings_transfers_workgroup_scope, item.workgroupId)
+    }
+    if (!item.expiresAt.isNullOrBlank()) {
+        parts += context.getString(
+            R.string.settings_transfers_expires_at,
+            formatTransferTimestamp(item.expiresAt)
+        )
+    }
+    if (item.downloaded) {
+        parts += context.getString(R.string.settings_transfers_downloaded_flag)
+    }
+    return parts.joinToString(" · ")
+}
+
+private fun formatTransferReceiptTarget(context: Context, receipt: TransferReceiptItem): String {
+    return when {
+        !receipt.deviceId.isNullOrBlank() -> context.getString(
+            R.string.settings_transfers_receipt_device,
+            receipt.deviceId
+        )
+        !receipt.agentId.isNullOrBlank() -> context.getString(
+            R.string.settings_transfers_receipt_agent,
+            receipt.agentId
+        )
+        !receipt.clientType.isBlank() -> receipt.clientType
+        else -> context.getString(R.string.settings_transfers_receipt_unknown)
+    }
 }
 
 private fun openTransferFile(context: Context, item: TransferCenterItem): Result<Unit> {

@@ -130,7 +130,15 @@ func handleTransferList(w http.ResponseWriter, r *http.Request, session *clientS
 		limit = maxTransferListLimit
 	}
 
-	items, err := database.ListTransfersForUser(session.User.ID, limit)
+	filter := db.TransferListFilter{
+		TargetType:  strings.TrimSpace(r.URL.Query().Get("target_type")),
+		TargetID:    strings.TrimSpace(r.URL.Query().Get("target_id")),
+		ProjectID:   strings.TrimSpace(r.URL.Query().Get("project_id")),
+		WorkgroupID: strings.TrimSpace(r.URL.Query().Get("workgroup_id")),
+	}
+	includeReceipts := queryTruthy(r.URL.Query().Get("include_receipts"))
+
+	items, err := database.ListTransfersForUser(session.User.ID, limit, filter)
 	if err != nil {
 		http.Error(w, "failed to list transfers", http.StatusInternalServerError)
 		return
@@ -138,7 +146,15 @@ func handleTransferList(w http.ResponseWriter, r *http.Request, session *clientS
 
 	response := make([]transferResponse, 0, len(items))
 	for _, item := range items {
-		response = append(response, buildTransferResponse(r, item, nil))
+		var receipts []db.TransferReceipt
+		if includeReceipts {
+			receipts, err = database.ListTransferReceiptsForTransfer(item.ID, session.User.ID)
+			if err != nil {
+				http.Error(w, "failed to load transfer receipts", http.StatusInternalServerError)
+				return
+			}
+		}
+		response = append(response, buildTransferResponse(r, item, receipts))
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -428,6 +444,15 @@ func normalizeTransferReceiptStatus(value string) string {
 		return strings.ToLower(strings.TrimSpace(value))
 	default:
 		return ""
+	}
+}
+
+func queryTruthy(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
 	}
 }
 
