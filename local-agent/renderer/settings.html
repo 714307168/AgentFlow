@@ -1116,6 +1116,11 @@
               <button class="btn-secondary" id="messageUploadLogsBtn">Upload Latest Logs</button>
               <button class="btn-secondary" id="messageOpenAdvancedBtn">Open Advanced Settings</button>
             </div>
+            <div class="btn-row" style="margin-top: 10px;">
+              <button class="btn-secondary" id="messageClearAttachmentCacheBtn">Clear Attachment Cache</button>
+              <button class="btn-secondary" id="messageClearUpdateCacheBtn">Clear Update Cache</button>
+              <button class="btn-danger" id="messageClearTransferCacheBtn">Clear All Transfer Cache</button>
+            </div>
             <div class="section-subtitle" id="transferDevicesHint" style="margin-top: 14px;">Known mobile receivers and their latest relay presence.</div>
             <div class="project-list" id="transferDeviceList" data-empty-message="No mobile devices registered yet."></div>
             <div class="section-subtitle" id="transferRecentHint" style="margin-top: 14px;">Recent relay transfers are shared with mobile clients that are logged into the same account.</div>
@@ -2027,6 +2032,46 @@
       }
     }
 
+    async function clearTransferCache(target, buttonId) {
+      const button = document.getElementById(buttonId);
+      if (!button) {
+        return;
+      }
+      button.disabled = true;
+      try {
+        const result = await api.clearLocalDataSegment(target);
+        if (!result?.success) {
+          showStatus(result?.error || inlineText("Failed to clear local transfer cache.", "清理本地传输缓存失败。"), true);
+          return;
+        }
+        latestLocalDataMetrics = result.metrics || latestLocalDataMetrics;
+        paneLoadState.localDataLoaded = true;
+        paneLoadState.localDataDirty = false;
+        renderOverviewDashboard();
+        renderTransferCenter();
+        flashSaved();
+        const labels = {
+          attachments: inlineText("attachment cache", "附件缓存"),
+          updates: inlineText("update cache", "更新包缓存"),
+          all: inlineText("transfer cache", "传输缓存"),
+        };
+        const clearedLabel = Array.isArray(result.clearedTargets) && result.clearedTargets.length > 1
+          ? labels.all
+          : labels[target] || labels.all;
+        showStatus(
+          inlineText(
+            `Cleared ${clearedLabel}; removed ${result.removedEntries || 0} top-level entr${(result.removedEntries || 0) === 1 ? "y" : "ies"}.`,
+            `已清理${clearedLabel}，移除 ${result.removedEntries || 0} 个顶层条目。`
+          ),
+          false
+        );
+      } catch (error) {
+        showStatus(getErrorMessage(error), true);
+      } finally {
+        button.disabled = false;
+      }
+    }
+
     async function loadRelayDevices(options = {}) {
       const force = options.force === true;
       if (!force && paneLoadState.transferDevicesPromise) {
@@ -2402,6 +2447,9 @@
       document.getElementById("messageOpenFilesBtn").textContent = inlineText("Open Data Folder", "打开数据目录");
       document.getElementById("messageUploadLogsBtn").textContent = inlineText("Upload Latest Logs", "上传最近日志");
       document.getElementById("messageOpenAdvancedBtn").textContent = inlineText("Open Advanced Settings", "打开高级设置");
+      document.getElementById("messageClearAttachmentCacheBtn").textContent = inlineText("Clear Attachment Cache", "清理附件缓存");
+      document.getElementById("messageClearUpdateCacheBtn").textContent = inlineText("Clear Update Cache", "清理更新包缓存");
+      document.getElementById("messageClearTransferCacheBtn").textContent = inlineText("Clear All Transfer Cache", "清理全部传输缓存");
       document.getElementById("transferDevicesHint").textContent = inlineText(
         "Known mobile receivers and their latest relay presence.",
         "已登记的移动端接收器及其最近一次 relay 在线状态。"
@@ -4845,6 +4893,15 @@
     document.getElementById("messageOpenFilesBtn").addEventListener("click", () => { document.getElementById("openLocalDataRootBtn").click(); });
     document.getElementById("messageUploadLogsBtn").addEventListener("click", () => { document.getElementById("uploadDesktopLogsBtn").click(); });
     document.getElementById("messageOpenAdvancedBtn").addEventListener("click", () => { setActiveSettingsPane("advanced"); });
+    document.getElementById("messageClearAttachmentCacheBtn").addEventListener("click", async () => {
+      await clearTransferCache("attachments", "messageClearAttachmentCacheBtn");
+    });
+    document.getElementById("messageClearUpdateCacheBtn").addEventListener("click", async () => {
+      await clearTransferCache("updates", "messageClearUpdateCacheBtn");
+    });
+    document.getElementById("messageClearTransferCacheBtn").addEventListener("click", async () => {
+      await clearTransferCache("all", "messageClearTransferCacheBtn");
+    });
     document.getElementById("transferTargetType").addEventListener("change", () => {
       syncTransferTargetFields();
     });

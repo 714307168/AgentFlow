@@ -165,6 +165,7 @@ contextBridge.exposeInMainWorld('claudeAgent', {
   },
   getAppSettings: () => ipcRenderer.invoke('get-app-settings'),
   getLocalDataMetrics: () => ipcRenderer.invoke('get-local-data-metrics'),
+  clearLocalDataSegment: (target: 'attachments' | 'updates' | 'all') => ipcRenderer.invoke('clear-local-data-segment', target),
   listRelayTransfers: (options?: number | {
     limit?: number;
     targetType?: string | null;

@@ -577,6 +577,70 @@ function summarizeDirectoryTree(targetPath: string): { fileCount: number; totalB
   return { fileCount, totalBytes };
 }
 
+type LocalDataCleanupTarget = "attachments" | "updates" | "all";
+
+const LOCAL_DATA_CLEANUP_DIRECTORIES: Record<Exclude<LocalDataCleanupTarget, "all">, string> = {
+  attachments: "runtime-attachments",
+  updates: "updates",
+};
+
+function isNestedPath(parentPath: string, candidatePath: string): boolean {
+  const relativePath = path.relative(parentPath, candidatePath);
+  return relativePath.length > 0 && !relativePath.startsWith("..") && !path.isAbsolute(relativePath);
+}
+
+function clearDirectoryContents(targetPath: string): { removedEntries: number } {
+  fs.mkdirSync(targetPath, { recursive: true });
+  const entries = fs.readdirSync(targetPath, { withFileTypes: true });
+  let removedEntries = 0;
+
+  for (const entry of entries) {
+    fs.rmSync(path.join(targetPath, entry.name), { recursive: true, force: true });
+    removedEntries += 1;
+  }
+
+  return { removedEntries };
+}
+
+function clearLocalDataCleanupTarget(target: LocalDataCleanupTarget | string): {
+  target: LocalDataCleanupTarget;
+  clearedTargets: Array<Exclude<LocalDataCleanupTarget, "all">>;
+  removedEntries: number;
+  metrics: ReturnType<typeof buildLocalDataMetrics>;
+} {
+  if (target !== "attachments" && target !== "updates" && target !== "all") {
+    throw new Error(`Unsupported local data cleanup target: ${target}`);
+  }
+  const localDataRoot = getPersistedLocalDataRoot();
+  const clearedTargets = (target === "all"
+    ? Object.keys(LOCAL_DATA_CLEANUP_DIRECTORIES)
+    : [target]) as Array<Exclude<LocalDataCleanupTarget, "all">>;
+  let removedEntries = 0;
+
+  for (const currentTarget of clearedTargets) {
+    const absoluteTargetPath = path.resolve(localDataRoot, LOCAL_DATA_CLEANUP_DIRECTORIES[currentTarget]);
+    if (!isNestedPath(localDataRoot, absoluteTargetPath)) {
+      throw new Error(`Refused to clear path outside local data root: ${absoluteTargetPath}`);
+    }
+    removedEntries += clearDirectoryContents(absoluteTargetPath).removedEntries;
+  }
+
+  const metrics = buildLocalDataMetrics();
+  appLogger.info("settings", "Cleared local transfer cache.", {
+    target,
+    clearedTargets,
+    removedEntries,
+    localDataRoot,
+  });
+
+  return {
+    target,
+    clearedTargets,
+    removedEntries,
+    metrics,
+  };
+}
+
 function buildLocalDataMetrics(): {
   localDataRoot: string;
   logDirectory: string;
@@ -4565,6 +4629,13 @@ ipcMain.handle("get-app-settings", () => {
 
 ipcMain.handle("get-local-data-metrics", () => {
   return buildLocalDataMetrics();
+});
+
+ipcMain.handle("clear-local-data-segment", (_event, target: LocalDataCleanupTarget) => {
+  return {
+    success: true,
+    ...clearLocalDataCleanupTarget(target),
+  };
 });
 
 ipcMain.handle("list-relay-transfers", async (_event, options?: number | RelayTransferListOptions) => {

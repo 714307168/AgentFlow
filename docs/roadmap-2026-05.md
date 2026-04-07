@@ -525,3 +525,7 @@
 - [x] Desktop local agent, desktop WebSocket, Android Retrofit, Android WebSocket, and Android update downloads now all send a shared relay API version header set.
 - [x] Relay `/api/devices` now exposes unified mobile presence state plus `last_active_at` / `last_seen_at` timestamps.
 - [x] Desktop transfer center now renders mobile receiver presence and uses presence-aware device labels for targeting.
+
+## Progress Update 2026-04-08
+
+- [x] Desktop transfer center now supports one-click cleanup for attachment cache, update cache, or all transfer cache, and refreshes storage metrics immediately after cleanup.
