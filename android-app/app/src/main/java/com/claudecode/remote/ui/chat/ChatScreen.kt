@@ -155,6 +155,7 @@ fun ChatScreen(
     var showConversationDialog by remember { mutableStateOf(false) }
     var modelInput by remember { mutableStateOf("") }
     var hasInitialConversationScrollPosition by remember(projectId) { mutableStateOf(false) }
+    var pendingConversationBottomScroll by remember(projectId) { mutableStateOf(true) }
     var previousLastMessageId by remember(projectId) { mutableStateOf<String?>(null) }
     var previousMessageCount by remember(projectId) { mutableStateOf(0) }
     var hasInitialActivityScrollPosition by remember(projectId) { mutableStateOf(false) }
@@ -180,6 +181,13 @@ fun ChatScreen(
             viewModel.loadProject(projectId, projectName, agentId)
             transferRefreshToken += 1
         }
+    }
+
+    LaunchedEffect(projectId, uiState.activeConversationId) {
+        hasInitialConversationScrollPosition = false
+        pendingConversationBottomScroll = true
+        previousLastMessageId = null
+        previousMessageCount = 0
     }
 
     LaunchedEffect(projectId, transferRefreshToken) {
@@ -284,6 +292,11 @@ fun ChatScreen(
             uiState.messages.size > previousMessageCount || lastMessage?.id != previousLastMessageId
 
         when {
+            pendingConversationBottomScroll && selectedPane == ChatPane.CONVERSATION -> {
+                conversationListState.scrollToItemBottom(lastIndex)
+                hasInitialConversationScrollPosition = true
+                pendingConversationBottomScroll = false
+            }
             !hasInitialConversationScrollPosition && selectedPane == ChatPane.CONVERSATION -> {
                 conversationListState.scrollToItemBottom(lastIndex)
                 hasInitialConversationScrollPosition = true
