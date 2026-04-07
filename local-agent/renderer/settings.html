@@ -2697,13 +2697,57 @@
       return sortProjectsForWorkgroups(latestProjectCatalog).filter((project) => !project?.isRemote);
     }
 
+    function captureScheduledTaskDraft() {
+      const projectSelect = document.getElementById("scheduledTaskProject");
+      const nameInput = document.getElementById("scheduledTaskName");
+      const typeSelect = document.getElementById("scheduledTaskType");
+      const runAtInput = document.getElementById("scheduledTaskRunAt");
+      const delayInput = document.getElementById("scheduledTaskDelayMinutes");
+      const dailyTimeInput = document.getElementById("scheduledTaskDailyTime");
+      const weeklyDaySelect = document.getElementById("scheduledTaskWeeklyDay");
+      const promptInput = document.getElementById("scheduledTaskPrompt");
+      const maxRetriesInput = document.getElementById("scheduledTaskMaxRetries");
+      const retryDelayInput = document.getElementById("scheduledTaskRetryDelayMinutes");
+      const enabledCheckbox = document.getElementById("scheduledTaskEnabled");
+      if (
+        !projectSelect
+        || !nameInput
+        || !typeSelect
+        || !runAtInput
+        || !delayInput
+        || !dailyTimeInput
+        || !weeklyDaySelect
+        || !promptInput
+        || !maxRetriesInput
+        || !retryDelayInput
+        || !enabledCheckbox
+      ) {
+        return null;
+      }
+      return {
+        projectId: projectSelect.value || "",
+        name: nameInput.value || "",
+        scheduleType: typeSelect.value || "once",
+        runAt: runAtInput.value || "",
+        delayMinutes: delayInput.value || "",
+        dailyTime: dailyTimeInput.value || "",
+        weeklyDay: weeklyDaySelect.value || "1",
+        prompt: promptInput.value || "",
+        maxRetries: maxRetriesInput.value || "",
+        retryDelayMinutes: retryDelayInput.value || "",
+        enabled: enabledCheckbox.checked,
+      };
+    }
+
     function renderScheduledTaskProjectOptions(selectedProjectId = "", fallbackLabel = "") {
       const selectEl = document.getElementById("scheduledTaskProject");
-      const selectedId = String(selectedProjectId || "");
+      const selectedId = String(selectedProjectId || "").trim();
+      const currentValue = String(selectEl.value || "").trim();
+      const effectiveSelectedId = selectedId || currentValue;
       const projects = getLocalProjectsForScheduledTasks();
       if (!projects.length) {
-        const markup = selectedId
-          ? `<option value="${escapeHtml(selectedId)}" selected>${escapeHtml(fallbackLabel || selectedId)}</option>`
+        const markup = effectiveSelectedId
+          ? `<option value="${escapeHtml(effectiveSelectedId)}" selected>${escapeHtml(fallbackLabel || effectiveSelectedId)}</option>`
           : `<option value="">${escapeHtml(inlineText("No local projects yet", "还没有本地项目"))}</option>`;
         if (renderSignatures.scheduledTaskProjects !== markup) {
           renderSignatures.scheduledTaskProjects = markup;
@@ -2715,17 +2759,19 @@
 
       selectEl.disabled = false;
       const options = projects.map((project) => (
-        `<option value="${escapeHtml(project.id)}"${project.id === selectedId ? " selected" : ""}>${escapeHtml(project.name)}</option>`
+        `<option value="${escapeHtml(project.id)}"${project.id === effectiveSelectedId ? " selected" : ""}>${escapeHtml(project.name)}</option>`
       ));
-      if (selectedId && !projects.some((project) => project.id === selectedId)) {
-        options.push(`<option value="${escapeHtml(selectedId)}" selected>${escapeHtml(fallbackLabel || selectedId)}</option>`);
+      if (effectiveSelectedId && !projects.some((project) => project.id === effectiveSelectedId)) {
+        options.push(`<option value="${escapeHtml(effectiveSelectedId)}" selected>${escapeHtml(fallbackLabel || effectiveSelectedId)}</option>`);
       }
       const markup = options.join("");
       if (renderSignatures.scheduledTaskProjects !== markup) {
         renderSignatures.scheduledTaskProjects = markup;
         selectEl.innerHTML = markup;
       }
-      if (!selectedId && projects[0]) {
+      if (effectiveSelectedId) {
+        selectEl.value = effectiveSelectedId;
+      } else if (projects[0]) {
         selectEl.value = projects[0].id;
       }
     }
@@ -2847,26 +2893,37 @@
       return inlineText(`One time at ${formatDateTimeLabel(task?.runAt)}`, `单次 ${formatDateTimeLabel(task?.runAt)}`);
     }
 
-    function resetScheduledTaskForm(task) {
+    function resetScheduledTaskForm(task, options = {}) {
+      const draft = !task && editingScheduledTaskId === null && options.preserveDraft !== false
+        ? (options.draft || captureScheduledTaskDraft())
+        : null;
       editingScheduledTaskId = task?.id || null;
       renderScheduledTaskProjectOptions(
-        task?.projectId || "",
+        task?.projectId || draft?.projectId || "",
         task?.projectName || inlineText("Missing project", "项目不存在")
       );
-      document.getElementById("scheduledTaskName").value = task?.name || "";
-      document.getElementById("scheduledTaskType").value = task?.scheduleType || "once";
+      document.getElementById("scheduledTaskName").value = task?.name || draft?.name || "";
+      document.getElementById("scheduledTaskType").value = task?.scheduleType || draft?.scheduleType || "once";
       document.getElementById("scheduledTaskRunAt").value = formatLocalDateTimeInput(
-        task?.runAt || (Date.now() + 30 * 60 * 1000)
+        task?.runAt || Date.parse(String(draft?.runAt || "")) || (Date.now() + 30 * 60 * 1000)
       );
-      document.getElementById("scheduledTaskDelayMinutes").value = String(Number(task?.delayMinutes || 30));
-      document.getElementById("scheduledTaskDailyTime").value = task?.dailyTime || "09:00";
+      document.getElementById("scheduledTaskDelayMinutes").value = task
+        ? String(Number(task?.delayMinutes || 30))
+        : String(draft?.delayMinutes || 30);
+      document.getElementById("scheduledTaskDailyTime").value = task?.dailyTime || draft?.dailyTime || "09:00";
       document.getElementById("scheduledTaskWeeklyDay").value = String(
-        Number.isInteger(Number(task?.weeklyDay)) ? Number(task?.weeklyDay) : 1
+        Number.isInteger(Number(task?.weeklyDay))
+          ? Number(task?.weeklyDay)
+          : (Number.isInteger(Number(draft?.weeklyDay)) ? Number(draft?.weeklyDay) : 1)
       );
-      document.getElementById("scheduledTaskPrompt").value = task?.prompt || "";
-      document.getElementById("scheduledTaskMaxRetries").value = String(Number(task?.maxRetries || 0));
-      document.getElementById("scheduledTaskRetryDelayMinutes").value = String(Number(task?.retryDelayMinutes || 5));
-      document.getElementById("scheduledTaskEnabled").checked = task ? task.enabled !== false : true;
+      document.getElementById("scheduledTaskPrompt").value = task?.prompt || draft?.prompt || "";
+      document.getElementById("scheduledTaskMaxRetries").value = task
+        ? String(Number(task?.maxRetries || 0))
+        : String(Number(draft?.maxRetries || 0));
+      document.getElementById("scheduledTaskRetryDelayMinutes").value = task
+        ? String(Number(task?.retryDelayMinutes || 5))
+        : String(Number(draft?.retryDelayMinutes || 5));
+      document.getElementById("scheduledTaskEnabled").checked = task ? task.enabled !== false : (draft ? draft.enabled !== false : true);
       syncScheduledTaskTypeFields();
       document.getElementById("saveScheduledTaskBtn").disabled = document.getElementById("scheduledTaskProject").disabled;
     }
@@ -3011,6 +3068,7 @@
 
     async function loadScheduledTasks(options = {}) {
       const force = options.force === true;
+      const draft = !editingScheduledTaskId ? captureScheduledTaskDraft() : null;
       if (!force && paneLoadState.scheduledTasksPromise) {
         await paneLoadState.scheduledTasksPromise;
         if (paneLoadState.scheduledTasksLoaded) {
@@ -3041,7 +3099,7 @@
         renderOverviewDashboard();
         renderAutomationOverview();
         const editingTask = latestScheduledTasks.find((task) => task.id === editingScheduledTaskId) || null;
-        resetScheduledTaskForm(editingTask);
+        resetScheduledTaskForm(editingTask, { draft });
       } catch (error) {
         console.error("Failed to load scheduled tasks:", error);
       } finally {
@@ -4752,6 +4810,7 @@
 
     if (typeof api.onScheduledTasksChanged === "function") {
       api.onScheduledTasksChanged((tasks) => {
+        const draft = !editingScheduledTaskId ? captureScheduledTaskDraft() : null;
         latestScheduledTasks = Array.isArray(tasks) ? tasks : [];
         paneLoadState.scheduledTasksLoaded = true;
         paneLoadState.scheduledTasksDirty = false;
@@ -4759,7 +4818,7 @@
         renderOverviewDashboard();
         renderAutomationOverview();
         const editingTask = latestScheduledTasks.find((task) => task.id === editingScheduledTaskId) || null;
-        resetScheduledTaskForm(editingTask);
+        resetScheduledTaskForm(editingTask, { draft });
       });
     }
 

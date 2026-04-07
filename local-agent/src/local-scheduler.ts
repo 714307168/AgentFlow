@@ -220,6 +220,10 @@ class LocalScheduler {
 
     try {
       const result = await this.config.executeTask(latestTask, { runId });
+      if (!result.success) {
+        this.handleTaskFailure(task.id, latestTask, trigger, runId, result.message);
+        return;
+      }
       const completedAt = Date.now();
       const persisted = scheduledTaskStore.getTaskById(task.id) ?? latestTask;
       const nextRunAt = computeScheduledTaskNextRunAt({
@@ -259,69 +263,81 @@ class LocalScheduler {
         taskId: persisted.id,
         projectId: persisted.projectId,
         trigger,
-        success: result.success,
+        success: true,
         nextRunAt,
         disabled: shouldDisable,
       });
     } catch (error) {
-      const completedAt = Date.now();
-      const persisted = scheduledTaskStore.getTaskById(task.id) ?? latestTask;
-      const baseNextRunAt = computeScheduledTaskNextRunAt({
-        scheduleType: persisted.scheduleType,
-        enabled: persisted.enabled,
-        runAt: persisted.runAt,
-        delayMinutes: persisted.delayMinutes,
-        delayStartAt: persisted.delayStartAt,
-        dailyTime: persisted.dailyTime,
-        weeklyDay: persisted.weeklyDay,
-        lastRunAt: completedAt,
-      }, completedAt);
-      const nextRetryCount = (persisted.retryCount ?? 0) + 1;
-      const maxRetries = Math.max(0, persisted.maxRetries ?? 0);
-      const retryDelayMinutes = Math.max(1, persisted.retryDelayMinutes ?? 5);
-      const shouldRetry = nextRetryCount <= maxRetries;
-      const retryRunAt = shouldRetry ? completedAt + retryDelayMinutes * 60 * 1000 : null;
-      const nextRunAt = retryRunAt ?? baseNextRunAt;
-      const shouldDisable = (persisted.scheduleType === "once" || persisted.scheduleType === "delay")
-        && nextRunAt === null;
       const message = error instanceof Error ? error.message : String(error);
-
-      scheduledTaskStore.saveTask({
-        ...persisted,
-        enabled: shouldDisable ? false : persisted.enabled,
-        activeRunId: null,
-        lastRunAt: completedAt,
-        lastRunStatus: "error",
-        lastError: shouldRetry ? `${message} Retrying automatically.` : message,
-        retryCount: shouldRetry ? nextRetryCount : 0,
-        nextRunAt,
-      });
-      scheduledTaskStore.appendEvent(persisted.id, {
-        runId,
-        level: "error",
-        message: shouldRetry ? `${message} Retrying automatically.` : message,
-        meta: {
-          trigger,
-          retryCount: shouldRetry ? nextRetryCount : 0,
-          maxRetries,
-          retryRunAt,
-          nextRunAt,
-          scheduleType: persisted.scheduleType,
-        },
-      });
-      appLogger.warn("scheduler", "Scheduled task failed.", {
-        taskId: persisted.id,
-        projectId: persisted.projectId,
-        trigger,
-        error: message,
-        retryCount: shouldRetry ? nextRetryCount : 0,
-        maxRetries,
-        retryRunAt,
-      });
+      this.handleTaskFailure(task.id, latestTask, trigger, runId, message);
     } finally {
       this.inFlightTaskIds.delete(task.id);
       this.config.onTasksChanged?.();
     }
+  }
+
+  private handleTaskFailure(
+    taskId: string,
+    fallbackTask: ScheduledTask,
+    trigger: "scheduled" | "manual",
+    runId: string,
+    failureMessage?: string | null,
+  ): void {
+    const completedAt = Date.now();
+    const persisted = scheduledTaskStore.getTaskById(taskId) ?? fallbackTask;
+    const baseNextRunAt = computeScheduledTaskNextRunAt({
+      scheduleType: persisted.scheduleType,
+      enabled: persisted.enabled,
+      runAt: persisted.runAt,
+      delayMinutes: persisted.delayMinutes,
+      delayStartAt: persisted.delayStartAt,
+      dailyTime: persisted.dailyTime,
+      weeklyDay: persisted.weeklyDay,
+      lastRunAt: completedAt,
+    }, completedAt);
+    const nextRetryCount = (persisted.retryCount ?? 0) + 1;
+    const maxRetries = Math.max(0, persisted.maxRetries ?? 0);
+    const retryDelayMinutes = Math.max(1, persisted.retryDelayMinutes ?? 5);
+    const shouldRetry = nextRetryCount <= maxRetries;
+    const retryRunAt = shouldRetry ? completedAt + retryDelayMinutes * 60 * 1000 : null;
+    const nextRunAt = retryRunAt ?? baseNextRunAt;
+    const shouldDisable = (persisted.scheduleType === "once" || persisted.scheduleType === "delay")
+      && nextRunAt === null;
+    const normalizedMessage = String(failureMessage ?? "").trim() || "Scheduled task failed.";
+    const finalMessage = shouldRetry ? `${normalizedMessage} Retrying automatically.` : normalizedMessage;
+
+    scheduledTaskStore.saveTask({
+      ...persisted,
+      enabled: shouldDisable ? false : persisted.enabled,
+      activeRunId: null,
+      lastRunAt: completedAt,
+      lastRunStatus: "error",
+      lastError: finalMessage,
+      retryCount: shouldRetry ? nextRetryCount : 0,
+      nextRunAt,
+    });
+    scheduledTaskStore.appendEvent(persisted.id, {
+      runId,
+      level: "error",
+      message: finalMessage,
+      meta: {
+        trigger,
+        retryCount: shouldRetry ? nextRetryCount : 0,
+        maxRetries,
+        retryRunAt,
+        nextRunAt,
+        scheduleType: persisted.scheduleType,
+      },
+    });
+    appLogger.warn("scheduler", "Scheduled task failed.", {
+      taskId: persisted.id,
+      projectId: persisted.projectId,
+      trigger,
+      error: normalizedMessage,
+      retryCount: shouldRetry ? nextRetryCount : 0,
+      maxRetries,
+      retryRunAt,
+    });
   }
 }
 
