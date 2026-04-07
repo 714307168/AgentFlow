@@ -1,7 +1,7 @@
 import Store from "electron-store";
 import { v4 as uuidv4 } from "uuid";
 
-export type ScheduledTaskScheduleType = "once" | "delay" | "daily" | "weekly";
+export type ScheduledTaskScheduleType = "once" | "delay" | "interval" | "daily" | "weekly";
 export type ScheduledTaskLastStatus = "idle" | "queued" | "running" | "success" | "error";
 export type ScheduledTaskEventLevel = "info" | "error";
 
@@ -23,6 +23,8 @@ export interface ScheduledTask {
   runAt?: number | null;
   delayMinutes?: number | null;
   delayStartAt?: number | null;
+  intervalHours?: number | null;
+  intervalStartAt?: number | null;
   dailyTime?: string | null;
   weeklyDay?: number | null;
   enabled: boolean;
@@ -59,7 +61,7 @@ function normalizeTimestamp(value: number | null | undefined): number | null {
 }
 
 function normalizeScheduleType(value: string | null | undefined): ScheduledTaskScheduleType {
-  if (value === "delay" || value === "daily" || value === "weekly") {
+  if (value === "delay" || value === "interval" || value === "daily" || value === "weekly") {
     return value;
   }
   return "once";
@@ -152,7 +154,7 @@ function normalizeTaskEvents(events: ScheduledTaskEvent[] | null | undefined): S
 }
 
 export function computeScheduledTaskNextRunAt(
-  task: Pick<ScheduledTask, "scheduleType" | "enabled" | "runAt" | "delayMinutes" | "delayStartAt" | "dailyTime" | "weeklyDay" | "lastRunAt">,
+  task: Pick<ScheduledTask, "scheduleType" | "enabled" | "runAt" | "delayMinutes" | "delayStartAt" | "intervalHours" | "intervalStartAt" | "dailyTime" | "weeklyDay" | "lastRunAt">,
   now = Date.now(),
 ): number | null {
   if (!task.enabled) {
@@ -183,6 +185,18 @@ export function computeScheduledTaskNextRunAt(
       return null;
     }
     return runAt;
+  }
+
+  if (scheduleType === "interval") {
+    const intervalHours = normalizePositiveInteger(task.intervalHours);
+    const intervalStartAt = normalizeTimestamp(task.intervalStartAt);
+    if (!intervalHours || !intervalStartAt) {
+      return null;
+    }
+    if (lastRunAt !== null) {
+      return lastRunAt + intervalHours * 60 * 60 * 1000;
+    }
+    return intervalStartAt + intervalHours * 60 * 60 * 1000;
   }
 
   const dailyTime = normalizeDailyTime(task.dailyTime);
@@ -238,6 +252,8 @@ class ScheduledTaskStore {
         runAt: normalizeTimestamp(task.runAt),
         delayMinutes: normalizePositiveInteger(task.delayMinutes),
         delayStartAt: normalizeTimestamp(task.delayStartAt),
+        intervalHours: normalizePositiveInteger(task.intervalHours),
+        intervalStartAt: normalizeTimestamp(task.intervalStartAt),
         dailyTime: normalizeDailyTime(task.dailyTime),
         weeklyDay: normalizeWeeklyDay(task.weeklyDay),
         enabled: Boolean(task.enabled),
@@ -289,6 +305,8 @@ class ScheduledTaskStore {
       runAt: input.runAt !== undefined ? normalizeTimestamp(input.runAt) : (existing?.runAt ?? null),
       delayMinutes: input.delayMinutes !== undefined ? normalizePositiveInteger(input.delayMinutes) : (existing?.delayMinutes ?? null),
       delayStartAt: input.delayStartAt !== undefined ? normalizeTimestamp(input.delayStartAt) : (existing?.delayStartAt ?? null),
+      intervalHours: input.intervalHours !== undefined ? normalizePositiveInteger(input.intervalHours) : (existing?.intervalHours ?? null),
+      intervalStartAt: input.intervalStartAt !== undefined ? normalizeTimestamp(input.intervalStartAt) : (existing?.intervalStartAt ?? null),
       dailyTime: input.dailyTime !== undefined ? normalizeDailyTime(input.dailyTime) : (existing?.dailyTime ?? null),
       weeklyDay: input.weeklyDay !== undefined ? normalizeWeeklyDay(input.weeklyDay) : (existing?.weeklyDay ?? null),
       enabled: input.enabled !== undefined ? Boolean(input.enabled) : (existing?.enabled ?? true),

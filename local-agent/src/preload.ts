@@ -39,9 +39,10 @@ contextBridge.exposeInMainWorld('claudeAgent', {
     projectId: string;
     name: string;
     prompt: string;
-    scheduleType?: 'once' | 'delay' | 'daily' | 'weekly';
+    scheduleType?: 'once' | 'delay' | 'interval' | 'daily' | 'weekly';
     runAt?: number | null;
     delayMinutes?: number | null;
+    intervalHours?: number | null;
     dailyTime?: string | null;
     weeklyDay?: number | null;
     maxRetries?: number | null;

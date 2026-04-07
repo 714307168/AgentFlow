@@ -1088,9 +1088,11 @@ function buildScheduledTaskPrompt(task: ScheduledTask, project: Project): string
     ? `daily ${task.dailyTime ?? "--:--"}`
     : (task.scheduleType === "delay"
       ? `delay ${task.delayMinutes ?? 0}m`
+    : (task.scheduleType === "interval"
+      ? `every ${task.intervalHours ?? 0}h`
     : (task.scheduleType === "weekly"
       ? `weekly day=${task.weeklyDay ?? "-"} ${task.dailyTime ?? "--:--"}`
-      : `once ${task.runAt ? new Date(task.runAt).toLocaleString() : "unspecified"}`));
+      : `once ${task.runAt ? new Date(task.runAt).toLocaleString() : "unspecified"}`)));
   return [
     `[Scheduled Task] ${task.name}`,
     `Project: ${project.name}`,
@@ -4001,6 +4003,8 @@ function handleSaveWorkgroupTaskRequest(data: {
       delayStartAt: scheduleType === "delay"
         ? (existing?.scheduleType === "delay" ? existing.delayStartAt ?? scheduleAnchorAt : scheduleAnchorAt)
         : null,
+      intervalHours: null,
+      intervalStartAt: null,
       dailyTime,
       weeklyDay,
       lastRunAt: existing?.lastDispatchAt ?? null,
@@ -5079,6 +5083,7 @@ ipcMain.handle("save-scheduled-task", (_event, data: {
   scheduleType?: ScheduledTaskScheduleType;
   runAt?: number | null;
   delayMinutes?: number | null;
+  intervalHours?: number | null;
   dailyTime?: string | null;
   weeklyDay?: number | null;
   maxRetries?: number | null;
@@ -5105,13 +5110,18 @@ ipcMain.handle("save-scheduled-task", (_event, data: {
   const scheduleAnchorAt = Date.now();
   const scheduleType: ScheduledTaskScheduleType = data?.scheduleType === "weekly"
     ? "weekly"
-    : (data?.scheduleType === "daily" ? "daily" : (data?.scheduleType === "delay" ? "delay" : "once"));
+    : (data?.scheduleType === "interval"
+      ? "interval"
+      : (data?.scheduleType === "daily" ? "daily" : (data?.scheduleType === "delay" ? "delay" : "once")));
   const enabled = data?.enabled !== false;
   const runAt = scheduleType === "once"
     ? (Number.isFinite(Number(data?.runAt)) && Number(data?.runAt) > 0 ? Math.trunc(Number(data?.runAt)) : null)
     : null;
   const delayMinutes = scheduleType === "delay"
     ? (Number.isInteger(Number(data?.delayMinutes)) && Number(data?.delayMinutes) > 0 ? Number(data?.delayMinutes) : null)
+    : null;
+  const intervalHours = scheduleType === "interval"
+    ? (Number.isInteger(Number(data?.intervalHours)) && Number(data?.intervalHours) > 0 ? Number(data?.intervalHours) : null)
     : null;
   const dailyTime = scheduleType === "daily" || scheduleType === "weekly" ? normalizeDailyTime(data?.dailyTime) : null;
   const weeklyDay = scheduleType === "weekly" ? normalizeWeeklyDay(data?.weeklyDay) : null;
@@ -5121,12 +5131,21 @@ ipcMain.handle("save-scheduled-task", (_event, data: {
   const retryDelayMinutes = Number.isInteger(Number(data?.retryDelayMinutes)) && Number(data?.retryDelayMinutes) > 0
     ? Number(data?.retryDelayMinutes)
     : 5;
+  const delayStartAt = scheduleType === "delay"
+    ? (existing?.scheduleType === "delay" ? existing.delayStartAt ?? scheduleAnchorAt : scheduleAnchorAt)
+    : null;
+  const intervalStartAt = scheduleType === "interval"
+    ? (existing?.scheduleType === "interval" ? existing.intervalStartAt ?? scheduleAnchorAt : scheduleAnchorAt)
+    : null;
 
   if (scheduleType === "once" && !runAt) {
     return { success: false, error: "Choose a valid run time for the one-time task." };
   }
   if (scheduleType === "delay" && !delayMinutes) {
     return { success: false, error: "Choose a valid delay in minutes." };
+  }
+  if (scheduleType === "interval" && !intervalHours) {
+    return { success: false, error: "Choose a valid repeat interval in hours." };
   }
   if ((scheduleType === "daily" || scheduleType === "weekly") && !dailyTime) {
     return { success: false, error: "Choose a valid time in HH:mm format." };
@@ -5146,7 +5165,9 @@ ipcMain.handle("save-scheduled-task", (_event, data: {
     scheduleType,
     runAt,
     delayMinutes,
-    delayStartAt: scheduleType === "delay" ? scheduleAnchorAt : null,
+    delayStartAt,
+    intervalHours,
+    intervalStartAt,
     dailyTime,
     weeklyDay,
     enabled,
@@ -5162,7 +5183,9 @@ ipcMain.handle("save-scheduled-task", (_event, data: {
       enabled,
       runAt,
       delayMinutes,
-      delayStartAt: scheduleType === "delay" ? scheduleAnchorAt : null,
+      delayStartAt,
+      intervalHours,
+      intervalStartAt,
       dailyTime,
       weeklyDay,
       lastRunAt: null,

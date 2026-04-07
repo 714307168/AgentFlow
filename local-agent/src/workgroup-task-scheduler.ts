@@ -78,6 +78,8 @@ class WorkgroupTaskScheduler {
       runAt: task.runAt,
       delayMinutes: task.delayMinutes,
       delayStartAt: task.delayStartAt,
+      intervalHours: null,
+      intervalStartAt: null,
       dailyTime: task.dailyTime,
       weeklyDay: task.weeklyDay,
       lastRunAt: lastDispatchAt,

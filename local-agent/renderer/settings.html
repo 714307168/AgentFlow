@@ -1235,7 +1235,7 @@
 
           <div class="section">
             <div class="section-title" id="scheduledTasksSection">Scheduled Tasks</div>
-            <div class="section-subtitle" id="scheduledTasksHint">Run a saved prompt on this desktop for a local project. V1 supports one-time, delay, daily, and weekly schedules.</div>
+            <div class="section-subtitle" id="scheduledTasksHint">Run a saved prompt on this desktop for a local project. V1 supports one-time, delay, every-N-hours, daily, and weekly schedules.</div>
             <div class="split-grid">
               <div class="workgroup-card">
                 <div class="workgroup-card-title" id="scheduledTaskFormTitle">Task Profile</div>
@@ -1252,6 +1252,7 @@
                   <select id="scheduledTaskType">
                     <option value="once">One Time</option>
                     <option value="delay">Delay</option>
+                    <option value="interval">Every N Hours</option>
                     <option value="daily">Daily</option>
                     <option value="weekly">Weekly</option>
                   </select>
@@ -1263,6 +1264,10 @@
                 <div class="field" id="scheduledTaskDelayField" style="display:none;">
                   <label id="scheduledTaskDelayLabel">Delay Minutes</label>
                   <input type="text" id="scheduledTaskDelayMinutes" inputmode="numeric" placeholder="30">
+                </div>
+                <div class="field" id="scheduledTaskIntervalField" style="display:none;">
+                  <label id="scheduledTaskIntervalLabel">Repeat Every (hours)</label>
+                  <input type="text" id="scheduledTaskIntervalHours" inputmode="numeric" placeholder="4">
                 </div>
                 <div class="field" id="scheduledTaskDailyTimeField" style="display:none;">
                   <label id="scheduledTaskDailyTimeLabel">Repeat Time</label>
@@ -2333,8 +2338,8 @@
       document.getElementById("clearHistoryCacheBtn").textContent = inlineText("Clear Local History Cache", "清理本地历史缓存");
       document.getElementById("scheduledTasksSection").textContent = inlineText("Scheduled Tasks", "定时任务");
       document.getElementById("scheduledTasksHint").textContent = inlineText(
-        "Run a saved prompt on this desktop for a local project. V1 supports one-time, delay, daily, and weekly schedules.",
-        "在当前桌面端为本地项目定时执行保存好的提示词。第一版支持单次、延迟、每日和每周任务。"
+        "Run a saved prompt on this desktop for a local project. V1 supports one-time, delay, every-N-hours, daily, and weekly schedules.",
+        "在当前桌面端为本地项目定时执行保存好的提示词。第一版支持单次、延迟、每隔几小时、每日和每周任务。"
       );
       document.getElementById("scheduledTaskFormTitle").textContent = inlineText("Task Profile", "任务配置");
       document.getElementById("scheduledTaskProjectLabel").textContent = inlineText("Local Project", "本地项目");
@@ -2343,11 +2348,14 @@
       document.getElementById("scheduledTaskTypeLabel").textContent = inlineText("Schedule Type", "调度类型");
       document.getElementById("scheduledTaskType").options[0].text = inlineText("One Time", "单次");
       document.getElementById("scheduledTaskType").options[1].text = inlineText("Delay", "延迟");
-      document.getElementById("scheduledTaskType").options[2].text = inlineText("Daily", "每日");
-      document.getElementById("scheduledTaskType").options[3].text = inlineText("Weekly", "每周");
+      document.getElementById("scheduledTaskType").options[2].text = inlineText("Every N Hours", "每隔几小时");
+      document.getElementById("scheduledTaskType").options[3].text = inlineText("Daily", "每日");
+      document.getElementById("scheduledTaskType").options[4].text = inlineText("Weekly", "每周");
       document.getElementById("scheduledTaskRunAtLabel").textContent = inlineText("Run At", "执行时间");
       document.getElementById("scheduledTaskDelayLabel").textContent = inlineText("Delay Minutes", "延迟分钟数");
       document.getElementById("scheduledTaskDelayMinutes").placeholder = inlineText("30", "30");
+      document.getElementById("scheduledTaskIntervalLabel").textContent = inlineText("Repeat Every (hours)", "每隔几小时执行");
+      document.getElementById("scheduledTaskIntervalHours").placeholder = inlineText("4", "4");
       document.getElementById("scheduledTaskDailyTimeLabel").textContent = inlineText("Repeat Time", "重复时间");
       document.getElementById("scheduledTaskWeeklyDayLabel").textContent = inlineText("Weekly Day", "每周日期");
       const weeklyDaySelect = document.getElementById("scheduledTaskWeeklyDay");
@@ -2703,6 +2711,7 @@
       const typeSelect = document.getElementById("scheduledTaskType");
       const runAtInput = document.getElementById("scheduledTaskRunAt");
       const delayInput = document.getElementById("scheduledTaskDelayMinutes");
+      const intervalInput = document.getElementById("scheduledTaskIntervalHours");
       const dailyTimeInput = document.getElementById("scheduledTaskDailyTime");
       const weeklyDaySelect = document.getElementById("scheduledTaskWeeklyDay");
       const promptInput = document.getElementById("scheduledTaskPrompt");
@@ -2715,6 +2724,7 @@
         || !typeSelect
         || !runAtInput
         || !delayInput
+        || !intervalInput
         || !dailyTimeInput
         || !weeklyDaySelect
         || !promptInput
@@ -2730,6 +2740,7 @@
         scheduleType: typeSelect.value || "once",
         runAt: runAtInput.value || "",
         delayMinutes: delayInput.value || "",
+        intervalHours: intervalInput.value || "",
         dailyTime: dailyTimeInput.value || "",
         weeklyDay: weeklyDaySelect.value || "1",
         prompt: promptInput.value || "",
@@ -2780,6 +2791,7 @@
       const type = document.getElementById("scheduledTaskType").value || "once";
       document.getElementById("scheduledTaskRunAtField").style.display = type === "once" ? "" : "none";
       document.getElementById("scheduledTaskDelayField").style.display = type === "delay" ? "" : "none";
+      document.getElementById("scheduledTaskIntervalField").style.display = type === "interval" ? "" : "none";
       document.getElementById("scheduledTaskDailyTimeField").style.display = type === "daily" || type === "weekly" ? "" : "none";
       document.getElementById("scheduledTaskWeeklyDayField").style.display = type === "weekly" ? "" : "none";
     }
@@ -2851,6 +2863,9 @@
       if ((task?.scheduleType || "once") === "delay") {
         return inlineText(`Delay ${task?.delayMinutes || 0} minutes`, `延迟 ${task?.delayMinutes || 0} 分钟`);
       }
+      if ((task?.scheduleType || "once") === "interval") {
+        return inlineText(`Every ${task?.intervalHours || 0} hours`, `每隔 ${task?.intervalHours || 0} 小时`);
+      }
       if ((task?.scheduleType || "once") === "weekly") {
         const labels = [
           inlineText("Sunday", "周日"),
@@ -2910,6 +2925,9 @@
       document.getElementById("scheduledTaskDelayMinutes").value = task
         ? String(Number(task?.delayMinutes || 30))
         : String(draft?.delayMinutes || 30);
+      document.getElementById("scheduledTaskIntervalHours").value = task
+        ? String(Number(task?.intervalHours || 4))
+        : String(draft?.intervalHours || 4);
       document.getElementById("scheduledTaskDailyTime").value = task?.dailyTime || draft?.dailyTime || "09:00";
       document.getElementById("scheduledTaskWeeklyDay").value = String(
         Number.isInteger(Number(task?.weeklyDay))
@@ -3123,6 +3141,7 @@
       const scheduleType = document.getElementById("scheduledTaskType").value || "once";
       const runAtInput = document.getElementById("scheduledTaskRunAt").value.trim();
       const delayMinutes = document.getElementById("scheduledTaskDelayMinutes").value.trim();
+      const intervalHours = document.getElementById("scheduledTaskIntervalHours").value.trim();
       const dailyTime = document.getElementById("scheduledTaskDailyTime").value.trim();
       const weeklyDay = document.getElementById("scheduledTaskWeeklyDay").value;
       const prompt = document.getElementById("scheduledTaskPrompt").value.trim();
@@ -3150,6 +3169,10 @@
         showStatus(inlineText("Choose a valid delay in minutes.", "请选择有效的延迟分钟数。"), true);
         return;
       }
+      if (scheduleType === "interval" && !(Number(intervalHours) > 0)) {
+        showStatus(inlineText("Choose a valid repeat interval in hours.", "请选择有效的重复小时数。"), true);
+        return;
+      }
       if (scheduleType === "daily" && !dailyTime) {
         showStatus(inlineText("Choose the daily execution time.", "请选择每日执行时间。"), true);
         return;
@@ -3168,6 +3191,7 @@
           scheduleType,
           runAt: scheduleType === "once" ? Date.parse(runAtInput) : null,
           delayMinutes: scheduleType === "delay" ? Number(delayMinutes) : null,
+          intervalHours: scheduleType === "interval" ? Number(intervalHours) : null,
           dailyTime: scheduleType === "daily" || scheduleType === "weekly" ? dailyTime : null,
           weeklyDay: scheduleType === "weekly" ? Number(weeklyDay) : null,
           maxRetries: Math.max(0, Number(maxRetries || 0)),
