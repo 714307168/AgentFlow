@@ -109,6 +109,8 @@ import com.claudecode.remote.data.model.MessageAttachment
 import com.claudecode.remote.data.model.MessageRole
 import com.claudecode.remote.data.model.MessageType
 import com.claudecode.remote.domain.TransferCenterItem
+import com.claudecode.remote.ui.common.animateScrollToItemBottom
+import com.claudecode.remote.ui.common.scrollToItemBottom
 import com.claudecode.remote.ui.transfer.ScopedTransferSheet
 import com.claudecode.remote.ui.transfer.openTransferFile
 import kotlinx.coroutines.Dispatchers
@@ -265,7 +267,8 @@ fun ChatScreen(
         lastMessage?.id,
         lastMessage?.content,
         lastMessage?.isStreaming,
-        uiState.messages.size
+        uiState.messages.size,
+        selectedPane
     ) {
         if (uiState.messages.isEmpty()) {
             hasInitialConversationScrollPosition = false
@@ -282,17 +285,14 @@ fun ChatScreen(
 
         when {
             !hasInitialConversationScrollPosition && selectedPane == ChatPane.CONVERSATION -> {
-                conversationListState.scrollToItem(lastIndex)
+                conversationListState.scrollToItemBottom(lastIndex)
                 hasInitialConversationScrollPosition = true
             }
             !isNearBottom -> Unit
-            hasAppendedMessage -> {
-                coroutineScope.launch {
-                    conversationListState.animateScrollToItem(lastIndex)
-                }
-            }
+            hasAppendedMessage && selectedPane == ChatPane.CONVERSATION ->
+                conversationListState.animateScrollToItemBottom(lastIndex)
             lastMessage?.isStreaming == true && selectedPane == ChatPane.CONVERSATION -> {
-                conversationListState.scrollToItem(lastIndex)
+                conversationListState.scrollToItemBottom(lastIndex)
             }
         }
 
@@ -305,7 +305,8 @@ fun ChatScreen(
         lastActivityMessage?.id,
         lastActivityMessage?.content,
         lastActivityMessage?.isStreaming,
-        uiState.activityMessages.size
+        uiState.activityMessages.size,
+        selectedPane
     ) {
         if (uiState.activityMessages.isEmpty()) {
             hasInitialActivityScrollPosition = false
@@ -322,17 +323,14 @@ fun ChatScreen(
 
         when {
             !hasInitialActivityScrollPosition && selectedPane == ChatPane.ACTIVITY -> {
-                activityListState.scrollToItem(lastIndex)
+                activityListState.scrollToItemBottom(lastIndex)
                 hasInitialActivityScrollPosition = true
             }
             !isNearBottom -> Unit
-            hasAppendedMessage -> {
-                coroutineScope.launch {
-                    activityListState.animateScrollToItem(lastIndex)
-                }
-            }
+            hasAppendedMessage && selectedPane == ChatPane.ACTIVITY ->
+                activityListState.animateScrollToItemBottom(lastIndex)
             lastActivityMessage?.isStreaming == true && selectedPane == ChatPane.ACTIVITY -> {
-                activityListState.scrollToItem(lastIndex)
+                activityListState.scrollToItemBottom(lastIndex)
             }
         }
 

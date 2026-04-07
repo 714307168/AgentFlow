@@ -103,6 +103,9 @@ class RelayWebSocket(
         Log.d(tag, "Server URL updated: $serverUrl")
     }
 
+    fun isReadyForTraffic(): Boolean =
+        _connectionState.value == ConnectionState.CONNECTED && webSocket != null && isAuthenticated
+
     fun setE2EEnabled(enabled: Boolean) {
         e2eEnabled = enabled
     }

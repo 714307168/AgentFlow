@@ -29,6 +29,7 @@ import com.claudecode.remote.data.remote.WakeupRequest
 import com.claudecode.remote.util.CrashLogger
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
@@ -85,6 +86,8 @@ class MessageRepository(
         private const val SESSION_SYNC_ACTION_FETCH_ITEM_DETAIL = "fetch_item_detail"
         private const val FULL_ITEM_REQUEST_DEDUPE_WINDOW_MS = 5_000L
         private const val SEND_STALE_CONNECTION_TIMEOUT_MS = 12_000L
+        private const val SEND_READY_WAIT_TIMEOUT_MS = 8_000L
+        private const val SEND_READY_POLL_MS = 200L
     }
 
     private data class UploadAck(
@@ -143,6 +146,21 @@ class MessageRepository(
             staleTimeoutMs = SEND_STALE_CONNECTION_TIMEOUT_MS
         )
         wakeupAgent(agentId)
+        waitForRelayReady("$reason:$projectId")
+    }
+
+    private suspend fun waitForRelayReady(reason: String) {
+        var waitedMs = 0L
+        while (waitedMs < SEND_READY_WAIT_TIMEOUT_MS) {
+            if (webSocket.isReadyForTraffic()) {
+                return
+            }
+            delay(SEND_READY_POLL_MS)
+            waitedMs += SEND_READY_POLL_MS
+        }
+        if (!webSocket.isReadyForTraffic()) {
+            throw IllegalStateException("Relay connection is not ready for $reason")
+        }
     }
 
     suspend fun requestProjectSync(

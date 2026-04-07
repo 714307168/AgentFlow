@@ -17,6 +17,7 @@ import com.claudecode.remote.data.remote.RelayWebSocket
 import com.claudecode.remote.data.remote.WakeupRequest
 import com.claudecode.remote.util.CrashLogger
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -44,13 +45,15 @@ class WorkgroupRepository(
 ) {
     companion object {
         private const val REQUEST_TIMEOUT_MS = 30_000L
-        private const val MESSAGE_REQUEST_TIMEOUT_MS = 12_000L
+        private const val MESSAGE_REQUEST_TIMEOUT_MS = 20_000L
         private const val DEFAULT_PAGE_SIZE = 30
         private const val KNOWN_ITEM_LIMIT = 60
         private const val LIST_REQUEST_DEDUPE_WINDOW_MS = 2_000L
         private const val SESSION_REQUEST_DEDUPE_WINDOW_MS = 1_200L
         private const val WAKEUP_THROTTLE_WINDOW_MS = 10_000L
         private const val SEND_STALE_CONNECTION_TIMEOUT_MS = 12_000L
+        private const val SEND_READY_WAIT_TIMEOUT_MS = 8_000L
+        private const val SEND_READY_POLL_MS = 200L
         private const val MAX_SEND_RETRY_COUNT = 1
     }
 
@@ -82,6 +85,21 @@ class WorkgroupRepository(
             staleTimeoutMs = SEND_STALE_CONNECTION_TIMEOUT_MS
         )
         wakeupAgent(agentId)
+        waitForRelayReady("$reason:$agentId")
+    }
+
+    private suspend fun waitForRelayReady(reason: String) {
+        var waitedMs = 0L
+        while (waitedMs < SEND_READY_WAIT_TIMEOUT_MS) {
+            if (webSocket.isReadyForTraffic()) {
+                return
+            }
+            delay(SEND_READY_POLL_MS)
+            waitedMs += SEND_READY_POLL_MS
+        }
+        if (!webSocket.isReadyForTraffic()) {
+            throw IllegalStateException("Relay connection is not ready for $reason")
+        }
     }
 
     suspend fun refresh(agentIds: List<String>, force: Boolean = false) {
@@ -268,7 +286,10 @@ class WorkgroupRepository(
                 "Timed out waiting for workgroup message acknowledgement agentId=$normalizedAgentId workgroupId=$normalizedWorkgroupId requestId=$requestId clientMessageId=$stableClientMessageId retryCount=$retryCount",
                 error as? Exception
             )
-            if (retryCount < MAX_SEND_RETRY_COUNT) {
+            if (
+                retryCount < MAX_SEND_RETRY_COUNT &&
+                webSocket.connectionState.value == RelayWebSocket.ConnectionState.CONNECTED
+            ) {
                 CrashLogger.logWarn(
                     "WorkgroupRepository",
                     "Retrying workgroup message send agentId=$normalizedAgentId workgroupId=$normalizedWorkgroupId clientMessageId=$stableClientMessageId nextRetry=${retryCount + 1}"

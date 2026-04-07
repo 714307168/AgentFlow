@@ -68,6 +68,8 @@ import com.claudecode.remote.R
 import com.claudecode.remote.data.model.WorkgroupMember
 import com.claudecode.remote.data.model.WorkgroupMessage
 import com.claudecode.remote.domain.TransferCenterItem
+import com.claudecode.remote.ui.common.animateScrollToItemBottom
+import com.claudecode.remote.ui.common.scrollToItemBottom
 import com.claudecode.remote.ui.transfer.ScopedTransferSheet
 import com.claudecode.remote.ui.transfer.openTransferFile
 import kotlinx.coroutines.launch
@@ -160,11 +162,11 @@ fun WorkgroupChatScreen(
 
         when {
             previousMessageCount == 0 || shouldForceLatestOnResume -> {
-                listState.scrollToItem(lastIndex)
+                listState.scrollToItemBottom(lastIndex)
                 handledResumeScrollToken = resumeScrollRequestToken
             }
-            isNearBottom && hasAppendedMessage -> listState.animateScrollToItem(lastIndex)
-            lastMessage?.status == "streaming" && isNearBottom -> listState.scrollToItem(lastIndex)
+            isNearBottom && hasAppendedMessage -> listState.animateScrollToItemBottom(lastIndex)
+            lastMessage?.status == "streaming" && isNearBottom -> listState.scrollToItemBottom(lastIndex)
         }
 
         previousLastMessageId = lastMessage?.id

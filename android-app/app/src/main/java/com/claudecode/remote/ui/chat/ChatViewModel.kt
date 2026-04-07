@@ -38,7 +38,8 @@ private const val ACTIVE_SYNC_STALE_CONNECTION_TIMEOUT_MS = 20_000L
 private const val MANUAL_REFRESH_CONNECTION_WAIT_MS = 4_000L
 private const val MANUAL_REFRESH_CONNECTION_POLL_MS = 250L
 private val POST_SEND_SYNC_DELAYS_MS = longArrayOf(0L, 1_200L, 4_000L, 9_000L)
-private const val SEND_FEEDBACK_TIMEOUT_MS = 12_000L
+private const val SEND_FEEDBACK_TIMEOUT_MS = 20_000L
+private const val SEND_FEEDBACK_DISCONNECTED_RECHECK_MS = 5_000L
 private const val RECENT_SEND_REUSE_WINDOW_MS = 20_000L
 private const val MAX_AUTO_SEND_RETRY_COUNT = 1
 
@@ -889,12 +890,38 @@ class ChatViewModel(
             "Tracking pending send feedback runId=$runId retryCount=$retryCount attachments=${attachments.size}"
         )
         pendingSendFeedbackRunId = runId
+        schedulePendingSendFeedbackTimeout(runId)
+    }
+
+    private fun schedulePendingSendFeedbackTimeout(runId: String) {
         pendingSendFeedbackTimeoutJob?.cancel()
         pendingSendFeedbackTimeoutJob = viewModelScope.launch {
-            kotlinx.coroutines.delay(SEND_FEEDBACK_TIMEOUT_MS)
-            if (pendingSendFeedbackRunId == runId) {
-                pendingSendFeedbackRunId = null
+            while (pendingSendFeedbackRunId == runId) {
+                val delayMs = if (webSocket.connectionState.value == RelayWebSocket.ConnectionState.CONNECTED) {
+                    SEND_FEEDBACK_TIMEOUT_MS
+                } else {
+                    SEND_FEEDBACK_DISCONNECTED_RECHECK_MS
+                }
+                kotlinx.coroutines.delay(delayMs)
+                if (pendingSendFeedbackRunId != runId) {
+                    return@launch
+                }
+
+                maybeResolvePendingSendFeedback()
+                if (pendingSendFeedbackRunId != runId) {
+                    return@launch
+                }
+
                 val recent = recentSendFeedback
+                if (webSocket.connectionState.value != RelayWebSocket.ConnectionState.CONNECTED) {
+                    CrashLogger.logWarn(
+                        "ChatViewModel",
+                        "Pending send feedback still waiting because relay is disconnected runId=$runId"
+                    )
+                    continue
+                }
+
+                pendingSendFeedbackRunId = null
                 if (recent != null && recent.runId == runId && recent.retryCount < MAX_AUTO_SEND_RETRY_COUNT) {
                     CrashLogger.logWarn(
                         "ChatViewModel",
