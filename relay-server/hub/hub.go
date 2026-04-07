@@ -32,6 +32,8 @@ var agentOfflineGracePeriod = 6 * time.Second
 type Hub struct {
 	agents              sync.Map // agentID  -> *Client
 	devices             sync.Map // deviceID -> *Client
+	agentPresence       sync.Map // agentID  -> *presenceRecord
+	devicePresence      sync.Map // deviceID -> *presenceRecord
 	projects            sync.Map // projectID -> agentID
 	projectInfos        sync.Map // projectID -> *ProjectInfo
 	queues              sync.Map // projectID -> *Queue
@@ -179,6 +181,7 @@ func (h *Hub) GetOrCreateQueue(projectID string) *Queue {
 // RegisterAgent stores the agent client.
 func (h *Hub) RegisterAgent(client *Client) {
 	h.cancelPendingAgentOffline(client.AgentID)
+	h.recordClientConnected(client)
 	if existingValue, ok := h.agents.Load(client.AgentID); ok {
 		if existing, sameType := existingValue.(*Client); sameType && existing != client {
 			log.Info().
@@ -198,6 +201,7 @@ func (h *Hub) RegisterAgent(client *Client) {
 // RegisterDevice stores the device client.
 func (h *Hub) RegisterDevice(client *Client) {
 	_ = h.refreshDeviceAccess(client, "")
+	h.recordClientConnected(client)
 	if existingValue, ok := h.devices.Load(client.DeviceID); ok {
 		if existing, sameType := existingValue.(*Client); sameType && existing != client {
 			log.Info().
@@ -216,6 +220,7 @@ func (h *Hub) RegisterDevice(client *Client) {
 // Unregister removes a client from all maps and notifies peers.
 func (h *Hub) Unregister(client *Client) {
 	client.Close()
+	h.recordClientDisconnected(client)
 
 	switch client.Type {
 	case model.ClientTypeAgent:
@@ -1206,6 +1211,80 @@ func (h *Hub) isAgentOnline(agentID string) bool {
 	}
 	_, ok := h.agents.Load(agentID)
 	return ok
+}
+
+func (h *Hub) recordClientInbound(client *Client) {
+	record := h.presenceRecordForClient(client)
+	if record == nil {
+		return
+	}
+	record.markInbound(time.Now())
+}
+
+func (h *Hub) recordClientTransport(client *Client) {
+	record := h.presenceRecordForClient(client)
+	if record == nil {
+		return
+	}
+	record.markTransport(time.Now())
+}
+
+func (h *Hub) recordClientConnected(client *Client) {
+	record := h.presenceRecordForClient(client)
+	if record == nil {
+		return
+	}
+	record.markConnected(time.Now())
+}
+
+func (h *Hub) recordClientDisconnected(client *Client) {
+	record := h.presenceRecordForClient(client)
+	if record == nil {
+		return
+	}
+	record.markDisconnected(time.Now())
+}
+
+func (h *Hub) presenceRecordForClient(client *Client) *presenceRecord {
+	if client == nil {
+		return nil
+	}
+	switch client.Type {
+	case model.ClientTypeAgent:
+		if client.AgentID == "" {
+			return nil
+		}
+		record, _ := h.agentPresence.LoadOrStore(client.AgentID, newPresenceRecord(model.ClientTypeAgent))
+		return record.(*presenceRecord)
+	case model.ClientTypeDevice:
+		if client.DeviceID == "" {
+			return nil
+		}
+		record, _ := h.devicePresence.LoadOrStore(client.DeviceID, newPresenceRecord(model.ClientTypeDevice))
+		return record.(*presenceRecord)
+	default:
+		return nil
+	}
+}
+
+func (h *Hub) AgentPresence(agentID string) PresenceInfo {
+	if strings.TrimSpace(agentID) == "" {
+		return PresenceInfo{State: PresenceStateOffline}
+	}
+	if value, ok := h.agentPresence.Load(agentID); ok {
+		return value.(*presenceRecord).snapshot(time.Now())
+	}
+	return PresenceInfo{State: PresenceStateOffline}
+}
+
+func (h *Hub) DevicePresence(deviceID string) PresenceInfo {
+	if strings.TrimSpace(deviceID) == "" {
+		return PresenceInfo{State: PresenceStateOffline}
+	}
+	if value, ok := h.devicePresence.Load(deviceID); ok {
+		return value.(*presenceRecord).snapshot(time.Now())
+	}
+	return PresenceInfo{State: PresenceStateOffline}
 }
 
 func (h *Hub) cancelPendingAgentOffline(agentID string) {

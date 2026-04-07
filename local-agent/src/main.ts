@@ -128,6 +128,10 @@ interface RelayDeviceSummary {
   agent_id?: string;
   note?: string;
   created_at: string;
+  online?: boolean;
+  presence_state?: string;
+  last_active_at?: string;
+  last_seen_at?: string;
 }
 
 interface RelayTransferListOptions {

@@ -14,6 +14,7 @@ import (
 	"github.com/claudecode/relay-server/config"
 	"github.com/claudecode/relay-server/db"
 	"github.com/claudecode/relay-server/handler"
+	"github.com/claudecode/relay-server/hub"
 )
 
 type transferTestResponse struct {
@@ -62,6 +63,7 @@ func TestTransferUploadListDownloadAndReceipts(t *testing.T) {
 		DataDir:      dataDir,
 		DatabasePath: dataDir,
 	}
+	liveHub := hub.NewHub(cfg, nil)
 
 	alice, err := database.CreateUser("alice", "Alice12345A", false)
 	if err != nil {
@@ -87,7 +89,7 @@ func TestTransferUploadListDownloadAndReceipts(t *testing.T) {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/auth/login", handler.LoginHandler(database, cfg))
-	mux.HandleFunc("/api/devices", handler.ClientDevicesHandler(cfg, database))
+	mux.HandleFunc("/api/devices", handler.ClientDevicesHandler(cfg, database, liveHub))
 	mux.HandleFunc("/api/transfers", handler.TransfersHandler(cfg, database))
 	mux.HandleFunc("/api/transfers/", handler.TransfersHandler(cfg, database))
 
@@ -117,13 +119,26 @@ func TestTransferUploadListDownloadAndReceipts(t *testing.T) {
 	}
 
 	var devices []struct {
-		ID      string `json:"id"`
-		AgentID string `json:"agent_id"`
-		Note    string `json:"note"`
+		ID            string  `json:"id"`
+		AgentID       string  `json:"agent_id"`
+		Note          string  `json:"note"`
+		Online        bool    `json:"online"`
+		PresenceState string  `json:"presence_state"`
+		LastActiveAt  *string `json:"last_active_at"`
+		LastSeenAt    *string `json:"last_seen_at"`
 	}
 	doJSONWithBearer(t, http.DefaultClient, http.MethodGet, server.URL+"/api/devices", aliceAgent.Token, nil, http.StatusOK, &devices)
 	if len(devices) != 1 || devices[0].ID != "device-a" {
 		t.Fatalf("unexpected device list: %+v", devices)
+	}
+	if devices[0].Online {
+		t.Fatalf("expected offline presence for non-connected device, got %+v", devices[0])
+	}
+	if devices[0].PresenceState != "offline" {
+		t.Fatalf("expected offline presence state, got %+v", devices[0])
+	}
+	if devices[0].LastActiveAt != nil || devices[0].LastSeenAt != nil {
+		t.Fatalf("expected empty activity timestamps for never-connected device, got %+v", devices[0])
 	}
 
 	var bobDevice deviceLoginResponse

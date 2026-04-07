@@ -523,3 +523,5 @@
 - [x] Android transfer presentation helpers are split into reusable formatter utilities and covered by JVM unit tests.
 - [x] Relay server now exposes protocol version metadata and rejects incompatible API version headers before request handling.
 - [x] Desktop local agent, desktop WebSocket, Android Retrofit, Android WebSocket, and Android update downloads now all send a shared relay API version header set.
+- [x] Relay `/api/devices` now exposes unified mobile presence state plus `last_active_at` / `last_seen_at` timestamps.
+- [x] Desktop transfer center now renders mobile receiver presence and uses presence-aware device labels for targeting.

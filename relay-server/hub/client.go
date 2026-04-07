@@ -70,6 +70,7 @@ func (c *Client) ReadPump() {
 	c.conn.SetReadLimit(maxMsgSize)
 	_ = c.conn.SetReadDeadline(time.Now().Add(pongWait))
 	c.conn.SetPongHandler(func(string) error {
+		c.hub.recordClientTransport(c)
 		return c.conn.SetReadDeadline(time.Now().Add(pongWait))
 	})
 
@@ -81,6 +82,7 @@ func (c *Client) ReadPump() {
 			}
 			return
 		}
+		c.hub.recordClientInbound(c)
 
 		var env model.Envelope
 		if err := json.Unmarshal(msg, &env); err != nil {

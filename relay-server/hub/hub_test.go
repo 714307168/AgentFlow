@@ -199,6 +199,71 @@ func TestRegisterAgentCancelsPendingOfflineStatus(t *testing.T) {
 	}
 }
 
+func TestDevicePresenceTracksBackgroundAndOfflineState(t *testing.T) {
+	h := NewHub(&config.Config{}, nil)
+	device := newTestClient(h, model.ClientTypeDevice, "agent-1", "device-1")
+
+	h.RegisterDevice(device)
+
+	initial := h.DevicePresence("device-1")
+	if !initial.Online || initial.State != PresenceStateOnline {
+		t.Fatalf("expected connected device to be online, got %+v", initial)
+	}
+	if initial.LastActiveAt.IsZero() || initial.LastSeenAt.IsZero() {
+		t.Fatalf("expected connected device timestamps, got %+v", initial)
+	}
+
+	recordValue, ok := h.devicePresence.Load("device-1")
+	if !ok {
+		t.Fatal("expected device presence record")
+	}
+	record := recordValue.(*presenceRecord)
+	staleAt := time.Now().Add(-(presenceActiveWindow + 5*time.Second))
+	record.mu.Lock()
+	record.connectedAt = staleAt
+	record.lastInboundAt = staleAt
+	record.lastTransportAt = time.Now()
+	record.mu.Unlock()
+
+	background := h.DevicePresence("device-1")
+	if !background.Online || background.State != PresenceStateBackground {
+		t.Fatalf("expected stale connected device to be background, got %+v", background)
+	}
+
+	h.Unregister(device)
+	offline := h.DevicePresence("device-1")
+	if offline.Online || offline.State != PresenceStateOffline {
+		t.Fatalf("expected disconnected device to be offline, got %+v", offline)
+	}
+	if offline.LastSeenAt.IsZero() {
+		t.Fatalf("expected offline device to keep last seen timestamp, got %+v", offline)
+	}
+}
+
+func TestAgentPresenceTracksIdleState(t *testing.T) {
+	h := NewHub(&config.Config{}, nil)
+	agent := newTestClient(h, model.ClientTypeAgent, "agent-1", "")
+
+	h.RegisterAgent(agent)
+
+	recordValue, ok := h.agentPresence.Load("agent-1")
+	if !ok {
+		t.Fatal("expected agent presence record")
+	}
+	record := recordValue.(*presenceRecord)
+	record.mu.Lock()
+	staleAt := time.Now().Add(-(presenceActiveWindow + 5*time.Second))
+	record.connectedAt = staleAt
+	record.lastInboundAt = staleAt
+	record.lastTransportAt = time.Now()
+	record.mu.Unlock()
+
+	presence := h.AgentPresence("agent-1")
+	if !presence.Online || presence.State != PresenceStateIdle {
+		t.Fatalf("expected stale connected agent to be idle, got %+v", presence)
+	}
+}
+
 func TestWorkgroupCollabMessageSendAllowsJoinedMemberWithoutDirectAgentAccess(t *testing.T) {
 	h, database, owner, member := newCollaborationTestHub(t)
 

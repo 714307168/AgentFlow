@@ -1116,6 +1116,8 @@
               <button class="btn-secondary" id="messageUploadLogsBtn">Upload Latest Logs</button>
               <button class="btn-secondary" id="messageOpenAdvancedBtn">Open Advanced Settings</button>
             </div>
+            <div class="section-subtitle" id="transferDevicesHint" style="margin-top: 14px;">Known mobile receivers and their latest relay presence.</div>
+            <div class="project-list" id="transferDeviceList" data-empty-message="No mobile devices registered yet."></div>
             <div class="section-subtitle" id="transferRecentHint" style="margin-top: 14px;">Recent relay transfers are shared with mobile clients that are logged into the same account.</div>
             <div class="project-list" id="transferList" data-empty-message="No recent relay transfers."></div>
           </div>
@@ -1475,6 +1477,7 @@
       accessIncoming: "",
       accessControllable: "",
       projects: "",
+      relayDevices: "",
       transferList: "",
       scheduledTaskProjects: "",
       scheduledTasks: "",
@@ -1607,11 +1610,78 @@
       });
     }
 
+    function formatRelativeDateTime(value) {
+      if (!value) {
+        return inlineText("unknown", "未知");
+      }
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) {
+        return String(value);
+      }
+      const diffMs = Date.now() - date.getTime();
+      const absMs = Math.abs(diffMs);
+      if (absMs < 60 * 1000) {
+        return inlineText("just now", "刚刚");
+      }
+      const diffMinutes = Math.round(absMs / (60 * 1000));
+      if (diffMinutes < 60) {
+        return currentLang === "zh"
+          ? `${diffMinutes} 分钟前`
+          : `${diffMinutes} min ago`;
+      }
+      const diffHours = Math.round(absMs / (60 * 60 * 1000));
+      if (diffHours < 48) {
+        return currentLang === "zh"
+          ? `${diffHours} 小时前`
+          : `${diffHours} hr ago`;
+      }
+      const diffDays = Math.round(absMs / (24 * 60 * 60 * 1000));
+      return currentLang === "zh"
+        ? `${diffDays} 天前`
+        : `${diffDays} day${diffDays === 1 ? "" : "s"} ago`;
+    }
+
     function setText(id, value) {
       const node = document.getElementById(id);
       if (node) {
         node.textContent = value;
       }
+    }
+
+    function normalizeRelayPresenceState(device) {
+      const rawState = String(device?.presence_state || "").trim().toLowerCase();
+      if (["online", "idle", "background", "offline"].includes(rawState)) {
+        return rawState;
+      }
+      return device?.online ? "online" : "offline";
+    }
+
+    function getRelayPresenceLabel(state) {
+      switch (normalizeRelayPresenceState({ presence_state: state })) {
+        case "online":
+          return inlineText("Online", "在线");
+        case "idle":
+          return inlineText("Idle", "空闲");
+        case "background":
+          return inlineText("Background", "后台");
+        default:
+          return inlineText("Offline", "离线");
+      }
+    }
+
+    function buildRelayPresenceDetail(device) {
+      const state = normalizeRelayPresenceState(device);
+      if (state === "offline") {
+        const lastSeen = device?.last_seen_at;
+        return lastSeen
+          ? inlineText(`Last seen ${formatRelativeDateTime(lastSeen)}`, `最后在线 ${formatRelativeDateTime(lastSeen)}`)
+          : inlineText("Offline and waiting for the next reconnect.", "当前离线，等待下次重连。");
+      }
+      const lastActive = device?.last_active_at;
+      if (lastActive) {
+        return inlineText(`Last active ${formatRelativeDateTime(lastActive)}`, `最后活跃 ${formatRelativeDateTime(lastActive)}`);
+      }
+      return inlineText("Connected to relay.", "已连接到 relay。");
     }
 
     function renderOverviewDashboard() {
@@ -1697,6 +1767,11 @@
       return note ? `${note} (${device.id})` : device.id;
     }
 
+    function buildRelayDeviceOptionLabel(device) {
+      const summary = resolveRelayDeviceLabel(device?.id);
+      return `${summary} · ${getRelayPresenceLabel(device)}`;
+    }
+
     function resolveProjectLabel(projectId) {
       const project = latestProjectCatalog.find((entry) => entry.id === projectId);
       return project?.name || projectId || inlineText("Unknown project", "未知项目");
@@ -1741,7 +1816,7 @@
       const deviceOptions = [
         `<option value="">${escapeHtml(inlineText("Choose a device", "选择设备"))}</option>`,
         ...latestRelayDevices.map((device) => (
-          `<option value="${escapeHtml(device.id)}">${escapeHtml(resolveRelayDeviceLabel(device.id))}</option>`
+          `<option value="${escapeHtml(device.id)}">${escapeHtml(buildRelayDeviceOptionLabel(device))}</option>`
         )),
       ];
 
@@ -1819,7 +1894,44 @@
       return `<div class="transfer-receipts">${receiptItems}</div>`;
     }
 
+    function renderRelayDevicePresenceList() {
+      const markup = latestRelayDevices.map((device) => {
+        const state = normalizeRelayPresenceState(device);
+        const agentScope = String(device.agent_id || "").trim();
+        const lastSeen = device?.last_seen_at ? formatDateTime(device.last_seen_at) : inlineText("Never connected", "从未连接");
+        return `
+          <div class="project-item">
+            <div class="project-info">
+              <div class="project-meta-row">
+                <span class="scope-pill">${escapeHtml(getRelayPresenceLabel(state))}</span>
+                <span class="project-provider-badge">${escapeHtml(inlineText("Mobile", "移动端"))}</span>
+              </div>
+              <div class="project-name">${escapeHtml(resolveRelayDeviceLabel(device.id))}</div>
+              <div class="project-path">${escapeHtml(buildRelayPresenceDetail(device))}</div>
+              <div class="project-path">${escapeHtml(`${inlineText("Last seen", "最后在线")}: ${lastSeen}`)}</div>
+              ${agentScope ? `<div class="project-path">${escapeHtml(`${inlineText("Bound agent", "绑定桌面端")}: ${agentScope}`)}</div>` : ""}
+            </div>
+            <div class="project-actions">
+              <span class="scope-pill">${escapeHtml(device.username || inlineText("unknown user", "未知用户"))}</span>
+            </div>
+          </div>
+        `;
+      }).join("");
+      const listEl = document.getElementById("transferDeviceList");
+      if (renderSignatures.relayDevices !== markup) {
+        renderSignatures.relayDevices = markup;
+        listEl.innerHTML = markup;
+      }
+    }
+
     function renderTransferCenter() {
+      const onlineDeviceCount = latestRelayDevices.filter((device) => normalizeRelayPresenceState(device) !== "offline").length;
+      setText(
+        "transferScopeMobile",
+        latestRelayDevices.length > 0
+          ? inlineText(`${formatCount(onlineDeviceCount)} / ${formatCount(latestRelayDevices.length)} mobile receivers online`, `${formatCount(onlineDeviceCount)} / ${formatCount(latestRelayDevices.length)} 个移动端在线`)
+          : inlineText("No mobile receivers registered", "暂无已注册移动端")
+      );
       setText("transferAttachmentValue", formatCount(latestLocalDataMetrics?.attachments?.fileCount || 0));
       setText(
         "transferAttachmentNote",
@@ -1867,6 +1979,7 @@
         renderSignatures.transferList = transferMarkup;
         listEl.innerHTML = transferMarkup;
       }
+      renderRelayDevicePresenceList();
     }
 
     function formatFileSizeLabel(value) {
@@ -2289,10 +2402,15 @@
       document.getElementById("messageOpenFilesBtn").textContent = inlineText("Open Data Folder", "打开数据目录");
       document.getElementById("messageUploadLogsBtn").textContent = inlineText("Upload Latest Logs", "上传最近日志");
       document.getElementById("messageOpenAdvancedBtn").textContent = inlineText("Open Advanced Settings", "打开高级设置");
+      document.getElementById("transferDevicesHint").textContent = inlineText(
+        "Known mobile receivers and their latest relay presence.",
+        "已登记的移动端接收器及其最近一次 relay 在线状态。"
+      );
       document.getElementById("transferRecentHint").textContent = inlineText(
         "Recent relay transfers can now be scoped by device, project, or workgroup and show delivery receipts.",
         "最近的 relay 传输记录现在支持按设备、项目或协作组定向，并显示送达回执。"
       );
+      document.getElementById("transferDeviceList").setAttribute("data-empty-message", inlineText("No mobile devices registered yet.", "暂时还没有登记的移动端设备。"));
       document.getElementById("transferList").setAttribute("data-empty-message", inlineText("No recent relay transfers.", "暂时还没有最近传输记录。"));
       renderTransferControlOptions();
       document.getElementById("automationOverviewSection").textContent = inlineText("Automation Overview", "自动化总览");
