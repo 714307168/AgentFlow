@@ -66,6 +66,7 @@ func main() {
 	mux.HandleFunc("/ws", handler.WSHandler(h, cfg, st))
 
 	// Authentication endpoints
+	mux.HandleFunc("/api/meta/version", apiMetaVersionHandler())
 	mux.HandleFunc("/api/auth/login", rateLimitMiddleware("user-login", loginRateLimiter, handler.LoginHandler(database, cfg)))
 	mux.HandleFunc("/api/auth/register-client", rateLimitMiddleware("client-register", registerRateLimiter, handler.RegisterClientHandler(database, cfg)))
 	mux.HandleFunc("/api/auth/change-password", rateLimitMiddleware("password-change", changePasswordRateLimiter, handler.ChangePasswordHandler(database)))
@@ -120,7 +121,8 @@ func main() {
 
 	// CORS middleware
 	corsHandler := corsMiddleware(mux, cfg.CORSOrigins)
-	securedHandler := recoveryMiddleware(securityHeadersMiddleware(corsHandler))
+	versionedHandler := apiVersionMiddleware(corsHandler)
+	securedHandler := recoveryMiddleware(securityHeadersMiddleware(versionedHandler))
 
 	addr := ":" + cfg.Port
 	if cfg.TLSCert != "" && cfg.TLSKey != "" {
@@ -162,7 +164,19 @@ func corsMiddleware(next http.Handler, origins string) http.Handler {
 			}
 		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		w.Header().Set(
+			"Access-Control-Allow-Headers",
+			strings.Join(
+				[]string{
+					"Content-Type",
+					"Authorization",
+					relayAPIHeaderVersion,
+					relayAPIHeaderClient,
+					relayAPIHeaderClientVersion,
+				},
+				", ",
+			),
+		)
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return

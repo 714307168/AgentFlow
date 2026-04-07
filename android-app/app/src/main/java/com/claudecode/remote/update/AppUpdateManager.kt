@@ -10,6 +10,7 @@ import androidx.core.content.FileProvider
 import com.claudecode.remote.BuildConfig
 import com.claudecode.remote.R
 import com.claudecode.remote.data.local.TokenStore
+import com.claudecode.remote.data.remote.applyRelayApiHeaders
 import com.claudecode.remote.data.remote.RelayApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -160,7 +161,10 @@ class AppUpdateManager(
         }
 
         try {
-            val request = Request.Builder().url(downloadUrl).build()
+            val request = Request.Builder()
+                .url(downloadUrl)
+                .applyRelayApiHeaders()
+                .build()
             val targetDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: context.cacheDir
             if (!targetDir.exists()) {
                 targetDir.mkdirs()

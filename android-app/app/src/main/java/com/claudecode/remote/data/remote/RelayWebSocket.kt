@@ -282,7 +282,10 @@ class RelayWebSocket(
         lastSocketOpenAttemptAtMs = System.currentTimeMillis()
         webSocket?.cancel()
         Log.d(tag, "Opening WebSocket: $wsUrl generation=$generation")
-        val request = Request.Builder().url(wsUrl).build()
+        val request = Request.Builder()
+            .url(wsUrl)
+            .applyRelayApiHeaders()
+            .build()
         webSocket = client.newWebSocket(request, createListener(generation))
     }
 

@@ -7,6 +7,7 @@ import com.claudecode.remote.data.crypto.E2ECrypto
 import com.claudecode.remote.data.local.TokenStore
 import com.claudecode.remote.data.remote.AuthSessionManager
 import com.claudecode.remote.data.remote.RelayApi
+import com.claudecode.remote.data.remote.RelayApiVersionInterceptor
 import com.claudecode.remote.data.remote.RelayWebSocket
 import com.claudecode.remote.domain.MessageRepository
 import com.claudecode.remote.domain.MobileLogRepository
@@ -20,6 +21,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 
 private const val DEFAULT_SERVER_URL = "http://localhost:8080"
@@ -175,6 +177,11 @@ fun normalizeHttpBaseUrl(rawUrl: String): String {
 
 fun createRelayApi(baseUrl: String, json: Json): RelayApi =
     Retrofit.Builder()
+        .client(
+            OkHttpClient.Builder()
+                .addInterceptor(RelayApiVersionInterceptor())
+                .build()
+        )
         .baseUrl(normalizeHttpBaseUrl(baseUrl))
         .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
         .build()

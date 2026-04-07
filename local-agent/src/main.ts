@@ -37,6 +37,7 @@ import {
 import UpdateManager, { UpdateState } from "./update-manager";
 import { Events } from "./types";
 import { t, getLang, setLang, getAllMessages, Lang } from "./i18n";
+import { buildRelayApiHeaders } from "./api-version";
 import {
   buildImagePreviewDataUrlFromNativeImage,
   createRunAttachmentFromPath,
@@ -685,10 +686,10 @@ async function uploadDesktopLogs(): Promise<{ success: boolean; error?: string; 
 
     const response = await fetch(`${toHttpBaseUrl(nextConfig.serverUrl)}/api/device/logs`, {
       method: "POST",
-      headers: {
+      headers: buildRelayApiHeaders({
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
-      },
+      }),
       body: JSON.stringify({
         file_name: payload.fileName,
         content: payload.content,
@@ -772,9 +773,9 @@ async function listRelayTransfersWithOptions(options: RelayTransferListOptions =
 
   const response = await fetch(`${toHttpBaseUrl(config.serverUrl)}/api/transfers?${query.toString()}`, {
     method: "GET",
-    headers: {
+    headers: buildRelayApiHeaders({
       Authorization: `Bearer ${token}`,
-    },
+    }),
   });
 
   if (!response.ok) {
@@ -798,9 +799,9 @@ async function listRelayDevices(): Promise<RelayDeviceSummary[]> {
   const token = await ensureDesktopTransferAuthToken();
   const response = await fetch(`${toHttpBaseUrl(config.serverUrl)}/api/devices`, {
     method: "GET",
-    headers: {
+    headers: buildRelayApiHeaders({
       Authorization: `Bearer ${token}`,
-    },
+    }),
   });
 
   if (!response.ok) {
@@ -862,9 +863,9 @@ async function createRelayTransferFromDesktop(
 
   const response = await fetch(`${toHttpBaseUrl(config.serverUrl)}/api/transfers`, {
     method: "POST",
-    headers: {
+    headers: buildRelayApiHeaders({
       Authorization: `Bearer ${token}`,
-    },
+    }),
     body: form,
   });
 
@@ -2168,10 +2169,10 @@ async function requestWorkgroupRegistry<T>(
   const url = endpoint.startsWith("http") ? endpoint : `${baseUrl}${endpoint}`;
   const response = await fetch(url, {
     method: options.method ?? "GET",
-    headers: {
+    headers: buildRelayApiHeaders({
       Authorization: `Bearer ${token}`,
       ...(options.body ? { "Content-Type": "application/json" } : {}),
-    },
+    }),
     body: options.body ? JSON.stringify(options.body) : undefined,
   });
 
@@ -3344,7 +3345,7 @@ async function refreshAgentToken(force: boolean = false): Promise<boolean> {
     try {
       const response = await fetch(`${toHttpBaseUrl(config.serverUrl)}/api/auth/login`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: buildRelayApiHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({
           username: config.username,
           password: config.password,
@@ -3403,7 +3404,7 @@ async function refreshControllerToken(force: boolean = false): Promise<boolean> 
     try {
       const response = await fetch(`${toHttpBaseUrl(config.serverUrl)}/api/auth/login`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: buildRelayApiHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({
           username: config.username,
           password: config.password,
@@ -4345,9 +4346,9 @@ ipcMain.handle("list-access-grants", async () => {
 
   try {
     const response = await fetch(`${toHttpBaseUrl(config.serverUrl)}/api/access/grants`, {
-      headers: {
+      headers: buildRelayApiHeaders({
         Authorization: `Bearer ${config.token}`,
-      },
+      }),
     });
     if (!response.ok) {
       const errorText = await response.text();
@@ -4371,10 +4372,10 @@ ipcMain.handle("grant-access-to-user", async (_event, data: { controllerUsername
   try {
     const response = await fetch(`${toHttpBaseUrl(config.serverUrl)}/api/access/grants`, {
       method: "POST",
-      headers: {
+      headers: buildRelayApiHeaders({
         "Content-Type": "application/json",
         Authorization: `Bearer ${config.token}`,
-      },
+      }),
       body: JSON.stringify({
         controller_username: data.controllerUsername,
         target_agent_id: config.agentId,
@@ -4407,9 +4408,9 @@ ipcMain.handle("revoke-access-grant", async (_event, data: { controllerUserId: n
     });
     const response = await fetch(`${toHttpBaseUrl(config.serverUrl)}/api/access/grants?${query.toString()}`, {
       method: "DELETE",
-      headers: {
+      headers: buildRelayApiHeaders({
         Authorization: `Bearer ${config.token}`,
-      },
+      }),
     });
     if (!response.ok) {
       const errorText = await response.text();
@@ -4448,7 +4449,7 @@ ipcMain.handle("login", async (_event, data: { username: string; password: strin
 
     const response = await fetch(`${serverUrl}/api/auth/login`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: buildRelayApiHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({
         username: data.username,
         password: data.password,

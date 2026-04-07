@@ -5,6 +5,7 @@ import { EventEmitter } from "events";
 import * as fs from "fs";
 import * as path from "path";
 import { getLang } from "./i18n";
+import { buildRelayApiHeaders } from "./api-version";
 
 type UpdateStatus = "idle" | "checking" | "available" | "downloading" | "downloaded" | "up_to_date" | "error";
 
@@ -124,7 +125,9 @@ class UpdateManager extends EventEmitter {
     });
 
     try {
-      const response = await fetch(this.latestRelease.downloadUrl);
+      const response = await fetch(this.latestRelease.downloadUrl, {
+        headers: buildRelayApiHeaders(),
+      });
       if (!response.ok) {
         throw new Error(`Download failed with status ${response.status}`);
       }
@@ -261,7 +264,9 @@ class UpdateManager extends EventEmitter {
         version: app.getVersion(),
         build: "0",
       });
-      const response = await fetch(`${baseUrl}/api/update/check?${query.toString()}`);
+      const response = await fetch(`${baseUrl}/api/update/check?${query.toString()}`, {
+        headers: buildRelayApiHeaders(),
+      });
       if (!response.ok) {
         throw new Error(this.text(
           `Update check failed with status ${response.status}`,

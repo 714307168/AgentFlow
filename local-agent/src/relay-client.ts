@@ -3,6 +3,7 @@ import { EventEmitter } from "events";
 import { v4 as uuidv4 } from "uuid";
 import { ClientType, Envelope, Events } from "./types";
 import E2ECrypto, { EncryptedPayload } from "./crypto";
+import { buildRelayApiHeaders } from "./api-version";
 
 interface RelayClientOptions {
   clientType?: ClientType;
@@ -197,7 +198,9 @@ class RelayClient extends EventEmitter {
     this.stopPing();
     this.lastSocketOpenAttemptAt = Date.now();
     this.setConnectionState(this.reconnectAttemptCount > 0 ? "reconnecting" : "connecting");
-    const socket = new WebSocket(this.serverUrl);
+    const socket = new WebSocket(this.serverUrl, {
+      headers: buildRelayApiHeaders(),
+    });
     this.ws = socket;
     socket.on("open", () => this.onOpen(generation, socket));
     socket.on("message", (data: WebSocket.RawData) => this.onMessage(generation, socket, data.toString()));

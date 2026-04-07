@@ -521,3 +521,5 @@
 - [x] Android transfer center now shows project / workgroup scope, expiry, and receipt details.
 - [x] Android project chat and workgroup chat now surface scoped transfer actions directly inside the conversation views.
 - [x] Android transfer presentation helpers are split into reusable formatter utilities and covered by JVM unit tests.
+- [x] Relay server now exposes protocol version metadata and rejects incompatible API version headers before request handling.
+- [x] Desktop local agent, desktop WebSocket, Android Retrofit, Android WebSocket, and Android update downloads now all send a shared relay API version header set.
