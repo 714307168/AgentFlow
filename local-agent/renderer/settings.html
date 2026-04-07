@@ -1036,6 +1036,24 @@
                 <div class="overview-card-note" id="transferHistoryNote">No persisted history files detected.</div>
               </div>
             </div>
+            <div class="section-subtitle" id="transferActivityHint" style="margin-top: 14px;">Recent transfer health across the currently loaded relay records.</div>
+            <div class="overview-grid">
+              <div class="overview-card">
+                <div class="overview-card-label" id="transferUploadCountLabel">Recent Uploads</div>
+                <div class="overview-card-value" id="transferUploadCountValue">0</div>
+                <div class="overview-card-note" id="transferUploadCountNote">No recent uploads loaded.</div>
+              </div>
+              <div class="overview-card">
+                <div class="overview-card-label" id="transferDownloadCountLabel">Device Downloads</div>
+                <div class="overview-card-value" id="transferDownloadCountValue">0</div>
+                <div class="overview-card-note" id="transferDownloadCountNote">No delivery receipts yet.</div>
+              </div>
+              <div class="overview-card">
+                <div class="overview-card-label" id="transferAttentionCountLabel">Needs Attention</div>
+                <div class="overview-card-value" id="transferAttentionCountValue">0</div>
+                <div class="overview-card-note" id="transferAttentionCountNote">No expired or failed transfers.</div>
+              </div>
+            </div>
             <div class="scope-pill-row">
               <span class="scope-pill" id="transferScopeDesktop">Desktop sender ready</span>
               <span class="scope-pill" id="transferScopeMobile">Android / iOS receivers enabled</span>
@@ -1899,6 +1917,111 @@
       return `<div class="transfer-receipts">${receiptItems}</div>`;
     }
 
+    function getTransferReceiptStats(item) {
+      const receipts = Array.isArray(item?.receipts) ? item.receipts : [];
+      let delivered = 0;
+      let opened = 0;
+      let failed = 0;
+      for (const receipt of receipts) {
+        const status = String(receipt?.status || "").trim().toLowerCase();
+        if (status === "opened") {
+          opened += 1;
+        } else if (status === "delivered") {
+          delivered += 1;
+        } else if (status === "failed") {
+          failed += 1;
+        }
+      }
+      return {
+        total: receipts.length,
+        delivered,
+        opened,
+        failed,
+      };
+    }
+
+    function isTransferExpired(item) {
+      return String(item?.status || "").trim().toLowerCase() === "expired";
+    }
+
+    function transferNeedsAttention(item) {
+      return isTransferExpired(item) || getTransferReceiptStats(item).failed > 0;
+    }
+
+    function inferTransferExpiryHours(item) {
+      const createdAtMs = Date.parse(item?.created_at || "");
+      const expiresAtMs = Date.parse(item?.expires_at || "");
+      if (Number.isNaN(createdAtMs) || Number.isNaN(expiresAtMs) || expiresAtMs <= createdAtMs) {
+        return "24";
+      }
+      const hours = Math.max(1, Math.round((expiresAtMs - createdAtMs) / 3600000));
+      const candidates = ["24", "72", "168"];
+      return candidates.reduce((best, current) => (
+        Math.abs(Number(current) - hours) < Math.abs(Number(best) - hours) ? current : best
+      ), "24");
+    }
+
+    function buildRelayTransferOptionsFromItem(item) {
+      const options = {
+        expiresInHours: Number(inferTransferExpiryHours(item)),
+      };
+      const targetType = String(item?.target_type || "").trim();
+      const targetId = String(item?.target_id || "").trim();
+      const projectId = String(item?.project_id || "").trim();
+      const workgroupId = String(item?.workgroup_id || "").trim();
+      if (targetType) {
+        options.targetType = targetType;
+      }
+      if (targetId) {
+        options.targetId = targetId;
+      }
+      if (projectId) {
+        options.projectId = projectId;
+      }
+      if (workgroupId) {
+        options.workgroupId = workgroupId;
+      }
+      return options;
+    }
+
+    function applyTransferComposerFromItem(item) {
+      const targetType = String(item?.target_type || "").trim() || "broadcast";
+      document.getElementById("transferTargetType").value = targetType;
+      document.getElementById("transferTargetDevice").value = targetType === "device" ? String(item?.target_id || "").trim() : "";
+      document.getElementById("transferTargetProject").value = targetType === "project"
+        ? String(item?.target_id || "").trim()
+        : String(item?.project_id || "").trim();
+      document.getElementById("transferTargetWorkgroup").value = targetType === "workgroup"
+        ? String(item?.target_id || "").trim()
+        : String(item?.workgroup_id || "").trim();
+      document.getElementById("transferExpiresHours").value = inferTransferExpiryHours(item);
+      syncTransferTargetFields();
+    }
+
+    async function retryTransferFromHistory(transferId) {
+      const item = latestRelayTransfers.find((entry) => String(entry?.id || "") === String(transferId || ""));
+      if (!item) {
+        showStatus(inlineText("Transfer record no longer exists in the current list.", "当前列表里已找不到这条传输记录。"), true);
+        return;
+      }
+      applyTransferComposerFromItem(item);
+      try {
+        const result = await api.createRelayTransfer(buildRelayTransferOptionsFromItem(item));
+        if (result?.success) {
+          paneLoadState.transfersDirty = true;
+          await refreshRelayTransfers({ force: true });
+          showStatus(inlineText("Transfer retried with the same target scope.", "已按相同目标范围重新发送传输。"), false);
+          return;
+        }
+        if (result?.canceled) {
+          return;
+        }
+        showStatus(result?.error || inlineText("Failed to retry transfer.", "重试传输失败。"), true);
+      } catch (error) {
+        showStatus(getErrorMessage(error), true);
+      }
+    }
+
     function renderRelayDevicePresenceList() {
       const markup = latestRelayDevices.map((device) => {
         const state = normalizeRelayPresenceState(device);
@@ -1931,6 +2054,17 @@
 
     function renderTransferCenter() {
       const onlineDeviceCount = latestRelayDevices.filter((device) => normalizeRelayPresenceState(device) !== "offline").length;
+      const transferCount = latestRelayTransfers.length;
+      const totalTransferBytes = latestRelayTransfers.reduce((sum, item) => sum + Number(item?.size_bytes || 0), 0);
+      const downloadedTransferCount = latestRelayTransfers.filter((item) => {
+        const stats = getTransferReceiptStats(item);
+        return stats.delivered > 0 || stats.opened > 0;
+      }).length;
+      const openedReceiptCount = latestRelayTransfers.reduce((sum, item) => sum + getTransferReceiptStats(item).opened, 0);
+      const deliveredReceiptCount = latestRelayTransfers.reduce((sum, item) => sum + getTransferReceiptStats(item).delivered, 0);
+      const attentionTransfers = latestRelayTransfers.filter((item) => transferNeedsAttention(item));
+      const expiredTransferCount = attentionTransfers.filter((item) => isTransferExpired(item)).length;
+      const failedReceiptCount = latestRelayTransfers.reduce((sum, item) => sum + getTransferReceiptStats(item).failed, 0);
       setText(
         "transferScopeMobile",
         latestRelayDevices.length > 0
@@ -1961,9 +2095,41 @@
           `历史文件当前占用 ${formatBytes(latestLocalDataMetrics?.history?.totalBytes || 0)}。`
         )
       );
+      setText("transferUploadCountValue", formatCount(transferCount));
+      setText(
+        "transferUploadCountNote",
+        transferCount > 0
+          ? inlineText(
+              `${formatBytes(totalTransferBytes)} across the currently loaded transfer list.`,
+              `当前已加载传输记录合计 ${formatBytes(totalTransferBytes)}。`
+            )
+          : inlineText("No recent uploads loaded.", "暂时还没有加载到最近上传。")
+      );
+      setText("transferDownloadCountValue", formatCount(downloadedTransferCount));
+      setText(
+        "transferDownloadCountNote",
+        (deliveredReceiptCount + openedReceiptCount) > 0
+          ? inlineText(
+              `${formatCount(openedReceiptCount)} opened / ${formatCount(deliveredReceiptCount)} delivered receipt(s).`,
+              `${formatCount(openedReceiptCount)} 个已打开 / ${formatCount(deliveredReceiptCount)} 个已送达回执。`
+            )
+          : inlineText("No delivery receipts yet.", "暂时还没有送达回执。")
+      );
+      setText("transferAttentionCountValue", formatCount(attentionTransfers.length));
+      setText(
+        "transferAttentionCountNote",
+        attentionTransfers.length > 0
+          ? inlineText(
+              `${formatCount(expiredTransferCount)} expired transfer(s), ${formatCount(failedReceiptCount)} failed receipt(s).`,
+              `${formatCount(expiredTransferCount)} 个已过期传输，${formatCount(failedReceiptCount)} 个失败回执。`
+            )
+          : inlineText("No expired or failed transfers.", "暂时没有过期或失败的传输。")
+      );
       const transferMarkup = latestRelayTransfers.length === 0
         ? ""
         : latestRelayTransfers.map((item) => {
+            const receiptStats = getTransferReceiptStats(item);
+            const needsAttention = transferNeedsAttention(item);
             return `
               <div class="project-item">
                 <div class="project-info">
@@ -1975,6 +2141,12 @@
                 <div class="project-actions">
                   <span class="scope-pill">${escapeHtml(item.status || inlineText("available", "可用"))}</span>
                   <span class="scope-pill">${escapeHtml(`${Array.isArray(item.receipts) ? item.receipts.length : 0} ${inlineText("receipts", "回执")}`)}</span>
+                  ${(receiptStats.failed > 0 || receiptStats.opened > 0)
+                    ? `<span class="scope-pill">${escapeHtml(receiptStats.failed > 0 ? inlineText(`${receiptStats.failed} failed`, `${receiptStats.failed} 失败`) : inlineText(`${receiptStats.opened} opened`, `${receiptStats.opened} 已打开`))}</span>`
+                    : ""}
+                  ${needsAttention
+                    ? `<button class="btn-secondary btn-small" data-transfer-action="retry" data-transfer-id="${escapeHtml(item.id || "")}">${escapeHtml(inlineText("Retry Send", "重新发送"))}</button>`
+                    : ""}
                 </div>
               </div>
             `;
@@ -2423,6 +2595,13 @@
       document.getElementById("transferAttachmentLabel").textContent = inlineText("Attachments", "附件缓存");
       document.getElementById("transferUpdateLabel").textContent = inlineText("Downloaded Updates", "更新包");
       document.getElementById("transferHistoryLabel").textContent = inlineText("History Files", "历史文件");
+      document.getElementById("transferActivityHint").textContent = inlineText(
+        "Recent transfer health across the currently loaded relay records.",
+        "基于当前已加载 relay 传输记录的最近传输健康度。"
+      );
+      document.getElementById("transferUploadCountLabel").textContent = inlineText("Recent Uploads", "最近上传");
+      document.getElementById("transferDownloadCountLabel").textContent = inlineText("Device Downloads", "设备下载");
+      document.getElementById("transferAttentionCountLabel").textContent = inlineText("Needs Attention", "待处理异常");
       document.getElementById("transferScopeDesktop").textContent = inlineText("Desktop sender ready", "桌面发送端已就绪");
       document.getElementById("transferScopeMobile").textContent = inlineText("Android / iOS receivers enabled", "Android / iOS 接收端已可用");
       document.getElementById("transferScopeMiniProgram").textContent = inlineText("Mini Program receiver planned", "小程序接收端已纳入规划");
@@ -4901,6 +5080,16 @@
     });
     document.getElementById("messageClearTransferCacheBtn").addEventListener("click", async () => {
       await clearTransferCache("all", "messageClearTransferCacheBtn");
+    });
+    document.getElementById("transferList").addEventListener("click", async (event) => {
+      const actionButton = event.target instanceof Element ? event.target.closest("[data-transfer-action]") : null;
+      if (!actionButton) {
+        return;
+      }
+      const action = actionButton.getAttribute("data-transfer-action");
+      if (action === "retry") {
+        await retryTransferFromHistory(actionButton.getAttribute("data-transfer-id") || "");
+      }
     });
     document.getElementById("transferTargetType").addEventListener("change", () => {
       syncTransferTargetFields();

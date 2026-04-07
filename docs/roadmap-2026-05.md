@@ -529,3 +529,4 @@
 ## Progress Update 2026-04-08
 
 - [x] Desktop transfer center now supports one-click cleanup for attachment cache, update cache, or all transfer cache, and refreshes storage metrics immediately after cleanup.
+- [x] Desktop transfer center now surfaces recent upload / download health, flags expired or failed transfers, and offers retry-send shortcuts with the same target scope.
