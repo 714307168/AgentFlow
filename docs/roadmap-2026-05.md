@@ -519,4 +519,5 @@
 - [x] Relay transfer APIs now support scoped filters and signed-in device discovery for richer targeting.
 - [x] Desktop transfer center now supports device / project / workgroup targeting, scoped filters, and receipt details.
 - [x] Android transfer center now shows project / workgroup scope, expiry, and receipt details.
-- [ ] Next step: surface transfer actions directly inside project and workgroup conversation views instead of settings only.
+- [x] Android project chat and workgroup chat now surface scoped transfer actions directly inside the conversation views.
+- [x] Android transfer presentation helpers are split into reusable formatter utilities and covered by JVM unit tests.

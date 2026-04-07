@@ -47,12 +47,22 @@ class TransferRepository(
     private val tokenStore: TokenStore,
     private val context: Context
 ) {
-    suspend fun listRecentTransfers(limit: Int = 20): Result<List<TransferCenterItem>> {
+    suspend fun listRecentTransfers(
+        limit: Int = 20,
+        targetType: String? = null,
+        targetId: String? = null,
+        projectId: String? = null,
+        workgroupId: String? = null
+    ): Result<List<TransferCenterItem>> {
         return runCatching {
             val token = ensureToken()
             relayApiProvider().listTransfers(
                 auth = "Bearer $token",
                 limit = limit.coerceIn(1, 50),
+                targetType = targetType?.trim()?.ifBlank { null },
+                targetId = targetId?.trim()?.ifBlank { null },
+                projectId = projectId?.trim()?.ifBlank { null },
+                workgroupId = workgroupId?.trim()?.ifBlank { null },
                 includeReceipts = true
             ).map { it.toTransferCenterItem() }
         }

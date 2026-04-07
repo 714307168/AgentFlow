@@ -263,5 +263,18 @@
     <string name="settings_transfers_receipts_empty">暂时还没有设备回执。</string>
     <string name="settings_transfers_receipt_device">设备 %1$s</string>
     <string name="settings_transfers_receipt_agent">桌面端 %1$s</string>
+    <string name="settings_transfers_receipt_device_prefix">设备</string>
+    <string name="settings_transfers_receipt_agent_prefix">桌面端</string>
     <string name="settings_transfers_receipt_unknown">未知客户端</string>
+    <string name="chat_transfers_title_project">项目传输</string>
+    <string name="chat_transfers_subtitle_project">这个项目范围内的最近文件可以直接在聊天页里查看和打开。</string>
+    <string name="chat_transfers_empty_project">暂时还没有这个项目范围内的传输记录。</string>
+    <string name="chat_transfers_title_workgroup">协作组传输</string>
+    <string name="chat_transfers_subtitle_workgroup">这个协作组范围内的最近文件可以直接在聊天页里查看和打开。</string>
+    <string name="chat_transfers_empty_workgroup">暂时还没有这个协作组范围内的传输记录。</string>
+    <string name="chat_transfers_chip">文件 %1$d</string>
+    <string name="chat_transfers_downloaded_summary">已下载 %1$d</string>
+    <string name="chat_transfers_project_prefix">项目</string>
+    <string name="chat_transfers_workgroup_prefix">协作组</string>
+    <string name="chat_transfers_expires_prefix">过期时间</string>
 </resources>

@@ -108,6 +108,9 @@ import com.claudecode.remote.data.model.Message
 import com.claudecode.remote.data.model.MessageAttachment
 import com.claudecode.remote.data.model.MessageRole
 import com.claudecode.remote.data.model.MessageType
+import com.claudecode.remote.domain.TransferCenterItem
+import com.claudecode.remote.ui.transfer.ScopedTransferSheet
+import com.claudecode.remote.ui.transfer.openTransferFile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
@@ -131,6 +134,9 @@ fun ChatScreen(
     projectName: String,
     agentId: String,
     viewModel: ChatViewModel,
+    onListProjectTransfers: suspend (projectId: String) -> Result<List<TransferCenterItem>>,
+    onDownloadTransfer: suspend (transferId: String) -> Result<TransferCenterItem>,
+    onMarkTransferOpened: suspend (transferId: String) -> Result<Unit>,
     uiPresenceTracker: UiPresenceTracker,
     onNavigateBack: () -> Unit
 ) {
@@ -153,6 +159,11 @@ fun ChatScreen(
     var previousLastActivityId by remember(projectId) { mutableStateOf<String?>(null) }
     var previousActivityCount by remember(projectId) { mutableStateOf(0) }
     var previewAttachment by remember(projectId) { mutableStateOf<AttachmentPreviewTarget?>(null) }
+    var showTransferSheet by remember(projectId) { mutableStateOf(false) }
+    var transferRefreshToken by remember(projectId) { mutableStateOf(0) }
+    var scopedTransfers by remember(projectId) { mutableStateOf(emptyList<TransferCenterItem>()) }
+    var isRefreshingTransfers by remember(projectId) { mutableStateOf(false) }
+    var busyTransferId by remember(projectId) { mutableStateOf<String?>(null) }
 
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenMultipleDocuments()
@@ -165,7 +176,29 @@ fun ChatScreen(
     LaunchedEffect(projectId) {
         if (projectId.isNotEmpty()) {
             viewModel.loadProject(projectId, projectName, agentId)
+            transferRefreshToken += 1
         }
+    }
+
+    LaunchedEffect(projectId, transferRefreshToken) {
+        if (projectId.isBlank()) {
+            scopedTransfers = emptyList()
+            isRefreshingTransfers = false
+            return@LaunchedEffect
+        }
+        isRefreshingTransfers = true
+        onListProjectTransfers(projectId).fold(
+            onSuccess = { scopedTransfers = it },
+            onFailure = {
+                scopedTransfers = emptyList()
+                Toast.makeText(
+                    context,
+                    it.message ?: context.getString(R.string.settings_transfers_load_failed),
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        )
+        isRefreshingTransfers = false
     }
 
     LaunchedEffect(
@@ -217,6 +250,7 @@ fun ChatScreen(
             val observer = LifecycleEventObserver { _, event ->
                 if (event == Lifecycle.Event.ON_RESUME) {
                     viewModel.onResume()
+                    transferRefreshToken += 1
                 }
             }
             lifecycleOwner.lifecycle.addObserver(observer)
@@ -448,6 +482,58 @@ fun ChatScreen(
         )
     }
 
+    if (showTransferSheet) {
+        ScopedTransferSheet(
+            title = stringResource(R.string.chat_transfers_title_project),
+            subtitle = stringResource(R.string.chat_transfers_subtitle_project),
+            emptyMessage = stringResource(R.string.chat_transfers_empty_project),
+            transfers = scopedTransfers,
+            isRefreshing = isRefreshingTransfers,
+            busyTransferId = busyTransferId,
+            onRefresh = { transferRefreshToken += 1 },
+            onDownloadTransfer = { item ->
+                coroutineScope.launch {
+                    busyTransferId = item.id
+                    onDownloadTransfer(item.id).fold(
+                        onSuccess = { updated ->
+                            scopedTransfers = scopedTransfers.map { candidate ->
+                                if (candidate.id == updated.id) updated else candidate
+                            }
+                            Toast.makeText(
+                                context,
+                                context.getString(R.string.settings_transfers_downloaded, updated.fileName),
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        },
+                        onFailure = {
+                            Toast.makeText(
+                                context,
+                                it.message ?: context.getString(R.string.settings_transfers_download_failed),
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    )
+                    busyTransferId = null
+                }
+            },
+            onOpenTransfer = { item ->
+                val openResult = openTransferFile(context, item)
+                if (openResult.isSuccess) {
+                    coroutineScope.launch {
+                        onMarkTransferOpened(item.id)
+                    }
+                } else {
+                    Toast.makeText(
+                        context,
+                        openResult.exceptionOrNull()?.message ?: context.getString(R.string.settings_transfers_open_failed),
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            },
+            onDismissRequest = { showTransferSheet = false }
+        )
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -496,8 +582,13 @@ fun ChatScreen(
                     isConnected = uiState.isConnected,
                     runtimeText = runtimeLabel(uiState),
                     runtimeTone = runtimeColor(uiState),
+                    transferCount = scopedTransfers.size,
                     onNavigateBack = onNavigateBack,
-                    onRefresh = viewModel::refresh,
+                    onRefresh = {
+                        viewModel.refresh()
+                        transferRefreshToken += 1
+                    },
+                    onOpenTransfers = { showTransferSheet = true },
                     onOpenConversations = { showConversationDialog = true },
                     onChangeModel = {
                         modelInput = uiState.cliModel
@@ -904,8 +995,10 @@ private fun ChatHeader(
     isConnected: Boolean,
     runtimeText: String,
     runtimeTone: Color,
+    transferCount: Int,
     onNavigateBack: () -> Unit,
     onRefresh: () -> Unit,
+    onOpenTransfers: () -> Unit,
     onOpenConversations: () -> Unit,
     onChangeModel: () -> Unit,
     conversationEnabled: Boolean,
@@ -958,6 +1051,12 @@ private fun ChatHeader(
                         text = runtimeText,
                         color = runtimeTone
                     )
+                    if (transferCount > 0) {
+                        RuntimePill(
+                            text = stringResource(R.string.chat_transfers_chip, transferCount),
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
                     Text(
                         text = "$conversationTitle · $provider / $model",
                         style = MaterialTheme.typography.labelSmall,
@@ -975,6 +1074,13 @@ private fun ChatHeader(
                 enabled = refreshEnabled,
                 tint = MaterialTheme.colorScheme.onSurface,
                 onClick = onRefresh
+            )
+            ChatHeaderButton(
+                icon = Icons.Default.AttachFile,
+                contentDescription = stringResource(R.string.settings_transfers_title),
+                enabled = true,
+                tint = MaterialTheme.colorScheme.primary,
+                onClick = onOpenTransfers
             )
             ChatHeaderButton(
                 icon = Icons.Default.History,

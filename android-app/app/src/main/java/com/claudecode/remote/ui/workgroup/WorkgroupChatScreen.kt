@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
@@ -47,6 +48,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -65,6 +67,10 @@ import androidx.lifecycle.LifecycleOwner
 import com.claudecode.remote.R
 import com.claudecode.remote.data.model.WorkgroupMember
 import com.claudecode.remote.data.model.WorkgroupMessage
+import com.claudecode.remote.domain.TransferCenterItem
+import com.claudecode.remote.ui.transfer.ScopedTransferSheet
+import com.claudecode.remote.ui.transfer.openTransferFile
+import kotlinx.coroutines.launch
 
 @Composable
 fun WorkgroupChatScreen(
@@ -72,20 +78,51 @@ fun WorkgroupChatScreen(
     workgroupId: String,
     workgroupName: String,
     viewModel: WorkgroupChatViewModel,
+    onListWorkgroupTransfers: suspend (workgroupId: String) -> Result<List<TransferCenterItem>>,
+    onDownloadTransfer: suspend (transferId: String) -> Result<TransferCenterItem>,
+    onMarkTransferOpened: suspend (transferId: String) -> Result<Unit>,
     onNavigateBack: () -> Unit
 ) {
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
     val uiState by viewModel.uiState.collectAsState()
     val listState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
     val lifecycleOwner = context as? LifecycleOwner
     var previousLastMessageId by remember(agentId, workgroupId) { mutableStateOf<String?>(null) }
     var previousMessageCount by remember(agentId, workgroupId) { mutableStateOf(0) }
     var resumeScrollRequestToken by remember(agentId, workgroupId) { mutableStateOf(0) }
     var handledResumeScrollToken by remember(agentId, workgroupId) { mutableStateOf(0) }
+    var showTransferSheet by remember(agentId, workgroupId) { mutableStateOf(false) }
+    var transferRefreshToken by remember(agentId, workgroupId) { mutableStateOf(0) }
+    var scopedTransfers by remember(agentId, workgroupId) { mutableStateOf(emptyList<TransferCenterItem>()) }
+    var isRefreshingTransfers by remember(agentId, workgroupId) { mutableStateOf(false) }
+    var busyTransferId by remember(agentId, workgroupId) { mutableStateOf<String?>(null) }
 
     LaunchedEffect(agentId, workgroupId, workgroupName) {
         viewModel.loadWorkgroup(agentId, workgroupId, workgroupName)
+        transferRefreshToken += 1
+    }
+
+    LaunchedEffect(agentId, workgroupId, transferRefreshToken) {
+        if (workgroupId.isBlank()) {
+            scopedTransfers = emptyList()
+            isRefreshingTransfers = false
+            return@LaunchedEffect
+        }
+        isRefreshingTransfers = true
+        onListWorkgroupTransfers(workgroupId).fold(
+            onSuccess = { scopedTransfers = it },
+            onFailure = {
+                scopedTransfers = emptyList()
+                Toast.makeText(
+                    context,
+                    it.message ?: context.getString(R.string.settings_transfers_load_failed),
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        )
+        isRefreshingTransfers = false
     }
 
     DisposableEffect(lifecycleOwner, agentId, workgroupId) {
@@ -96,6 +133,7 @@ fun WorkgroupChatScreen(
                 if (event == Lifecycle.Event.ON_RESUME) {
                     viewModel.onResume()
                     resumeScrollRequestToken += 1
+                    transferRefreshToken += 1
                 }
             }
             lifecycleOwner.lifecycle.addObserver(observer)
@@ -146,6 +184,57 @@ fun WorkgroupChatScreen(
                 )
             )
     ) {
+        if (showTransferSheet) {
+            ScopedTransferSheet(
+                title = stringResource(R.string.chat_transfers_title_workgroup),
+                subtitle = stringResource(R.string.chat_transfers_subtitle_workgroup),
+                emptyMessage = stringResource(R.string.chat_transfers_empty_workgroup),
+                transfers = scopedTransfers,
+                isRefreshing = isRefreshingTransfers,
+                busyTransferId = busyTransferId,
+                onRefresh = { transferRefreshToken += 1 },
+                onDownloadTransfer = { item ->
+                    coroutineScope.launch {
+                        busyTransferId = item.id
+                        onDownloadTransfer(item.id).fold(
+                            onSuccess = { updated ->
+                                scopedTransfers = scopedTransfers.map { candidate ->
+                                    if (candidate.id == updated.id) updated else candidate
+                                }
+                                Toast.makeText(
+                                    context,
+                                    context.getString(R.string.settings_transfers_downloaded, updated.fileName),
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            },
+                            onFailure = {
+                                Toast.makeText(
+                                    context,
+                                    it.message ?: context.getString(R.string.settings_transfers_download_failed),
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        )
+                        busyTransferId = null
+                    }
+                },
+                onOpenTransfer = { item ->
+                    val openResult = openTransferFile(context, item)
+                    if (openResult.isSuccess) {
+                        coroutineScope.launch {
+                            onMarkTransferOpened(item.id)
+                        }
+                    } else {
+                        Toast.makeText(
+                            context,
+                            openResult.exceptionOrNull()?.message ?: context.getString(R.string.settings_transfers_open_failed),
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                },
+                onDismissRequest = { showTransferSheet = false }
+            )
+        }
         Scaffold(
             containerColor = Color.Transparent,
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -175,12 +264,18 @@ fun WorkgroupChatScreen(
                     WorkgroupChatHeader(
                         uiState = uiState,
                         onNavigateBack = onNavigateBack,
-                        onRefresh = viewModel::refresh
+                        transferCount = scopedTransfers.size,
+                        onOpenTransfers = { showTransferSheet = true },
+                        onRefresh = {
+                            viewModel.refresh()
+                            transferRefreshToken += 1
+                        }
                     )
 
                     WorkgroupSummaryStrip(
                         messageCount = uiState.messages.size,
                         memberCount = uiState.members.size,
+                        transferCount = scopedTransfers.size,
                         hasMoreHistory = uiState.hasMoreHistory,
                         description = uiState.description
                     )
@@ -262,6 +357,8 @@ fun WorkgroupChatScreen(
 private fun WorkgroupChatHeader(
     uiState: WorkgroupChatUiState,
     onNavigateBack: () -> Unit,
+    transferCount: Int,
+    onOpenTransfers: () -> Unit,
     onRefresh: () -> Unit
 ) {
     Surface(
@@ -308,6 +405,12 @@ private fun WorkgroupChatHeader(
                         contentDescription = stringResource(R.string.action_refresh)
                     )
                 }
+                IconButton(onClick = onOpenTransfers) {
+                    Icon(
+                        imageVector = Icons.Default.AttachFile,
+                        contentDescription = stringResource(R.string.settings_transfers_title)
+                    )
+                }
             }
 
             LazyRow(
@@ -335,6 +438,15 @@ private fun WorkgroupChatHeader(
                         contentColor = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+                if (transferCount > 0) {
+                    item("transfers") {
+                        HeaderChip(
+                            text = stringResource(R.string.chat_transfers_chip, transferCount),
+                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                }
                 items(uiState.members, key = { it.id }) { member ->
                     Surface(
                         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f),
@@ -360,6 +472,7 @@ private fun WorkgroupChatHeader(
 private fun WorkgroupSummaryStrip(
     messageCount: Int,
     memberCount: Int,
+    transferCount: Int,
     hasMoreHistory: Boolean,
     description: String?
 ) {
@@ -401,6 +514,13 @@ private fun WorkgroupSummaryStrip(
                 containerColor = MaterialTheme.colorScheme.surfaceVariant,
                 contentColor = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            if (transferCount > 0) {
+                HeaderChip(
+                    text = stringResource(R.string.chat_transfers_chip, transferCount),
+                    containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onTertiaryContainer
+                )
+            }
         }
     }
 }

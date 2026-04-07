@@ -340,6 +340,15 @@ class MainActivity : ComponentActivity() {
                                 workgroupId = workgroupId,
                                 workgroupName = workgroupName,
                                 viewModel = viewModel,
+                                onListWorkgroupTransfers = { scopedWorkgroupId ->
+                                    appContainer.transferRepository.listRecentTransfers(workgroupId = scopedWorkgroupId)
+                                },
+                                onDownloadTransfer = { transferId ->
+                                    appContainer.transferRepository.downloadTransfer(transferId)
+                                },
+                                onMarkTransferOpened = { transferId ->
+                                    appContainer.transferRepository.markTransferOpened(transferId)
+                                },
                                 onNavigateBack = { navController.popBackStack() }
                             )
                         }
@@ -373,6 +382,15 @@ class MainActivity : ComponentActivity() {
                                 projectName = projectName,
                                 agentId = agentId,
                                 viewModel = viewModel,
+                                onListProjectTransfers = { scopedProjectId ->
+                                    appContainer.transferRepository.listRecentTransfers(projectId = scopedProjectId)
+                                },
+                                onDownloadTransfer = { transferId ->
+                                    appContainer.transferRepository.downloadTransfer(transferId)
+                                },
+                                onMarkTransferOpened = { transferId ->
+                                    appContainer.transferRepository.markTransferOpened(transferId)
+                                },
                                 uiPresenceTracker = appContainer.uiPresenceTracker,
                                 onNavigateBack = { navController.popBackStack() }
                             )
