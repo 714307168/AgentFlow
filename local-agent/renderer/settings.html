@@ -2293,6 +2293,18 @@
     }
 
     async function clearTransferCache(target, buttonId) {
+      const labels = {
+        attachments: inlineText("attachment cache", "附件缓存"),
+        updates: inlineText("update cache", "更新包缓存"),
+        all: inlineText("transfer cache", "传输缓存"),
+      };
+      if (!confirmRiskAction({
+        action: inlineText(`Clear local ${labels[target] || labels.all}?`, `清理本地${labels[target] || labels.all}？`),
+        impact: inlineText("Local transfer files under the current data folder will be removed.", "当前数据目录下的本地传输文件会被删除。"),
+        recovery: inlineText("You can rebuild them later by re-downloading updates, re-sending files, or re-syncing history.", "后续可以通过重新下载更新、重新发送文件或重新同步历史来恢复。"),
+      })) {
+        return;
+      }
       const button = document.getElementById(buttonId);
       if (!button) {
         return;
@@ -2310,11 +2322,6 @@
         renderOverviewDashboard();
         renderTransferCenter();
         flashSaved();
-        const labels = {
-          attachments: inlineText("attachment cache", "附件缓存"),
-          updates: inlineText("update cache", "更新包缓存"),
-          all: inlineText("transfer cache", "传输缓存"),
-        };
         const clearedLabel = Array.isArray(result.clearedTargets) && result.clearedTargets.length > 1
           ? labels.all
           : labels[target] || labels.all;
@@ -3032,6 +3039,16 @@
       setTimeout(() => { el.style.display = "none"; }, 3000);
     }
 
+    function confirmRiskAction(options = {}) {
+      const action = String(options.action || "").trim() || inlineText("Continue with this action?", "继续执行这个操作？");
+      const impact = String(options.impact || "").trim() || inlineText("This change affects local settings or data.", "这个改动会影响本地设置或数据。");
+      const recovery = String(options.recovery || "").trim() || inlineText("You may need to reconfigure it manually afterwards.", "后续可能需要手动重新配置。");
+      return confirm(inlineText(
+        `${action}\n\nImpact: ${impact}\nRecovery: ${recovery}\n\nContinue?`,
+        `${action}\n\n影响：${impact}\n恢复方式：${recovery}\n\n是否继续？`
+      ));
+    }
+
     function renderAccessGrants(state) {
       latestAccessState = state || latestAccessState;
       const incomingList = document.getElementById("incomingGrantList");
@@ -3660,6 +3677,13 @@
     }
 
     async function deleteScheduledTask(taskId) {
+      if (!confirmRiskAction({
+        action: inlineText("Delete this scheduled task?", "删除这个定时任务？"),
+        impact: inlineText("Future automatic runs for this task will stop immediately.", "这个任务后续的自动执行会立即停止。"),
+        recovery: inlineText("If needed, recreate it from the task editor with the same schedule and prompt.", "如果后续还需要，可以在任务编辑器里按原计划和提示词重新创建。"),
+      })) {
+        return;
+      }
       try {
         const result = await api.deleteScheduledTask(taskId);
         if (!result?.success) {
@@ -3721,6 +3745,13 @@
     }
 
     async function revokeAccessGrant(controllerUserId, targetAgentId) {
+      if (!confirmRiskAction({
+        action: inlineText("Revoke this remote access grant?", "撤销这条远程访问授权？"),
+        impact: inlineText("The selected user will immediately lose control over this desktop.", "目标用户会立即失去对当前桌面端的控制权限。"),
+        recovery: inlineText("You can grant access again later from the same page.", "后续可以在当前页面重新授权。"),
+      })) {
+        return;
+      }
       try {
         const result = await api.revokeAccessGrant({ controllerUserId, targetAgentId });
         if (!result?.success) {
@@ -4304,6 +4335,13 @@
         showStatus(inlineText("Publish this workgroup first.", "请先发布这个工作组。"), true);
         return;
       }
+      if (!confirmRiskAction({
+        action: inlineText("Remove this joined user from the published workgroup?", "把这个已加入用户移出已发布协作组？"),
+        impact: inlineText("The user will lose access to the shared workgroup immediately.", "这个用户会立即失去当前共享协作组的访问权限。"),
+        recovery: inlineText("They can join again later with the same group number if you allow it.", "后续如果仍然允许，对方可以使用同一个群号重新加入。"),
+      })) {
+        return;
+      }
       try {
         const result = await api.kickWorkgroupRegistryMember({
           groupNumber: workgroup.groupNumber,
@@ -4326,7 +4364,11 @@
       if (!workgroup) {
         return;
       }
-      if (!confirm(inlineText("Delete this workgroup and all members/tasks?", "删除这个工作组以及其下所有成员和任务？"))) {
+      if (!confirmRiskAction({
+        action: inlineText("Delete this workgroup and all members/tasks?", "删除这个工作组以及其下所有成员和任务？"),
+        impact: inlineText("The workgroup profile, task board, and local member assignments will all be removed.", "工作组档案、任务看板和本地成员绑定都会一起删除。"),
+        recovery: inlineText("You would need to create the workgroup again and re-add members or tasks manually.", "如果后续还需要，只能重新创建工作组并手动补回成员和任务。"),
+      })) {
         return;
       }
       try {
@@ -4389,7 +4431,11 @@
     }
 
     async function deleteWorkgroupMember(memberId) {
-      if (!confirm(inlineText("Delete this member?", "删除这个成员？"))) {
+      if (!confirmRiskAction({
+        action: inlineText("Delete this member?", "删除这个成员？"),
+        impact: inlineText("The member will no longer receive assignments from this workgroup.", "这个成员将不再接收当前工作组的任务分派。"),
+        recovery: inlineText("You can add the member again later and rebind the project or prompt.", "后续可以重新添加成员，并重新绑定项目或提示词。"),
+      })) {
         return;
       }
       try {
@@ -4491,7 +4537,11 @@
     }
 
     async function deleteWorkgroupTask(taskId) {
-      if (!confirm(inlineText("Delete this task?", "删除这个任务？"))) {
+      if (!confirmRiskAction({
+        action: inlineText("Delete this task?", "删除这个任务？"),
+        impact: inlineText("The task record and its scheduling state will be removed from this workgroup.", "这个任务记录及其定时状态会从当前工作组里移除。"),
+        recovery: inlineText("If needed, recreate it from the task editor with the same assignee and schedule.", "如果后续还需要，可以按原负责人和计划重新创建。"),
+      })) {
         return;
       }
       try {
@@ -4547,7 +4597,11 @@
     }
 
     async function deleteProject(projectId) {
-      if (!confirm(msg("settings.projectDeleteConfirm", "Delete this project?"))) return;
+      if (!confirmRiskAction({
+        action: msg("settings.projectDeleteConfirm", "Delete this project?"),
+        impact: inlineText("The desktop project entry will be removed from the catalog and its local runtime state will stop updating.", "这个桌面项目条目会从目录中移除，本地运行态也会停止更新。"),
+        recovery: inlineText("You can add the same project path again later if needed.", "如果后续还需要，可以重新把同一路径添加回来。"),
+      })) return;
       try {
         await api.deleteProject(projectId);
         paneLoadState.projectsDirty = true;
@@ -4894,6 +4948,13 @@
     });
 
     document.getElementById("clearHistoryCacheBtn").addEventListener("click", async () => {
+      if (!confirmRiskAction({
+        action: inlineText("Clear local history cache for idle projects?", "清理空闲项目的本地历史缓存？"),
+        impact: inlineText("Persisted chat snapshots for idle projects will be cleared from local storage.", "空闲项目的持久化聊天快照会从本地存储中清掉。"),
+        recovery: inlineText("Reopen the project or trigger sync again to rebuild the latest history.", "后续重新打开项目或再次触发同步，就可以重建最新历史。"),
+      })) {
+        return;
+      }
       try {
         const result = await api.clearHistoryCache();
         paneLoadState.localDataDirty = true;
@@ -4944,6 +5005,13 @@
     });
 
     document.getElementById("repairChatHistoryBtn").addEventListener("click", async () => {
+      if (!confirmRiskAction({
+        action: inlineText("Repair local chat history now?", "现在修复本地聊天记录？"),
+        impact: inlineText("Corrupted history snapshots may be rewritten or reset during the repair.", "修复过程中，异常历史快照可能会被重写或重置。"),
+        recovery: inlineText("If the result is still not ideal, you can clear local history cache and resync again.", "如果结果仍不理想，后续还可以清理本地历史缓存后重新同步。"),
+      })) {
+        return;
+      }
       const button = document.getElementById("repairChatHistoryBtn");
       button.disabled = true;
       try {
