@@ -569,6 +569,25 @@
       border-radius: 14px;
       padding: 14px;
       background: rgba(255, 255, 255, 0.03);
+      min-width: 0;
+    }
+    .workgroup-form-grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    }
+    .workgroup-form-grid .field {
+      min-width: 0;
+      margin-bottom: 0;
+    }
+    .workgroup-field--wide {
+      grid-column: 1 / -1;
+    }
+    .workgroup-card-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 14px;
     }
     .transfer-receipts {
       display: grid;
@@ -590,9 +609,11 @@
       display: flex;
       align-items: center;
       gap: 8px;
+      min-width: 0;
     }
     .inline-field-row > input {
       flex: 1;
+      min-width: 0;
     }
     .workgroup-inline-meta {
       display: flex;
@@ -914,40 +935,42 @@
             <div class="split-grid">
               <div class="workgroup-card">
                 <div class="workgroup-card-title" id="workgroupFormTitle">Workgroup Profile</div>
-                <div class="field">
-                  <label id="workgroupNameLabel">Workgroup Name</label>
-                  <input type="text" id="workgroupName" placeholder="Release Squad">
-                </div>
-                <div class="field">
-                  <label id="workgroupGroupNumberLabel">Group Number</label>
-                  <div class="inline-field-row">
-                    <input type="text" id="workgroupGroupNumber" placeholder="Not published yet" readonly>
-                    <button class="btn-secondary btn-small" id="publishWorkgroupBtn">Publish</button>
+                <div class="workgroup-form-grid">
+                  <div class="field">
+                    <label id="workgroupNameLabel">Workgroup Name</label>
+                    <input type="text" id="workgroupName" placeholder="Release Squad">
+                  </div>
+                  <div class="field">
+                    <label id="workgroupGroupNumberLabel">Group Number</label>
+                    <div class="inline-field-row">
+                      <input type="text" id="workgroupGroupNumber" placeholder="Not published yet" readonly>
+                      <button class="btn-secondary btn-small" id="publishWorkgroupBtn">Publish</button>
+                    </div>
+                  </div>
+                  <div class="field">
+                    <label id="workgroupPlanPathLabel">Planning Workspace</label>
+                    <input type="text" id="workgroupPlanPath" readonly>
+                  </div>
+                  <div class="field workgroup-field--wide">
+                    <label id="workgroupAgentsLabel">Agents</label>
+                    <div class="project-list" id="workgroupProjectPicker" data-empty-message="No projects available."></div>
+                  </div>
+                  <div class="field workgroup-field--wide" style="display:none;">
+                    <label id="workgroupDescriptionLabel">Description</label>
+                    <textarea id="workgroupDescription" rows="4"></textarea>
+                  </div>
+                  <div class="toggle-row workgroup-field--wide" style="display:none;">
+                    <div class="toggle-copy">
+                      <label id="workgroupDirectMessageLabel" for="workgroupAllowDirectMessages">Allow member-to-member handoff notes</label>
+                      <div class="toggle-help" id="workgroupDirectMessageHint">When disabled, tasks are isolated and members should only report back their own result.</div>
+                    </div>
+                    <div class="toggle">
+                      <input type="checkbox" id="workgroupAllowDirectMessages">
+                      <span class="slider"></span>
+                    </div>
                   </div>
                 </div>
-                <div class="field">
-                  <label id="workgroupPlanPathLabel">Planning Workspace</label>
-                  <input type="text" id="workgroupPlanPath" readonly>
-                </div>
-                <div class="field">
-                  <label id="workgroupAgentsLabel">Agents</label>
-                  <div class="project-list" id="workgroupProjectPicker" data-empty-message="No projects available."></div>
-                </div>
-                <div class="field" style="display:none;">
-                  <label id="workgroupDescriptionLabel">Description</label>
-                  <textarea id="workgroupDescription" rows="4"></textarea>
-                </div>
-                <div class="toggle-row" style="display:none;">
-                  <div class="toggle-copy">
-                    <label id="workgroupDirectMessageLabel" for="workgroupAllowDirectMessages">Allow member-to-member handoff notes</label>
-                    <div class="toggle-help" id="workgroupDirectMessageHint">When disabled, tasks are isolated and members should only report back their own result.</div>
-                  </div>
-                  <div class="toggle">
-                    <input type="checkbox" id="workgroupAllowDirectMessages">
-                    <span class="slider"></span>
-                  </div>
-                </div>
-                <div class="btn-row">
+                <div class="workgroup-card-actions">
                   <button class="btn-primary btn-small" id="saveWorkgroupBtn">Save Workgroup</button>
                   <button class="btn-secondary btn-small" id="cancelWorkgroupBtn">Reset</button>
                 </div>
@@ -1001,81 +1024,77 @@
             </div>
             <div class="workgroup-card" style="margin-top: 14px;">
               <div class="workgroup-card-title" id="workgroupTaskTitle">Tasks</div>
-              <div class="split-grid">
-                <div>
-                  <div class="field">
-                    <label id="taskTitleLabel">Task Title</label>
-                    <input type="text" id="workgroupTaskName" placeholder="Deploy latest build to staging">
+              <div class="workgroup-form-grid">
+                <div class="field">
+                  <label id="taskTitleLabel">Task Title</label>
+                  <input type="text" id="workgroupTaskName" placeholder="Deploy latest build to staging">
+                </div>
+                <div class="field">
+                  <label id="taskAssigneeLabel">Assignee</label>
+                  <select id="workgroupTaskAssignee"></select>
+                </div>
+                <div class="field">
+                  <label id="taskPriorityLabel">Priority</label>
+                  <select id="workgroupTaskPriority">
+                    <option value="normal">Normal</option>
+                    <option value="high">High</option>
+                    <option value="low">Low</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label id="taskScheduleTypeLabel">Schedule</label>
+                  <select id="workgroupTaskScheduleType">
+                    <option value="manual">Manual Only</option>
+                    <option value="once">One Time</option>
+                    <option value="delay">Delay</option>
+                    <option value="daily">Daily</option>
+                    <option value="weekly">Weekly</option>
+                  </select>
+                </div>
+                <div class="field" id="workgroupTaskRunAtField" style="display:none;">
+                  <label id="taskRunAtLabel">Run At</label>
+                  <input type="datetime-local" id="workgroupTaskRunAt">
+                </div>
+                <div class="field" id="workgroupTaskDelayField" style="display:none;">
+                  <label id="taskDelayLabel">Delay Minutes</label>
+                  <input type="text" id="workgroupTaskDelayMinutes" inputmode="numeric" placeholder="30">
+                </div>
+                <div class="field" id="workgroupTaskDailyTimeField" style="display:none;">
+                  <label id="taskDailyTimeLabel">Repeat Time</label>
+                  <input type="time" id="workgroupTaskDailyTime">
+                </div>
+                <div class="field" id="workgroupTaskWeeklyDayField" style="display:none;">
+                  <label id="taskWeeklyDayLabel">Weekly Day</label>
+                  <select id="workgroupTaskWeeklyDay">
+                    <option value="0">Sunday</option>
+                    <option value="1">Monday</option>
+                    <option value="2">Tuesday</option>
+                    <option value="3">Wednesday</option>
+                    <option value="4">Thursday</option>
+                    <option value="5">Friday</option>
+                    <option value="6">Saturday</option>
+                  </select>
+                </div>
+                <div class="toggle-row workgroup-field--wide" id="workgroupTaskEnabledRow" style="display:none;">
+                  <div class="toggle-copy">
+                    <label id="taskEnabledLabel" for="workgroupTaskScheduleEnabled">Enabled</label>
+                    <div class="toggle-help" id="taskEnabledHint">Disabled scheduled workgroup tasks stay saved but do not auto-dispatch.</div>
                   </div>
-                  <div class="field">
-                    <label id="taskAssigneeLabel">Assignee</label>
-                    <select id="workgroupTaskAssignee"></select>
-                  </div>
-                  <div class="field">
-                    <label id="taskPriorityLabel">Priority</label>
-                    <select id="workgroupTaskPriority">
-                      <option value="normal">Normal</option>
-                      <option value="high">High</option>
-                      <option value="low">Low</option>
-                    </select>
-                  </div>
-                  <div class="field">
-                    <label id="taskScheduleTypeLabel">Schedule</label>
-                    <select id="workgroupTaskScheduleType">
-                      <option value="manual">Manual Only</option>
-                      <option value="once">One Time</option>
-                      <option value="delay">Delay</option>
-                      <option value="daily">Daily</option>
-                      <option value="weekly">Weekly</option>
-                    </select>
-                  </div>
-                  <div class="field" id="workgroupTaskRunAtField" style="display:none;">
-                    <label id="taskRunAtLabel">Run At</label>
-                    <input type="datetime-local" id="workgroupTaskRunAt">
-                  </div>
-                  <div class="field" id="workgroupTaskDelayField" style="display:none;">
-                    <label id="taskDelayLabel">Delay Minutes</label>
-                    <input type="text" id="workgroupTaskDelayMinutes" inputmode="numeric" placeholder="30">
-                  </div>
-                  <div class="field" id="workgroupTaskDailyTimeField" style="display:none;">
-                    <label id="taskDailyTimeLabel">Repeat Time</label>
-                    <input type="time" id="workgroupTaskDailyTime">
-                  </div>
-                  <div class="field" id="workgroupTaskWeeklyDayField" style="display:none;">
-                    <label id="taskWeeklyDayLabel">Weekly Day</label>
-                    <select id="workgroupTaskWeeklyDay">
-                      <option value="0">Sunday</option>
-                      <option value="1">Monday</option>
-                      <option value="2">Tuesday</option>
-                      <option value="3">Wednesday</option>
-                      <option value="4">Thursday</option>
-                      <option value="5">Friday</option>
-                      <option value="6">Saturday</option>
-                    </select>
-                  </div>
-                  <div class="toggle-row" id="workgroupTaskEnabledRow" style="display:none;">
-                    <div class="toggle-copy">
-                      <label id="taskEnabledLabel" for="workgroupTaskScheduleEnabled">Enabled</label>
-                      <div class="toggle-help" id="taskEnabledHint">Disabled scheduled workgroup tasks stay saved but do not auto-dispatch.</div>
-                    </div>
-                    <div class="toggle">
-                      <input type="checkbox" id="workgroupTaskScheduleEnabled" checked>
-                      <span class="slider"></span>
-                    </div>
+                  <div class="toggle">
+                    <input type="checkbox" id="workgroupTaskScheduleEnabled" checked>
+                    <span class="slider"></span>
                   </div>
                 </div>
-                <div>
-                  <div class="field">
-                    <label id="taskDescriptionLabel">Description</label>
-                    <textarea id="workgroupTaskDescription" rows="4" placeholder="Ship the current branch, confirm service health, and attach the verification result."></textarea>
-                  </div>
-                  <div class="field">
-                    <label id="taskCriteriaLabel">Acceptance Criteria</label>
-                    <textarea id="workgroupTaskCriteria" rows="4" placeholder="Service starts normally, smoke test passes, and key logs are clean."></textarea>
-                  </div>
+                <div class="field workgroup-field--wide">
+                  <label id="taskDescriptionLabel">Description</label>
+                  <textarea id="workgroupTaskDescription" rows="4" placeholder="Ship the current branch, confirm service health, and attach the verification result."></textarea>
+                </div>
+                <div class="field workgroup-field--wide">
+                  <label id="taskCriteriaLabel">Acceptance Criteria</label>
+                  <textarea id="workgroupTaskCriteria" rows="4" placeholder="Service starts normally, smoke test passes, and key logs are clean."></textarea>
                 </div>
               </div>
-              <div class="btn-row">
+              <div class="workgroup-card-actions">
                 <button class="btn-primary btn-small" id="saveWorkgroupTaskBtn">Save Task</button>
                 <button class="btn-secondary btn-small" id="cancelWorkgroupTaskBtn">Reset</button>
               </div>
