@@ -462,6 +462,19 @@
 - 文件下载
 - @PM
 
+## 8.1 发布节点
+
+为避免 roadmap 只记录开发项、不记录真实发版节奏，后续每个阶段都补一个明确发布节点：
+
+- `R-desktop-patch`：桌面端稳定性 / 设置页 / 传输中心类改动，合并后走一次桌面端补丁发版，并记录更新中心版本号。
+- `R-mobile-feature`：Android 文件接收、消息同步或更新链路的阶段性完成后，走一次 Android 发版，并同步记录版本号与 build。
+- `R-multi-end`：涉及桌面 + Android + relay-server 联动的完整链路落地后，补一次“三端对齐”发版节点，包含更新中心和 GitHub Release。
+- `R-mac-first`：mac 首个可安装版本完成后，单独记录 `mac` 更新中心通道和 GitHub Release 附件上线时间。
+
+当前已发生的发布节点：
+
+- `2026-04-08`：桌面端 `1.1.119` 已发布到更新中心，对应设置页布局修复、项目/协作组表单整理、传输中心体验补强。
+
 ## 9. 建议优先级
 
 ### P0
@@ -530,3 +543,4 @@
 
 - [x] Desktop transfer center now supports one-click cleanup for attachment cache, update cache, or all transfer cache, and refreshes storage metrics immediately after cleanup.
 - [x] Desktop transfer center now surfaces recent upload / download health, flags expired or failed transfers, and offers retry-send shortcuts with the same target scope.
+- [x] Desktop `1.1.119` patch release was published to the update center for the latest settings layout and transfer-center UX fixes.
