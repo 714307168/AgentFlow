@@ -29,6 +29,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import retrofit2.HttpException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.UUID
 
@@ -128,22 +129,36 @@ class SessionRepository(
             var shouldSkipFullSync = false
             if (!force && cachedSessions.isNotEmpty()) {
                 val previousRevision = tokenStore.getDeviceSyncRevision()?.trim().orEmpty().ifEmpty { null }
-                val meta = relayApiProvider().syncDeviceMeta(
-                    auth = "Bearer $token",
-                    sinceRevision = previousRevision
-                )
-                if (!meta.changed && previousRevision != null && meta.revision == previousRevision) {
-                    tokenStore.saveDeviceSyncRevision(meta.revision)
-                    CrashLogger.logInfo(
-                        "SessionRepository",
-                        "Skipping full project sync because revision is unchanged revision=${meta.revision} projectCount=${meta.projectCount}"
+                val meta = runCatching {
+                    relayApiProvider().syncDeviceMeta(
+                        auth = "Bearer $token",
+                        sinceRevision = previousRevision
                     )
-                    shouldSkipFullSync = true
-                } else {
-                    CrashLogger.logInfo(
-                        "SessionRepository",
-                        "Project sync revision changed previous=${previousRevision ?: "none"} next=${meta.revision} projectCount=${meta.projectCount}"
-                    )
+                }.getOrElse { error ->
+                    if (shouldFallbackToLegacySync(error)) {
+                        CrashLogger.logInfo(
+                            "SessionRepository",
+                            "Device sync meta is unavailable on current relay version; falling back to legacy full sync"
+                        )
+                        null
+                    } else {
+                        throw error
+                    }
+                }
+                if (meta != null) {
+                    if (!meta.changed && previousRevision != null && meta.revision == previousRevision) {
+                        tokenStore.saveDeviceSyncRevision(meta.revision)
+                        CrashLogger.logInfo(
+                            "SessionRepository",
+                            "Skipping full project sync because revision is unchanged revision=${meta.revision} projectCount=${meta.projectCount}"
+                        )
+                        shouldSkipFullSync = true
+                    } else {
+                        CrashLogger.logInfo(
+                            "SessionRepository",
+                            "Project sync revision changed previous=${previousRevision ?: "none"} next=${meta.revision} projectCount=${meta.projectCount}"
+                        )
+                    }
                 }
             }
 
@@ -328,6 +343,11 @@ class SessionRepository(
                 "Applied delayed offline status for projectId=$projectId after debounce"
             )
         }
+    }
+
+    private fun shouldFallbackToLegacySync(error: Throwable): Boolean {
+        val httpError = error as? HttpException ?: return false
+        return httpError.code() == 404 || httpError.code() == 405
     }
 
     private fun SessionEntity.toSession() = Session(
