@@ -124,19 +124,50 @@ class SessionRepository(
                 return Result.failure(error)
             }
 
-            CrashLogger.logInfo("SessionRepository", "Calling API syncDevice")
-            val response = relayApiProvider().syncDevice("Bearer $token")
-
-            CrashLogger.logInfo("SessionRepository", "Received response: agentId=${response.agentId}, projects count=${response.projects.size}")
-
-            response.projects.forEachIndexed { index, project ->
-                CrashLogger.logInfo("SessionRepository", "Project $index: id=${project.id}, name=${project.name}, path=${project.path}")
+            val cachedSessions = sessionDao.getInboxSessionsSnapshot()
+            var shouldSkipFullSync = false
+            if (!force && cachedSessions.isNotEmpty()) {
+                val previousRevision = tokenStore.getDeviceSyncRevision()?.trim().orEmpty().ifEmpty { null }
+                val meta = relayApiProvider().syncDeviceMeta(
+                    auth = "Bearer $token",
+                    sinceRevision = previousRevision
+                )
+                if (!meta.changed && previousRevision != null && meta.revision == previousRevision) {
+                    tokenStore.saveDeviceSyncRevision(meta.revision)
+                    CrashLogger.logInfo(
+                        "SessionRepository",
+                        "Skipping full project sync because revision is unchanged revision=${meta.revision} projectCount=${meta.projectCount}"
+                    )
+                    shouldSkipFullSync = true
+                } else {
+                    CrashLogger.logInfo(
+                        "SessionRepository",
+                        "Project sync revision changed previous=${previousRevision ?: "none"} next=${meta.revision} projectCount=${meta.projectCount}"
+                    )
+                }
             }
 
-            replaceSessionsFromDesktop(response.agentId, response.projects, fullReplace = true)
+            if (shouldSkipFullSync) {
+                Result.success(Unit)
+            } else {
+                CrashLogger.logInfo("SessionRepository", "Calling API syncDevice")
+                val response = relayApiProvider().syncDevice("Bearer $token")
 
-            CrashLogger.logInfo("SessionRepository", "syncFromServer completed successfully")
-            Result.success(Unit)
+                CrashLogger.logInfo("SessionRepository", "Received response: agentId=${response.agentId}, projects count=${response.projects.size}")
+
+                response.projects.forEachIndexed { index, project ->
+                    CrashLogger.logInfo("SessionRepository", "Project $index: id=${project.id}, name=${project.name}, path=${project.path}")
+                }
+
+                replaceSessionsFromDesktop(response.agentId, response.projects, fullReplace = true)
+                val resolvedRevision = response.revision?.trim().orEmpty()
+                if (response.projects.isNotEmpty() || cachedSessions.isEmpty()) {
+                    tokenStore.saveDeviceSyncRevision(resolvedRevision)
+                }
+
+                CrashLogger.logInfo("SessionRepository", "syncFromServer completed successfully")
+                Result.success(Unit)
+            }
         } catch (e: Exception) {
             CrashLogger.logError("SessionRepository", "syncFromServer failed", e)
             Result.failure(e)

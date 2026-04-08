@@ -38,6 +38,12 @@ interface RelayApi {
         @Header("Authorization") auth: String
     ): SyncResponse
 
+    @GET("api/device/sync/meta")
+    suspend fun syncDeviceMeta(
+        @Header("Authorization") auth: String,
+        @Query("since_revision") sinceRevision: String? = null
+    ): SyncMetaResponse
+
     @GET("api/update/check")
     suspend fun checkForUpdate(
         @Query("platform") platform: String,
@@ -167,7 +173,17 @@ data class WakeupResponse(val status: String)
 @Serializable
 data class SyncResponse(
     @SerialName("agent_id") val agentId: String,
+    val revision: String? = null,
+    @SerialName("project_count") val projectCount: Int? = null,
     val projects: List<ProjectInfo>
+)
+
+@Serializable
+data class SyncMetaResponse(
+    @SerialName("agent_id") val agentId: String,
+    val revision: String,
+    @SerialName("project_count") val projectCount: Int = 0,
+    val changed: Boolean = true
 )
 
 @Serializable

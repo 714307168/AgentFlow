@@ -159,6 +159,17 @@ class TokenStore(context: Context) {
     fun getJoinedWorkgroupAgentIds(): Set<String> =
         prefs.getStringSet(KEY_JOINED_WORKGROUP_AGENT_IDS, emptySet())?.toSet() ?: emptySet()
 
+    fun saveDeviceSyncRevision(revision: String) {
+        val normalized = revision.trim()
+        if (normalized.isEmpty()) {
+            prefs.edit().remove(KEY_DEVICE_SYNC_REVISION).apply()
+        } else {
+            prefs.edit().putString(KEY_DEVICE_SYNC_REVISION, normalized).apply()
+        }
+    }
+
+    fun getDeviceSyncRevision(): String? = prefs.getString(KEY_DEVICE_SYNC_REVISION, null)
+
     fun clear() {
         prefs.edit().clear().apply()
     }
@@ -180,6 +191,7 @@ class TokenStore(context: Context) {
         private const val KEY_COLLAPSED_SESSION_GROUPS = "collapsed_session_groups"
         private const val KEY_COLLAPSED_AGENT_GROUPS = "collapsed_agent_groups"
         private const val KEY_JOINED_WORKGROUP_AGENT_IDS = "joined_workgroup_agent_ids"
+        private const val KEY_DEVICE_SYNC_REVISION = "device_sync_revision"
 
         private fun projectDraftKey(projectId: String): String = "draft_$projectId"
         private fun projectChatSnapshotKey(projectId: String): String = "chat_snapshot_$projectId"
