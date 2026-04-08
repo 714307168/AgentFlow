@@ -507,11 +507,33 @@
       grid-template-columns: minmax(0, 1fr);
       gap: 14px;
     }
-    .project-item-form .project-actions {
+    .project-item-form .project-info {
       display: grid;
-      grid-template-columns: minmax(0, 1fr);
+      gap: 6px;
+    }
+    .project-item-form .project-actions {
+      display: flex;
+      flex-direction: column;
       gap: 10px;
       align-items: stretch;
+    }
+    .project-edit-grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    }
+    .project-edit-field {
+      min-width: 0;
+    }
+    .project-edit-field--wide {
+      grid-column: 1 / -1;
+    }
+    .project-edit-label {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
     }
     .project-item-form .project-model-input,
     .project-item-form .project-provider-select {
@@ -3056,32 +3078,46 @@
             <div class="project-path">${escapeHtml(project.path)}</div>
           </div>
           <div class="project-actions">
-            <input
-              class="project-model-input"
-              type="text"
-              value="${escapeHtml(project.groupName || "")}"
-              placeholder="${escapeHtml(inlineText("Default group", "默认分组"))}"
-              onblur="updateProjectGroup('${project.id}', this.value)"
-              onkeydown="handleProjectTextKey(event, '${project.id}', this, 'group')"
-            >
-            <select class="project-provider-select" onchange="updateProjectProvider('${project.id}', this.value)">
-              <option value="claude" ${(project.cliProvider || "claude") === "claude" ? "selected" : ""}>Claude Code</option>
-              <option value="codex" ${(project.cliProvider || "claude") === "codex" ? "selected" : ""}>OpenAI Codex</option>
-            </select>
-            <input
-              class="project-model-input"
-              type="text"
-              value="${escapeHtml(project.cliModel || "")}"
-              placeholder="${escapeHtml(projectModelPlaceholder())}"
-              onblur="updateProjectModel('${project.id}', this.value)"
-              onkeydown="handleProjectTextKey(event, '${project.id}', this, 'model')"
-            >
-            <textarea
-              class="project-model-input"
-              rows="4"
-              placeholder="${escapeHtml(projectPromptPlaceholder())}"
-              onblur="updateProjectPrompt('${project.id}', this.value)"
-            >${escapeHtml(project.projectPrompt || "")}</textarea>
+            <div class="project-edit-grid">
+              <div class="project-edit-field">
+                <label class="project-edit-label">${escapeHtml(inlineText("Group", "分组"))}</label>
+                <input
+                  class="project-model-input"
+                  type="text"
+                  value="${escapeHtml(project.groupName || "")}"
+                  placeholder="${escapeHtml(inlineText("Default group", "默认分组"))}"
+                  onblur="updateProjectGroup('${project.id}', this.value)"
+                  onkeydown="handleProjectTextKey(event, '${project.id}', this, 'group')"
+                >
+              </div>
+              <div class="project-edit-field">
+                <label class="project-edit-label">${escapeHtml(inlineText("CLI Provider", "CLI 提供方"))}</label>
+                <select class="project-provider-select" onchange="updateProjectProvider('${project.id}', this.value)">
+                  <option value="claude" ${(project.cliProvider || "claude") === "claude" ? "selected" : ""}>Claude Code</option>
+                  <option value="codex" ${(project.cliProvider || "claude") === "codex" ? "selected" : ""}>OpenAI Codex</option>
+                </select>
+              </div>
+              <div class="project-edit-field">
+                <label class="project-edit-label">${escapeHtml(inlineText("Model Override", "模型覆盖"))}</label>
+                <input
+                  class="project-model-input"
+                  type="text"
+                  value="${escapeHtml(project.cliModel || "")}"
+                  placeholder="${escapeHtml(projectModelPlaceholder())}"
+                  onblur="updateProjectModel('${project.id}', this.value)"
+                  onkeydown="handleProjectTextKey(event, '${project.id}', this, 'model')"
+                >
+              </div>
+              <div class="project-edit-field project-edit-field--wide">
+                <label class="project-edit-label">${escapeHtml(inlineText("Project Prompt", "项目提示词"))}</label>
+                <textarea
+                  class="project-model-input"
+                  rows="3"
+                  placeholder="${escapeHtml(projectPromptPlaceholder())}"
+                  onblur="updateProjectPrompt('${project.id}', this.value)"
+                >${escapeHtml(project.projectPrompt || "")}</textarea>
+              </div>
+            </div>
             <div class="project-action-row">
               <button class="btn-secondary btn-small" onclick="openProject('${project.id}')">${escapeHtml(msg("settings.projectOpen", "Open"))}</button>
               <button class="btn-danger btn-small" onclick="deleteProject('${project.id}')">${escapeHtml(msg("settings.projectDelete", "Delete"))}</button>
