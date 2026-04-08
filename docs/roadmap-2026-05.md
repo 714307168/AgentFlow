@@ -608,3 +608,4 @@
 - [x] Desktop settings now show effect-scope pills for key options so users can distinguish local-only settings from current-device settings at a glance.
 - [x] Desktop `1.1.121` and Android `1.2.15 (build 99)` were published to the update center for the chat/activity bottom-anchor patch.
 - [x] Session sync payloads now carry a stable `snapshot_revision`, and Android skips redundant runtime snapshot rewrites when the session view has not materially changed.
+- [x] Android and desktop remote sync now only request `fetch_item_detail` when omitted content or attachments cannot be reconstructed from the local cache, reducing duplicate detail backfills during overlap sync windows.

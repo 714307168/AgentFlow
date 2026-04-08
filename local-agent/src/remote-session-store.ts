@@ -1230,7 +1230,19 @@ export default class RemoteSessionStore extends EventEmitter {
       } else {
         state.messages.push(nextMessage);
       }
-      this.scheduleFullItemSyncIfNeeded(state, itemId, contentOmitted || attachmentsOmitted);
+      this.scheduleFullItemSyncIfNeeded(
+        state,
+        itemId,
+        this.shouldRequestFullMessageItem({
+          existingContent: existingMessage?.content,
+          incomingContent: nextMessage.content,
+          contentMd5,
+          contentOmitted,
+          existingAttachments: existingMessage?.attachments,
+          attachmentsMd5,
+          attachmentsOmitted,
+        }),
+      );
       this.trimMessages(state);
       return;
     }
@@ -1257,7 +1269,11 @@ export default class RemoteSessionStore extends EventEmitter {
       } else {
         state.cliTrace.push(nextEntry);
       }
-      this.scheduleFullItemSyncIfNeeded(state, itemId, contentOmitted);
+      this.scheduleFullItemSyncIfNeeded(
+        state,
+        itemId,
+        this.shouldRequestFullContent(existingEntry?.text, nextEntry.text, contentMd5, contentOmitted),
+      );
       this.trimCli(state);
       return;
     }
@@ -1288,7 +1304,11 @@ export default class RemoteSessionStore extends EventEmitter {
     } else {
       state.activities.push(nextActivity);
     }
-    this.scheduleFullItemSyncIfNeeded(state, itemId, contentOmitted);
+    this.scheduleFullItemSyncIfNeeded(
+      state,
+      itemId,
+      this.shouldRequestFullContent(existingActivity?.detail, nextActivity.detail, contentMd5, contentOmitted),
+    );
     this.trimActivities(state);
   }
 
@@ -1310,6 +1330,69 @@ export default class RemoteSessionStore extends EventEmitter {
       return incomingContent;
     }
     return incomingContent;
+  }
+
+  private shouldRequestFullMessageItem(input: {
+    existingContent: string | undefined;
+    incomingContent: string;
+    contentMd5: string;
+    contentOmitted: boolean;
+    existingAttachments: RunAttachment[] | undefined;
+    attachmentsMd5: string;
+    attachmentsOmitted: boolean;
+  }): boolean {
+    return this.shouldRequestFullContent(
+      input.existingContent,
+      input.incomingContent,
+      input.contentMd5,
+      input.contentOmitted,
+    ) || this.shouldRequestFullAttachments(
+      input.existingAttachments,
+      input.attachmentsMd5,
+      input.attachmentsOmitted,
+    );
+  }
+
+  private shouldRequestFullContent(
+    existingContent: string | undefined,
+    incomingContent: string,
+    contentMd5: string,
+    contentOmitted: boolean,
+  ): boolean {
+    if (!contentOmitted) {
+      return false;
+    }
+    if (contentMd5) {
+      if (
+        typeof existingContent === "string"
+        && existingContent
+        && createSessionSyncContentMd5(existingContent) === contentMd5
+      ) {
+        return false;
+      }
+      if (incomingContent && createSessionSyncContentMd5(incomingContent) === contentMd5) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private shouldRequestFullAttachments(
+    existingAttachments: RunAttachment[] | undefined,
+    attachmentsMd5: string,
+    attachmentsOmitted: boolean,
+  ): boolean {
+    if (!attachmentsOmitted) {
+      return false;
+    }
+    if (
+      attachmentsMd5
+      && existingAttachments
+      && createSessionSyncAttachmentsMd5(existingAttachments) === attachmentsMd5
+    ) {
+      return false;
+    }
+    return true;
   }
 
   private scheduleFullItemSyncIfNeeded(state: RemoteState, itemId: string, requiresFullContent: boolean): void {

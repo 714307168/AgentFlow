@@ -894,13 +894,8 @@ class MessageRepository(
             rawItems.forEachIndexed { index, item ->
                 val itemObj = item.jsonObject
                 val itemId = itemObj["id"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
-                if (
-                    itemId.isNotBlank()
-                    && (
-                        itemObj["content_omitted"]?.jsonPrimitive?.booleanOrNull == true
-                        || itemObj["attachments_omitted"]?.jsonPrimitive?.booleanOrNull == true
-                    )
-                ) {
+                val existing = messageDao.getMessageById(itemId)
+                if (itemId.isNotBlank() && shouldRequestFullSyncItemDetail(itemObj, existing)) {
                     omittedItemIds.add(itemId)
                 }
                 val entity = runCatching {
@@ -908,7 +903,7 @@ class MessageRepository(
                         projectId = projectId,
                         itemObj = itemObj,
                         fallbackTimestamp = fallbackTimestamp,
-                        existing = messageDao.getMessageById(itemId),
+                        existing = existing,
                         conversationId = conversationId
                     )
                 }.onFailure { error ->
@@ -919,7 +914,6 @@ class MessageRepository(
                     )
                 }.getOrNull() ?: return@forEachIndexed
 
-                val existing = messageDao.getMessageById(entity.id)
                 if (existing != null && existing.syncSeq > entity.syncSeq) {
                     return@forEachIndexed
                 }
@@ -995,6 +989,70 @@ class MessageRepository(
             shouldWakeAgent = false
         )
     }
+
+    private fun shouldRequestFullSyncItemDetail(
+        itemObj: JsonObject,
+        existing: MessageEntity?
+    ): Boolean {
+        val contentMd5 = itemObj["content_md5"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        val contentOmitted = itemObj["content_omitted"]?.jsonPrimitive?.booleanOrNull == true
+        val incomingContent = itemObj["content"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        if (shouldRequestFullContent(existing?.content, incomingContent, contentMd5, contentOmitted)) {
+            return true
+        }
+
+        val attachmentsOmitted = itemObj["attachments_omitted"]?.jsonPrimitive?.booleanOrNull == true
+        if (!attachmentsOmitted) {
+            return false
+        }
+
+        val attachmentsMd5 = itemObj["attachments_md5"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        return shouldRequestFullAttachments(
+            existingAttachments = existing?.let(::resolveEntityAttachments).orEmpty(),
+            attachmentsMd5 = attachmentsMd5,
+            attachmentsOmitted = true
+        )
+    }
+
+    private fun shouldRequestFullContent(
+        existingContent: String?,
+        incomingContent: String,
+        contentMd5: String,
+        contentOmitted: Boolean
+    ): Boolean {
+        if (!contentOmitted) {
+            return false
+        }
+        if (contentMd5.isNotBlank()) {
+            if (!existingContent.isNullOrBlank() && createMd5(existingContent) == contentMd5) {
+                return false
+            }
+            if (incomingContent.isNotBlank() && createMd5(incomingContent) == contentMd5) {
+                return false
+            }
+        }
+        return true
+    }
+
+    private fun shouldRequestFullAttachments(
+        existingAttachments: List<MessageAttachment>,
+        attachmentsMd5: String,
+        attachmentsOmitted: Boolean
+    ): Boolean {
+        if (!attachmentsOmitted) {
+            return false
+        }
+        if (attachmentsMd5.isNotBlank() && createAttachmentsMd5(existingAttachments) == attachmentsMd5) {
+            return false
+        }
+        return true
+    }
+
+    private fun resolveEntityAttachments(entity: MessageEntity): List<MessageAttachment> =
+        deserializeAttachments(entity.attachmentsJson).ifEmpty {
+            legacyAttachment(entity.fileName, entity.fileSize, entity.mimeType, entity.filePath)?.let(::listOf)
+                ?: emptyList()
+        }
 
     private suspend fun requestFullSyncItemIfNeeded(
         projectId: String,
@@ -1943,11 +2001,7 @@ class MessageRepository(
         val source = normalizeMessageSource(
             itemObj["source"]?.jsonPrimitive?.contentOrNull ?: existing?.source
         )
-        val existingAttachments = existing?.let { entity ->
-            deserializeAttachments(entity.attachmentsJson).ifEmpty {
-                legacyAttachment(entity.fileName, entity.fileSize, entity.mimeType, entity.filePath)?.let(::listOf) ?: emptyList()
-            }
-        }.orEmpty()
+        val existingAttachments = existing?.let(::resolveEntityAttachments).orEmpty()
         val incomingContent = itemObj["content"]?.jsonPrimitive?.contentOrNull.orEmpty()
         val resolvedContent = if (
             existing != null
