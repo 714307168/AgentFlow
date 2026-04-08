@@ -22,11 +22,16 @@
       --warning: #d29922;
       --shadow: rgba(0, 0, 0, 0.28);
     }
+    html,
+    body {
+      height: 100%;
+      overflow: hidden;
+    }
     body {
       background: var(--bg);
       color: var(--text);
       font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
-      min-height: 100vh;
+      min-height: 0;
       display: flex;
       flex-direction: column;
     }
@@ -66,9 +71,14 @@
       max-width: 1180px;
       margin: 0 auto;
       padding: 24px;
-      overflow: auto;
+      min-height: 0;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
     }
     .settings-shell {
+      flex: 1;
+      min-height: 0;
       display: grid;
       grid-template-columns: 240px minmax(0, 1fr);
       gap: 20px;
@@ -105,6 +115,12 @@
       color: #fff;
     }
     .settings-main {
+      min-width: 0;
+      min-height: 0;
+      overflow: auto;
+      padding-right: 6px;
+    }
+    .settings-pane {
       min-width: 0;
     }
     .settings-pane.hidden {
@@ -465,6 +481,7 @@
       gap: 8px;
       flex-wrap: wrap;
       align-items: center;
+      min-width: 0;
     }
     .project-provider-select {
       min-width: 148px;
@@ -481,6 +498,33 @@
       border: 1px solid var(--border);
       background: var(--panel);
       color: var(--text);
+    }
+    .project-item-form {
+      align-items: stretch;
+      contain: none;
+      content-visibility: visible;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 14px;
+    }
+    .project-item-form .project-actions {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 10px;
+      align-items: stretch;
+    }
+    .project-item-form .project-model-input,
+    .project-item-form .project-provider-select {
+      width: 100%;
+      min-width: 0;
+    }
+    .project-item-form textarea.project-model-input {
+      min-height: 104px;
+    }
+    .project-item-form .project-action-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
     }
     .workgroup-toolbar {
       display: flex;
@@ -635,6 +679,9 @@
         position: static;
         flex-direction: row;
         flex-wrap: wrap;
+      }
+      .settings-main {
+        padding-right: 0;
       }
       .content {
         padding: 16px;
@@ -2998,7 +3045,7 @@
       }
       const providerLabel = (provider) => provider === "codex" ? "OpenAI Codex" : "Claude Code";
       const markup = latestProjectCatalog.map((project) => `
-        <div class="project-item">
+        <div class="project-item project-item-form">
           <div class="project-info">
             <div class="project-name">${escapeHtml(project.name)}</div>
             <div class="project-meta-row">
@@ -3035,8 +3082,10 @@
               placeholder="${escapeHtml(projectPromptPlaceholder())}"
               onblur="updateProjectPrompt('${project.id}', this.value)"
             >${escapeHtml(project.projectPrompt || "")}</textarea>
-            <button class="btn-secondary btn-small" onclick="openProject('${project.id}')">${escapeHtml(msg("settings.projectOpen", "Open"))}</button>
-            <button class="btn-danger btn-small" onclick="deleteProject('${project.id}')">${escapeHtml(msg("settings.projectDelete", "Delete"))}</button>
+            <div class="project-action-row">
+              <button class="btn-secondary btn-small" onclick="openProject('${project.id}')">${escapeHtml(msg("settings.projectOpen", "Open"))}</button>
+              <button class="btn-danger btn-small" onclick="deleteProject('${project.id}')">${escapeHtml(msg("settings.projectDelete", "Delete"))}</button>
+            </div>
           </div>
         </div>
       `).join("");
