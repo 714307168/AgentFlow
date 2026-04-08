@@ -10,6 +10,29 @@ import (
 	"github.com/claudecode/relay-server/model"
 )
 
+func buildProjectSyncSignature(project model.ProjectListItem) string {
+	hash := sha256.New()
+	_, _ = hash.Write([]byte(strings.TrimSpace(project.AgentID)))
+	_, _ = hash.Write([]byte{'\n'})
+	_, _ = hash.Write([]byte(strings.TrimSpace(project.ID)))
+	_, _ = hash.Write([]byte{'\n'})
+	_, _ = hash.Write([]byte(strings.TrimSpace(project.Name)))
+	_, _ = hash.Write([]byte{'\n'})
+	_, _ = hash.Write([]byte(strings.TrimSpace(project.Path)))
+	_, _ = hash.Write([]byte{'\n'})
+	_, _ = hash.Write([]byte(strings.TrimSpace(project.GroupName)))
+	_, _ = hash.Write([]byte{'\n'})
+	_, _ = hash.Write([]byte(strings.TrimSpace(project.CLIProvider)))
+	_, _ = hash.Write([]byte{'\n'})
+	_, _ = hash.Write([]byte(strings.TrimSpace(project.CLIModel)))
+	if project.Online {
+		_, _ = hash.Write([]byte("\n1"))
+	} else {
+		_, _ = hash.Write([]byte("\n0"))
+	}
+	return hex.EncodeToString(hash.Sum(nil))
+}
+
 func buildSyncRevision(agentID string, projects []model.ProjectListItem) string {
 	if len(projects) == 0 {
 		return fmt.Sprintf("sync-empty:%s", strings.TrimSpace(agentID))
@@ -35,24 +58,7 @@ func buildSyncRevision(agentID string, projects []model.ProjectListItem) string 
 	_, _ = hash.Write([]byte(strings.TrimSpace(agentID)))
 	for _, item := range sorted {
 		_, _ = hash.Write([]byte{'\n'})
-		_, _ = hash.Write([]byte(strings.TrimSpace(item.AgentID)))
-		_, _ = hash.Write([]byte{'\n'})
-		_, _ = hash.Write([]byte(strings.TrimSpace(item.ID)))
-		_, _ = hash.Write([]byte{'\n'})
-		_, _ = hash.Write([]byte(strings.TrimSpace(item.Name)))
-		_, _ = hash.Write([]byte{'\n'})
-		_, _ = hash.Write([]byte(strings.TrimSpace(item.Path)))
-		_, _ = hash.Write([]byte{'\n'})
-		_, _ = hash.Write([]byte(strings.TrimSpace(item.GroupName)))
-		_, _ = hash.Write([]byte{'\n'})
-		_, _ = hash.Write([]byte(strings.TrimSpace(item.CLIProvider)))
-		_, _ = hash.Write([]byte{'\n'})
-		_, _ = hash.Write([]byte(strings.TrimSpace(item.CLIModel)))
-		if item.Online {
-			_, _ = hash.Write([]byte("\n1"))
-		} else {
-			_, _ = hash.Write([]byte("\n0"))
-		}
+		_, _ = hash.Write([]byte(buildProjectSyncSignature(item)))
 	}
 
 	return hex.EncodeToString(hash.Sum(nil))

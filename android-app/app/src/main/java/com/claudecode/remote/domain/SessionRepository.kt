@@ -11,7 +11,9 @@ import com.claudecode.remote.data.model.Session
 import com.claudecode.remote.data.remote.AuthSessionManager
 import com.claudecode.remote.data.remote.ProjectInfo
 import com.claudecode.remote.data.remote.RelayApi
+import com.claudecode.remote.data.remote.RELAY_FEATURE_DEVICE_SYNC_DELTA
 import com.claudecode.remote.data.remote.RELAY_FEATURE_DEVICE_SYNC_META
+import com.claudecode.remote.data.remote.SyncDeltaRequest
 import com.claudecode.remote.data.remote.isLegacyRelayMissingFeature
 import com.claudecode.remote.util.CrashLogger
 import kotlinx.coroutines.CompletableDeferred
@@ -126,7 +128,7 @@ class SessionRepository(
                 return Result.failure(error)
             }
 
-            val cachedSessions = sessionDao.getInboxSessionsSnapshot()
+            val cachedSessions = sessionDao.getAllSessionsSnapshot()
             var shouldSkipFullSync = false
             if (!force && cachedSessions.isNotEmpty()) {
                 val previousRevision = tokenStore.getDeviceSyncRevision()?.trim().orEmpty().ifEmpty { null }
@@ -139,6 +141,40 @@ class SessionRepository(
                             "Skipping full project sync because revision is unchanged revision=${meta.revision} projectCount=${meta.projectCount}"
                         )
                         shouldSkipFullSync = true
+                    } else if (previousRevision != null) {
+                        val deltaApplied = resolveSyncDeltaOrNull(
+                            token = token,
+                            previousRevision = previousRevision,
+                            cachedSessions = cachedSessions
+                        )?.let { delta ->
+                            if (!delta.changed && delta.projectUpserts.isEmpty() && delta.projectRemoves.isEmpty()) {
+                                tokenStore.saveDeviceSyncRevision(delta.revision)
+                                CrashLogger.logInfo(
+                                    "SessionRepository",
+                                    "Skipping full project sync because delta resolved no material changes revision=${delta.revision} projectCount=${delta.projectCount}"
+                                )
+                            } else {
+                                applyProjectSyncDelta(
+                                    agentId = delta.agentId,
+                                    projectUpserts = delta.projectUpserts,
+                                    projectRemoves = delta.projectRemoves
+                                )
+                                tokenStore.saveDeviceSyncRevision(delta.revision)
+                                CrashLogger.logInfo(
+                                    "SessionRepository",
+                                    "Applied project delta sync revision=${delta.revision} upserts=${delta.projectUpserts.size} removes=${delta.projectRemoves.size} projectCount=${delta.projectCount}"
+                                )
+                            }
+                            true
+                        } ?: false
+                        if (deltaApplied) {
+                            shouldSkipFullSync = true
+                        } else {
+                            CrashLogger.logInfo(
+                                "SessionRepository",
+                                "Project sync revision changed previous=${previousRevision} next=${meta.revision} projectCount=${meta.projectCount}; delta unavailable so falling back to full sync"
+                            )
+                        }
                     } else {
                         CrashLogger.logInfo(
                             "SessionRepository",
@@ -262,40 +298,59 @@ class SessionRepository(
         db.withTransaction {
             projects.forEach { project ->
                 val existing = existingByProjectId[project.id]
-                val resolvedAgentId = project.agentId.ifBlank {
-                    agentId.ifBlank { existing?.agentId.orEmpty() }
+                if (project.online == true) {
+                    cancelPendingOffline(project.id)
                 }
+                sessionDao.insertSession(mergeSessionEntityFromProject(existing, project, agentId, now))
+            }
+
+            removedProjectIds.forEach { projectId ->
+                sessionDao.deleteSessionByProjectId(projectId)
+                messageDao.deleteMessagesByProject(projectId)
+            }
+        }
+    }
+
+    private suspend fun applyProjectSyncDelta(
+        agentId: String,
+        projectUpserts: List<ProjectInfo>,
+        projectRemoves: List<String>
+    ) {
+        val now = System.currentTimeMillis()
+        val existingByProjectId = sessionDao.getAllSessionsSnapshot().associateBy { it.projectId }
+        val normalizedUpserts = projectUpserts
+            .mapNotNull { project ->
+                val projectId = project.id.trim()
+                if (projectId.isEmpty()) {
+                    null
+                } else {
+                    project.copy(id = projectId)
+                }
+            }
+            .associateBy { it.id }
+        val normalizedRemoves = projectRemoves
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+            .filterNot { normalizedUpserts.containsKey(it) }
+
+        db.withTransaction {
+            normalizedUpserts.values.forEach { project ->
                 if (project.online == true) {
                     cancelPendingOffline(project.id)
                 }
                 sessionDao.insertSession(
-                    SessionEntity(
-                        id = project.id,
-                        name = project.name.ifEmpty { "Project ${project.id.take(8)}" },
-                        agentId = resolvedAgentId,
-                        projectId = project.id,
-                        projectPath = project.path,
-                        groupName = project.groupName?.trim().takeUnless { it.isNullOrEmpty() } ?: existing?.groupName,
-                        cliProvider = project.cliProvider,
-                        cliModel = project.cliModel,
-                        isAgentOnline = project.online ?: existing?.isAgentOnline ?: true,
-                        isRunning = existing?.isRunning ?: false,
-                        queuedCount = existing?.queuedCount ?: 0,
-                        currentPrompt = existing?.currentPrompt,
-                        queuePreview = existing?.queuePreview,
-                        queueJson = existing?.queueJson,
-                        currentStartedAt = existing?.currentStartedAt,
-                        lastSyncSeq = existing?.lastSyncSeq ?: 0,
-                        activeConversationId = existing?.activeConversationId,
-                        activeConversationTitle = existing?.activeConversationTitle,
-                        conversationsJson = existing?.conversationsJson,
-                        createdAt = existing?.createdAt ?: now,
-                        lastActiveAt = if (project.online != null) now else (existing?.lastActiveAt ?: now)
+                    mergeSessionEntityFromProject(
+                        existing = existingByProjectId[project.id],
+                        project = project,
+                        fallbackAgentId = agentId,
+                        now = now
                     )
                 )
             }
 
-            removedProjectIds.forEach { projectId ->
+            normalizedRemoves.forEach { projectId ->
+                cancelPendingOffline(projectId)
                 sessionDao.deleteSessionByProjectId(projectId)
                 messageDao.deleteMessagesByProject(projectId)
             }
@@ -368,6 +423,55 @@ class SessionRepository(
                 }
             }
         }
+
+    private suspend fun resolveSyncDeltaOrNull(
+        token: String,
+        previousRevision: String,
+        cachedSessions: List<SessionEntity>
+    ) = when (
+        tokenStore.getRelayFeatureSupport(
+            normalizeServerUrlForFeatureCache(),
+            RELAY_FEATURE_DEVICE_SYNC_DELTA
+        )
+    ) {
+        false -> {
+            CrashLogger.logInfo(
+                "SessionRepository",
+                "Skipping device sync delta probe because current relay is cached as unsupported"
+            )
+            null
+        }
+        else -> runCatching {
+            relayApiProvider().syncDeviceDelta(
+                auth = "Bearer $token",
+                request = SyncDeltaRequest(
+                    sinceRevision = previousRevision,
+                    knownProjects = buildKnownProjectsForDelta(cachedSessions)
+                )
+            )
+        }.onSuccess {
+            tokenStore.saveRelayFeatureSupport(
+                normalizeServerUrlForFeatureCache(),
+                RELAY_FEATURE_DEVICE_SYNC_DELTA,
+                true
+            )
+        }.getOrElse { error ->
+            if (error.isLegacyRelayMissingFeature()) {
+                tokenStore.saveRelayFeatureSupport(
+                    normalizeServerUrlForFeatureCache(),
+                    RELAY_FEATURE_DEVICE_SYNC_DELTA,
+                    false
+                )
+                CrashLogger.logInfo(
+                    "SessionRepository",
+                    "Device sync delta is unavailable on current relay version; falling back to legacy full sync"
+                )
+                null
+            } else {
+                throw error
+            }
+        }
+    }
 
     private fun normalizeServerUrlForFeatureCache(): String? {
         val value = tokenStore.getServerUrl()?.trim().orEmpty()

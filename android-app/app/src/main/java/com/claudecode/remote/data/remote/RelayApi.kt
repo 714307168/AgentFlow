@@ -44,6 +44,12 @@ interface RelayApi {
         @Query("since_revision") sinceRevision: String? = null
     ): SyncMetaResponse
 
+    @POST("api/device/sync/delta")
+    suspend fun syncDeviceDelta(
+        @Header("Authorization") auth: String,
+        @Body request: SyncDeltaRequest
+    ): SyncDeltaResponse
+
     @GET("api/update/check")
     suspend fun checkForUpdate(
         @Query("platform") platform: String,
@@ -184,6 +190,28 @@ data class SyncMetaResponse(
     val revision: String,
     @SerialName("project_count") val projectCount: Int = 0,
     val changed: Boolean = true
+)
+
+@Serializable
+data class SyncKnownProject(
+    @SerialName("project_id") val projectId: String,
+    val signature: String
+)
+
+@Serializable
+data class SyncDeltaRequest(
+    @SerialName("since_revision") val sinceRevision: String? = null,
+    @SerialName("known_projects") val knownProjects: List<SyncKnownProject> = emptyList()
+)
+
+@Serializable
+data class SyncDeltaResponse(
+    @SerialName("agent_id") val agentId: String,
+    val revision: String,
+    @SerialName("project_count") val projectCount: Int = 0,
+    val changed: Boolean = true,
+    @SerialName("project_upserts") val projectUpserts: List<ProjectInfo> = emptyList(),
+    @SerialName("project_removes") val projectRemoves: List<String> = emptyList()
 )
 
 @Serializable

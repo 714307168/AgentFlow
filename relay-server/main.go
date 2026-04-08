@@ -84,6 +84,7 @@ func main() {
 	mux.HandleFunc("/api/project/bind", handler.ProjectBindHandler(h, cfg))
 	mux.HandleFunc("/api/agent/wakeup", handler.WakeupHandler(h, cfg))
 	mux.HandleFunc("/api/device/sync/meta", handler.SyncMetaHandler(h, cfg, st))
+	mux.HandleFunc("/api/device/sync/delta", handler.SyncDeltaHandler(h, cfg, st))
 	mux.HandleFunc("/api/device/sync", handler.SyncHandler(h, cfg, st))
 	mux.HandleFunc("/api/devices", handler.ClientDevicesHandler(cfg, database, h))
 	mux.HandleFunc("/api/device/logs", handler.DeviceLogUploadHandler(cfg, database))

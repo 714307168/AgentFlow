@@ -55,7 +55,8 @@
 ### 0.5 当前进度
 
 - `P0` 已完成第一批：relay-server JSON gzip、gzip request body 解压、Android 日志 gzip 上传。
-- `P1` 已完成第一步：`/api/device/sync/meta` 与稳定 `revision` 已落地，Android 非强制同步会先比 revision，未变化时跳过整包项目列表同步。
+- `P1` 已完成第二步：`/api/device/sync/meta`、稳定 `revision`、`/api/device/sync/delta` 已落地，Android 非强制同步会先比 revision，变化时优先按本地签名拉取项目增量而不是整包覆盖。
+- `P1` 兼容兜底已补齐：旧 relay 不支持 `sync/meta` 或 `sync/delta` 时，Android 会自动缓存能力缺失并回退到 legacy 全量同步，不再反复打 404/405。
 
 ## 1. 目标
 
