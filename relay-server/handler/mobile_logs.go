@@ -299,11 +299,8 @@ func DeviceLogUploadHandler(cfg *config.Config, database *db.DB) http.HandlerFun
 			return
 		}
 
-		bodyReader := http.MaxBytesReader(w, r.Body, maxMobileLogUploadBytes)
-		defer bodyReader.Close()
-
 		var req mobileLogUploadRequest
-		if err := json.NewDecoder(bodyReader).Decode(&req); err != nil {
+		if err := decodeJSONBodyWithLimit(w, r, &req, maxMobileLogUploadBytes); err != nil {
 			http.Error(w, "invalid request body", http.StatusBadRequest)
 			return
 		}

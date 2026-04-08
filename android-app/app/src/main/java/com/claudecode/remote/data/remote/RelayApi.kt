@@ -8,6 +8,7 @@ import okhttp3.ResponseBody
 import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.Header
+import retrofit2.http.Headers
 import retrofit2.http.POST
 import retrofit2.http.Path
 import retrofit2.http.Query
@@ -66,6 +67,7 @@ interface RelayApi {
     ): WorkgroupRegistryMembersResponse
 
     @POST("api/device/logs")
+    @Headers("X-AgentFlow-Request-Compression: gzip")
     suspend fun uploadDeviceLog(
         @Header("Authorization") auth: String,
         @Body request: DeviceLogUploadRequest

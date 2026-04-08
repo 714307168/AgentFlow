@@ -122,7 +122,8 @@ func main() {
 	// CORS middleware
 	corsHandler := corsMiddleware(mux, cfg.CORSOrigins)
 	versionedHandler := apiVersionMiddleware(corsHandler)
-	securedHandler := recoveryMiddleware(securityHeadersMiddleware(versionedHandler))
+	compressedHandler := gzipJSONMiddleware(versionedHandler)
+	securedHandler := recoveryMiddleware(securityHeadersMiddleware(compressedHandler))
 
 	addr := ":" + cfg.Port
 	if cfg.TLSCert != "" && cfg.TLSKey != "" {

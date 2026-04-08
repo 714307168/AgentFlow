@@ -8,6 +8,7 @@ import com.claudecode.remote.data.local.TokenStore
 import com.claudecode.remote.data.remote.AuthSessionManager
 import com.claudecode.remote.data.remote.RelayApi
 import com.claudecode.remote.data.remote.RelayApiVersionInterceptor
+import com.claudecode.remote.data.remote.RelayRequestCompressionInterceptor
 import com.claudecode.remote.data.remote.RelayWebSocket
 import com.claudecode.remote.domain.MessageRepository
 import com.claudecode.remote.domain.MobileLogRepository
@@ -180,6 +181,7 @@ fun createRelayApi(baseUrl: String, json: Json): RelayApi =
         .client(
             OkHttpClient.Builder()
                 .addInterceptor(RelayApiVersionInterceptor())
+                .addInterceptor(RelayRequestCompressionInterceptor())
                 .build()
         )
         .baseUrl(normalizeHttpBaseUrl(baseUrl))
