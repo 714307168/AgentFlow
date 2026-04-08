@@ -2,6 +2,7 @@
 type WorkspaceView = "messages" | "activity" | "cli" | "queue";
 type SidebarListMode = "messages" | "contacts";
 type AttachmentKind = "image" | "file";
+const MAX_ACTIVITY_PANEL_ITEMS = 30;
 
 interface LangPayload {
   lang: Lang;
@@ -1492,10 +1493,10 @@ function createHistoryStateFromSnapshot(snapshot: SessionSnapshot): ProjectHisto
   return {
     conversationId: snapshot.activeConversationId,
     messages: snapshot.messages.slice(),
-    activities: snapshot.activities.slice(),
+    activities: limitRecentActivityItems(snapshot.activities),
     cliTrace: snapshot.cliTrace.slice(),
     hasMoreMessages: snapshot.messageTotal > snapshot.messages.length,
-    hasMoreActivities: snapshot.activityTotal > snapshot.activities.length,
+    hasMoreActivities: false,
     hasMoreCli: snapshot.cliTraceTotal > snapshot.cliTrace.length,
     loadingMessages: false,
     loadingActivities: false,
@@ -1589,10 +1590,10 @@ function syncHistoryStateFromSnapshot(snapshot: SessionSnapshot): void {
   }
 
   existing.messages = appendLatestHistoryItems(existing.messages, snapshot.messages);
-  existing.activities = appendLatestHistoryItems(existing.activities, snapshot.activities);
+  existing.activities = limitRecentActivityItems(appendLatestHistoryItems(existing.activities, snapshot.activities));
   existing.cliTrace = appendLatestHistoryItems(existing.cliTrace, snapshot.cliTrace);
   existing.hasMoreMessages = snapshot.messageTotal > existing.messages.length;
-  existing.hasMoreActivities = snapshot.activityTotal > existing.activities.length;
+  existing.hasMoreActivities = false;
   existing.hasMoreCli = snapshot.cliTraceTotal > existing.cliTrace.length;
 }
 
@@ -1663,7 +1664,8 @@ function getDisplayedActivities(): SessionActivity[] {
     return [];
   }
   const activities = getProjectHistoryState(projectId)?.activities ?? getCurrentSession()?.activities ?? [];
-  return [...activities].sort((left, right) => {
+  return limitRecentActivityItems(
+    [...activities].sort((left, right) => {
     const leftCreatedAt = left.createdAt || left.updatedAt || 0;
     const rightCreatedAt = right.createdAt || right.updatedAt || 0;
     if (leftCreatedAt !== rightCreatedAt) {
@@ -1675,7 +1677,15 @@ function getDisplayedActivities(): SessionActivity[] {
       return leftUpdatedAt - rightUpdatedAt;
     }
     return left.id.localeCompare(right.id, "en-US");
-  }).filter((activity) => isPrivateProjectActivity(activity));
+    }).filter((activity) => isPrivateProjectActivity(activity)),
+  );
+}
+
+function limitRecentActivityItems<T>(items: T[]): T[] {
+  if (items.length <= MAX_ACTIVITY_PANEL_ITEMS) {
+    return items.slice();
+  }
+  return items.slice(-MAX_ACTIVITY_PANEL_ITEMS);
 }
 
 function getDisplayedCliTrace(): CliTraceEntry[] {
@@ -3959,6 +3969,10 @@ function scheduleMessageSearch(): void {
 }
 
 async function loadOlderHistory(kind: "messages" | "activities" | "cli"): Promise<void> {
+  if (kind === "activities") {
+    return;
+  }
+
   if (kind === "messages" && state.messageSearchQuery.trim()) {
     return;
   }
@@ -4018,12 +4032,13 @@ async function loadOlderHistory(kind: "messages" | "activities" | "cli"): Promis
     return;
   }
 
-  const hasMore = kind === "messages"
+  const loadingKind = kind === "messages" ? "messages" : "cli";
+  const hasMore = loadingKind === "messages"
     ? historyState.hasMoreMessages
-    : (kind === "activities" ? historyState.hasMoreActivities : historyState.hasMoreCli);
-  const isLoading = kind === "messages"
+    : historyState.hasMoreCli;
+  const isLoading = loadingKind === "messages"
     ? historyState.loadingMessages
-    : (kind === "activities" ? historyState.loadingActivities : historyState.loadingCli);
+    : historyState.loadingCli;
   if (!hasMore) {
     return;
   }
@@ -4031,24 +4046,22 @@ async function loadOlderHistory(kind: "messages" | "activities" | "cli"): Promis
     return;
   }
 
-  const items = kind === "messages"
+  const items = loadingKind === "messages"
     ? historyState.messages
-    : (kind === "activities" ? historyState.activities : historyState.cliTrace);
+    : historyState.cliTrace;
   const beforeId = items[0]?.id;
   if (!beforeId) {
     return;
   }
 
-  const container = kind === "messages"
+  const container = loadingKind === "messages"
     ? elements.messages
-    : (kind === "activities" ? elements.activityList : elements.cliTrace);
+    : elements.cliTrace;
   const previousScrollHeight = container?.scrollHeight ?? 0;
   const previousScrollTop = container?.scrollTop ?? 0;
 
-  if (kind === "messages") {
+  if (loadingKind === "messages") {
     historyState.loadingMessages = true;
-  } else if (kind === "activities") {
-    historyState.loadingActivities = true;
   } else {
     historyState.loadingCli = true;
   }
@@ -4073,12 +4086,9 @@ async function loadOlderHistory(kind: "messages" | "activities" | "cli"): Promis
       return;
     }
 
-    if (kind === "messages") {
+    if (loadingKind === "messages") {
       currentHistory.messages = prependHistoryItems(currentHistory.messages, page.items as SessionMessage[]);
       currentHistory.hasMoreMessages = page.hasMore;
-    } else if (kind === "activities") {
-      currentHistory.activities = prependHistoryItems(currentHistory.activities, page.items as SessionActivity[]);
-      currentHistory.hasMoreActivities = page.hasMore;
     } else {
       currentHistory.cliTrace = prependHistoryItems(currentHistory.cliTrace, page.items as CliTraceEntry[]);
       currentHistory.hasMoreCli = page.hasMore;
@@ -4089,10 +4099,8 @@ async function loadOlderHistory(kind: "messages" | "activities" | "cli"): Promis
       container.scrollTop = container.scrollHeight - previousScrollHeight + previousScrollTop;
     }
   } finally {
-    if (kind === "messages") {
+    if (loadingKind === "messages") {
       historyState.loadingMessages = false;
-    } else if (kind === "activities") {
-      historyState.loadingActivities = false;
     } else {
       historyState.loadingCli = false;
     }
@@ -4872,9 +4880,6 @@ elements.messagesJumpButton?.addEventListener("click", () => {
 
 elements.activityList?.addEventListener("scroll", () => {
   updateActivityJumpButtonVisibility();
-  if (elements.activityList && elements.activityList.scrollTop <= 24) {
-    void loadOlderHistory("activities");
-  }
 });
 
 elements.activityJumpButton?.addEventListener("click", () => {

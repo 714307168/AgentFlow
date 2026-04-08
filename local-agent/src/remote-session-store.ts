@@ -122,6 +122,7 @@ interface RemoteRunObserver {
 
 const DEFAULT_PAGE_SIZE = 30;
 const MAX_REMOTE_ITEMS = 1200;
+const MAX_REMOTE_ACTIVITY_ITEMS = 30;
 const FILE_CHUNK_SIZE = 64 * 1024;
 const FILE_UPLOAD_TIMEOUT_MS = 120_000;
 const EMPTY_PROJECT_LIST_RETRY_DELAY_MS = 1_500;
@@ -1608,8 +1609,8 @@ export default class RemoteSessionStore extends EventEmitter {
 
   private trimActivities(state: RemoteState): void {
     state.activities.sort((left, right) => left.createdAt - right.createdAt || left.syncSeq - right.syncSeq);
-    if (state.activities.length > MAX_REMOTE_ITEMS) {
-      state.activities.splice(0, state.activities.length - MAX_REMOTE_ITEMS);
+    if (state.activities.length > MAX_REMOTE_ACTIVITY_ITEMS) {
+      state.activities.splice(0, state.activities.length - MAX_REMOTE_ACTIVITY_ITEMS);
     }
   }
 
