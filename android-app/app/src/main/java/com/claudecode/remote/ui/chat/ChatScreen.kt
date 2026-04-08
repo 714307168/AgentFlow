@@ -159,8 +159,12 @@ fun ChatScreen(
     var previousLastMessageId by remember(projectId) { mutableStateOf<String?>(null) }
     var previousMessageCount by remember(projectId) { mutableStateOf(0) }
     var hasInitialActivityScrollPosition by remember(projectId) { mutableStateOf(false) }
+    var pendingActivityBottomScroll by remember(projectId) { mutableStateOf(true) }
     var previousLastActivityId by remember(projectId) { mutableStateOf<String?>(null) }
     var previousActivityCount by remember(projectId) { mutableStateOf(0) }
+    var resumeScrollRequestToken by remember(projectId) { mutableStateOf(0) }
+    var handledConversationResumeScrollToken by remember(projectId) { mutableStateOf(0) }
+    var handledActivityResumeScrollToken by remember(projectId) { mutableStateOf(0) }
     var previewAttachment by remember(projectId) { mutableStateOf<AttachmentPreviewTarget?>(null) }
     var showTransferSheet by remember(projectId) { mutableStateOf(false) }
     var transferRefreshToken by remember(projectId) { mutableStateOf(0) }
@@ -188,6 +192,20 @@ fun ChatScreen(
         pendingConversationBottomScroll = true
         previousLastMessageId = null
         previousMessageCount = 0
+        hasInitialActivityScrollPosition = false
+        pendingActivityBottomScroll = true
+        previousLastActivityId = null
+        previousActivityCount = 0
+        handledConversationResumeScrollToken = 0
+        handledActivityResumeScrollToken = 0
+    }
+
+    LaunchedEffect(projectId, selectedPane) {
+        when (selectedPane) {
+            ChatPane.CONVERSATION -> pendingConversationBottomScroll = true
+            ChatPane.ACTIVITY -> pendingActivityBottomScroll = true
+            ChatPane.QUEUE -> Unit
+        }
     }
 
     LaunchedEffect(projectId, transferRefreshToken) {
@@ -260,6 +278,7 @@ fun ChatScreen(
             val observer = LifecycleEventObserver { _, event ->
                 if (event == Lifecycle.Event.ON_RESUME) {
                     viewModel.onResume()
+                    resumeScrollRequestToken += 1
                     transferRefreshToken += 1
                 }
             }
@@ -276,10 +295,12 @@ fun ChatScreen(
         lastMessage?.content,
         lastMessage?.isStreaming,
         uiState.messages.size,
-        selectedPane
+        selectedPane,
+        resumeScrollRequestToken
     ) {
         if (uiState.messages.isEmpty()) {
             hasInitialConversationScrollPosition = false
+            pendingConversationBottomScroll = true
             previousLastMessageId = null
             previousMessageCount = 0
             return@LaunchedEffect
@@ -290,16 +311,26 @@ fun ChatScreen(
         val isNearBottom = lastVisibleIndex >= lastIndex - 1
         val hasAppendedMessage =
             uiState.messages.size > previousMessageCount || lastMessage?.id != previousLastMessageId
+        val shouldForceLatestOnResume = resumeScrollRequestToken != handledConversationResumeScrollToken
 
         when {
             pendingConversationBottomScroll && selectedPane == ChatPane.CONVERSATION -> {
                 conversationListState.scrollToItemBottom(lastIndex)
                 hasInitialConversationScrollPosition = true
                 pendingConversationBottomScroll = false
+                handledConversationResumeScrollToken = resumeScrollRequestToken
             }
             !hasInitialConversationScrollPosition && selectedPane == ChatPane.CONVERSATION -> {
                 conversationListState.scrollToItemBottom(lastIndex)
                 hasInitialConversationScrollPosition = true
+                pendingConversationBottomScroll = false
+                handledConversationResumeScrollToken = resumeScrollRequestToken
+            }
+            shouldForceLatestOnResume && selectedPane == ChatPane.CONVERSATION -> {
+                conversationListState.scrollToItemBottom(lastIndex)
+                hasInitialConversationScrollPosition = true
+                pendingConversationBottomScroll = false
+                handledConversationResumeScrollToken = resumeScrollRequestToken
             }
             !isNearBottom -> Unit
             hasAppendedMessage && selectedPane == ChatPane.CONVERSATION ->
@@ -319,10 +350,12 @@ fun ChatScreen(
         lastActivityMessage?.content,
         lastActivityMessage?.isStreaming,
         uiState.activityMessages.size,
-        selectedPane
+        selectedPane,
+        resumeScrollRequestToken
     ) {
         if (uiState.activityMessages.isEmpty()) {
             hasInitialActivityScrollPosition = false
+            pendingActivityBottomScroll = true
             previousLastActivityId = null
             previousActivityCount = 0
             return@LaunchedEffect
@@ -333,11 +366,26 @@ fun ChatScreen(
         val isNearBottom = lastVisibleIndex >= lastIndex - 1
         val hasAppendedMessage =
             uiState.activityMessages.size > previousActivityCount || lastActivityMessage?.id != previousLastActivityId
+        val shouldForceLatestOnResume = resumeScrollRequestToken != handledActivityResumeScrollToken
 
         when {
+            pendingActivityBottomScroll && selectedPane == ChatPane.ACTIVITY -> {
+                activityListState.scrollToItemBottom(lastIndex)
+                hasInitialActivityScrollPosition = true
+                pendingActivityBottomScroll = false
+                handledActivityResumeScrollToken = resumeScrollRequestToken
+            }
             !hasInitialActivityScrollPosition && selectedPane == ChatPane.ACTIVITY -> {
                 activityListState.scrollToItemBottom(lastIndex)
                 hasInitialActivityScrollPosition = true
+                pendingActivityBottomScroll = false
+                handledActivityResumeScrollToken = resumeScrollRequestToken
+            }
+            shouldForceLatestOnResume && selectedPane == ChatPane.ACTIVITY -> {
+                activityListState.scrollToItemBottom(lastIndex)
+                hasInitialActivityScrollPosition = true
+                pendingActivityBottomScroll = false
+                handledActivityResumeScrollToken = resumeScrollRequestToken
             }
             !isNearBottom -> Unit
             hasAppendedMessage && selectedPane == ChatPane.ACTIVITY ->
