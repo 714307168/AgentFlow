@@ -11,6 +11,8 @@ import com.claudecode.remote.data.model.Session
 import com.claudecode.remote.data.remote.AuthSessionManager
 import com.claudecode.remote.data.remote.ProjectInfo
 import com.claudecode.remote.data.remote.RelayApi
+import com.claudecode.remote.data.remote.RELAY_FEATURE_DEVICE_SYNC_META
+import com.claudecode.remote.data.remote.isLegacyRelayMissingFeature
 import com.claudecode.remote.util.CrashLogger
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -29,7 +31,6 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import retrofit2.HttpException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.UUID
 
@@ -129,22 +130,7 @@ class SessionRepository(
             var shouldSkipFullSync = false
             if (!force && cachedSessions.isNotEmpty()) {
                 val previousRevision = tokenStore.getDeviceSyncRevision()?.trim().orEmpty().ifEmpty { null }
-                val meta = runCatching {
-                    relayApiProvider().syncDeviceMeta(
-                        auth = "Bearer $token",
-                        sinceRevision = previousRevision
-                    )
-                }.getOrElse { error ->
-                    if (shouldFallbackToLegacySync(error)) {
-                        CrashLogger.logInfo(
-                            "SessionRepository",
-                            "Device sync meta is unavailable on current relay version; falling back to legacy full sync"
-                        )
-                        null
-                    } else {
-                        throw error
-                    }
-                }
+                val meta = resolveSyncMetaOrNull(token, previousRevision)
                 if (meta != null) {
                     if (!meta.changed && previousRevision != null && meta.revision == previousRevision) {
                         tokenStore.saveDeviceSyncRevision(meta.revision)
@@ -345,9 +331,47 @@ class SessionRepository(
         }
     }
 
-    private fun shouldFallbackToLegacySync(error: Throwable): Boolean {
-        val httpError = error as? HttpException ?: return false
-        return httpError.code() == 404 || httpError.code() == 405
+    private suspend fun resolveSyncMetaOrNull(token: String, previousRevision: String?) =
+        when (tokenStore.getRelayFeatureSupport(normalizeServerUrlForFeatureCache(), RELAY_FEATURE_DEVICE_SYNC_META)) {
+            false -> {
+                CrashLogger.logInfo(
+                    "SessionRepository",
+                    "Skipping device sync meta probe because current relay is cached as unsupported"
+                )
+                null
+            }
+            else -> runCatching {
+                relayApiProvider().syncDeviceMeta(
+                    auth = "Bearer $token",
+                    sinceRevision = previousRevision
+                )
+            }.onSuccess {
+                tokenStore.saveRelayFeatureSupport(
+                    normalizeServerUrlForFeatureCache(),
+                    RELAY_FEATURE_DEVICE_SYNC_META,
+                    true
+                )
+            }.getOrElse { error ->
+                if (error.isLegacyRelayMissingFeature()) {
+                    tokenStore.saveRelayFeatureSupport(
+                        normalizeServerUrlForFeatureCache(),
+                        RELAY_FEATURE_DEVICE_SYNC_META,
+                        false
+                    )
+                    CrashLogger.logInfo(
+                        "SessionRepository",
+                        "Device sync meta is unavailable on current relay version; falling back to legacy full sync"
+                    )
+                    null
+                } else {
+                    throw error
+                }
+            }
+        }
+
+    private fun normalizeServerUrlForFeatureCache(): String? {
+        val value = tokenStore.getServerUrl()?.trim().orEmpty()
+        return value.ifEmpty { null }
     }
 
     private fun SessionEntity.toSession() = Session(

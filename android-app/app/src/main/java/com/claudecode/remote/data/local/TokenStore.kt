@@ -3,6 +3,7 @@ package com.claudecode.remote.data.local
 import android.content.Context
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import java.security.MessageDigest
 
 class TokenStore(context: Context) {
     private val prefs = EncryptedSharedPreferences.create(
@@ -170,6 +171,19 @@ class TokenStore(context: Context) {
 
     fun getDeviceSyncRevision(): String? = prefs.getString(KEY_DEVICE_SYNC_REVISION, null)
 
+    fun saveRelayFeatureSupport(serverUrl: String?, featureKey: String, supported: Boolean) {
+        val key = relayFeatureSupportKey(serverUrl, featureKey)
+        prefs.edit().putBoolean(key, supported).apply()
+    }
+
+    fun getRelayFeatureSupport(serverUrl: String?, featureKey: String): Boolean? {
+        val key = relayFeatureSupportKey(serverUrl, featureKey)
+        if (!prefs.contains(key)) {
+            return null
+        }
+        return prefs.getBoolean(key, false)
+    }
+
     fun clear() {
         prefs.edit().clear().apply()
     }
@@ -195,5 +209,13 @@ class TokenStore(context: Context) {
 
         private fun projectDraftKey(projectId: String): String = "draft_$projectId"
         private fun projectChatSnapshotKey(projectId: String): String = "chat_snapshot_$projectId"
+        private fun relayFeatureSupportKey(serverUrl: String?, featureKey: String): String {
+            val normalizedServerUrl = serverUrl?.trim()?.lowercase().orEmpty()
+            val normalizedFeatureKey = featureKey.trim().lowercase()
+            val digest = MessageDigest.getInstance("SHA-256")
+                .digest("$normalizedServerUrl|$normalizedFeatureKey".toByteArray())
+                .joinToString(separator = "") { byte -> "%02x".format(byte) }
+            return "relay_feature_$digest"
+        }
     }
 }
