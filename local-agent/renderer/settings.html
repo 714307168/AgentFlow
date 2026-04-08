@@ -281,6 +281,30 @@
       line-height: 1.5;
       margin-top: 6px;
     }
+    .setting-label-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 8px;
+      flex-wrap: wrap;
+    }
+    .setting-label-row label {
+      margin-bottom: 0;
+    }
+    .setting-scope {
+      display: inline-flex;
+      align-items: center;
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(88, 166, 255, 0.22);
+      background: rgba(88, 166, 255, 0.08);
+      color: var(--accent-hover);
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1.2;
+      white-space: nowrap;
+    }
     .toggle-row {
       display: flex;
       align-items: center;
@@ -291,6 +315,9 @@
     .toggle-copy {
       flex: 1;
       min-width: 0;
+    }
+    .toggle-copy .setting-label-row {
+      margin-bottom: 4px;
     }
     .toggle-row + .toggle-row {
       margin-top: 8px;
@@ -829,7 +856,10 @@
           <div class="section" id="connectionSectionCard">
             <div class="section-title" id="serverSection">Server Connection</div>
             <div class="field">
-              <label id="serverUrlLabel">Relay Server URL</label>
+              <div class="setting-label-row">
+                <label id="serverUrlLabel">Relay Server URL</label>
+                <span class="setting-scope" id="serverUrlScope">Current Device</span>
+              </div>
               <input type="text" id="serverUrl" placeholder="http://localhost:8080">
             </div>
             <div class="field">
@@ -859,7 +889,10 @@
           <div class="section">
             <div class="section-title" id="remoteAccessSection">Remote Access</div>
             <div class="field">
-              <label id="shareAccessUserLabel">Allow Username</label>
+              <div class="setting-label-row">
+                <label id="shareAccessUserLabel">Allow Username</label>
+                <span class="setting-scope" id="shareAccessUserScope">Current Device</span>
+              </div>
               <input type="text" id="shareAccessUser" placeholder="friend-account">
             </div>
             <div class="field">
@@ -1271,7 +1304,10 @@
           <div class="section" id="generalSectionCard">
             <div class="section-title" id="langSection">Language</div>
             <div class="field">
-              <label id="langLabel">Interface Language</label>
+              <div class="setting-label-row">
+                <label id="langLabel">Interface Language</label>
+                <span class="setting-scope" id="langScope">Local Only</span>
+              </div>
               <select id="langSelect">
                 <option value="en">English</option>
                 <option value="zh">中文</option>
@@ -1282,14 +1318,20 @@
           <div class="section">
             <div class="section-title" id="launchSection">Launch</div>
             <div class="toggle-row">
-              <label id="autoStartLabel" for="autoStartToggle">Start on Boot</label>
+              <div class="setting-label-row" style="margin-bottom: 0; flex: 1;">
+                <label id="autoStartLabel" for="autoStartToggle">Start on Boot</label>
+                <span class="setting-scope" id="autoStartScope">Local Only</span>
+              </div>
               <div class="toggle">
                 <input type="checkbox" id="autoStartToggle">
                 <span class="slider"></span>
               </div>
             </div>
             <div class="toggle-row">
-              <label id="silentLaunchLabel" for="silentLaunchToggle">Silent Launch (minimize to tray)</label>
+              <div class="setting-label-row" style="margin-bottom: 0; flex: 1;">
+                <label id="silentLaunchLabel" for="silentLaunchToggle">Silent Launch (minimize to tray)</label>
+                <span class="setting-scope" id="silentLaunchScope">Local Only</span>
+              </div>
               <div class="toggle">
                 <input type="checkbox" id="silentLaunchToggle">
                 <span class="slider"></span>
@@ -1297,7 +1339,10 @@
             </div>
             <div class="toggle-row">
               <div class="toggle-copy">
-                <label id="completionSoundLabel" for="completionSoundToggle">Play a sound when work finishes</label>
+                <div class="setting-label-row">
+                  <label id="completionSoundLabel" for="completionSoundToggle">Play a sound when work finishes</label>
+                  <span class="setting-scope" id="completionSoundScope">Local Only</span>
+                </div>
                 <div class="toggle-help" id="completionSoundHint">Play a desktop notification sound after a task completes successfully.</div>
               </div>
               <div class="toggle">
@@ -1310,7 +1355,10 @@
           <div class="section">
             <div class="section-title" id="diagnosticsSection">Local Files</div>
             <div class="field">
-              <label id="localDataRootLabel">Data Folder</label>
+              <div class="setting-label-row">
+                <label id="localDataRootLabel">Data Folder</label>
+                <span class="setting-scope" id="localDataRootScope">Local Only</span>
+              </div>
               <input type="text" id="localDataRoot" readonly>
               <div class="field-help" id="localDataRootHint">Chat history, logs, attachments, update packages, and local cache are all stored under this folder.</div>
             </div>
@@ -1323,7 +1371,10 @@
             </div>
             <div class="toggle-row">
               <div class="toggle-copy">
-                <label id="saveLogsLabel" for="saveLogsToggle">Save local logs</label>
+                <div class="setting-label-row">
+                  <label id="saveLogsLabel" for="saveLogsToggle">Save local logs</label>
+                  <span class="setting-scope" id="saveLogsScope">Local Only</span>
+                </div>
                 <div class="toggle-help" id="saveLogsHint">When enabled, the desktop app writes runtime logs locally for later review.</div>
               </div>
               <div class="toggle">
@@ -1336,7 +1387,10 @@
               <div class="pubkey" id="logPath">—</div>
             </div>
             <div class="field" style="margin-top: 12px;">
-              <label id="cacheRetentionLabel">Auto-clean history older than (days)</label>
+              <div class="setting-label-row">
+                <label id="cacheRetentionLabel">Auto-clean history older than (days)</label>
+                <span class="setting-scope" id="cacheRetentionScope">Local Only</span>
+              </div>
               <input type="text" id="historyRetentionDays" inputmode="numeric" placeholder="30">
             </div>
             <div class="btn-row">
@@ -1450,7 +1504,10 @@
             <div class="section-title" id="updatesSection">Updates</div>
             <div class="toggle-row">
               <div class="toggle-copy">
-                <label id="autoUpdateCheckLabel" for="autoUpdateCheckToggle">Automatically check for updates</label>
+                <div class="setting-label-row">
+                  <label id="autoUpdateCheckLabel" for="autoUpdateCheckToggle">Automatically check for updates</label>
+                  <span class="setting-scope" id="autoUpdateCheckScope">Local Only</span>
+                </div>
                 <div class="toggle-help" id="autoUpdateCheckHint">When enabled, the desktop app checks the relay update center on launch and every few hours.</div>
               </div>
               <div class="toggle">
@@ -1460,7 +1517,10 @@
             </div>
             <div class="toggle-row">
               <div class="toggle-copy">
-                <label id="autoUpdateDownloadLabel" for="autoUpdateDownloadToggle">Automatically download new installers</label>
+                <div class="setting-label-row">
+                  <label id="autoUpdateDownloadLabel" for="autoUpdateDownloadToggle">Automatically download new installers</label>
+                  <span class="setting-scope" id="autoUpdateDownloadScope">Local Only</span>
+                </div>
                 <div class="toggle-help" id="autoUpdateDownloadHint">The installer is downloaded in the background, but you still need to click install manually.</div>
               </div>
               <div class="toggle">
@@ -1470,7 +1530,10 @@
             </div>
             <div class="toggle-row">
               <div class="toggle-copy">
-                <label id="silentUpdateInstallLabel" for="silentUpdateInstallToggle">Silently install downloaded updates</label>
+                <div class="setting-label-row">
+                  <label id="silentUpdateInstallLabel" for="silentUpdateInstallToggle">Silently install downloaded updates</label>
+                  <span class="setting-scope" id="silentUpdateInstallScope">Local Only</span>
+                </div>
                 <div class="toggle-help" id="silentUpdateInstallHint">When no task is running or queued, the app can quit itself and launch the installer automatically.</div>
               </div>
               <div class="toggle">
@@ -1547,7 +1610,10 @@
           <div class="section" id="securitySectionCard">
             <div class="section-title" id="e2eSection">End-to-End Encryption</div>
             <div class="toggle-row">
-              <label id="e2eLabel" for="e2eToggle">Enable E2E Encryption</label>
+              <div class="setting-label-row" style="margin-bottom: 0; flex: 1;">
+                <label id="e2eLabel" for="e2eToggle">Enable E2E Encryption</label>
+                <span class="setting-scope" id="e2eScope">Current Device</span>
+              </div>
               <div class="toggle">
                 <input type="checkbox" id="e2eToggle">
                 <span class="slider"></span>
@@ -2574,6 +2640,7 @@
       document.getElementById("overviewOpenFilesBtn").textContent = inlineText("Open Data Folder", "打开数据目录");
       document.getElementById("langSection").textContent = msg("settings.language", "Language");
       document.getElementById("langLabel").textContent = msg("settings.languageLabel", "Interface Language");
+      document.getElementById("langScope").textContent = inlineText("Local Only", "仅本机");
       document.getElementById("projectSection").textContent = msg("settings.projects", "Projects");
       document.getElementById("addProjectBtn").textContent = msg("settings.addProject", "Add Project");
       document.getElementById("projectNameLabel").textContent = msg("settings.projectName", "Project Name");
@@ -2750,12 +2817,16 @@
       document.getElementById("autoStartLabel").textContent = msg("settings.autoStart", "Start on Boot");
       document.getElementById("silentLaunchLabel").textContent = msg("settings.silentLaunch", "Silent Launch (minimize to tray)");
       document.getElementById("completionSoundLabel").textContent = inlineText("Play a sound when work finishes", "任务完成时播放提示音");
+      document.getElementById("autoStartScope").textContent = inlineText("Local Only", "仅本机");
+      document.getElementById("silentLaunchScope").textContent = inlineText("Local Only", "仅本机");
+      document.getElementById("completionSoundScope").textContent = inlineText("Local Only", "仅本机");
       document.getElementById("completionSoundHint").textContent = inlineText(
         "Play a desktop notification sound after a task completes successfully.",
         "当任务成功完成后，播放桌面提示音。"
       );
       document.getElementById("diagnosticsSection").textContent = inlineText("Local Files", "本地文件");
       document.getElementById("localDataRootLabel").textContent = inlineText("Data Folder", "数据目录");
+      document.getElementById("localDataRootScope").textContent = inlineText("Local Only", "仅本机");
       document.getElementById("localDataRootHint").textContent = inlineText(
         "Chat history, logs, attachments, update packages, and local cache are all stored under this folder.",
         "聊天记录、日志、附件、更新包和本地缓存都会统一放在这个目录下。"
@@ -2766,12 +2837,14 @@
       document.getElementById("resetLocalDataRootBtn").textContent = inlineText("Use Default", "恢复默认");
       document.getElementById("applyLocalDataRootBtn").textContent = inlineText("Apply and Restart", "应用并重启");
       document.getElementById("saveLogsLabel").textContent = inlineText("Save local logs", "保存本地日志");
+      document.getElementById("saveLogsScope").textContent = inlineText("Local Only", "仅本机");
       document.getElementById("saveLogsHint").textContent = inlineText(
         "When enabled, the desktop app writes runtime logs locally for later review.",
         "开启后，桌面端会把运行日志保存在本地，便于后续回溯审查。"
       );
       document.getElementById("logPathLabel").textContent = inlineText("Log Directory", "日志目录");
       document.getElementById("cacheRetentionLabel").textContent = inlineText("Auto-clean history older than (days)", "自动清理多少天前的历史");
+      document.getElementById("cacheRetentionScope").textContent = inlineText("Local Only", "仅本机");
       document.getElementById("historyRetentionDays").placeholder = inlineText("30", "30");
       document.getElementById("saveCacheSettingsBtn").textContent = inlineText("Save Cache Policy", "保存缓存策略");
       document.getElementById("repairChatHistoryBtn").textContent = inlineText("Repair Chat History", "修复聊天记录");
@@ -2834,16 +2907,19 @@
       document.getElementById("scheduledTaskList").setAttribute("data-empty-message", inlineText("No scheduled tasks yet.", "还没有定时任务。"));
       document.getElementById("updatesSection").textContent = inlineText("Updates", "更新");
       document.getElementById("autoUpdateCheckLabel").textContent = inlineText("Automatically check for updates", "自动检查更新");
+      document.getElementById("autoUpdateCheckScope").textContent = inlineText("Local Only", "仅本机");
       document.getElementById("autoUpdateCheckHint").textContent = inlineText(
         "When enabled, the desktop app checks the relay update center on launch and every few hours.",
         "开启后，桌面端会在启动时和后续间隔内自动检查 relay 更新中心。"
       );
       document.getElementById("autoUpdateDownloadLabel").textContent = inlineText("Automatically download new installers", "自动下载新安装包");
+      document.getElementById("autoUpdateDownloadScope").textContent = inlineText("Local Only", "仅本机");
       document.getElementById("autoUpdateDownloadHint").textContent = inlineText(
         "The installer is downloaded in the background, but you still need to click install manually.",
         "安装包会在后台自动下载，但安装仍然需要你手动点一下。"
       );
       document.getElementById("silentUpdateInstallLabel").textContent = inlineText("Silently install downloaded updates", "静默安装已下载更新");
+      document.getElementById("silentUpdateInstallScope").textContent = inlineText("Local Only", "仅本机");
       document.getElementById("silentUpdateInstallHint").textContent = inlineText(
         "When no task is running or queued, the app can quit itself and launch the installer automatically.",
         "当没有运行中或排队中的任务时，桌面端可自行退出并自动拉起安装程序。"
@@ -2879,6 +2955,7 @@
       );
       document.getElementById("serverSection").textContent = msg("settings.serverConnection", "Server Connection");
       document.getElementById("serverUrlLabel").textContent = msg("settings.relayServerUrl", "Relay Server URL");
+      document.getElementById("serverUrlScope").textContent = inlineText("Current Device", "当前设备");
       document.getElementById("usernameLabel").textContent = msg("settings.username", "Username");
       document.getElementById("username").placeholder = msg("settings.usernamePlaceholder", "Enter username");
       document.getElementById("passwordLabel").textContent = msg("settings.password", "Password");
@@ -2890,6 +2967,7 @@
       document.getElementById("loginStatusLabel").textContent = msg("settings.loginStatus", "Login Status");
       document.getElementById("remoteAccessSection").textContent = inlineText("Remote Access", "远程访问");
       document.getElementById("shareAccessUserLabel").textContent = inlineText("Allow Username", "允许访问的用户名");
+      document.getElementById("shareAccessUserScope").textContent = inlineText("Current Device", "当前设备");
       document.getElementById("shareAccessUser").placeholder = inlineText("friend-account", "朋友账号");
       document.getElementById("shareAccessNoteLabel").textContent = inlineText("Note", "备注");
       document.getElementById("shareAccessNote").placeholder = inlineText("Optional note", "可选备注");
@@ -2899,6 +2977,7 @@
       document.getElementById("controllableAgentsLabel").textContent = inlineText("Controllable Desktops", "可控制桌面");
       document.getElementById("e2eSection").textContent = msg("settings.e2e", "End-to-End Encryption");
       document.getElementById("e2eLabel").textContent = msg("settings.e2eEnable", "Enable E2E Encryption");
+      document.getElementById("e2eScope").textContent = inlineText("Current Device", "当前设备");
       document.getElementById("pubkeyLabel").textContent = msg("settings.publicKey", "Public Key");
       document.getElementById("minimizeBtn").title = msg("common.minimize", "Minimize");
       document.getElementById("maximizeBtn").title = msg("common.maximize", "Maximize");

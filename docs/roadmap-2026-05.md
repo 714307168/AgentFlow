@@ -545,3 +545,4 @@
 - [x] Desktop transfer center now surfaces recent upload / download health, flags expired or failed transfers, and offers retry-send shortcuts with the same target scope.
 - [x] Desktop `1.1.119` patch release was published to the update center for the latest settings layout and transfer-center UX fixes.
 - [x] Desktop settings now use consistent risk confirmations plus recovery hints for destructive actions such as deleting projects, deleting workgroups, revoking access, and clearing local caches.
+- [x] Desktop settings now show effect-scope pills for key options so users can distinguish local-only settings from current-device settings at a glance.
