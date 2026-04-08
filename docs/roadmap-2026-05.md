@@ -606,3 +606,5 @@
 - [x] Desktop `1.1.119` patch release was published to the update center for the latest settings layout and transfer-center UX fixes.
 - [x] Desktop settings now use consistent risk confirmations plus recovery hints for destructive actions such as deleting projects, deleting workgroups, revoking access, and clearing local caches.
 - [x] Desktop settings now show effect-scope pills for key options so users can distinguish local-only settings from current-device settings at a glance.
+- [x] Desktop `1.1.121` and Android `1.2.15 (build 99)` were published to the update center for the chat/activity bottom-anchor patch.
+- [x] Session sync payloads now carry a stable `snapshot_revision`, and Android skips redundant runtime snapshot rewrites when the session view has not materially changed.

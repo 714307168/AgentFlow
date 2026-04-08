@@ -108,6 +108,21 @@ class MessageRepository(
         val highestSeq: Long
     )
 
+    private data class IncomingSessionRuntime(
+        val provider: String,
+        val model: String?,
+        val isRunning: Boolean,
+        val queuedCount: Int,
+        val currentPrompt: String?,
+        val queuePreview: String?,
+        val queueJson: String?,
+        val currentStartedAt: Long?,
+        val activeConversationId: String?,
+        val activeConversationTitle: String?,
+        val conversationsJson: String?,
+        val snapshotRevision: String?
+    )
+
     private data class PendingDownloadRequest(
         val projectId: String,
         val messageId: String,
@@ -782,51 +797,11 @@ class MessageRepository(
             Events.SESSION_SYNC -> {
                 clearProjectSyncFlights(projectId)
                 val payloadObj = envelope.payload?.jsonObject ?: return
-                val provider = payloadObj["provider"]?.jsonPrimitive?.contentOrNull?.trim()
-                    .takeUnless { it.isNullOrBlank() } ?: "claude"
-                val model = payloadObj["model"]?.jsonPrimitive?.contentOrNull?.trim()
-                    .takeUnless { it.isNullOrBlank() }
-                val isRunning = payloadObj["isRunning"]?.jsonPrimitive?.booleanOrNull ?: false
-                val queuedCount = payloadObj["queuedCount"]?.jsonPrimitive?.intOrNull ?: 0
-                val currentPrompt = payloadObj["currentPrompt"]?.jsonPrimitive?.contentOrNull?.trim()
-                    .takeUnless { it.isNullOrBlank() }
-                val currentStartedAt = payloadObj["currentStartedAt"]?.jsonPrimitive?.longOrNull
-                val queuePreview = payloadObj["queue"]?.jsonArray
-                    ?.firstOrNull()
-                    ?.jsonObject
-                    ?.get("prompt")
-                    ?.jsonPrimitive
-                    ?.contentOrNull
-                    ?.trim()
-                    .takeUnless { it.isNullOrBlank() }
-                val queueJson = payloadObj["queue"]?.jsonArray?.toString()
-                val activeConversationId = payloadObj["active_conversation_id"]?.jsonPrimitive?.contentOrNull?.trim()
-                    .takeUnless { it.isNullOrBlank() }
-                val conversationsArray = payloadObj["conversations"]?.jsonArray
-                val activeConversationTitle = conversationsArray
-                    ?.firstOrNull { conversation ->
-                        conversation.jsonObject["id"]?.jsonPrimitive?.contentOrNull?.trim() == activeConversationId
-                    }
-                    ?.jsonObject
-                    ?.get("title")
-                    ?.jsonPrimitive
-                    ?.contentOrNull
-                    ?.trim()
-                    .takeUnless { it.isNullOrBlank() }
-                sessionDao.updateSessionRuntime(
+                val runtime = parseIncomingSessionRuntime(payloadObj)
+                applySessionRuntimeSnapshot(
                     projectId = projectId,
-                    cliProvider = provider,
-                    cliModel = model,
-                    isRunning = isRunning,
-                    queuedCount = queuedCount,
-                    currentPrompt = currentPrompt,
-                    queuePreview = queuePreview,
-                    queueJson = queueJson,
-                    currentStartedAt = currentStartedAt,
-                    activeConversationId = activeConversationId,
-                    activeConversationTitle = activeConversationTitle,
-                    conversationsJson = conversationsArray?.toString(),
-                    lastActiveAt = envelope.ts
+                    runtime = runtime,
+                    timestamp = envelope.ts
                 )
                 val syncObj = payloadObj["sync"]?.jsonObject
                 if (syncObj != null) {
@@ -839,7 +814,7 @@ class MessageRepository(
                     val items = syncObj["items"]?.jsonArray ?: JsonArray(emptyList())
                     CrashLogger.logInfo(
                         "MessageRepository",
-                        "Received session.sync v2 for projectId=$projectId items=${items.size} latestSeq=$latestSeq afterSeq=$requestedAfterSeq beforeSeq=${requestedBeforeSeq ?: 0L} limit=$requestedLimit truncated=$truncated running=$isRunning queued=$queuedCount conversation=${activeConversationId ?: "none"}"
+                        "Received session.sync v2 for projectId=$projectId items=${items.size} latestSeq=$latestSeq afterSeq=$requestedAfterSeq beforeSeq=${requestedBeforeSeq ?: 0L} limit=$requestedLimit truncated=$truncated running=${runtime.isRunning} queued=${runtime.queuedCount} conversation=${runtime.activeConversationId ?: "none"} snapshotRevision=${runtime.snapshotRevision ?: "none"}"
                     )
                     val applied = applyProjectSyncDelta(
                         projectId = projectId,
@@ -848,7 +823,7 @@ class MessageRepository(
                         fallbackTimestamp = envelope.ts,
                         requestBeforeSeq = requestedBeforeSeq,
                         truncated = truncated,
-                        conversationId = activeConversationId
+                        conversationId = runtime.activeConversationId
                     )
                     maybeRequestProjectBackfill(
                         projectId = projectId,
@@ -863,7 +838,7 @@ class MessageRepository(
                     val activities = payloadObj["activities"]?.jsonArray ?: JsonArray(emptyList())
                     CrashLogger.logInfo(
                         "MessageRepository",
-                        "Received legacy session.sync for projectId=$projectId messages=${messages.size} activities=${activities.size} running=$isRunning queued=$queuedCount"
+                        "Received legacy session.sync for projectId=$projectId messages=${messages.size} activities=${activities.size} running=${runtime.isRunning} queued=${runtime.queuedCount}"
                     )
                     mergeProjectMessagesFromDesktop(projectId, messages, activities, envelope.ts)
                 }
@@ -1275,7 +1250,91 @@ class MessageRepository(
             activeConversationId = session.activeConversationId,
             activeConversationTitle = session.activeConversationTitle,
             conversationsJson = session.conversationsJson,
+            snapshotRevision = session.snapshotRevision,
             lastActiveAt = now
+        )
+    }
+
+    private fun parseIncomingSessionRuntime(payloadObj: JsonObject): IncomingSessionRuntime {
+        val provider = payloadObj["provider"]?.jsonPrimitive?.contentOrNull?.trim()
+            .takeUnless { it.isNullOrBlank() } ?: "claude"
+        val model = payloadObj["model"]?.jsonPrimitive?.contentOrNull?.trim()
+            .takeUnless { it.isNullOrBlank() }
+        val isRunning = payloadObj["isRunning"]?.jsonPrimitive?.booleanOrNull ?: false
+        val queuedCount = payloadObj["queuedCount"]?.jsonPrimitive?.intOrNull ?: 0
+        val currentPrompt = payloadObj["currentPrompt"]?.jsonPrimitive?.contentOrNull?.trim()
+            .takeUnless { it.isNullOrBlank() }
+        val currentStartedAt = payloadObj["currentStartedAt"]?.jsonPrimitive?.longOrNull
+        val queueArray = payloadObj["queue"]?.jsonArray
+        val queuePreview = queueArray
+            ?.firstOrNull()
+            ?.jsonObject
+            ?.get("prompt")
+            ?.jsonPrimitive
+            ?.contentOrNull
+            ?.trim()
+            .takeUnless { it.isNullOrBlank() }
+        val activeConversationId = payloadObj["active_conversation_id"]?.jsonPrimitive?.contentOrNull?.trim()
+            .takeUnless { it.isNullOrBlank() }
+        val conversationsArray = payloadObj["conversations"]?.jsonArray
+        val activeConversationTitle = conversationsArray
+            ?.firstOrNull { conversation ->
+                conversation.jsonObject["id"]?.jsonPrimitive?.contentOrNull?.trim() == activeConversationId
+            }
+            ?.jsonObject
+            ?.get("title")
+            ?.jsonPrimitive
+            ?.contentOrNull
+            ?.trim()
+            .takeUnless { it.isNullOrBlank() }
+        val snapshotRevision = payloadObj["snapshot_revision"]?.jsonPrimitive?.contentOrNull?.trim()
+            .takeUnless { it.isNullOrBlank() }
+
+        return IncomingSessionRuntime(
+            provider = provider,
+            model = model,
+            isRunning = isRunning,
+            queuedCount = queuedCount,
+            currentPrompt = currentPrompt,
+            queuePreview = queuePreview,
+            queueJson = queueArray?.toString(),
+            currentStartedAt = currentStartedAt,
+            activeConversationId = activeConversationId,
+            activeConversationTitle = activeConversationTitle,
+            conversationsJson = conversationsArray?.toString(),
+            snapshotRevision = snapshotRevision
+        )
+    }
+
+    private suspend fun applySessionRuntimeSnapshot(
+        projectId: String,
+        runtime: IncomingSessionRuntime,
+        timestamp: Long
+    ) {
+        val currentSession = sessionDao.getSessionByProjectId(projectId)
+        if (
+            currentSession != null &&
+            runtime.snapshotRevision != null &&
+            runtime.snapshotRevision == currentSession.snapshotRevision
+        ) {
+            return
+        }
+
+        sessionDao.updateSessionRuntime(
+            projectId = projectId,
+            cliProvider = runtime.provider,
+            cliModel = runtime.model,
+            isRunning = runtime.isRunning,
+            queuedCount = runtime.queuedCount,
+            currentPrompt = runtime.currentPrompt,
+            queuePreview = runtime.queuePreview,
+            queueJson = runtime.queueJson,
+            currentStartedAt = runtime.currentStartedAt,
+            activeConversationId = runtime.activeConversationId,
+            activeConversationTitle = runtime.activeConversationTitle,
+            conversationsJson = runtime.conversationsJson,
+            snapshotRevision = runtime.snapshotRevision,
+            lastActiveAt = timestamp
         )
     }
 
@@ -2173,6 +2232,7 @@ class MessageRepository(
         activeConversationId = activeConversationId,
         activeConversationTitle = activeConversationTitle,
         conversationsJson = conversationsJson,
+        snapshotRevision = snapshotRevision,
         createdAt = createdAt,
         lastActiveAt = lastActiveAt
     )

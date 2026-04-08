@@ -24,6 +24,7 @@ data class SessionEntity(
     val activeConversationId: String? = null,
     val activeConversationTitle: String? = null,
     val conversationsJson: String? = null,
+    val snapshotRevision: String? = null,
     val createdAt: Long,
     val lastActiveAt: Long
 )

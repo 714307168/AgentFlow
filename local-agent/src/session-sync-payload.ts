@@ -4,6 +4,7 @@ import {
   createSessionSyncAttachmentsMd5,
   type SessionSyncKnownItemDigest,
 } from "./session-sync-hash";
+import { createSessionSnapshotRevision } from "./session-snapshot-revision";
 import type {
   ProjectSessionSnapshot,
   RunAttachment,
@@ -55,6 +56,7 @@ export interface SessionConversationPayload {
 
 export interface SessionSyncPayload {
   sync_version: 2;
+  snapshot_revision: string;
   project_id: string;
   provider: ProjectSessionSnapshot["provider"];
   model: string | null;
@@ -209,8 +211,10 @@ export function buildSessionSyncPayload(
   const afterSeq = Number(request.afterSeq) > 0 ? Number(request.afterSeq) : 0;
   const beforeSeq = Number(request.beforeSeq) > 0 ? Number(request.beforeSeq) : null;
   const limit = Number(request.limit) > 0 ? Number(request.limit) : null;
+  const snapshotRevision = createSessionSnapshotRevision(snapshot);
   let payload: SessionSyncPayload = {
     sync_version: 2,
+    snapshot_revision: snapshotRevision,
     project_id: snapshot.projectId,
     provider: snapshot.provider,
     model: snapshot.model,
