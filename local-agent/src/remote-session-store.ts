@@ -74,6 +74,7 @@ interface RemoteState {
   project: RemoteProjectRecord;
   provider: CliProvider;
   model: string | null;
+  snapshotRevision: string | null;
   isRunning: boolean;
   queuedCount: number;
   currentSource: "remote" | "desktop" | null;
@@ -186,6 +187,73 @@ function cloneMessage(message: RemoteMessageEntry): SessionMessage {
     ...message,
     attachments: cloneAttachments(message.attachments),
   };
+}
+
+function attachmentsEqual(left?: RunAttachment[], right?: RunAttachment[]): boolean {
+  const leftItems = left ?? [];
+  const rightItems = right ?? [];
+  if (leftItems.length !== rightItems.length) {
+    return false;
+  }
+  for (let index = 0; index < leftItems.length; index += 1) {
+    const leftItem = leftItems[index];
+    const rightItem = rightItems[index];
+    if (
+      leftItem.id !== rightItem.id
+      || leftItem.name !== rightItem.name
+      || leftItem.path !== rightItem.path
+      || leftItem.size !== rightItem.size
+      || leftItem.kind !== rightItem.kind
+      || leftItem.mimeType !== rightItem.mimeType
+      || leftItem.previewDataUrl !== rightItem.previewDataUrl
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function conversationsEqual(left: ConversationSummary[], right: ConversationSummary[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+  for (let index = 0; index < left.length; index += 1) {
+    const leftItem = left[index];
+    const rightItem = right[index];
+    if (
+      leftItem.id !== rightItem.id
+      || leftItem.title !== rightItem.title
+      || leftItem.createdAt !== rightItem.createdAt
+      || leftItem.updatedAt !== rightItem.updatedAt
+      || leftItem.isActive !== rightItem.isActive
+      || leftItem.messageCount !== rightItem.messageCount
+      || leftItem.activityCount !== rightItem.activityCount
+      || leftItem.cliCount !== rightItem.cliCount
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function queueEntriesEqual(left: QueuedRunSnapshot[], right: QueuedRunSnapshot[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+  for (let index = 0; index < left.length; index += 1) {
+    const leftItem = left[index];
+    const rightItem = right[index];
+    if (
+      leftItem.runId !== rightItem.runId
+      || leftItem.prompt !== rightItem.prompt
+      || leftItem.source !== rightItem.source
+      || leftItem.queuedAt !== rightItem.queuedAt
+      || !attachmentsEqual(leftItem.attachments, rightItem.attachments)
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function readString(value: unknown): string {
@@ -775,25 +843,51 @@ export default class RemoteSessionStore extends EventEmitter {
     }
 
     const payload = (env.payload ?? {}) as LooseRecord;
-    state.provider = readString(payload.provider) === "codex" ? "codex" : "claude";
-    state.model = readString(payload.model).trim() || null;
-    state.isRunning = Boolean(payload.isRunning ?? payload.is_running);
-    state.queuedCount = readNumber(payload.queuedCount ?? payload.queued_count);
+    const runtimeChanged = this.applySessionRuntimeSnapshot(state, payload);
+
+    const sync = (payload.sync ?? {}) as LooseRecord;
+    const items = Array.isArray(sync?.items) ? sync.items as SyncItemPayload[] : [];
+    const latestSeq = readNumber(sync.latest_seq ?? sync.latestSeq);
+    let syncItemsChanged = false;
+    for (const item of items) {
+      syncItemsChanged = this.applySyncItem(state, item) || syncItemsChanged;
+    }
+    state.lastSyncSeq = Math.max(state.lastSyncSeq, latestSeq);
+    this.resolvePendingHistoryRequests(projectId, readNumber(sync.before_seq ?? sync.beforeSeq));
+    this.refreshProjectRunObservers(projectId);
+    if (runtimeChanged || syncItemsChanged) {
+      this.emitSnapshot(projectId);
+    }
+  }
+
+  private applySessionRuntimeSnapshot(state: RemoteState, payload: LooseRecord): boolean {
+    const nextSnapshotRevision = readString(payload.snapshot_revision ?? payload.snapshotRevision).trim() || null;
+    if (nextSnapshotRevision && state.snapshotRevision === nextSnapshotRevision) {
+      return false;
+    }
+
+    const nextProvider = readString(payload.provider) === "codex" ? "codex" : "claude";
+    const nextModel = readString(payload.model).trim() || null;
+    const nextIsRunning = Boolean(payload.isRunning ?? payload.is_running);
+    const nextQueuedCount = readNumber(payload.queuedCount ?? payload.queued_count);
     const currentSource = readString(payload.currentSource ?? payload.current_source);
-    state.currentSource = currentSource === "remote" ? "remote" : (currentSource === "desktop" ? "desktop" : null);
-    state.currentPrompt = readString(payload.currentPrompt ?? payload.current_prompt) || null;
-    state.currentStartedAt = readNumber(payload.currentStartedAt ?? payload.current_started_at) || null;
-    state.activeConversationId = readString(payload.active_conversation_id ?? payload.activeConversationId) || null;
-    state.queue = Array.isArray(payload.queue)
-      ? payload.queue.map((entry: any) => ({
-          runId: readString(entry.runId ?? entry.run_id).trim() || uuidv4(),
-          prompt: readString(entry.prompt),
-          source: readString(entry.source) === "remote" ? "remote" : "desktop",
-          queuedAt: readNumber(entry.queuedAt ?? entry.queued_at) || Date.now(),
-          attachments: cloneAttachments(entry.attachments),
-        }))
+    const nextCurrentSource = currentSource === "remote" ? "remote" : (currentSource === "desktop" ? "desktop" : null);
+    const nextCurrentPrompt = readString(payload.currentPrompt ?? payload.current_prompt) || null;
+    const nextCurrentStartedAt = readNumber(payload.currentStartedAt ?? payload.current_started_at) || null;
+    const nextActiveConversationId = readString(payload.active_conversation_id ?? payload.activeConversationId) || null;
+    const nextQueue: QueuedRunSnapshot[] = Array.isArray(payload.queue)
+      ? payload.queue.map((entry: any) => {
+          const source = readString(entry.source) === "remote" ? "remote" : "desktop";
+          return {
+            runId: readString(entry.runId ?? entry.run_id).trim() || uuidv4(),
+            prompt: readString(entry.prompt),
+            source,
+            queuedAt: readNumber(entry.queuedAt ?? entry.queued_at) || Date.now(),
+            attachments: cloneAttachments(entry.attachments),
+          };
+        })
       : [];
-    state.conversations = Array.isArray(payload.conversations)
+    const nextConversations = Array.isArray(payload.conversations)
       ? payload.conversations.map((entry: any) => ({
           id: readString(entry.id).trim() || uuidv4(),
           title: readString(entry.title) || "New conversation",
@@ -805,17 +899,35 @@ export default class RemoteSessionStore extends EventEmitter {
           cliCount: readNumber(entry.cli_count ?? entry.cliCount),
         }))
       : [];
-
-    const sync = (payload.sync ?? {}) as LooseRecord;
-    const items = Array.isArray(sync?.items) ? sync.items as SyncItemPayload[] : [];
-    const latestSeq = readNumber(sync.latest_seq ?? sync.latestSeq);
-    for (const item of items) {
-      this.applySyncItem(state, item);
+    const changed = (
+      state.provider !== nextProvider
+      || state.model !== nextModel
+      || state.snapshotRevision !== nextSnapshotRevision
+      || state.isRunning !== nextIsRunning
+      || state.queuedCount !== nextQueuedCount
+      || state.currentSource !== nextCurrentSource
+      || state.currentPrompt !== nextCurrentPrompt
+      || state.currentStartedAt !== nextCurrentStartedAt
+      || state.activeConversationId !== nextActiveConversationId
+      || !queueEntriesEqual(state.queue, nextQueue)
+      || !conversationsEqual(state.conversations, nextConversations)
+    );
+    if (!changed) {
+      return false;
     }
-    state.lastSyncSeq = Math.max(state.lastSyncSeq, latestSeq);
-    this.resolvePendingHistoryRequests(projectId, readNumber(sync.before_seq ?? sync.beforeSeq));
-    this.refreshProjectRunObservers(projectId);
-    this.emitSnapshot(projectId);
+
+    state.provider = nextProvider;
+    state.model = nextModel;
+    state.snapshotRevision = nextSnapshotRevision;
+    state.isRunning = nextIsRunning;
+    state.queuedCount = nextQueuedCount;
+    state.currentSource = nextCurrentSource;
+    state.currentPrompt = nextCurrentPrompt;
+    state.currentStartedAt = nextCurrentStartedAt;
+    state.activeConversationId = nextActiveConversationId;
+    state.queue = nextQueue;
+    state.conversations = nextConversations;
+    return true;
   }
 
   private handleAgentStatus(env: Envelope): void {
@@ -1230,7 +1342,7 @@ export default class RemoteSessionStore extends EventEmitter {
     pending.reject(new Error(message));
   }
 
-  private applySyncItem(state: RemoteState, item: SyncItemPayload): void {
+  private applySyncItem(state: RemoteState, item: SyncItemPayload): boolean {
     const itemRecord = item as unknown as LooseRecord;
     const itemId = readString(item.id ?? itemRecord.id).trim();
     const itemKind = readString(item.kind ?? itemRecord.kind);
@@ -1238,7 +1350,7 @@ export default class RemoteSessionStore extends EventEmitter {
     const itemUpdatedAt = readNumber(item.updatedAt ?? itemRecord.updated_at);
     const itemSeq = readNumber(item.seq ?? itemRecord.seq);
     if (!item || !itemId) {
-      return;
+      return false;
     }
 
     if (itemKind === "message") {
@@ -1267,6 +1379,7 @@ export default class RemoteSessionStore extends EventEmitter {
         syncSeq: itemSeq,
       };
       const index = state.messages.findIndex((entry) => entry.id === itemId);
+      const changed = !existingMessage || !this.messagesEqual(existingMessage, nextMessage);
       if (index >= 0) {
         state.messages[index] = nextMessage;
       } else {
@@ -1286,7 +1399,7 @@ export default class RemoteSessionStore extends EventEmitter {
         }),
       );
       this.trimMessages(state);
-      return;
+      return changed;
     }
 
     if (itemKind === "cli") {
@@ -1306,6 +1419,7 @@ export default class RemoteSessionStore extends EventEmitter {
         syncSeq: itemSeq,
       };
       const index = state.cliTrace.findIndex((entry) => entry.id === itemId);
+      const changed = !existingEntry || !this.cliEntriesEqual(existingEntry, nextEntry);
       if (index >= 0) {
         state.cliTrace[index] = nextEntry;
       } else {
@@ -1317,7 +1431,7 @@ export default class RemoteSessionStore extends EventEmitter {
         this.shouldRequestFullContent(existingEntry?.text, nextEntry.text, contentMd5, contentOmitted),
       );
       this.trimCli(state);
-      return;
+      return changed;
     }
 
     const existingActivity = state.activities.find((entry) => entry.id === itemId);
@@ -1341,6 +1455,7 @@ export default class RemoteSessionStore extends EventEmitter {
       syncSeq: itemSeq,
     };
     const index = state.activities.findIndex((entry) => entry.id === itemId);
+    const changed = !existingActivity || !this.activitiesEqual(existingActivity, nextActivity);
     if (index >= 0) {
       state.activities[index] = nextActivity;
     } else {
@@ -1352,6 +1467,38 @@ export default class RemoteSessionStore extends EventEmitter {
       this.shouldRequestFullContent(existingActivity?.detail, nextActivity.detail, contentMd5, contentOmitted),
     );
     this.trimActivities(state);
+    return changed;
+  }
+
+  private messagesEqual(left: RemoteMessageEntry, right: RemoteMessageEntry): boolean {
+    return left.id === right.id
+      && left.role === right.role
+      && left.content === right.content
+      && left.source === right.source
+      && left.createdAt === right.createdAt
+      && left.updatedAt === right.updatedAt
+      && left.status === right.status
+      && left.syncSeq === right.syncSeq
+      && attachmentsEqual(left.attachments, right.attachments);
+  }
+
+  private activitiesEqual(left: RemoteActivityEntry, right: RemoteActivityEntry): boolean {
+    return left.id === right.id
+      && left.kind === right.kind
+      && left.title === right.title
+      && left.detail === right.detail
+      && left.status === right.status
+      && left.createdAt === right.createdAt
+      && left.updatedAt === right.updatedAt
+      && left.syncSeq === right.syncSeq;
+  }
+
+  private cliEntriesEqual(left: RemoteCliEntry, right: RemoteCliEntry): boolean {
+    return left.id === right.id
+      && left.stream === right.stream
+      && left.text === right.text
+      && left.createdAt === right.createdAt
+      && left.syncSeq === right.syncSeq;
   }
 
   private resolveRemoteContent(
@@ -1612,6 +1759,7 @@ export default class RemoteSessionStore extends EventEmitter {
       project,
       provider: project.cliProvider,
       model: project.cliModel ?? null,
+      snapshotRevision: null,
       isRunning: false,
       queuedCount: 0,
       currentSource: null,
