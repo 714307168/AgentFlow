@@ -1,0 +1,36 @@
+const test = require("node:test");
+const assert = require("node:assert/strict");
+
+const { getSystemSoundCommand } = require("../dist/src/desktop-sound.js");
+
+test("builds the Windows completion sound command", () => {
+  assert.deepEqual(getSystemSoundCommand("win32"), {
+    command: "powershell.exe",
+    args: [
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-Command",
+      "[System.Media.SystemSounds]::Asterisk.Play()",
+    ],
+  });
+});
+
+test("builds the macOS completion sound command", () => {
+  assert.deepEqual(getSystemSoundCommand("darwin"), {
+    command: "afplay",
+    args: ["/System/Library/Sounds/Glass.aiff"],
+  });
+});
+
+test("builds the Linux completion sound command", () => {
+  assert.deepEqual(getSystemSoundCommand("linux"), {
+    command: "canberra-gtk-play",
+    args: ["-i", "complete", "-d", "AgentFlow"],
+  });
+});
+
+test("returns null for unsupported platforms", () => {
+  assert.equal(getSystemSoundCommand("aix"), null);
+});

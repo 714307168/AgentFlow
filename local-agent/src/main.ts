@@ -53,6 +53,7 @@ import {
   persistLocalDataRoot,
   resolveLocalDataRoot,
 } from "./user-data-bootstrap";
+import { playSystemNotificationSound } from "./desktop-sound";
 
 interface AgentConfig {
   serverUrl: string;
@@ -1627,13 +1628,19 @@ function playCompletionSound(): void {
     return;
   }
 
-  try {
-    shell.beep();
-  } catch (error) {
-    appLogger.warn("runtime", "Failed to play completion sound.", {
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
+  void playSystemNotificationSound().then((played) => {
+    if (played) {
+      return;
+    }
+
+    try {
+      shell.beep();
+    } catch (error) {
+      appLogger.warn("runtime", "Failed to play completion sound.", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
 }
 
 runtimeManager.on("snapshot", (_projectId: string, snapshot: ProjectSessionSnapshot) => {
