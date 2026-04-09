@@ -897,9 +897,25 @@ class MessageRepository(
         var earliestSeq: Long? = null
         var highestSeq = 0L
         val omittedItemIds = mutableSetOf<String>()
+        val currentSession = sessionDao.getSessionByProjectId(projectId)
+        val currentLastSeq = currentSession?.lastSyncSeq ?: 0L
+
+        if (rawItems.isEmpty()) {
+            val nextLastSyncSeq = when {
+                requestBeforeSeq != null -> currentLastSeq
+                truncated -> currentLastSeq
+                else -> maxOf(currentLastSeq, latestSeq)
+            }
+            if (nextLastSyncSeq != currentLastSeq) {
+                sessionDao.updateLastSyncSeq(projectId, nextLastSyncSeq)
+            }
+            return AppliedSyncWindow(
+                earliestSeq = null,
+                highestSeq = 0L
+            )
+        }
 
         db.withTransaction {
-            val currentLastSeq = sessionDao.getSessionByProjectId(projectId)?.lastSyncSeq ?: 0L
             rawItems.forEachIndexed { index, item ->
                 val itemObj = item.jsonObject
                 val itemId = itemObj["id"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
@@ -943,12 +959,11 @@ class MessageRepository(
         }
 
         if (omittedItemIds.isNotEmpty()) {
-            val session = sessionDao.getSessionByProjectId(projectId)
             omittedItemIds.forEach { itemId ->
                 requestFullSyncItemIfNeeded(
                     projectId = projectId,
-                    agentId = session?.agentId,
-                    conversationId = session?.activeConversationId,
+                    agentId = currentSession?.agentId,
+                    conversationId = currentSession?.activeConversationId,
                     itemId = itemId
                 )
             }
