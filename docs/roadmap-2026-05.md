@@ -613,3 +613,4 @@
 - [x] Desktop remote session store now consumes `snapshot_revision` to skip redundant runtime-state rewrites, and only emits chat snapshots when runtime fields or sync items materially change.
 - [x] Android and desktop session-sync requests now send the client-known `snapshot_revision`, and the desktop runtime replies with `runtime_unchanged` plus incremental items when the session shell has not changed, further shrinking repeat sync payloads.
 - [x] Android sync now fast-paths empty `session.sync` deltas and skips redundant Room transactions when neither runtime shell nor message sequence advanced.
+- [x] Android project-sync dedupe keys now include the locally known `snapshot_revision`, so requests with different known runtime shells are no longer incorrectly coalesced into the same single-flight window.

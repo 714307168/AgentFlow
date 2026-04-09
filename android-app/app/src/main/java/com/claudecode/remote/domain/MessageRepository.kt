@@ -226,7 +226,8 @@ class MessageRepository(
             limit = limit ?: DEFAULT_SYNC_LIMIT,
             action = action,
             conversationId = effectiveConversationId,
-            itemId = itemId
+            itemId = itemId,
+            snapshotRevision = session?.snapshotRevision
         )
         val now = System.currentTimeMillis()
         if (!bypassDedupe) {
@@ -1250,7 +1251,8 @@ class MessageRepository(
         limit: Int,
         action: String?,
         conversationId: String?,
-        itemId: String?
+        itemId: String?,
+        snapshotRevision: String?
     ): String = listOf(
         projectId.trim(),
         agentId?.trim().orEmpty(),
@@ -1259,7 +1261,8 @@ class MessageRepository(
         limit.toString(),
         action?.trim().orEmpty(),
         conversationId?.trim().orEmpty(),
-        itemId?.trim().orEmpty()
+        itemId?.trim().orEmpty(),
+        snapshotRevision?.trim().orEmpty()
     ).joinToString(separator = "::")
 
     private fun tryStartProjectSyncFlight(requestKey: String, now: Long): Boolean {
