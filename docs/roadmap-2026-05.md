@@ -614,3 +614,9 @@
 - [x] Android and desktop session-sync requests now send the client-known `snapshot_revision`, and the desktop runtime replies with `runtime_unchanged` plus incremental items when the session shell has not changed, further shrinking repeat sync payloads.
 - [x] Android sync now fast-paths empty `session.sync` deltas and skips redundant Room transactions when neither runtime shell nor message sequence advanced.
 - [x] Android project-sync dedupe keys now include the locally known `snapshot_revision`, so requests with different known runtime shells are no longer incorrectly coalesced into the same single-flight window.
+
+## Progress Update 2026-04-10
+
+- [x] Relay device logs `Connection Hotspots` now persist real co-occurring replay contexts (`signal + trace/workgroup/task/dispatch`) instead of composing filters from unrelated top IDs.
+- [x] Device logs overview now exposes `Replay Hotspot Context` chips so hotspot jump-back filters replay an actually observed context group, reducing tie-break noise when top trace/task IDs come from different logs.
+- [x] Relay hotspot replay-context selection is covered by a dedicated Go unit test to prevent regressions in grouped-context ranking.

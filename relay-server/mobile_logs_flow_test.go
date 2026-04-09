@@ -121,6 +121,11 @@ type uploadedMobileLogOverview struct {
 			TopWorkgroupID             string `json:"top_workgroup_id"`
 			TopTaskID                  string `json:"top_task_id"`
 			TopDispatchRunID           string `json:"top_dispatch_run_id"`
+			ReplaySignalCode           string `json:"replay_signal_code"`
+			ReplayTraceID              string `json:"replay_trace_id"`
+			ReplayWorkgroupID          string `json:"replay_workgroup_id"`
+			ReplayTaskID               string `json:"replay_task_id"`
+			ReplayDispatchRunID        string `json:"replay_dispatch_run_id"`
 		} `json:"hotspots"`
 	} `json:"connection_summary"`
 	LivePresence []struct {
@@ -295,7 +300,7 @@ func TestMobileLogUploadAndAdminAnalysis(t *testing.T) {
 	if resp.StatusCode != http.StatusOK || !strings.Contains(string(pageBody), "Device Logs") {
 		t.Fatalf("unexpected mobile logs page response: status=%d", resp.StatusCode)
 	}
-	if !strings.Contains(string(pageBody), "log_id") || !strings.Contains(string(pageBody), "Copy Link") || !strings.Contains(string(pageBody), "history.replaceState") || !strings.Contains(string(pageBody), "Filter Text") || !strings.Contains(string(pageBody), "Filter Signal") || !strings.Contains(string(pageBody), "Apply Top Context") || !strings.Contains(string(pageBody), "Apply Hotspot Context") || !strings.Contains(string(pageBody), "data-filter-preset") || !strings.Contains(string(pageBody), "/admin/api/mobile-logs/overview") || !strings.Contains(string(pageBody), "Current Filter Overview") || !strings.Contains(string(pageBody), "Recovery Panels") || !strings.Contains(string(pageBody), "Recovery Health") || !strings.Contains(string(pageBody), "Live Presence") || !strings.Contains(string(pageBody), "Connection Snapshots") || !strings.Contains(string(pageBody), "Connection Hotspots") || !strings.Contains(string(pageBody), "Connection Note") || !strings.Contains(string(pageBody), "signal_code") {
+	if !strings.Contains(string(pageBody), "log_id") || !strings.Contains(string(pageBody), "Copy Link") || !strings.Contains(string(pageBody), "history.replaceState") || !strings.Contains(string(pageBody), "Filter Text") || !strings.Contains(string(pageBody), "Filter Signal") || !strings.Contains(string(pageBody), "Apply Top Context") || !strings.Contains(string(pageBody), "Replay Hotspot Context") || !strings.Contains(string(pageBody), "data-filter-preset") || !strings.Contains(string(pageBody), "/admin/api/mobile-logs/overview") || !strings.Contains(string(pageBody), "Current Filter Overview") || !strings.Contains(string(pageBody), "Recovery Panels") || !strings.Contains(string(pageBody), "Recovery Health") || !strings.Contains(string(pageBody), "Live Presence") || !strings.Contains(string(pageBody), "Connection Snapshots") || !strings.Contains(string(pageBody), "Connection Hotspots") || !strings.Contains(string(pageBody), "Connection Note") || !strings.Contains(string(pageBody), "signal_code") {
 		t.Fatalf("expected admin page to expose deep-link jump helpers, got %s", string(pageBody))
 	}
 
@@ -1737,6 +1742,11 @@ func hasConnectionHotspot(items []struct {
 	TopWorkgroupID             string `json:"top_workgroup_id"`
 	TopTaskID                  string `json:"top_task_id"`
 	TopDispatchRunID           string `json:"top_dispatch_run_id"`
+	ReplaySignalCode           string `json:"replay_signal_code"`
+	ReplayTraceID              string `json:"replay_trace_id"`
+	ReplayWorkgroupID          string `json:"replay_workgroup_id"`
+	ReplayTaskID               string `json:"replay_task_id"`
+	ReplayDispatchRunID        string `json:"replay_dispatch_run_id"`
 }, agentState, controllerState, host, platform string, logCount, logsWithSignals, criticalCount, warningCount int, topSignalCode string, topTraceID string, topWorkgroupID string, topTaskID string, topDispatchRunID string) bool {
 	for _, item := range items {
 		if item.AgentState == agentState &&
@@ -1777,6 +1787,11 @@ func hasConnectionHotspotRecoveryStage(items []struct {
 	TopWorkgroupID             string `json:"top_workgroup_id"`
 	TopTaskID                  string `json:"top_task_id"`
 	TopDispatchRunID           string `json:"top_dispatch_run_id"`
+	ReplaySignalCode           string `json:"replay_signal_code"`
+	ReplayTraceID              string `json:"replay_trace_id"`
+	ReplayWorkgroupID          string `json:"replay_workgroup_id"`
+	ReplayTaskID               string `json:"replay_task_id"`
+	ReplayDispatchRunID        string `json:"replay_dispatch_run_id"`
 }, host, panelKey, status, signalCode string) bool {
 	for _, item := range items {
 		if item.Host != host {

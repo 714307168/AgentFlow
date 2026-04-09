@@ -201,6 +201,7 @@ type connectionHotspotAccumulator struct {
 	WorkgroupTotals map[string]int
 	TaskTotals      map[string]int
 	DispatchTotals  map[string]int
+	ContextGroups   map[string]*connectionHotspotContextAccumulator
 }
 
 type connectionHotspotRecoveryPanelAccumulator struct {
@@ -209,6 +210,15 @@ type connectionHotspotRecoveryPanelAccumulator struct {
 	Status     string
 	SignalCode string
 	LogCount   int
+}
+
+type connectionHotspotContextAccumulator struct {
+	SignalCode    string
+	TraceID       string
+	WorkgroupID   string
+	TaskID        string
+	DispatchRunID string
+	LogCount      int
 }
 
 type mobileLogOverviewConnectionSummary struct {
@@ -242,6 +252,11 @@ type mobileLogOverviewConnectionHotspot struct {
 	TopWorkgroupID             string `json:"top_workgroup_id,omitempty"`
 	TopTaskID                  string `json:"top_task_id,omitempty"`
 	TopDispatchRunID           string `json:"top_dispatch_run_id,omitempty"`
+	ReplaySignalCode           string `json:"replay_signal_code,omitempty"`
+	ReplayTraceID              string `json:"replay_trace_id,omitempty"`
+	ReplayWorkgroupID          string `json:"replay_workgroup_id,omitempty"`
+	ReplayTaskID               string `json:"replay_task_id,omitempty"`
+	ReplayDispatchRunID        string `json:"replay_dispatch_run_id,omitempty"`
 }
 
 type mobileLogOverviewResponse struct {
@@ -824,6 +839,7 @@ func buildMobileLogOverview(records []storedMobileLogMetadata, storageDir string
 				WorkgroupTotals: make(map[string]int),
 				TaskTotals:      make(map[string]int),
 				DispatchTotals:  make(map[string]int),
+				ContextGroups:   make(map[string]*connectionHotspotContextAccumulator),
 			}
 			connectionHotspotTotals[key] = item
 		}
@@ -894,6 +910,32 @@ func buildMobileLogOverview(records []storedMobileLogMetadata, storageDir string
 			if cleanValue != "" {
 				item.DispatchTotals[cleanValue]++
 			}
+		}
+		primarySignalCode := primarySignalCodeFromSignals(analysis.Signals)
+		primaryTraceID := primaryHotspotContextValue(traceIDs)
+		primaryWorkgroupID := primaryHotspotContextValue(workgroupIDs)
+		primaryTaskID := primaryHotspotContextValue(taskIDs)
+		primaryDispatchRunID := primaryHotspotContextValue(dispatchRunIDs)
+		if primarySignalCode != "" || primaryTraceID != "" || primaryWorkgroupID != "" || primaryTaskID != "" || primaryDispatchRunID != "" {
+			contextKey := buildConnectionHotspotContextKey(
+				primarySignalCode,
+				primaryTraceID,
+				primaryWorkgroupID,
+				primaryTaskID,
+				primaryDispatchRunID,
+			)
+			contextGroup := item.ContextGroups[contextKey]
+			if contextGroup == nil {
+				contextGroup = &connectionHotspotContextAccumulator{
+					SignalCode:    primarySignalCode,
+					TraceID:       primaryTraceID,
+					WorkgroupID:   primaryWorkgroupID,
+					TaskID:        primaryTaskID,
+					DispatchRunID: primaryDispatchRunID,
+				}
+				item.ContextGroups[contextKey] = contextGroup
+			}
+			contextGroup.LogCount++
 		}
 	}
 
@@ -1295,6 +1337,7 @@ func buildConnectionHotspots(values map[string]*connectionHotspotAccumulator, li
 		topWorkgroupID := topConnectionHotspotValue(value.WorkgroupTotals)
 		topTaskID := topConnectionHotspotValue(value.TaskTotals)
 		topDispatchRunID := topConnectionHotspotValue(value.DispatchTotals)
+		replayContext := selectConnectionHotspotReplayContext(value.ContextGroups)
 		items = append(items, mobileLogOverviewConnectionHotspot{
 			AgentState:                 value.AgentState,
 			ControllerState:            value.ControllerState,
@@ -1314,6 +1357,11 @@ func buildConnectionHotspots(values map[string]*connectionHotspotAccumulator, li
 			TopWorkgroupID:             topWorkgroupID,
 			TopTaskID:                  topTaskID,
 			TopDispatchRunID:           topDispatchRunID,
+			ReplaySignalCode:           replayContext.SignalCode,
+			ReplayTraceID:              replayContext.TraceID,
+			ReplayWorkgroupID:          replayContext.WorkgroupID,
+			ReplayTaskID:               replayContext.TaskID,
+			ReplayDispatchRunID:        replayContext.DispatchRunID,
 		})
 	}
 	sort.Slice(items, func(i, j int) bool {
@@ -1335,6 +1383,82 @@ func buildConnectionHotspots(values map[string]*connectionHotspotAccumulator, li
 		return items[:limit]
 	}
 	return items
+}
+
+func primarySignalCodeFromSignals(signals []mobileLogSignal) string {
+	bestCode := ""
+	bestCount := 0
+	bestPriority := 0
+	for _, signal := range signals {
+		code := strings.TrimSpace(signal.Code)
+		if code == "" {
+			continue
+		}
+		currentPriority := signalPriority(code)
+		if bestCode == "" ||
+			currentPriority > bestPriority ||
+			(currentPriority == bestPriority &&
+				(signal.Count > bestCount ||
+					(signal.Count == bestCount && code < bestCode))) {
+			bestCode = code
+			bestCount = signal.Count
+			bestPriority = currentPriority
+		}
+	}
+	return bestCode
+}
+
+func primaryHotspotContextValue(values []string) string {
+	for _, value := range values {
+		cleanValue := strings.TrimSpace(value)
+		if cleanValue != "" {
+			return cleanValue
+		}
+	}
+	return ""
+}
+
+func buildConnectionHotspotContextKey(signalCode string, traceID string, workgroupID string, taskID string, dispatchRunID string) string {
+	return strings.Join([]string{
+		"signal=" + strings.TrimSpace(signalCode),
+		"trace=" + strings.TrimSpace(traceID),
+		"workgroup=" + strings.TrimSpace(workgroupID),
+		"task=" + strings.TrimSpace(taskID),
+		"dispatch=" + strings.TrimSpace(dispatchRunID),
+	}, "|")
+}
+
+func selectConnectionHotspotReplayContext(values map[string]*connectionHotspotContextAccumulator) connectionHotspotContextAccumulator {
+	best := connectionHotspotContextAccumulator{}
+	bestCompleteness := -1
+	bestPriority := -1
+	for _, value := range values {
+		if value == nil {
+			continue
+		}
+		current := *value
+		currentCompleteness := 0
+		for _, candidate := range []string{current.SignalCode, current.TraceID, current.WorkgroupID, current.TaskID, current.DispatchRunID} {
+			if strings.TrimSpace(candidate) != "" {
+				currentCompleteness++
+			}
+		}
+		currentPriority := signalPriority(current.SignalCode)
+		if best.LogCount == 0 ||
+			current.LogCount > best.LogCount ||
+			(current.LogCount == best.LogCount &&
+				(currentCompleteness > bestCompleteness ||
+					(currentCompleteness == bestCompleteness &&
+						(currentPriority > bestPriority ||
+							(currentPriority == bestPriority &&
+								buildConnectionHotspotContextKey(current.SignalCode, current.TraceID, current.WorkgroupID, current.TaskID, current.DispatchRunID) <
+									buildConnectionHotspotContextKey(best.SignalCode, best.TraceID, best.WorkgroupID, best.TaskID, best.DispatchRunID)))))) {
+			best = current
+			bestCompleteness = currentCompleteness
+			bestPriority = currentPriority
+		}
+	}
+	return best
 }
 
 func topConnectionHotspotValue(values map[string]int) string {
@@ -3625,6 +3749,11 @@ function renderConnectionHotspots(items) {
     return '';
   }
   return '<div style="margin-top:10px;"><strong>Connection Hotspots</strong><div class="overview-list">' + items.map((item) => {
+    const replaySignalCode = item.replay_signal_code || item.top_signal_code || item.top_recovery_panel_signal_code || '';
+    const replayTraceId = item.replay_trace_id || item.top_trace_id || '';
+    const replayWorkgroupId = item.replay_workgroup_id || item.top_workgroup_id || '';
+    const replayTaskId = item.replay_task_id || item.top_task_id || '';
+    const replayDispatchRunId = item.replay_dispatch_run_id || item.top_dispatch_run_id || '';
     const chips = [];
     if (item.agent_state) {
       chips.push('<button type="button" class="chip actionable" data-filter-kind="agent_state" data-filter-value="' + esc(item.agent_state) + '">agent=' + esc(item.agent_state) + '</button>');
@@ -3638,23 +3767,25 @@ function renderConnectionHotspots(items) {
     if (item.platform) {
       chips.push('<button type="button" class="chip actionable" data-filter-kind="platform" data-filter-value="' + esc(item.platform) + '">platform=' + esc(item.platform) + '</button>');
     }
-    if (item.top_trace_id) {
-      chips.push('<button type="button" class="chip actionable" data-filter-kind="trace_id" data-filter-value="' + esc(item.top_trace_id) + '">trace_id=' + esc(item.top_trace_id) + '</button>');
+    if (replayTraceId) {
+      chips.push('<button type="button" class="chip actionable" data-filter-kind="trace_id" data-filter-value="' + esc(replayTraceId) + '">trace_id=' + esc(replayTraceId) + '</button>');
     }
-    if (item.top_workgroup_id) {
-      chips.push('<button type="button" class="chip actionable" data-filter-kind="workgroup_id" data-filter-value="' + esc(item.top_workgroup_id) + '">workgroup_id=' + esc(item.top_workgroup_id) + '</button>');
+    if (replayWorkgroupId) {
+      chips.push('<button type="button" class="chip actionable" data-filter-kind="workgroup_id" data-filter-value="' + esc(replayWorkgroupId) + '">workgroup_id=' + esc(replayWorkgroupId) + '</button>');
     }
-    if (item.top_task_id) {
-      chips.push('<button type="button" class="chip actionable" data-filter-kind="task_id" data-filter-value="' + esc(item.top_task_id) + '">task_id=' + esc(item.top_task_id) + '</button>');
+    if (replayTaskId) {
+      chips.push('<button type="button" class="chip actionable" data-filter-kind="task_id" data-filter-value="' + esc(replayTaskId) + '">task_id=' + esc(replayTaskId) + '</button>');
     }
-    if (item.top_dispatch_run_id) {
-      chips.push('<button type="button" class="chip actionable" data-filter-kind="dispatch_run_id" data-filter-value="' + esc(item.top_dispatch_run_id) + '">dispatch_run_id=' + esc(item.top_dispatch_run_id) + '</button>');
+    if (replayDispatchRunId) {
+      chips.push('<button type="button" class="chip actionable" data-filter-kind="dispatch_run_id" data-filter-value="' + esc(replayDispatchRunId) + '">dispatch_run_id=' + esc(replayDispatchRunId) + '</button>');
     }
     const right = [
-      renderFilterPresetChip('Apply Hotspot Context', {
-        signal_code: item.top_signal_code || item.top_recovery_panel_signal_code || '',
-        trace_id: item.top_trace_id || '',
-        workgroup_id: item.top_workgroup_id || '',
+      renderFilterPresetChip('Replay Hotspot Context', {
+        signal_code: replaySignalCode,
+        trace_id: replayTraceId,
+        workgroup_id: replayWorkgroupId,
+        task_id: replayTaskId,
+        dispatch_run_id: replayDispatchRunId,
         agent_state: item.agent_state || '',
         controller_state: item.controller_state || '',
         host: item.host || '',
@@ -3669,10 +3800,20 @@ function renderConnectionHotspots(items) {
     const recoveryMeta = item.top_recovery_panel_title
       ? ('Top Recovery Stage: ' + esc(item.top_recovery_panel_title) + ' (' + esc(item.top_recovery_panel_status || 'warning') + ')' + (item.top_recovery_panel_signal_code ? (' | signal: ' + esc(item.top_recovery_panel_signal_code)) : ''))
       : 'No dominant recovery stage yet';
+    const replaySummaryParts = [];
+    if (replaySignalCode) replaySummaryParts.push('signal=' + replaySignalCode);
+    if (replayTraceId) replaySummaryParts.push('trace=' + replayTraceId);
+    if (replayWorkgroupId) replaySummaryParts.push('workgroup=' + replayWorkgroupId);
+    if (replayTaskId) replaySummaryParts.push('task=' + replayTaskId);
+    if (replayDispatchRunId) replaySummaryParts.push('dispatch=' + replayDispatchRunId);
+    const replayMeta = replaySummaryParts.length > 0
+      ? ('Replay Context: ' + esc(replaySummaryParts.join(' | ')))
+      : 'Replay Context: no stable grouped IDs observed yet';
     return '<div class="overview-row">' +
       '<div><div class="chips">' + chips.join('') + '</div>' +
       '<div class="meta" style="margin-top:4px;">' + esc(item.top_signal_title || 'No dominant signal yet') + '</div>' +
-      '<div class="meta" style="margin-top:4px;">' + recoveryMeta + '</div></div>' +
+      '<div class="meta" style="margin-top:4px;">' + recoveryMeta + '</div>' +
+      '<div class="meta" style="margin-top:4px;">' + replayMeta + '</div></div>' +
       '<div class="chips" style="justify-content:flex-end;">' + right.join('') + '</div>' +
       '</div>';
   }).join('') + '</div></div>';
