@@ -704,6 +704,7 @@ class MessageRouter {
         content_md5?: string;
         attachments_md5?: string;
       }>;
+      snapshot_revision?: string;
     } | undefined;
     const action = typeof payloadObject?.action === "string" ? payloadObject.action.trim().toLowerCase() : "";
     const requestedConversationId = typeof payloadObject?.conversation_id === "string"
@@ -714,6 +715,9 @@ class MessageRouter {
       : "";
     const requestedRunId = typeof payloadObject?.run_id === "string"
       ? payloadObject.run_id.trim()
+      : "";
+    const requestedSnapshotRevision = typeof payloadObject?.snapshot_revision === "string"
+      ? payloadObject.snapshot_revision.trim()
       : "";
     if (action === SessionSyncActions.NEW_CONVERSATION) {
       this.options.runtimeManager.createConversation(projectId);
@@ -755,6 +759,7 @@ class MessageRouter {
       beforeSeq,
       limit,
       fullItemId: action === SessionSyncActions.FETCH_ITEM_DETAIL ? requestedItemId : undefined,
+      knownSnapshotRevision: requestedSnapshotRevision || undefined,
       knownItems: Array.isArray(payloadObject?.known_items)
         ? payloadObject.known_items
             .map((item) => ({

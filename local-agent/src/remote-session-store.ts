@@ -544,6 +544,7 @@ export default class RemoteSessionStore extends EventEmitter {
         before_seq: options.beforeSeq,
         limit: options.limit,
         action: options.action,
+        snapshot_revision: this.states.get(projectId)?.snapshotRevision ?? undefined,
         conversation_id: options.conversationId ?? undefined,
         item_id: options.itemId ?? undefined,
         run_id: options.runId ?? undefined,
@@ -843,7 +844,10 @@ export default class RemoteSessionStore extends EventEmitter {
     }
 
     const payload = (env.payload ?? {}) as LooseRecord;
-    const runtimeChanged = this.applySessionRuntimeSnapshot(state, payload);
+    const runtimeUnchanged = Boolean(payload.runtime_unchanged);
+    const runtimeChanged = runtimeUnchanged
+      ? false
+      : this.applySessionRuntimeSnapshot(state, payload);
 
     const sync = (payload.sync ?? {}) as LooseRecord;
     const items = Array.isArray(sync?.items) ? sync.items as SyncItemPayload[] : [];

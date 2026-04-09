@@ -611,3 +611,4 @@
 - [x] Android and desktop remote sync now only request `fetch_item_detail` when omitted content or attachments cannot be reconstructed from the local cache, reducing duplicate detail backfills during overlap sync windows.
 - [x] Session sync payloads now strip oversized attachment previews before trimming sync windows, and the desktop remote cache preserves existing inline previews when the relay only sends lightweight attachment metadata.
 - [x] Desktop remote session store now consumes `snapshot_revision` to skip redundant runtime-state rewrites, and only emits chat snapshots when runtime fields or sync items materially change.
+- [x] Android and desktop session-sync requests now send the client-known `snapshot_revision`, and the desktop runtime replies with `runtime_unchanged` plus incremental items when the session shell has not changed, further shrinking repeat sync payloads.

@@ -265,6 +265,9 @@ class MessageRepository(
                         itemId?.trim()?.takeIf { it.isNotEmpty() }?.let {
                             put("item_id", JsonPrimitive(it))
                         }
+                        session?.snapshotRevision?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                            put("snapshot_revision", JsonPrimitive(it))
+                        }
                         val knownItems = buildKnownSyncItemPayloads(
                             projectId = projectId,
                             conversationId = effectiveConversationId,
@@ -797,12 +800,18 @@ class MessageRepository(
             Events.SESSION_SYNC -> {
                 clearProjectSyncFlights(projectId)
                 val payloadObj = envelope.payload?.jsonObject ?: return
-                val runtime = parseIncomingSessionRuntime(payloadObj)
-                applySessionRuntimeSnapshot(
-                    projectId = projectId,
-                    runtime = runtime,
-                    timestamp = envelope.ts
-                )
+                val runtimeUnchanged = payloadObj["runtime_unchanged"]?.jsonPrimitive?.booleanOrNull == true
+                val runtime = if (runtimeUnchanged) {
+                    null
+                } else {
+                    parseIncomingSessionRuntime(payloadObj).also {
+                        applySessionRuntimeSnapshot(
+                            projectId = projectId,
+                            runtime = it,
+                            timestamp = envelope.ts
+                        )
+                    }
+                }
                 val syncObj = payloadObj["sync"]?.jsonObject
                 if (syncObj != null) {
                     val latestSeq = syncObj["latest_seq"]?.jsonPrimitive?.longOrNull ?: 0L
@@ -814,7 +823,7 @@ class MessageRepository(
                     val items = syncObj["items"]?.jsonArray ?: JsonArray(emptyList())
                     CrashLogger.logInfo(
                         "MessageRepository",
-                        "Received session.sync v2 for projectId=$projectId items=${items.size} latestSeq=$latestSeq afterSeq=$requestedAfterSeq beforeSeq=${requestedBeforeSeq ?: 0L} limit=$requestedLimit truncated=$truncated running=${runtime.isRunning} queued=${runtime.queuedCount} conversation=${runtime.activeConversationId ?: "none"} snapshotRevision=${runtime.snapshotRevision ?: "none"}"
+                        "Received session.sync v2 for projectId=$projectId items=${items.size} latestSeq=$latestSeq afterSeq=$requestedAfterSeq beforeSeq=${requestedBeforeSeq ?: 0L} limit=$requestedLimit truncated=$truncated runtimeUnchanged=$runtimeUnchanged running=${runtime?.isRunning ?: false} queued=${runtime?.queuedCount ?: 0} conversation=${runtime?.activeConversationId ?: "none"} snapshotRevision=${runtime?.snapshotRevision ?: "none"}"
                     )
                     val applied = applyProjectSyncDelta(
                         projectId = projectId,
@@ -823,7 +832,7 @@ class MessageRepository(
                         fallbackTimestamp = envelope.ts,
                         requestBeforeSeq = requestedBeforeSeq,
                         truncated = truncated,
-                        conversationId = runtime.activeConversationId
+                        conversationId = runtime?.activeConversationId
                     )
                     maybeRequestProjectBackfill(
                         projectId = projectId,
@@ -838,7 +847,7 @@ class MessageRepository(
                     val activities = payloadObj["activities"]?.jsonArray ?: JsonArray(emptyList())
                     CrashLogger.logInfo(
                         "MessageRepository",
-                        "Received legacy session.sync for projectId=$projectId messages=${messages.size} activities=${activities.size} running=${runtime.isRunning} queued=${runtime.queuedCount}"
+                        "Received legacy session.sync for projectId=$projectId messages=${messages.size} activities=${activities.size} runtimeUnchanged=$runtimeUnchanged running=${runtime?.isRunning ?: false} queued=${runtime?.queuedCount ?: 0}"
                     )
                     mergeProjectMessagesFromDesktop(projectId, messages, activities, envelope.ts)
                 }

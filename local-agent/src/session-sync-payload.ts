@@ -58,17 +58,18 @@ export interface SessionConversationPayload {
 export interface SessionSyncPayload {
   sync_version: 2;
   snapshot_revision: string;
+  runtime_unchanged?: boolean;
   project_id: string;
-  provider: ProjectSessionSnapshot["provider"];
-  model: string | null;
-  isRunning: boolean;
-  queuedCount: number;
-  currentSource: ProjectSessionSnapshot["currentSource"];
-  currentPrompt: string | null;
-  currentStartedAt: number | null;
-  active_conversation_id: string | null;
-  conversations: SessionConversationPayload[];
-  queue: SessionSyncQueuePayload[];
+  provider?: ProjectSessionSnapshot["provider"];
+  model?: string | null;
+  isRunning?: boolean;
+  queuedCount?: number;
+  currentSource?: ProjectSessionSnapshot["currentSource"];
+  currentPrompt?: string | null;
+  currentStartedAt?: number | null;
+  active_conversation_id?: string | null;
+  conversations?: SessionConversationPayload[];
+  queue?: SessionSyncQueuePayload[];
   sync: {
     after_seq: number;
     before_seq: number | null;
@@ -235,26 +236,30 @@ export function buildSessionSyncPayload(
     limit?: number;
     knownItems?: SessionSyncKnownItemDigest[];
     fullItemId?: string | null;
+    knownSnapshotRevision?: string | null;
   } = {},
 ): SessionSyncPayload {
   const afterSeq = Number(request.afterSeq) > 0 ? Number(request.afterSeq) : 0;
   const beforeSeq = Number(request.beforeSeq) > 0 ? Number(request.beforeSeq) : null;
   const limit = Number(request.limit) > 0 ? Number(request.limit) : null;
   const snapshotRevision = createSessionSnapshotRevision(snapshot);
+  const knownSnapshotRevision = request.knownSnapshotRevision?.trim() || "";
+  const runtimeUnchanged = knownSnapshotRevision !== "" && knownSnapshotRevision === snapshotRevision;
   let payload: SessionSyncPayload = {
     sync_version: 2,
     snapshot_revision: snapshotRevision,
+    runtime_unchanged: runtimeUnchanged || undefined,
     project_id: snapshot.projectId,
-    provider: snapshot.provider,
-    model: snapshot.model,
-    isRunning: snapshot.isRunning,
-    queuedCount: snapshot.queuedCount,
-    currentSource: snapshot.currentSource,
-    currentPrompt: snapshot.currentPrompt ? trimText(snapshot.currentPrompt, MAX_SYNC_PROMPT_CHARS) : null,
-    currentStartedAt: snapshot.currentStartedAt,
-    active_conversation_id: snapshot.activeConversationId,
-    conversations: buildConversationPayload(snapshot),
-    queue: buildQueuePayload(snapshot),
+    provider: runtimeUnchanged ? undefined : snapshot.provider,
+    model: runtimeUnchanged ? undefined : snapshot.model,
+    isRunning: runtimeUnchanged ? undefined : snapshot.isRunning,
+    queuedCount: runtimeUnchanged ? undefined : snapshot.queuedCount,
+    currentSource: runtimeUnchanged ? undefined : snapshot.currentSource,
+    currentPrompt: runtimeUnchanged ? undefined : (snapshot.currentPrompt ? trimText(snapshot.currentPrompt, MAX_SYNC_PROMPT_CHARS) : null),
+    currentStartedAt: runtimeUnchanged ? undefined : snapshot.currentStartedAt,
+    active_conversation_id: runtimeUnchanged ? undefined : snapshot.activeConversationId,
+    conversations: runtimeUnchanged ? undefined : buildConversationPayload(snapshot),
+    queue: runtimeUnchanged ? undefined : buildQueuePayload(snapshot),
     sync: {
       after_seq: afterSeq,
       before_seq: beforeSeq,
