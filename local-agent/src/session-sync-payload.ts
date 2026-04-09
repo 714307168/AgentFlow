@@ -15,6 +15,7 @@ const MAX_SYNC_PAYLOAD_BYTES = 240 * 1024;
 const MAX_SYNC_ITEMS = 200;
 const MAX_SYNC_TEXT_CHARS = 2_400;
 const MAX_SYNC_PROMPT_CHARS = 320;
+const MAX_INLINE_ATTACHMENT_PREVIEW_CHARS = 48_000;
 
 export interface SessionSyncQueuePayload {
   runId: string;
@@ -90,11 +91,21 @@ function trimText(text: string | null | undefined, maxChars: number): string {
   return `${normalized.slice(0, maxChars - 24)}\n... earlier text omitted`;
 }
 
-function cloneAttachments(attachments?: RunAttachment[]): RunAttachment[] | undefined {
+function cloneAttachments(
+  attachments?: RunAttachment[],
+  options: {
+    includePreviewDataUrl?: boolean;
+    maxPreviewChars?: number;
+  } = {},
+): RunAttachment[] | undefined {
   if (!attachments || attachments.length === 0) {
     return undefined;
   }
 
+  const includePreviewDataUrl = options.includePreviewDataUrl !== false;
+  const maxPreviewChars = Number.isFinite(options.maxPreviewChars)
+    ? Number(options.maxPreviewChars)
+    : null;
   return attachments.map((attachment) => ({
     id: attachment.id,
     name: attachment.name,
@@ -102,7 +113,23 @@ function cloneAttachments(attachments?: RunAttachment[]): RunAttachment[] | unde
     size: attachment.size,
     kind: attachment.kind,
     mimeType: attachment.mimeType,
-    previewDataUrl: attachment.previewDataUrl,
+    previewDataUrl: includePreviewDataUrl
+      && typeof attachment.previewDataUrl === "string"
+      && attachment.previewDataUrl.trim()
+      && (maxPreviewChars === null || attachment.previewDataUrl.length <= maxPreviewChars)
+      ? attachment.previewDataUrl
+      : undefined,
+  }));
+}
+
+function hasInlineAttachmentPreview(items: SessionSyncItemPayload[]): boolean {
+  return items.some((item) => (item.attachments ?? []).some((attachment) => Boolean(attachment.previewDataUrl)));
+}
+
+function stripInlineAttachmentPreviews(items: SessionSyncItemPayload[]): SessionSyncItemPayload[] {
+  return items.map((item) => ({
+    ...item,
+    attachments: cloneAttachments(item.attachments, { includePreviewDataUrl: false }),
   }));
 }
 
@@ -154,7 +181,9 @@ function normalizeItems(
       const shouldSendFullContent = requestedFullItemId !== "" && item.id === requestedFullItemId;
       const payloadContent = shouldSendFullContent ? fullContent : trimText(fullContent, MAX_SYNC_TEXT_CHARS);
       const isContentTrimmed = payloadContent !== fullContent;
-      const attachments = cloneAttachments(item.attachments);
+      const attachments = cloneAttachments(item.attachments, {
+        maxPreviewChars: shouldSendFullContent ? undefined : MAX_INLINE_ATTACHMENT_PREVIEW_CHARS,
+      });
       const attachmentsMd5 = createSessionSyncAttachmentsMd5(attachments);
       const known = knownItemMap.get(item.id);
       const shouldOmitContent = !shouldSendFullContent
@@ -244,6 +273,17 @@ export function buildSessionSyncPayload(
     && payloadByteLength(payload) > MAX_SYNC_PAYLOAD_BYTES
     && payload.sync.items.length > 0
   ) {
+    if (hasInlineAttachmentPreview(payload.sync.items)) {
+      payload = {
+        ...payload,
+        sync: {
+          ...payload.sync,
+          items: stripInlineAttachmentPreviews(payload.sync.items),
+        },
+      };
+      continue;
+    }
+
     payload = {
       ...payload,
       sync: {

@@ -139,6 +139,48 @@ function cloneAttachments(attachments?: RunAttachment[]): RunAttachment[] | unde
   return attachments.map((attachment) => ({ ...attachment }));
 }
 
+function attachmentsMatch(left: RunAttachment, right: RunAttachment): boolean {
+  if (left.id && right.id) {
+    return left.id === right.id;
+  }
+  return left.name === right.name
+    && left.size === right.size
+    && left.kind === right.kind;
+}
+
+function mergeAttachments(
+  existingAttachments?: RunAttachment[],
+  incomingAttachments?: RunAttachment[],
+): RunAttachment[] | undefined {
+  if (!incomingAttachments || incomingAttachments.length === 0) {
+    return cloneAttachments(existingAttachments);
+  }
+  if (!existingAttachments || existingAttachments.length === 0) {
+    return cloneAttachments(incomingAttachments);
+  }
+
+  const consumedExistingIndexes = new Set<number>();
+  const merged: RunAttachment[] = incomingAttachments.map((incomingAttachment) => {
+    const existingIndex = existingAttachments.findIndex((candidate, index) => (
+      !consumedExistingIndexes.has(index) && attachmentsMatch(candidate, incomingAttachment)
+    ));
+    const existingAttachment = existingIndex >= 0
+      ? existingAttachments[existingIndex]
+      : undefined;
+    if (existingIndex >= 0) {
+      consumedExistingIndexes.add(existingIndex);
+    }
+    return {
+      ...incomingAttachment,
+      path: incomingAttachment.path || existingAttachment?.path || "",
+      mimeType: incomingAttachment.mimeType || existingAttachment?.mimeType,
+      previewDataUrl: incomingAttachment.previewDataUrl || existingAttachment?.previewDataUrl,
+    };
+  });
+
+  return merged;
+}
+
 function cloneMessage(message: RemoteMessageEntry): SessionMessage {
   return {
     ...message,
@@ -1217,7 +1259,7 @@ export default class RemoteSessionStore extends EventEmitter {
         attachments: attachmentsOmitted && existingMessage
           && createSessionSyncAttachmentsMd5(existingMessage.attachments) === attachmentsMd5
           ? cloneAttachments(existingMessage.attachments)
-          : cloneAttachments(item.attachments),
+          : mergeAttachments(existingMessage?.attachments, item.attachments),
         source: item.role === "user" ? "desktop" : "remote",
         createdAt: itemCreatedAt,
         updatedAt: itemUpdatedAt,
