@@ -45,9 +45,7 @@ import {
   guessMimeType,
   isImageAttachment,
 } from "./attachment-utils";
-import {
-  buildWorkgroupRelayPayload as createWorkgroupRelayPayload,
-} from "./workgroup-relay-payload";
+import { WorkgroupRelayCache } from "./workgroup-relay-cache";
 import {
   getDefaultLocalDataRoot,
   getPersistedLocalDataRoot,
@@ -332,6 +330,7 @@ const pendingRelaySyncSnapshotsByProject = new Map<string, ProjectSessionSnapsho
 const lastBroadcastSyncPayloadHashByProject = new Map<string, string>();
 const RELAY_SYNC_DEBOUNCE_MS = 250;
 let lastWorkgroupRelayPayloadRevision = "";
+const workgroupRelayCache = new WorkgroupRelayCache<WorkgroupView>();
 const workgroupCollaborationRelaySnapshotTimers = new Map<string, NodeJS.Timeout>();
 const pendingWorkgroupCollaborationRelaySnapshots = new Map<string, WorkgroupCollaborationSessionSnapshot>();
 const lastBroadcastWorkgroupCollaborationSnapshotHashByWorkgroup = new Map<string, string>();
@@ -2158,7 +2157,7 @@ function serializeWorkgroupTask(task: WorkgroupTask, membersById: Map<string, Wo
   };
 }
 
-function listSerializedWorkgroups(): WorkgroupView[] {
+function loadSerializedWorkgroups(): WorkgroupView[] {
   return workgroupStore
     .listWorkgroups()
     .sort((left, right) => right.updatedAt - left.updatedAt)
@@ -2188,7 +2187,11 @@ function listSerializedWorkgroups(): WorkgroupView[] {
           .filter((member) => member.kind !== "pm" && member.projectId)
           .map((member) => member.projectId as string),
       };
-    });
+        });
+}
+
+function listSerializedWorkgroups(): WorkgroupView[] {
+  return workgroupRelayCache.get(loadConfig().agentId, () => loadSerializedWorkgroups()).workgroups;
 }
 
 function getSerializedWorkgroupById(workgroupId: string): WorkgroupView | null {
@@ -2415,10 +2418,11 @@ async function removeWorkgroupRegistry(workgroupId: string): Promise<void> {
 }
 
 function buildWorkgroupRelayPayload() {
-  return createWorkgroupRelayPayload(loadConfig().agentId, listSerializedWorkgroups());
+  return workgroupRelayCache.get(loadConfig().agentId, () => loadSerializedWorkgroups()).relayPayload;
 }
 
 function broadcastWorkgroupsChanged(): void {
+  workgroupRelayCache.invalidate();
   const workgroups = listSerializedWorkgroups();
 
   if (mainWindow && !mainWindow.isDestroyed()) {

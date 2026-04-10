@@ -626,3 +626,4 @@
 - [x] Android workgroup catalogs now keep a per-agent payload revision/hash cache and skip redundant `StateFlow` rewrites when a foreground refresh or reconnect returns the same workgroup payload again.
 - [x] Desktop workgroup relay payloads now publish an explicit stable `revision`, and workgroup command results reuse the same revision so Android can skip redundant catalog refreshes without recomputing fallback hashes.
 - [x] Android workgroup refresh requests now send the locally known per-agent `revision`, and desktop replies with an explicit `changed=false` lightweight payload when the catalog is unchanged, trimming repeated WebSocket list transfers during reconnect and foreground refresh.
+- [x] Desktop now memoizes serialized workgroup catalogs and relay payloads between structure changes, so repeated list requests and UI lookups reuse the in-memory snapshot instead of reserializing the same workgroups on every read.
