@@ -75,6 +75,7 @@ class WorkgroupRepository(
     private val pendingSendRequests = ConcurrentHashMap<String, CompletableDeferred<Result<String>>>()
     private val pendingCommandRequests = ConcurrentHashMap<String, CompletableDeferred<Result<Unit>>>()
     private val inFlightSessionRequests = ConcurrentHashMap<String, CompletableDeferred<Result<Unit>>>()
+    private val agentWorkgroupPayloadRevisions = ConcurrentHashMap<String, String>()
     private val lastListRequestedAtByAgent = ConcurrentHashMap<String, Long>()
     private val lastSessionRequestedAt = ConcurrentHashMap<String, Long>()
     private val lastWakeupRequestedAt = ConcurrentHashMap<String, Long>()
@@ -137,6 +138,7 @@ class WorkgroupRepository(
         } else {
             _agentWorkgroups.value.filter { it.agentId in allowed }
         }
+        agentWorkgroupPayloadRevisions.keys.removeIf { it !in allowed }
         _sessions.value = if (allowed.isEmpty()) {
             emptyMap()
         } else {
@@ -589,7 +591,17 @@ class WorkgroupRepository(
             return
         }
 
+        val nextRevision = payload["revision"]?.jsonPrimitive?.contentOrNull?.trim()
+            ?.takeUnless { it.isEmpty() }
+            ?: payload["workgroups"]?.jsonArray?.toString()?.let(::createMd5)
+            ?: createMd5("")
+        val previousRevision = agentWorkgroupPayloadRevisions[agentId]
+        if (previousRevision != null && previousRevision == nextRevision) {
+            return
+        }
+
         val workgroups = payload["workgroups"]?.jsonArray?.mapNotNull(::parseWorkgroup).orEmpty()
+        agentWorkgroupPayloadRevisions[agentId] = nextRevision
         _agentWorkgroups.value = _agentWorkgroups.value
             .filterNot { it.agentId == agentId }
             .plus(AgentWorkgroups(agentId = agentId, workgroups = workgroups))

@@ -623,3 +623,4 @@
 - [x] Relay hotspot replay-context selection is covered by a dedicated Go unit test to prevent regressions in grouped-context ranking.
 - [x] Android `api/device/sync/delta` requests now also opt into gzip request-body compression, so large `knownProjects` payloads no longer go over the wire as plain JSON during foreground refresh and revision catch-up.
 - [x] Android request-compression behavior is now covered by a dedicated JVM unit test, so future relay traffic optimizations can safely reuse the same gzip interceptor path as device-log uploads.
+- [x] Android workgroup catalogs now keep a per-agent payload revision/hash cache and skip redundant `StateFlow` rewrites when a foreground refresh or reconnect returns the same workgroup payload again.
