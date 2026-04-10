@@ -619,4 +619,5 @@
 
 - [x] Relay device logs `Connection Hotspots` now persist real co-occurring replay contexts (`signal + trace/workgroup/task/dispatch`) instead of composing filters from unrelated top IDs.
 - [x] Device logs overview now exposes `Replay Hotspot Context` chips so hotspot jump-back filters replay an actually observed context group, reducing tie-break noise when top trace/task IDs come from different logs.
+- [x] Device logs `Recovery Health` panels now also replay grouped `trace/workgroup/connection snapshot` contexts from the same observed logs, instead of stitching panel filters from unrelated top counters.
 - [x] Relay hotspot replay-context selection is covered by a dedicated Go unit test to prevent regressions in grouped-context ranking.

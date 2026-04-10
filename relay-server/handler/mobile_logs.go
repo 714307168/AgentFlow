@@ -139,22 +139,28 @@ type mobileLogOverviewBucket struct {
 }
 
 type mobileLogOverviewRecoveryPanel struct {
-	Key                string `json:"key"`
-	Title              string `json:"title"`
-	Status             string `json:"status"`
-	Summary            string `json:"summary"`
-	SignalCode         string `json:"signal_code,omitempty"`
-	TopTraceID         string `json:"top_trace_id,omitempty"`
-	TopWorkgroupID     string `json:"top_workgroup_id,omitempty"`
-	TopAgentState      string `json:"top_agent_state,omitempty"`
-	TopControllerState string `json:"top_controller_state,omitempty"`
-	TopHost            string `json:"top_host,omitempty"`
-	TopPlatform        string `json:"top_platform,omitempty"`
-	LogCount           int    `json:"log_count"`
-	HealthyCount       int    `json:"healthy_count"`
-	WarningCount       int    `json:"warning_count"`
-	CriticalCount      int    `json:"critical_count"`
-	IdleCount          int    `json:"idle_count"`
+	Key                   string `json:"key"`
+	Title                 string `json:"title"`
+	Status                string `json:"status"`
+	Summary               string `json:"summary"`
+	SignalCode            string `json:"signal_code,omitempty"`
+	TopTraceID            string `json:"top_trace_id,omitempty"`
+	TopWorkgroupID        string `json:"top_workgroup_id,omitempty"`
+	TopAgentState         string `json:"top_agent_state,omitempty"`
+	TopControllerState    string `json:"top_controller_state,omitempty"`
+	TopHost               string `json:"top_host,omitempty"`
+	TopPlatform           string `json:"top_platform,omitempty"`
+	ReplayTraceID         string `json:"replay_trace_id,omitempty"`
+	ReplayWorkgroupID     string `json:"replay_workgroup_id,omitempty"`
+	ReplayAgentState      string `json:"replay_agent_state,omitempty"`
+	ReplayControllerState string `json:"replay_controller_state,omitempty"`
+	ReplayHost            string `json:"replay_host,omitempty"`
+	ReplayPlatform        string `json:"replay_platform,omitempty"`
+	LogCount              int    `json:"log_count"`
+	HealthyCount          int    `json:"healthy_count"`
+	WarningCount          int    `json:"warning_count"`
+	CriticalCount         int    `json:"critical_count"`
+	IdleCount             int    `json:"idle_count"`
 }
 
 type mobileLogOverviewPresenceSummary struct {
@@ -219,6 +225,16 @@ type connectionHotspotContextAccumulator struct {
 	TaskID        string
 	DispatchRunID string
 	LogCount      int
+}
+
+type recoveryPanelContextAccumulator struct {
+	TraceID         string
+	WorkgroupID     string
+	AgentState      string
+	ControllerState string
+	Host            string
+	Platform        string
+	LogCount        int
 }
 
 type mobileLogOverviewConnectionSummary struct {
@@ -716,6 +732,7 @@ func buildMobileLogOverview(records []storedMobileLogMetadata, storageDir string
 		ControllerStateTotals map[string]int
 		HostTotals            map[string]int
 		PlatformTotals        map[string]int
+		ContextGroups         map[string]*recoveryPanelContextAccumulator
 	}
 	type presenceAccumulator struct {
 		Kind         string
@@ -946,6 +963,11 @@ func buildMobileLogOverview(records []storedMobileLogMetadata, storageDir string
 		}
 		traceIDs, workgroupIDs, taskIDs, dispatchRunIDs := mergeStoredAndExtractedIDs(record, content)
 		analysis := analyzeMobileLog(content, traceIDs, workgroupIDs, taskIDs, dispatchRunIDs)
+		fields, freeform := parseConnectionNote(record.ConnectionNote)
+		agentState := strings.ToLower(strings.TrimSpace(fields["agent"]))
+		controllerState := strings.ToLower(strings.TrimSpace(fields["controller"]))
+		host := strings.TrimSpace(fields["host"])
+		platform := strings.ToLower(strings.TrimSpace(fields["platform"]))
 
 		source := strings.TrimSpace(record.Source)
 		if source == "" {
@@ -981,6 +1003,7 @@ func buildMobileLogOverview(records []storedMobileLogMetadata, storageDir string
 					ControllerStateTotals: make(map[string]int),
 					HostTotals:            make(map[string]int),
 					PlatformTotals:        make(map[string]int),
+					ContextGroups:         make(map[string]*recoveryPanelContextAccumulator),
 				}
 				recoveryPanelTotals[panel.Key] = item
 			}
@@ -1010,46 +1033,47 @@ func buildMobileLogOverview(records []storedMobileLogMetadata, storageDir string
 					item.WorkgroupTotals[cleanValue]++
 				}
 			}
+			if agentState != "" {
+				item.AgentStateTotals[agentState]++
+			}
+			if controllerState != "" {
+				item.ControllerStateTotals[controllerState]++
+			}
+			if host != "" {
+				item.HostTotals[host]++
+			}
+			if platform != "" {
+				item.PlatformTotals[platform]++
+			}
+			primaryTraceID := primaryHotspotContextValue(traceIDs)
+			primaryWorkgroupID := primaryHotspotContextValue(workgroupIDs)
+			if primaryTraceID != "" || primaryWorkgroupID != "" || agentState != "" || controllerState != "" || host != "" || platform != "" {
+				contextKey := buildRecoveryPanelContextKey(primaryTraceID, primaryWorkgroupID, agentState, controllerState, host, platform)
+				contextGroup := item.ContextGroups[contextKey]
+				if contextGroup == nil {
+					contextGroup = &recoveryPanelContextAccumulator{
+						TraceID:         primaryTraceID,
+						WorkgroupID:     primaryWorkgroupID,
+						AgentState:      agentState,
+						ControllerState: controllerState,
+						Host:            host,
+						Platform:        platform,
+					}
+					item.ContextGroups[contextKey] = contextGroup
+				}
+				contextGroup.LogCount++
+			}
 		}
 		updatePresence("agent", record, record.AgentID, presence.Agents[strings.TrimSpace(record.AgentID)])
 		updatePresence("device", record, record.DeviceID, presence.Devices[strings.TrimSpace(record.DeviceID)])
-		fields, freeform := parseConnectionNote(record.ConnectionNote)
-		if agentState := strings.ToLower(strings.TrimSpace(fields["agent"])); agentState != "" {
-			for _, panel := range analysis.RecoveryPanels {
-				if item := recoveryPanelTotals[panel.Key]; item != nil {
-					item.AgentStateTotals[agentState]++
-				}
-			}
-		}
-		if controllerState := strings.ToLower(strings.TrimSpace(fields["controller"])); controllerState != "" {
-			for _, panel := range analysis.RecoveryPanels {
-				if item := recoveryPanelTotals[panel.Key]; item != nil {
-					item.ControllerStateTotals[controllerState]++
-				}
-			}
-		}
-		if host := strings.TrimSpace(fields["host"]); host != "" {
-			for _, panel := range analysis.RecoveryPanels {
-				if item := recoveryPanelTotals[panel.Key]; item != nil {
-					item.HostTotals[host]++
-				}
-			}
-		}
-		if platform := strings.ToLower(strings.TrimSpace(fields["platform"])); platform != "" {
-			for _, panel := range analysis.RecoveryPanels {
-				if item := recoveryPanelTotals[panel.Key]; item != nil {
-					item.PlatformTotals[platform]++
-				}
-			}
-		}
 		if strings.TrimSpace(record.ConnectionNote) != "" {
 			connectionSummary.LogsWithConnectionNotes++
 			if len(fields) > 0 {
 				connectionSummary.StructuredLogs++
-				updateConnectionCount(agentStateTotals, fields["agent"], true)
-				updateConnectionCount(controllerStateTotals, fields["controller"], true)
-				updateConnectionCount(hostTotals, fields["host"], false)
-				updateConnectionCount(platformTotals, fields["platform"], true)
+				updateConnectionCount(agentStateTotals, agentState, true)
+				updateConnectionCount(controllerStateTotals, controllerState, true)
+				updateConnectionCount(hostTotals, host, false)
+				updateConnectionCount(platformTotals, platform, true)
 				updateConnectionHotspot(fields, analysis, traceIDs, workgroupIDs, taskIDs, dispatchRunIDs)
 			}
 			if freeform != "" {
@@ -1119,23 +1143,30 @@ func buildMobileLogOverview(records []storedMobileLogMetadata, storageDir string
 			status = "healthy"
 			summary = fmt.Sprintf("%d log(s) completed this stage cleanly.", item.HealthyCount)
 		}
+		replayContext := selectRecoveryPanelReplayContext(item.ContextGroups)
 		recoveryPanels = append(recoveryPanels, mobileLogOverviewRecoveryPanel{
-			Key:                item.Key,
-			Title:              item.Title,
-			Status:             status,
-			Summary:            summary,
-			SignalCode:         item.SignalCode,
-			TopTraceID:         topConnectionHotspotValue(item.TraceTotals),
-			TopWorkgroupID:     topConnectionHotspotValue(item.WorkgroupTotals),
-			TopAgentState:      topConnectionHotspotValue(item.AgentStateTotals),
-			TopControllerState: topConnectionHotspotValue(item.ControllerStateTotals),
-			TopHost:            topConnectionHotspotValue(item.HostTotals),
-			TopPlatform:        topConnectionHotspotValue(item.PlatformTotals),
-			LogCount:           item.LogCount,
-			HealthyCount:       item.HealthyCount,
-			WarningCount:       item.WarningCount,
-			CriticalCount:      item.CriticalCount,
-			IdleCount:          item.IdleCount,
+			Key:                   item.Key,
+			Title:                 item.Title,
+			Status:                status,
+			Summary:               summary,
+			SignalCode:            item.SignalCode,
+			TopTraceID:            topConnectionHotspotValue(item.TraceTotals),
+			TopWorkgroupID:        topConnectionHotspotValue(item.WorkgroupTotals),
+			TopAgentState:         topConnectionHotspotValue(item.AgentStateTotals),
+			TopControllerState:    topConnectionHotspotValue(item.ControllerStateTotals),
+			TopHost:               topConnectionHotspotValue(item.HostTotals),
+			TopPlatform:           topConnectionHotspotValue(item.PlatformTotals),
+			ReplayTraceID:         replayContext.TraceID,
+			ReplayWorkgroupID:     replayContext.WorkgroupID,
+			ReplayAgentState:      replayContext.AgentState,
+			ReplayControllerState: replayContext.ControllerState,
+			ReplayHost:            replayContext.Host,
+			ReplayPlatform:        replayContext.Platform,
+			LogCount:              item.LogCount,
+			HealthyCount:          item.HealthyCount,
+			WarningCount:          item.WarningCount,
+			CriticalCount:         item.CriticalCount,
+			IdleCount:             item.IdleCount,
 		})
 	}
 	sort.Slice(recoveryPanels, func(i, j int) bool {
@@ -1456,6 +1487,63 @@ func selectConnectionHotspotReplayContext(values map[string]*connectionHotspotCo
 			best = current
 			bestCompleteness = currentCompleteness
 			bestPriority = currentPriority
+		}
+	}
+	return best
+}
+
+func buildRecoveryPanelContextKey(traceID string, workgroupID string, agentState string, controllerState string, host string, platform string) string {
+	return strings.Join([]string{
+		"trace=" + strings.TrimSpace(traceID),
+		"workgroup=" + strings.TrimSpace(workgroupID),
+		"agent=" + strings.TrimSpace(agentState),
+		"controller=" + strings.TrimSpace(controllerState),
+		"host=" + strings.TrimSpace(host),
+		"platform=" + strings.TrimSpace(platform),
+	}, "|")
+}
+
+type recoveryPanelReplayContext struct {
+	TraceID         string
+	WorkgroupID     string
+	AgentState      string
+	ControllerState string
+	Host            string
+	Platform        string
+	LogCount        int
+}
+
+func selectRecoveryPanelReplayContext(values map[string]*recoveryPanelContextAccumulator) recoveryPanelReplayContext {
+	best := recoveryPanelReplayContext{}
+	bestCompleteness := -1
+	for _, value := range values {
+		if value == nil {
+			continue
+		}
+		current := recoveryPanelReplayContext{
+			TraceID:         value.TraceID,
+			WorkgroupID:     value.WorkgroupID,
+			AgentState:      value.AgentState,
+			ControllerState: value.ControllerState,
+			Host:            value.Host,
+			Platform:        value.Platform,
+			LogCount:        value.LogCount,
+		}
+		currentCompleteness := 0
+		for _, candidate := range []string{current.TraceID, current.WorkgroupID, current.AgentState, current.ControllerState, current.Host, current.Platform} {
+			if strings.TrimSpace(candidate) != "" {
+				currentCompleteness++
+			}
+		}
+		if best.LogCount == 0 ||
+			current.LogCount > best.LogCount ||
+			(current.LogCount == best.LogCount &&
+				(currentCompleteness > bestCompleteness ||
+					(currentCompleteness == bestCompleteness &&
+						buildRecoveryPanelContextKey(current.TraceID, current.WorkgroupID, current.AgentState, current.ControllerState, current.Host, current.Platform) <
+							buildRecoveryPanelContextKey(best.TraceID, best.WorkgroupID, best.AgentState, best.ControllerState, best.Host, best.Platform)))) {
+			best = current
+			bestCompleteness = currentCompleteness
 		}
 	}
 	return best
@@ -3649,46 +3737,63 @@ function renderOverviewRecoveryPanels(items) {
   }
   return '<div style="margin-top:10px;"><strong>Recovery Health</strong><div class="panel-grid">' + items.map((item) => {
     const status = String(item.status || 'idle').toLowerCase();
+    const replayTraceId = item.replay_trace_id || item.top_trace_id || '';
+    const replayWorkgroupId = item.replay_workgroup_id || item.top_workgroup_id || '';
+    const replayAgentState = item.replay_agent_state || item.top_agent_state || '';
+    const replayControllerState = item.replay_controller_state || item.top_controller_state || '';
+    const replayHost = item.replay_host || item.top_host || '';
+    const replayPlatform = item.replay_platform || item.top_platform || '';
     const chips = [];
     if (item.signal_code) {
       chips.push(renderSignalChip("Filter Signal", { code: item.signal_code }));
     }
     chips.push(renderFilterPresetChip("Apply Top Context", {
       signal_code: item.signal_code || "",
-      trace_id: item.top_trace_id || "",
-      workgroup_id: item.top_workgroup_id || "",
-      agent_state: item.top_agent_state || "",
-      controller_state: item.top_controller_state || "",
-      host: item.top_host || "",
-      platform: item.top_platform || "",
+      trace_id: replayTraceId,
+      workgroup_id: replayWorkgroupId,
+      agent_state: replayAgentState,
+      controller_state: replayControllerState,
+      host: replayHost,
+      platform: replayPlatform,
     }));
-    if (item.top_trace_id) {
-      chips.push('<button type="button" class="chip actionable" data-filter-kind="trace_id" data-filter-value="' + esc(item.top_trace_id) + '">trace_id=' + esc(item.top_trace_id) + '</button>');
+    if (replayTraceId) {
+      chips.push('<button type="button" class="chip actionable" data-filter-kind="trace_id" data-filter-value="' + esc(replayTraceId) + '">trace_id=' + esc(replayTraceId) + '</button>');
     }
-    if (item.top_workgroup_id) {
-      chips.push('<button type="button" class="chip actionable" data-filter-kind="workgroup_id" data-filter-value="' + esc(item.top_workgroup_id) + '">workgroup_id=' + esc(item.top_workgroup_id) + '</button>');
+    if (replayWorkgroupId) {
+      chips.push('<button type="button" class="chip actionable" data-filter-kind="workgroup_id" data-filter-value="' + esc(replayWorkgroupId) + '">workgroup_id=' + esc(replayWorkgroupId) + '</button>');
     }
-    if (item.top_agent_state) {
-      chips.push('<button type="button" class="chip actionable" data-filter-kind="agent_state" data-filter-value="' + esc(item.top_agent_state) + '">agent=' + esc(item.top_agent_state) + '</button>');
+    if (replayAgentState) {
+      chips.push('<button type="button" class="chip actionable" data-filter-kind="agent_state" data-filter-value="' + esc(replayAgentState) + '">agent=' + esc(replayAgentState) + '</button>');
     }
-    if (item.top_controller_state) {
-      chips.push('<button type="button" class="chip actionable" data-filter-kind="controller_state" data-filter-value="' + esc(item.top_controller_state) + '">controller=' + esc(item.top_controller_state) + '</button>');
+    if (replayControllerState) {
+      chips.push('<button type="button" class="chip actionable" data-filter-kind="controller_state" data-filter-value="' + esc(replayControllerState) + '">controller=' + esc(replayControllerState) + '</button>');
     }
-    if (item.top_host) {
-      chips.push('<button type="button" class="chip actionable" data-filter-kind="host" data-filter-value="' + esc(item.top_host) + '">host=' + esc(item.top_host) + '</button>');
+    if (replayHost) {
+      chips.push('<button type="button" class="chip actionable" data-filter-kind="host" data-filter-value="' + esc(replayHost) + '">host=' + esc(replayHost) + '</button>');
     }
-    if (item.top_platform) {
-      chips.push('<button type="button" class="chip actionable" data-filter-kind="platform" data-filter-value="' + esc(item.top_platform) + '">platform=' + esc(item.top_platform) + '</button>');
+    if (replayPlatform) {
+      chips.push('<button type="button" class="chip actionable" data-filter-kind="platform" data-filter-value="' + esc(replayPlatform) + '">platform=' + esc(replayPlatform) + '</button>');
     }
     chips.push('<span class="chip">logs ' + esc(item.log_count || 0) + '</span>');
     chips.push('<span class="chip">critical ' + esc(item.critical_count || 0) + '</span>');
     chips.push('<span class="chip">warning ' + esc(item.warning_count || 0) + '</span>');
     chips.push('<span class="chip">healthy ' + esc(item.healthy_count || 0) + '</span>');
-    const context = item.top_trace_id || item.top_workgroup_id || item.top_host || item.top_agent_state || item.top_controller_state || item.top_platform || '';
+    const context = replayTraceId || replayWorkgroupId || replayHost || replayAgentState || replayControllerState || replayPlatform || '';
+    const replaySummaryParts = [];
+    if (replayTraceId) replaySummaryParts.push('trace=' + replayTraceId);
+    if (replayWorkgroupId) replaySummaryParts.push('workgroup=' + replayWorkgroupId);
+    if (replayAgentState) replaySummaryParts.push('agent=' + replayAgentState);
+    if (replayControllerState) replaySummaryParts.push('controller=' + replayControllerState);
+    if (replayHost) replaySummaryParts.push('host=' + replayHost);
+    if (replayPlatform) replaySummaryParts.push('platform=' + replayPlatform);
+    const replayMeta = replaySummaryParts.length > 0
+      ? ('Replay Context: ' + esc(replaySummaryParts.join(' | ')))
+      : 'Replay Context: no stable grouped context observed yet';
     return '<div class="recovery-panel ' + esc(status) + '">' +
       '<div class="toolbar" style="margin:0 0 6px;"><div><strong>' + esc(item.title || "-") + '</strong></div><div class="status-pill">' + esc(status) + '</div></div>' +
       '<div>' + esc(item.summary || "-") + '</div>' +
       '<div class="muted" style="margin-top:6px;">Top Context: ' + esc(context || 'No dominant trace or connection snapshot yet') + '</div>' +
+      '<div class="muted" style="margin-top:6px;">' + replayMeta + '</div>' +
       '<div class="chips">' + chips.join('') + '</div>' +
       '</div>';
   }).join('') + '</div></div>';

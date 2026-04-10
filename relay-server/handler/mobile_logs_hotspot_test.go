@@ -83,3 +83,31 @@ func TestBuildConnectionHotspotsUsesGroupedReplayContext(t *testing.T) {
 		t.Fatalf("expected grouped replay context, got %+v", item)
 	}
 }
+
+func TestSelectRecoveryPanelReplayContextUsesGroupedContext(t *testing.T) {
+	result := selectRecoveryPanelReplayContext(map[string]*recoveryPanelContextAccumulator{
+		buildRecoveryPanelContextKey("trace-grouped", "wg-grouped", "connected", "connected", "desktop-host", "linux"): {
+			TraceID:         "trace-grouped",
+			WorkgroupID:     "wg-grouped",
+			AgentState:      "connected",
+			ControllerState: "connected",
+			Host:            "desktop-host",
+			Platform:        "linux",
+			LogCount:        2,
+		},
+		buildRecoveryPanelContextKey("trace-top", "wg-top", "", "", "", ""): {
+			TraceID:     "trace-top",
+			WorkgroupID: "wg-top",
+			LogCount:    1,
+		},
+	})
+
+	if result.TraceID != "trace-grouped" ||
+		result.WorkgroupID != "wg-grouped" ||
+		result.AgentState != "connected" ||
+		result.ControllerState != "connected" ||
+		result.Host != "desktop-host" ||
+		result.Platform != "linux" {
+		t.Fatalf("expected grouped recovery replay context, got %+v", result)
+	}
+}

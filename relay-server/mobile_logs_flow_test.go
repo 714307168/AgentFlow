@@ -156,20 +156,26 @@ type uploadedMobileLogOverview struct {
 		LogCount int    `json:"log_count"`
 	} `json:"top_task_ids"`
 	RecoveryPanels []struct {
-		Key                string `json:"key"`
-		Status             string `json:"status"`
-		SignalCode         string `json:"signal_code"`
-		TopTraceID         string `json:"top_trace_id"`
-		TopWorkgroupID     string `json:"top_workgroup_id"`
-		TopAgentState      string `json:"top_agent_state"`
-		TopControllerState string `json:"top_controller_state"`
-		TopHost            string `json:"top_host"`
-		TopPlatform        string `json:"top_platform"`
-		LogCount           int    `json:"log_count"`
-		HealthyCount       int    `json:"healthy_count"`
-		WarningCount       int    `json:"warning_count"`
-		CriticalCount      int    `json:"critical_count"`
-		IdleCount          int    `json:"idle_count"`
+		Key                   string `json:"key"`
+		Status                string `json:"status"`
+		SignalCode            string `json:"signal_code"`
+		TopTraceID            string `json:"top_trace_id"`
+		TopWorkgroupID        string `json:"top_workgroup_id"`
+		TopAgentState         string `json:"top_agent_state"`
+		TopControllerState    string `json:"top_controller_state"`
+		TopHost               string `json:"top_host"`
+		TopPlatform           string `json:"top_platform"`
+		ReplayTraceID         string `json:"replay_trace_id"`
+		ReplayWorkgroupID     string `json:"replay_workgroup_id"`
+		ReplayAgentState      string `json:"replay_agent_state"`
+		ReplayControllerState string `json:"replay_controller_state"`
+		ReplayHost            string `json:"replay_host"`
+		ReplayPlatform        string `json:"replay_platform"`
+		LogCount              int    `json:"log_count"`
+		HealthyCount          int    `json:"healthy_count"`
+		WarningCount          int    `json:"warning_count"`
+		CriticalCount         int    `json:"critical_count"`
+		IdleCount             int    `json:"idle_count"`
 	} `json:"recovery_panels"`
 }
 
@@ -1635,20 +1641,26 @@ func hasOverviewSourceCount(items []struct {
 }
 
 func hasOverviewRecoveryPanel(items []struct {
-	Key                string `json:"key"`
-	Status             string `json:"status"`
-	SignalCode         string `json:"signal_code"`
-	TopTraceID         string `json:"top_trace_id"`
-	TopWorkgroupID     string `json:"top_workgroup_id"`
-	TopAgentState      string `json:"top_agent_state"`
-	TopControllerState string `json:"top_controller_state"`
-	TopHost            string `json:"top_host"`
-	TopPlatform        string `json:"top_platform"`
-	LogCount           int    `json:"log_count"`
-	HealthyCount       int    `json:"healthy_count"`
-	WarningCount       int    `json:"warning_count"`
-	CriticalCount      int    `json:"critical_count"`
-	IdleCount          int    `json:"idle_count"`
+	Key                   string `json:"key"`
+	Status                string `json:"status"`
+	SignalCode            string `json:"signal_code"`
+	TopTraceID            string `json:"top_trace_id"`
+	TopWorkgroupID        string `json:"top_workgroup_id"`
+	TopAgentState         string `json:"top_agent_state"`
+	TopControllerState    string `json:"top_controller_state"`
+	TopHost               string `json:"top_host"`
+	TopPlatform           string `json:"top_platform"`
+	ReplayTraceID         string `json:"replay_trace_id"`
+	ReplayWorkgroupID     string `json:"replay_workgroup_id"`
+	ReplayAgentState      string `json:"replay_agent_state"`
+	ReplayControllerState string `json:"replay_controller_state"`
+	ReplayHost            string `json:"replay_host"`
+	ReplayPlatform        string `json:"replay_platform"`
+	LogCount              int    `json:"log_count"`
+	HealthyCount          int    `json:"healthy_count"`
+	WarningCount          int    `json:"warning_count"`
+	CriticalCount         int    `json:"critical_count"`
+	IdleCount             int    `json:"idle_count"`
 }, key, status string, logCount int, criticalCount int, signalCode string) bool {
 	for _, item := range items {
 		if item.Key != key {
@@ -1669,20 +1681,26 @@ func hasOverviewRecoveryPanel(items []struct {
 }
 
 func hasOverviewRecoveryPanelContext(items []struct {
-	Key                string `json:"key"`
-	Status             string `json:"status"`
-	SignalCode         string `json:"signal_code"`
-	TopTraceID         string `json:"top_trace_id"`
-	TopWorkgroupID     string `json:"top_workgroup_id"`
-	TopAgentState      string `json:"top_agent_state"`
-	TopControllerState string `json:"top_controller_state"`
-	TopHost            string `json:"top_host"`
-	TopPlatform        string `json:"top_platform"`
-	LogCount           int    `json:"log_count"`
-	HealthyCount       int    `json:"healthy_count"`
-	WarningCount       int    `json:"warning_count"`
-	CriticalCount      int    `json:"critical_count"`
-	IdleCount          int    `json:"idle_count"`
+	Key                   string `json:"key"`
+	Status                string `json:"status"`
+	SignalCode            string `json:"signal_code"`
+	TopTraceID            string `json:"top_trace_id"`
+	TopWorkgroupID        string `json:"top_workgroup_id"`
+	TopAgentState         string `json:"top_agent_state"`
+	TopControllerState    string `json:"top_controller_state"`
+	TopHost               string `json:"top_host"`
+	TopPlatform           string `json:"top_platform"`
+	ReplayTraceID         string `json:"replay_trace_id"`
+	ReplayWorkgroupID     string `json:"replay_workgroup_id"`
+	ReplayAgentState      string `json:"replay_agent_state"`
+	ReplayControllerState string `json:"replay_controller_state"`
+	ReplayHost            string `json:"replay_host"`
+	ReplayPlatform        string `json:"replay_platform"`
+	LogCount              int    `json:"log_count"`
+	HealthyCount          int    `json:"healthy_count"`
+	WarningCount          int    `json:"warning_count"`
+	CriticalCount         int    `json:"critical_count"`
+	IdleCount             int    `json:"idle_count"`
 }, key, traceID, workgroupID, agentState, controllerState, host, platform string) bool {
 	for _, item := range items {
 		if item.Key != key {
