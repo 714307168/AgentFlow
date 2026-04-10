@@ -48,7 +48,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -69,6 +68,7 @@ import com.claudecode.remote.data.model.WorkgroupMember
 import com.claudecode.remote.data.model.WorkgroupMessage
 import com.claudecode.remote.domain.TransferCenterItem
 import com.claudecode.remote.ui.common.animateScrollToItemBottom
+import com.claudecode.remote.ui.common.rememberEventCoroutineScope
 import com.claudecode.remote.ui.common.scrollToItemBottom
 import com.claudecode.remote.ui.transfer.ScopedTransferSheet
 import com.claudecode.remote.ui.transfer.openTransferFile
@@ -89,7 +89,7 @@ fun WorkgroupChatScreen(
     val clipboardManager = LocalClipboardManager.current
     val uiState by viewModel.uiState.collectAsState()
     val listState = rememberLazyListState()
-    val coroutineScope = rememberCoroutineScope()
+    val eventScope = rememberEventCoroutineScope()
     val lifecycleOwner = context as? LifecycleOwner
     var previousLastMessageId by remember(agentId, workgroupId) { mutableStateOf<String?>(null) }
     var previousMessageCount by remember(agentId, workgroupId) { mutableStateOf(0) }
@@ -196,7 +196,7 @@ fun WorkgroupChatScreen(
                 busyTransferId = busyTransferId,
                 onRefresh = { transferRefreshToken += 1 },
                 onDownloadTransfer = { item ->
-                    coroutineScope.launch {
+                    eventScope.launch {
                         busyTransferId = item.id
                         onDownloadTransfer(item.id).fold(
                             onSuccess = { updated ->
@@ -223,7 +223,7 @@ fun WorkgroupChatScreen(
                 onOpenTransfer = { item ->
                     val openResult = openTransferFile(context, item)
                     if (openResult.isSuccess) {
-                        coroutineScope.launch {
+                        eventScope.launch {
                             onMarkTransferOpened(item.id)
                         }
                     } else {

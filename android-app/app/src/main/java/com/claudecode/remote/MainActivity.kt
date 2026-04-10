@@ -30,7 +30,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.lerp
@@ -98,7 +97,6 @@ class MainActivity : ComponentActivity() {
         setContent {
             RemoteTheme {
                 val navController = rememberNavController()
-                val coroutineScope = rememberCoroutineScope()
                 val tokenStore = appContainer.tokenStore
                 val relayWebSocket = appContainer.relayWebSocket
                 val sessionRepository = appContainer.sessionRepository
@@ -232,10 +230,10 @@ class MainActivity : ComponentActivity() {
                                 webSocket = relayWebSocket,
                                 updateState = updateState,
                                 onCheckForUpdates = {
-                                    coroutineScope.launch { appUpdateManager.checkForUpdates(manual = true) }
+                                    lifecycleScope.launch { appUpdateManager.checkForUpdates(manual = true) }
                                 },
                                 onDownloadUpdate = {
-                                    coroutineScope.launch { appUpdateManager.downloadLatestUpdate() }
+                                    lifecycleScope.launch { appUpdateManager.downloadLatestUpdate() }
                                 },
                                 onInstallUpdate = { appUpdateManager.installDownloadedUpdate() },
                                 onNavigateToChat = { session ->
@@ -439,7 +437,7 @@ class MainActivity : ComponentActivity() {
                                     appContainer.updateServerUrl(normalizedUrl)
                                     tokenStore.saveDeviceId(deviceId)
 
-                                    coroutineScope.launch {
+                                    lifecycleScope.launch {
                                         try {
                                             val response = appContainer.authSessionManager.login(
                                                 username = username,
@@ -492,10 +490,10 @@ class MainActivity : ComponentActivity() {
                                     appContainer.transferRepository.markTransferOpened(transferId)
                                 },
                                 onCheckForUpdates = {
-                                    coroutineScope.launch { appUpdateManager.checkForUpdates(manual = true) }
+                                    lifecycleScope.launch { appUpdateManager.checkForUpdates(manual = true) }
                                 },
                                 onDownloadUpdate = {
-                                    coroutineScope.launch { appUpdateManager.downloadLatestUpdate() }
+                                    lifecycleScope.launch { appUpdateManager.downloadLatestUpdate() }
                                 },
                                 onInstallUpdate = { appUpdateManager.installDownloadedUpdate() },
                                 onLanguageChange = { lang ->

@@ -55,7 +55,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -73,6 +72,7 @@ import androidx.compose.ui.window.Dialog
 import com.claudecode.remote.R
 import com.claudecode.remote.domain.TransferCenterItem
 import com.claudecode.remote.domain.TransferReceiptItem
+import com.claudecode.remote.ui.common.rememberEventCoroutineScope
 import com.claudecode.remote.update.AppUpdateState
 import com.claudecode.remote.update.AppUpdateStatus
 import com.claudecode.remote.util.CrashLogFileInfo
@@ -546,7 +546,7 @@ private fun TransferCenterSection(
     onMarkTransferOpened: suspend (transferId: String) -> Result<Unit>,
     onBannerMessage: (String) -> Unit
 ) {
-    val coroutineScope = rememberCoroutineScope()
+    val eventScope = rememberEventCoroutineScope()
     val transferLoadFailedMessage = stringResource(R.string.settings_transfers_load_failed)
     var refreshToken by remember { mutableStateOf(0) }
     var transfers by remember { mutableStateOf(emptyList<TransferCenterItem>()) }
@@ -743,7 +743,7 @@ private fun TransferCenterSection(
                             ) {
                                 Button(
                                     onClick = {
-                                        coroutineScope.launch {
+                                        eventScope.launch {
                                             busyTransferId = item.id
                                             onDownloadTransfer(item.id).fold(
                                                 onSuccess = { updated ->
@@ -778,7 +778,7 @@ private fun TransferCenterSection(
                                     onClick = {
                                         val openResult = openTransferFile(context, item)
                                         if (openResult.isSuccess) {
-                                            coroutineScope.launch { onMarkTransferOpened(item.id) }
+                                            eventScope.launch { onMarkTransferOpened(item.id) }
                                         } else {
                                             onBannerMessage(
                                                 openResult.exceptionOrNull()?.message
@@ -1075,7 +1075,7 @@ private fun CrashLogDialog(
     onDismiss: () -> Unit,
     onUploadCrashLog: suspend (fileName: String, content: String) -> Result<String>
 ) {
-    val coroutineScope = rememberCoroutineScope()
+    val eventScope = rememberEventCoroutineScope()
     var refreshToken by remember { mutableStateOf(0) }
     val logFiles by produceState(initialValue = emptyList<CrashLogFileInfo>(), refreshToken) {
         value = withContext(Dispatchers.IO) {
@@ -1212,7 +1212,7 @@ private fun CrashLogDialog(
                     OutlinedButton(
                         onClick = {
                             val fileName = selectedFileName ?: return@OutlinedButton
-                            coroutineScope.launch {
+                            eventScope.launch {
                                 isUploading = true
                                 uploadMessage = null
                                 uploadMessage = onUploadCrashLog(fileName, logContent)
