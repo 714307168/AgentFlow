@@ -625,3 +625,4 @@
 - [x] Android request-compression behavior is now covered by a dedicated JVM unit test, so future relay traffic optimizations can safely reuse the same gzip interceptor path as device-log uploads.
 - [x] Android workgroup catalogs now keep a per-agent payload revision/hash cache and skip redundant `StateFlow` rewrites when a foreground refresh or reconnect returns the same workgroup payload again.
 - [x] Desktop workgroup relay payloads now publish an explicit stable `revision`, and workgroup command results reuse the same revision so Android can skip redundant catalog refreshes without recomputing fallback hashes.
+- [x] Android workgroup refresh requests now send the locally known per-agent `revision`, and desktop replies with an explicit `changed=false` lightweight payload when the catalog is unchanged, trimming repeated WebSocket list transfers during reconnect and foreground refresh.

@@ -116,14 +116,18 @@ class WorkgroupRepository(
             }
             lastListRequestedAtByAgent[agentId] = now
             ensureSocketReady(agentId, "workgroup-refresh")
+            val knownRevision = agentWorkgroupPayloadRevisions[agentId]?.trim().orEmpty()
             webSocket.send(
                 Envelope(
                     id = UUID.randomUUID().toString(),
                     event = Events.WORKGROUP_LIST_REQUEST,
                     agentId = agentId,
-                    payload = JsonObject(
-                        mapOf("agent_id" to JsonPrimitive(agentId))
-                    ),
+                    payload = JsonObject(buildMap {
+                        put("agent_id", JsonPrimitive(agentId))
+                        if (knownRevision.isNotEmpty()) {
+                            put("revision", JsonPrimitive(knownRevision))
+                        }
+                    }),
                     ts = System.currentTimeMillis()
                 ),
                 targetAgentId = agentId

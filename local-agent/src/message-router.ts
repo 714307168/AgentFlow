@@ -10,7 +10,10 @@ import { SessionSyncActions } from "./session-sync-actions";
 import { Envelope, Events } from "./types";
 import { createRunAttachmentFromPath, getUniqueAttachmentPath } from "./attachment-utils";
 import appLogger from "./app-logger";
-import type { WorkgroupRelayPayload } from "./workgroup-relay-payload";
+import {
+  buildWorkgroupListResponsePayload,
+  type WorkgroupRelayPayload,
+} from "./workgroup-relay-payload";
 
 interface MessageRouterOptions {
   revealProjectWindow?: (projectId: string, projectName: string) => void;
@@ -135,7 +138,7 @@ class MessageRouter {
         this.handleSessionSyncRequest(env);
         break;
       case Events.WORKGROUP_LIST_REQUEST:
-        this.handleWorkgroupListRequest();
+        this.handleWorkgroupListRequest(env);
         break;
       case Events.WORKGROUP_COMMAND:
         void this.handleWorkgroupCommand(env);
@@ -411,17 +414,18 @@ class MessageRouter {
     this.options.syncProjectCatalog?.();
   }
 
-  private handleWorkgroupListRequest(): void {
+  private handleWorkgroupListRequest(env: Envelope): void {
     const payload = this.options.getWorkgroupRelayPayload?.();
     if (!payload) {
       return;
     }
+    const requestPayload = env.payload as { revision?: string } | undefined;
     this.relayClient.send({
       id: uuidv4(),
       event: Events.WORKGROUP_LIST,
       agent_id: payload.agent_id,
       ts: Date.now(),
-      payload,
+      payload: buildWorkgroupListResponsePayload(payload, requestPayload?.revision),
     });
   }
 
