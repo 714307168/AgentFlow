@@ -45,6 +45,7 @@ interface RelayApi {
     ): SyncMetaResponse
 
     @POST("api/device/sync/delta")
+    @Headers("X-AgentFlow-Request-Compression: gzip")
     suspend fun syncDeviceDelta(
         @Header("Authorization") auth: String,
         @Body request: SyncDeltaRequest

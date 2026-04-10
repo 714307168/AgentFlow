@@ -621,3 +621,5 @@
 - [x] Device logs overview now exposes `Replay Hotspot Context` chips so hotspot jump-back filters replay an actually observed context group, reducing tie-break noise when top trace/task IDs come from different logs.
 - [x] Device logs `Recovery Health` panels now also replay grouped `trace/workgroup/connection snapshot` contexts from the same observed logs, instead of stitching panel filters from unrelated top counters.
 - [x] Relay hotspot replay-context selection is covered by a dedicated Go unit test to prevent regressions in grouped-context ranking.
+- [x] Android `api/device/sync/delta` requests now also opt into gzip request-body compression, so large `knownProjects` payloads no longer go over the wire as plain JSON during foreground refresh and revision catch-up.
+- [x] Android request-compression behavior is now covered by a dedicated JVM unit test, so future relay traffic optimizations can safely reuse the same gzip interceptor path as device-log uploads.
