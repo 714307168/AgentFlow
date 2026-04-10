@@ -46,6 +46,9 @@ import {
   isImageAttachment,
 } from "./attachment-utils";
 import {
+  buildWorkgroupRelayPayload as createWorkgroupRelayPayload,
+} from "./workgroup-relay-payload";
+import {
   getDefaultLocalDataRoot,
   getPersistedLocalDataRoot,
   localDataRootsEqual,
@@ -328,7 +331,7 @@ const relaySyncTimersByProject = new Map<string, NodeJS.Timeout>();
 const pendingRelaySyncSnapshotsByProject = new Map<string, ProjectSessionSnapshot>();
 const lastBroadcastSyncPayloadHashByProject = new Map<string, string>();
 const RELAY_SYNC_DEBOUNCE_MS = 250;
-let lastWorkgroupRelayPayloadHash = "";
+let lastWorkgroupRelayPayloadRevision = "";
 const workgroupCollaborationRelaySnapshotTimers = new Map<string, NodeJS.Timeout>();
 const pendingWorkgroupCollaborationRelaySnapshots = new Map<string, WorkgroupCollaborationSessionSnapshot>();
 const lastBroadcastWorkgroupCollaborationSnapshotHashByWorkgroup = new Map<string, string>();
@@ -2411,15 +2414,8 @@ async function removeWorkgroupRegistry(workgroupId: string): Promise<void> {
   );
 }
 
-function buildWorkgroupRelayPayload(): { agent_id: string; workgroups: WorkgroupView[] } | null {
-  const agentId = loadConfig().agentId.trim();
-  if (!agentId) {
-    return null;
-  }
-  return {
-    agent_id: agentId,
-    workgroups: listSerializedWorkgroups(),
-  };
+function buildWorkgroupRelayPayload() {
+  return createWorkgroupRelayPayload(loadConfig().agentId, listSerializedWorkgroups());
 }
 
 function broadcastWorkgroupsChanged(): void {
@@ -2435,12 +2431,11 @@ function broadcastWorkgroupsChanged(): void {
 
   const relayPayload = buildWorkgroupRelayPayload();
   if (relayClient && relayClient.isConnected() && relayPayload) {
-    const payloadHash = JSON.stringify(relayPayload);
-    if (payloadHash === lastWorkgroupRelayPayloadHash) {
+    if (relayPayload.revision === lastWorkgroupRelayPayloadRevision) {
       workgroupCollaborationService.notifyWorkgroupStructureChanged();
       return;
     }
-    lastWorkgroupRelayPayloadHash = payloadHash;
+    lastWorkgroupRelayPayloadRevision = relayPayload.revision;
     relayClient.send({
       id: uuidv4(),
       event: Events.WORKGROUP_LIST,
@@ -3773,7 +3768,7 @@ function initRelay(config: AgentConfig): void {
   relayClient.on("connected", () => {
     console.log("[Main] Relay connected");
     clearRelaySyncState();
-    lastWorkgroupRelayPayloadHash = "";
+    lastWorkgroupRelayPayloadRevision = "";
     lastWorkgroupCollaborationRelayPayloadHash = "";
     for (const project of projectStore.getAll()) {
       lastBroadcastSyncSeqByProject.set(project.id, runtimeManager.getLatestSyncSeq(project.id));
@@ -3793,7 +3788,7 @@ function initRelay(config: AgentConfig): void {
   relayClient.on("disconnected", () => {
     console.log("[Main] Relay disconnected");
     clearRelaySyncState();
-    lastWorkgroupRelayPayloadHash = "";
+    lastWorkgroupRelayPayloadRevision = "";
     lastWorkgroupCollaborationRelayPayloadHash = "";
     updateTrayTooltip();
   });

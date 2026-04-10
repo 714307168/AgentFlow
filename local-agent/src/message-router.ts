@@ -10,6 +10,7 @@ import { SessionSyncActions } from "./session-sync-actions";
 import { Envelope, Events } from "./types";
 import { createRunAttachmentFromPath, getUniqueAttachmentPath } from "./attachment-utils";
 import appLogger from "./app-logger";
+import type { WorkgroupRelayPayload } from "./workgroup-relay-payload";
 
 interface MessageRouterOptions {
   revealProjectWindow?: (projectId: string, projectName: string) => void;
@@ -19,7 +20,7 @@ interface MessageRouterOptions {
   getDefaultCliProvider?: () => CliProvider;
   syncProjectCatalog?: () => void;
   onProjectsChanged?: () => void;
-  getWorkgroupRelayPayload?: () => { agent_id: string; workgroups: unknown[] } | null;
+  getWorkgroupRelayPayload?: () => WorkgroupRelayPayload | null;
   dispatchWorkgroupTask?: (taskId: string) => Promise<{ success: boolean; error?: string; workgroup?: unknown }>;
   updateWorkgroupTaskStatus?: (data: {
     taskId: string;
@@ -526,6 +527,7 @@ class MessageRouter {
         agent_id: nextPayload?.agent_id ?? "",
         success: result.success,
         error: result.error,
+        revision: nextPayload?.revision,
         workgroups: nextPayload?.workgroups ?? [],
       },
     });
