@@ -2556,7 +2556,7 @@
 
     async function refreshProjectPaneData(force = false) {
       await loadProjects({ force });
-      await loadWorkgroups({ force });
+      await loadWorkgroups({ force, skipProjectRefresh: true });
     }
 
     function clearProjectPaneRefreshTimer() {
@@ -4314,6 +4314,7 @@
 
     async function loadWorkgroups(options = {}) {
       const force = options.force === true;
+      const skipProjectRefresh = options.skipProjectRefresh === true;
       if (!force && paneLoadState.workgroupsPromise) {
         await paneLoadState.workgroupsPromise;
         if (paneLoadState.workgroupsLoaded) {
@@ -4327,7 +4328,7 @@
       }
       try {
         paneLoadState.workgroupsPromise = (async () => {
-          if (force || !paneLoadState.projectsLoaded || paneLoadState.projectsDirty) {
+          if (!skipProjectRefresh && (force || !paneLoadState.projectsLoaded || paneLoadState.projectsDirty)) {
             const projects = await api.getProjects({ refreshRemote: force });
             latestProjectCatalog = Array.isArray(projects) ? projects : [];
             paneLoadState.projectsLoaded = true;
