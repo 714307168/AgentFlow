@@ -14,11 +14,25 @@ export interface CodexReviewArgsResult {
   errorMessage?: string;
 }
 
+const CODEX_RESTRICTED_TOOL_ARGS = [
+  "--enable",
+  "code_mode_only",
+  "--disable",
+  "shell_tool",
+  "--disable",
+  "tool_search",
+  "--disable",
+  "tool_suggest",
+  "--disable",
+  "tool_call_mcp_elicitation",
+] as const;
+
 export function buildCodexExecArgs(options: CodexExecArgsOptions): string[] {
   const sharedArgs = [
     "--json",
     "--dangerously-bypass-approvals-and-sandbox",
     "--skip-git-repo-check",
+    ...CODEX_RESTRICTED_TOOL_ARGS,
     ...(options.model ? ["--model", options.model] : []),
   ];
 
@@ -104,7 +118,8 @@ export function buildProviderToolsMessage(options: {
     lines.push(
       "Codex capabilities available through this app:",
       "- Runs Codex through `codex exec --json` and resumes threads with `codex exec resume --json`.",
-      "- Codex can still use its built-in agent tools during a run, including command execution and file editing inside the workspace.",
+      "- App-side Codex runs are started with a restricted tool profile that disables shell-tool style invocation and Codex tool discovery helpers.",
+      "- The chat flow keeps Codex focused on direct responses instead of tool-calling orchestration.",
       "- This app surfaces Codex activity such as command execution, agent messages, and completion events into the chat/activity timeline.",
       `- Web search tool: ${options.codexSearchEnabled ? "enabled" : "disabled"} for subsequent runs. Use /search on|off|toggle to change it.`,
       "- `/review` runs `codex review` for workspace changes without leaving the app.",
@@ -169,6 +184,7 @@ export function buildCodexFeaturesArgs(rawArgs: string, model: string | null): C
     args: [
       "features",
       ...buildCodexConfigArgs(model),
+      ...CODEX_RESTRICTED_TOOL_ARGS,
       "list",
     ],
   };
@@ -186,6 +202,7 @@ export function buildCodexReviewArgs(rawArgs: string, model: string | null): Cod
   const args = [
     "review",
     ...buildCodexConfigArgs(model),
+    ...CODEX_RESTRICTED_TOOL_ARGS,
   ];
   let hasScope = false;
   const promptTokens: string[] = [];
