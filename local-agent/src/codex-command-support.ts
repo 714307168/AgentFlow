@@ -14,6 +14,9 @@ export interface CodexReviewArgsResult {
   errorMessage?: string;
 }
 
+const CODEX_COMPLETION_SHELLS = ["bash", "elvish", "fish", "powershell", "zsh"] as const;
+type CodexCompletionShell = typeof CODEX_COMPLETION_SHELLS[number];
+
 const CODEX_RESTRICTED_TOOL_ARGS = [
   "--enable",
   "code_mode_only",
@@ -64,16 +67,24 @@ export function buildSlashHelpMessage(provider: CliProvider): string {
     "- /screenshot: capture the primary desktop display and send it back into this chat.",
     "- /send-image <path>: copy a local image into this chat. Relative paths resolve from the project root.",
     "- /search [status|on|off|toggle]: manage Codex web search availability for future runs.",
-    "- /review [options] [instructions]: run `codex review` from this workspace.",
-    "- /features [list]: show the current Codex CLI feature flags exposed by `codex features list`.",
     "",
     "Provider behavior:",
     "- Claude Code: native slash commands are passed through when Claude's headless mode supports them.",
-    "- OpenAI Codex: headless codex exec does not expose native slash commands, so this app emulates local commands such as /help, /tools, /model, /search, /review, /features, /screenshot, and /send-image.",
+    "- OpenAI Codex: headless codex exec does not expose native slash commands, so this app emulates local commands such as /help, /tools, /model, /search, /screenshot, and /send-image.",
   ];
 
   if (provider === "codex") {
-    lines.push("- For other Codex slash commands, use a normal prompt or the full interactive Codex CLI.");
+    lines.push(
+      "",
+      "Additional Codex-only commands in this app:",
+      "- /review [options] [instructions]: run `codex review` from this workspace.",
+      "- /features [list]: show the current Codex CLI feature flags exposed by `codex features list`.",
+      "- /version: show the installed Codex CLI version.",
+      "- /completion [shell]: generate a Codex shell-completion script. Defaults to the current desktop shell profile.",
+      "- /mcp list [json]: list configured MCP servers.",
+      "- /mcp get <name> [json]: show a configured MCP server.",
+      "- For other Codex slash commands, use a normal prompt or the full interactive Codex CLI.",
+    );
   }
 
   return lines.join("\n");
@@ -82,7 +93,7 @@ export function buildSlashHelpMessage(provider: CliProvider): string {
 export function buildCodexUnsupportedSlashMessage(commandName: string): string {
   return [
     `/${commandName} is not available in headless Codex mode.`,
-    "This workspace currently emulates /help, /tools, /model, /search, /review, /features, /screenshot, and /send-image for Codex projects.",
+    "This workspace currently emulates /help, /tools, /model, /search, /review, /features, /version, /completion, /mcp, /screenshot, and /send-image for Codex projects.",
     "Use a normal prompt for the same intent, or run the full interactive Codex CLI if you need native slash commands.",
   ].join("\n");
 }
@@ -124,12 +135,15 @@ export function buildProviderToolsMessage(options: {
       `- Web search tool: ${options.codexSearchEnabled ? "enabled" : "disabled"} for subsequent runs. Use /search on|off|toggle to change it.`,
       "- `/review` runs `codex review` for workspace changes without leaving the app.",
       "- `/features` runs `codex features list` so you can inspect CLI feature flags from the app.",
+      "- `/version` shows the installed Codex CLI version used by the desktop agent.",
+      "- `/completion` generates shell completion scripts from the installed Codex CLI.",
+      "- `/mcp list|get` lets you inspect configured MCP servers without leaving the app.",
       "",
       "Not exposed in this app:",
       "- The full interactive Codex TUI.",
       "- Config-mutating top-level flows such as `codex features enable/disable`.",
+      "- Config-mutating top-level CLI flows such as `codex login`, `codex logout`, `codex mcp add/remove/login/logout`, or `codex cloud`.",
       "- Native Codex slash commands beyond the local commands emulated by this workspace.",
-      "- Standalone top-level CLI flows such as `codex login`, `codex logout`, `codex mcp`, or `codex cloud`.",
     );
     return lines.join("\n");
   }
@@ -187,6 +201,76 @@ export function buildCodexFeaturesArgs(rawArgs: string, model: string | null): C
       ...CODEX_RESTRICTED_TOOL_ARGS,
       "list",
     ],
+  };
+}
+
+export function buildCodexVersionArgs(): CodexReviewArgsResult {
+  return {
+    args: ["--version"],
+  };
+}
+
+export function buildCodexCompletionArgs(rawArgs: string): CodexReviewArgsResult {
+  const normalized = rawArgs.trim().toLowerCase();
+  const shell = normalized || getDefaultCompletionShell();
+  if (!CODEX_COMPLETION_SHELLS.includes(shell as CodexCompletionShell)) {
+    return {
+      args: null,
+      errorMessage: "Usage: /completion [bash|elvish|fish|powershell|zsh]",
+    };
+  }
+
+  return {
+    args: ["completion", shell],
+  };
+}
+
+export function buildCodexMcpArgs(rawArgs: string): CodexReviewArgsResult {
+  const tokens = splitSlashArgs(rawArgs);
+  if (!tokens) {
+    return {
+      args: null,
+      errorMessage: "Usage: /mcp list [json] | /mcp get <name> [json]",
+    };
+  }
+
+  if (tokens.length === 0 || tokens[0] === "list") {
+    const wantsJson = tokens.includes("json") || tokens.includes("--json");
+    if (tokens.some((token, index) => index > 0 && token !== "json" && token !== "--json")) {
+      return {
+        args: null,
+        errorMessage: "Usage: /mcp list [json] | /mcp get <name> [json]",
+      };
+    }
+    return {
+      args: ["mcp", "list", ...(wantsJson ? ["--json"] : [])],
+    };
+  }
+
+  if (tokens[0] === "get") {
+    const name = tokens[1];
+    if (!name) {
+      return {
+        args: null,
+        errorMessage: "Usage: /mcp get <name> [json]",
+      };
+    }
+    const trailing = tokens.slice(2);
+    const wantsJson = trailing.includes("json") || trailing.includes("--json");
+    if (trailing.some((token) => token !== "json" && token !== "--json")) {
+      return {
+        args: null,
+        errorMessage: "Usage: /mcp get <name> [json]",
+      };
+    }
+    return {
+      args: ["mcp", "get", name, ...(wantsJson ? ["--json"] : [])],
+    };
+  }
+
+  return {
+    args: null,
+    errorMessage: "Usage: /mcp list [json] | /mcp get <name> [json]",
   };
 }
 
@@ -266,6 +350,16 @@ function buildCodexConfigArgs(model: string | null): string[] {
     return [];
   }
   return ["-c", `model=${JSON.stringify(model)}`];
+}
+
+function getDefaultCompletionShell(): CodexCompletionShell {
+  if (process.platform === "win32") {
+    return "powershell";
+  }
+  if (process.platform === "darwin") {
+    return "zsh";
+  }
+  return "bash";
 }
 
 function splitSlashArgs(rawArgs: string): string[] | null {

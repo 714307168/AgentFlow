@@ -25,9 +25,12 @@ Module._load = function patchedLoad(request, parent, isMain) {
 
 const RuntimeManager = require("../dist/src/runtime-manager.js").default;
 const {
+  buildCodexCompletionArgs,
   buildCodexFeaturesArgs,
   buildCodexExecArgs,
+  buildCodexMcpArgs,
   buildCodexReviewArgs,
+  buildCodexVersionArgs,
 } = require("../dist/src/codex-command-support.js");
 
 function createRuntimeManager(options = {}) {
@@ -185,6 +188,46 @@ test("buildCodexFeaturesArgs accepts list and rejects unknown subcommands", () =
   });
 });
 
+test("buildCodexVersionArgs returns the root version command", () => {
+  assert.deepEqual(buildCodexVersionArgs(), {
+    args: ["--version"],
+  });
+});
+
+test("buildCodexCompletionArgs uses powershell by default on Windows and validates explicit shells", () => {
+  assert.deepEqual(buildCodexCompletionArgs(""), {
+    args: ["completion", "powershell"],
+  });
+
+  assert.deepEqual(buildCodexCompletionArgs("zsh"), {
+    args: ["completion", "zsh"],
+  });
+
+  assert.deepEqual(buildCodexCompletionArgs("cmd"), {
+    args: null,
+    errorMessage: "Usage: /completion [bash|elvish|fish|powershell|zsh]",
+  });
+});
+
+test("buildCodexMcpArgs supports list and get in text or json mode", () => {
+  assert.deepEqual(buildCodexMcpArgs(""), {
+    args: ["mcp", "list"],
+  });
+
+  assert.deepEqual(buildCodexMcpArgs("list json"), {
+    args: ["mcp", "list", "--json"],
+  });
+
+  assert.deepEqual(buildCodexMcpArgs("get repo-tools --json"), {
+    args: ["mcp", "get", "repo-tools", "--json"],
+  });
+
+  assert.deepEqual(buildCodexMcpArgs("remove repo-tools"), {
+    args: null,
+    errorMessage: "Usage: /mcp list [json] | /mcp get <name> [json]",
+  });
+});
+
 test("RuntimeManager handles /search locally for Codex projects", async () => {
   const { runtimeManager, updateCalls } = createRuntimeManager({
     provider: "codex",
@@ -227,6 +270,7 @@ test("RuntimeManager /tools reports current Codex support and search status", as
   assert.equal(message.includes("codex exec --json"), true);
   assert.equal(message.includes("restricted tool profile"), true);
   assert.equal(message.includes("Web search tool: enabled"), true);
+  assert.equal(message.includes("/mcp list|get"), true);
   assert.equal(message.includes("Not exposed in this app"), true);
 
   runtimeManager.dispose();
@@ -267,6 +311,63 @@ test("RuntimeManager /features usage errors are handled locally", async () => {
   assert.equal(prepared.handledLocally, true);
   const message = runtimeManager.getSnapshot("project-codex").messages.at(-1)?.content || "";
   assert.equal(message, "Usage: /features [list]");
+
+  runtimeManager.dispose();
+});
+
+test("RuntimeManager prepares /version for Codex custom execution", async () => {
+  const { runtimeManager } = createRuntimeManager({
+    provider: "codex",
+  });
+  const state = runtimeManager.ensureState("project-codex");
+
+  const prepared = await runtimeManager.prepareRun(
+    state,
+    createPreparedRun("/version"),
+    createRunContext(),
+  );
+
+  assert.equal(prepared.handledLocally, false);
+  assert.equal(typeof prepared.customExecutor, "function");
+  assert.equal(prepared.completionDetail, "Displayed Codex CLI version.");
+
+  runtimeManager.dispose();
+});
+
+test("RuntimeManager /completion usage errors are handled locally", async () => {
+  const { runtimeManager } = createRuntimeManager({
+    provider: "codex",
+  });
+  const state = runtimeManager.ensureState("project-codex");
+
+  const prepared = await runtimeManager.prepareRun(
+    state,
+    createPreparedRun("/completion cmd"),
+    createRunContext(),
+  );
+
+  assert.equal(prepared.handledLocally, true);
+  const message = runtimeManager.getSnapshot("project-codex").messages.at(-1)?.content || "";
+  assert.equal(message, "Usage: /completion [bash|elvish|fish|powershell|zsh]");
+
+  runtimeManager.dispose();
+});
+
+test("RuntimeManager prepares /mcp get for Codex custom execution", async () => {
+  const { runtimeManager } = createRuntimeManager({
+    provider: "codex",
+  });
+  const state = runtimeManager.ensureState("project-codex");
+
+  const prepared = await runtimeManager.prepareRun(
+    state,
+    createPreparedRun("/mcp get repo-tools json"),
+    createRunContext(),
+  );
+
+  assert.equal(prepared.handledLocally, false);
+  assert.equal(typeof prepared.customExecutor, "function");
+  assert.equal(prepared.completionDetail, "Displayed Codex MCP configuration.");
 
   runtimeManager.dispose();
 });

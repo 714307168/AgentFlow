@@ -11,13 +11,16 @@ import {
   isImageAttachment,
 } from "./attachment-utils";
 import {
+  buildCodexCompletionArgs,
   buildCodexFeaturesArgs,
   buildCodexExecArgs,
   buildCodexInitPrompt,
+  buildCodexMcpArgs,
   buildCodexReviewArgs,
   buildCodexSearchStatusMessage,
   buildCodexSearchUsageMessage,
   buildCodexUnsupportedSlashMessage,
+  buildCodexVersionArgs,
   buildProviderToolsMessage,
   buildSlashHelpMessage,
   parseSlashToggleIntent,
@@ -1206,6 +1209,18 @@ class RuntimeManager extends EventEmitter {
         return this.prepareCodexFeaturesSlashCommand(state, run, context, command.args);
       }
 
+      if (command.name === "version") {
+        return this.prepareCodexVersionSlashCommand(run, context);
+      }
+
+      if (command.name === "completion") {
+        return this.prepareCodexCompletionSlashCommand(run, context, command.args);
+      }
+
+      if (command.name === "mcp") {
+        return this.prepareCodexMcpSlashCommand(run, context, command.args);
+      }
+
       const unsupportedText = buildCodexUnsupportedSlashMessage(command.name);
       this.appendAssistantText(state, context, run, unsupportedText);
       run.onTextDelta?.(unsupportedText);
@@ -1220,73 +1235,135 @@ class RuntimeManager extends EventEmitter {
   }
 
   private prepareCodexReviewSlashCommand(
-    state: ProjectState,
+    _state: ProjectState,
     run: PendingRun,
     context: RunContext,
     rawArgs: string,
   ): PreparedRunResult {
-    const reviewArgs = buildCodexReviewArgs(rawArgs, state.model);
-    if (!reviewArgs.args) {
-      const message = reviewArgs.errorMessage ?? "Usage: /review [--uncommitted] [--base <branch>] [--commit <sha>] [--title <title>] [instructions]";
-      this.appendAssistantText(state, context, run, message);
-      run.onTextDelta?.(message);
-      return {
-        run,
-        handledLocally: true,
-        completionDetail: "Displayed /review usage.",
-      };
-    }
-
-    return {
+    return this.prepareCodexTextSlashCommand(
       run,
-      handledLocally: false,
-      completionDetail: "Completed Codex review.",
-      customExecutor: async (projectState, preparedRun, preparedContext) => {
-        await this.executeCodexTextCommand(
-          projectState,
-          preparedRun,
-          preparedContext,
-          reviewArgs.args!,
-          {
-            statusDetail: "Running `codex review` for this workspace.",
-            emptyOutputMessage: "Codex review completed with no text output.",
-          },
-        );
+      context,
+      buildCodexReviewArgs(rawArgs, this.getResolvedModel(run.projectId)),
+      {
+        usageCompletionDetail: "Displayed /review usage.",
+        successCompletionDetail: "Completed Codex review.",
+        statusDetail: "Running `codex review` for this workspace.",
+        emptyOutputMessage: "Codex review completed with no text output.",
       },
-    };
+    );
   }
 
   private prepareCodexFeaturesSlashCommand(
-    state: ProjectState,
+    _state: ProjectState,
     run: PendingRun,
     context: RunContext,
     rawArgs: string,
   ): PreparedRunResult {
-    const featureArgs = buildCodexFeaturesArgs(rawArgs, state.model);
-    if (!featureArgs.args) {
-      const message = featureArgs.errorMessage ?? "Usage: /features [list]";
+    return this.prepareCodexTextSlashCommand(
+      run,
+      context,
+      buildCodexFeaturesArgs(rawArgs, this.getResolvedModel(run.projectId)),
+      {
+        usageCompletionDetail: "Displayed /features usage.",
+        successCompletionDetail: "Displayed Codex feature flags.",
+        statusDetail: "Listing Codex CLI feature flags.",
+        emptyOutputMessage: "Codex feature listing completed with no text output.",
+      },
+    );
+  }
+
+  private prepareCodexVersionSlashCommand(
+    run: PendingRun,
+    context: RunContext,
+  ): PreparedRunResult {
+    return this.prepareCodexTextSlashCommand(
+      run,
+      context,
+      buildCodexVersionArgs(),
+      {
+        usageCompletionDetail: "Displayed Codex CLI version.",
+        successCompletionDetail: "Displayed Codex CLI version.",
+        statusDetail: "Checking the installed Codex CLI version.",
+        emptyOutputMessage: "Codex CLI version command completed with no text output.",
+      },
+    );
+  }
+
+  private prepareCodexCompletionSlashCommand(
+    run: PendingRun,
+    context: RunContext,
+    rawArgs: string,
+  ): PreparedRunResult {
+    return this.prepareCodexTextSlashCommand(
+      run,
+      context,
+      buildCodexCompletionArgs(rawArgs),
+      {
+        usageCompletionDetail: "Displayed /completion usage.",
+        successCompletionDetail: "Generated Codex shell completion output.",
+        statusDetail: "Generating a Codex shell completion script.",
+        emptyOutputMessage: "Codex completion command completed with no text output.",
+      },
+    );
+  }
+
+  private prepareCodexMcpSlashCommand(
+    run: PendingRun,
+    context: RunContext,
+    rawArgs: string,
+  ): PreparedRunResult {
+    return this.prepareCodexTextSlashCommand(
+      run,
+      context,
+      buildCodexMcpArgs(rawArgs),
+      {
+        usageCompletionDetail: "Displayed /mcp usage.",
+        successCompletionDetail: "Displayed Codex MCP configuration.",
+        statusDetail: "Inspecting Codex MCP server configuration.",
+        emptyOutputMessage: "Codex MCP command completed with no text output.",
+      },
+    );
+  }
+
+  private prepareCodexTextSlashCommand(
+    run: PendingRun,
+    context: RunContext,
+    commandArgs: {
+      args: string[] | null;
+      errorMessage?: string;
+    },
+    options: {
+      usageCompletionDetail: string;
+      successCompletionDetail: string;
+      statusDetail: string;
+      emptyOutputMessage: string;
+    },
+  ): PreparedRunResult {
+    if (!commandArgs.args) {
+      const message = commandArgs.errorMessage ?? "Invalid Codex command arguments.";
+      const state = this.ensureState(run.projectId);
       this.appendAssistantText(state, context, run, message);
       run.onTextDelta?.(message);
       return {
         run,
         handledLocally: true,
-        completionDetail: "Displayed /features usage.",
+        completionDetail: options.usageCompletionDetail,
       };
     }
 
     return {
       run,
       handledLocally: false,
-      completionDetail: "Displayed Codex feature flags.",
+      completionDetail: options.successCompletionDetail,
       customExecutor: async (projectState, preparedRun, preparedContext) => {
         await this.executeCodexTextCommand(
           projectState,
           preparedRun,
           preparedContext,
-          featureArgs.args!,
+          commandArgs.args!,
           {
-            statusDetail: "Listing Codex CLI feature flags.",
-            emptyOutputMessage: "Codex feature listing completed with no text output.",
+            statusDetail: options.statusDetail,
+            emptyOutputMessage: options.emptyOutputMessage,
           },
         );
       },
