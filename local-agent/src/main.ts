@@ -7,6 +7,7 @@ import Store from "electron-store";
 import { v4 as uuidv4 } from "uuid";
 import { createAppIcon, createTrayIcon } from "./app-icon";
 import appLogger from "./app-logger";
+import { createCoalescedTrigger } from "./coalesced-trigger";
 import RelayClient, { RelayConnectionSnapshot } from "./relay-client";
 import MessageRouter from "./message-router";
 import projectStore, {
@@ -341,6 +342,7 @@ const lastBroadcastWorkgroupCollaborationSnapshotHashByWorkgroup = new Map<strin
 const WORKGROUP_COLLABORATION_RELAY_DEBOUNCE_MS = 200;
 let lastWorkgroupCollaborationRelayPayloadHash = "";
 const REMOTE_PROJECT_CATALOG_REFRESH_MIN_INTERVAL_MS = 5_000;
+const UI_REMOTE_PROJECT_REFRESH_COALESCE_MS = 1_200;
 const REMOTE_WORKGROUP_CATALOG_REFRESH_MIN_INTERVAL_MS = 15_000;
 const RELAY_HEALTH_CHECK_INTERVAL_MS = 15_000;
 const RELAY_MAINTENANCE_INTERVAL_MS = 60_000;
@@ -369,6 +371,9 @@ const pendingRemoteWorkgroupSessionSyncs = new Set<string>();
 let lastAgentRelayRecoveryAt = 0;
 let lastControllerRelayRecoveryAt = 0;
 const relayFollowUpRefreshTimers = new Set<NodeJS.Timeout>();
+const uiRemoteProjectRefreshTrigger = createCoalescedTrigger({
+  minIntervalMs: UI_REMOTE_PROJECT_REFRESH_COALESCE_MS,
+});
 
 function clampTimeoutDelayMs(delayMs: number): number {
   if (!Number.isFinite(delayMs)) {
@@ -3297,6 +3302,19 @@ function scheduleRemoteProjectCatalogRefresh(delayMs: number, reason: string = "
   }, Math.max(0, delayMs));
 }
 
+function requestUiRemoteProjectListRefresh(reason: string = "ui-project-list-refresh"): void {
+  const result = uiRemoteProjectRefreshTrigger.trigger(() => {
+    requestRemoteProjectCatalogRefresh(reason);
+    requestPrioritizedRemoteProjectSyncs(reason);
+  });
+  if (!result.immediate && result.scheduled) {
+    appLogger.info("relay", "Coalesced duplicate UI remote project refresh request.", {
+      reason,
+      minIntervalMs: UI_REMOTE_PROJECT_REFRESH_COALESCE_MS,
+    });
+  }
+}
+
 async function refreshRemoteWorkgroupCatalog(force: boolean = false, reason: string = "unspecified"): Promise<void> {
   if (!remoteWorkgroupStore) {
     return;
@@ -4268,8 +4286,7 @@ async function handleDispatchWorkgroupTaskRequest(taskId: string) {
 // IPC handlers
 ipcMain.handle("get-projects", (_event, options?: { refreshRemote?: boolean } | null) => {
   if (options?.refreshRemote) {
-    requestRemoteProjectCatalogRefresh();
-    requestPrioritizedRemoteProjectSyncs("refresh-remote-project-list");
+    requestUiRemoteProjectListRefresh("refresh-remote-project-list");
   }
   return getAllProjects();
 });
@@ -5879,6 +5896,7 @@ app.on("before-quit", () => {
     clearInterval(relayMaintenanceTimer);
     relayMaintenanceTimer = null;
   }
+  uiRemoteProjectRefreshTrigger.dispose();
   clearRelayFollowUpRefreshTimers();
   if (relayClient) relayClient.disconnect();
   if (controllerRelayClient) controllerRelayClient.disconnect();

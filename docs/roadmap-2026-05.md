@@ -643,3 +643,4 @@
 - [x] Desktop `1.1.126` was published to the update center on `2026-04-11` for Codex slash/tool support, including `/tools`, `/search`, and Codex `--search` project settings sync. Release id: `204`.
 - [x] Desktop `1.1.127` was published to the update center on `2026-04-11` for the `Projects & Workgroups` pane scroll recovery patch, fixing the right-side content area that could still get clipped and stop scrolling to lower items. Release id: `205`.
 - [x] Desktop settings `Projects & Workgroups` now expose a project-level Codex web-search toggle, so Codex projects can enable or disable future `--search` runs without relying on slash commands only.
+- [x] Desktop UI-driven remote project list refreshes now share a short coalescing window, so repeated `getProjects({ refreshRemote: true })` calls from settings and workspace views no longer fan out into duplicate remote catalog and prioritized session-sync bursts.
