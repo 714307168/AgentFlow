@@ -9,6 +9,11 @@ export interface CodexExecArgsOptions {
 
 export type SlashToggleIntent = "status" | "enable" | "disable" | "toggle";
 
+export interface CodexReviewArgsResult {
+  args: string[] | null;
+  errorMessage?: string;
+}
+
 export function buildCodexExecArgs(options: CodexExecArgsOptions): string[] {
   const sharedArgs = [
     "--json",
@@ -45,10 +50,12 @@ export function buildSlashHelpMessage(provider: CliProvider): string {
     "- /screenshot: capture the primary desktop display and send it back into this chat.",
     "- /send-image <path>: copy a local image into this chat. Relative paths resolve from the project root.",
     "- /search [status|on|off|toggle]: manage Codex web search availability for future runs.",
+    "- /review [options] [instructions]: run `codex review` from this workspace.",
+    "- /features [list]: show the current Codex CLI feature flags exposed by `codex features list`.",
     "",
     "Provider behavior:",
     "- Claude Code: native slash commands are passed through when Claude's headless mode supports them.",
-    "- OpenAI Codex: headless codex exec does not expose native slash commands, so this app emulates local commands such as /help, /tools, /model, /search, /screenshot, and /send-image.",
+    "- OpenAI Codex: headless codex exec does not expose native slash commands, so this app emulates local commands such as /help, /tools, /model, /search, /review, /features, /screenshot, and /send-image.",
   ];
 
   if (provider === "codex") {
@@ -61,7 +68,7 @@ export function buildSlashHelpMessage(provider: CliProvider): string {
 export function buildCodexUnsupportedSlashMessage(commandName: string): string {
   return [
     `/${commandName} is not available in headless Codex mode.`,
-    "This workspace currently emulates /help, /tools, /model, /search, /screenshot, and /send-image for Codex projects.",
+    "This workspace currently emulates /help, /tools, /model, /search, /review, /features, /screenshot, and /send-image for Codex projects.",
     "Use a normal prompt for the same intent, or run the full interactive Codex CLI if you need native slash commands.",
   ].join("\n");
 }
@@ -100,9 +107,12 @@ export function buildProviderToolsMessage(options: {
       "- Codex can still use its built-in agent tools during a run, including command execution and file editing inside the workspace.",
       "- This app surfaces Codex activity such as command execution, agent messages, and completion events into the chat/activity timeline.",
       `- Web search tool: ${options.codexSearchEnabled ? "enabled" : "disabled"} for subsequent runs. Use /search on|off|toggle to change it.`,
+      "- `/review` runs `codex review` for workspace changes without leaving the app.",
+      "- `/features` runs `codex features list` so you can inspect CLI feature flags from the app.",
       "",
       "Not exposed in this app:",
       "- The full interactive Codex TUI.",
+      "- Config-mutating top-level flows such as `codex features enable/disable`.",
       "- Native Codex slash commands beyond the local commands emulated by this workspace.",
       "- Standalone top-level CLI flows such as `codex login`, `codex logout`, `codex mcp`, or `codex cloud`.",
     );
@@ -144,4 +154,150 @@ export function buildCodexSearchStatusMessage(enabled: boolean): string {
 
 export function buildCodexSearchUsageMessage(): string {
   return "Usage: /search [status|on|off|toggle]";
+}
+
+export function buildCodexFeaturesArgs(rawArgs: string, model: string | null): CodexReviewArgsResult {
+  const normalized = rawArgs.trim().toLowerCase();
+  if (normalized && normalized !== "list") {
+    return {
+      args: null,
+      errorMessage: "Usage: /features [list]",
+    };
+  }
+
+  return {
+    args: [
+      "features",
+      ...buildCodexConfigArgs(model),
+      "list",
+    ],
+  };
+}
+
+export function buildCodexReviewArgs(rawArgs: string, model: string | null): CodexReviewArgsResult {
+  const tokens = splitSlashArgs(rawArgs);
+  if (!tokens) {
+    return {
+      args: null,
+      errorMessage: "Usage: /review [--uncommitted] [--base <branch>] [--commit <sha>] [--title <title>] [instructions]",
+    };
+  }
+
+  const args = [
+    "review",
+    ...buildCodexConfigArgs(model),
+  ];
+  let hasScope = false;
+  const promptTokens: string[] = [];
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (!token) {
+      continue;
+    }
+
+    if (token === "--uncommitted") {
+      args.push("--uncommitted");
+      hasScope = true;
+      continue;
+    }
+
+    if (token === "--base" || token === "--commit" || token === "--title") {
+      const value = tokens[index + 1];
+      if (!value) {
+        return {
+          args: null,
+          errorMessage: `Missing value for ${token}.\nUsage: /review [--uncommitted] [--base <branch>] [--commit <sha>] [--title <title>] [instructions]`,
+        };
+      }
+      args.push(token, value);
+      if (token !== "--title") {
+        hasScope = true;
+      }
+      index += 1;
+      continue;
+    }
+
+    if (token.startsWith("--")) {
+      return {
+        args: null,
+        errorMessage: `Unsupported /review option: ${token}\nUsage: /review [--uncommitted] [--base <branch>] [--commit <sha>] [--title <title>] [instructions]`,
+      };
+    }
+
+    promptTokens.push(token);
+  }
+
+  if (!hasScope) {
+    args.push("--uncommitted");
+  }
+  if (args.includes("--base") && args.includes("--commit")) {
+    return {
+      args: null,
+      errorMessage: "Use either --base <branch> or --commit <sha>, not both.",
+    };
+  }
+  if (promptTokens.length > 0) {
+    args.push(promptTokens.join(" "));
+  }
+
+  return { args };
+}
+
+function buildCodexConfigArgs(model: string | null): string[] {
+  if (!model) {
+    return [];
+  }
+  return ["-c", `model=${JSON.stringify(model)}`];
+}
+
+function splitSlashArgs(rawArgs: string): string[] | null {
+  const normalized = rawArgs.trim();
+  if (!normalized) {
+    return [];
+  }
+
+  const tokens: string[] = [];
+  let current = "";
+  let quote: "'" | "\"" | null = null;
+
+  for (let index = 0; index < normalized.length; index += 1) {
+    const char = normalized[index];
+    if (quote) {
+      if (char === "\\" && normalized[index + 1] === quote) {
+        current += quote;
+        index += 1;
+        continue;
+      }
+      if (char === quote) {
+        quote = null;
+        continue;
+      }
+      current += char;
+      continue;
+    }
+
+    if (char === "'" || char === "\"") {
+      quote = char;
+      continue;
+    }
+
+    if (/\s/u.test(char)) {
+      if (current) {
+        tokens.push(current);
+        current = "";
+      }
+      continue;
+    }
+
+    current += char;
+  }
+
+  if (quote) {
+    return null;
+  }
+  if (current) {
+    tokens.push(current);
+  }
+  return tokens;
 }

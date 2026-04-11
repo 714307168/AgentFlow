@@ -11,8 +11,10 @@ import {
   isImageAttachment,
 } from "./attachment-utils";
 import {
+  buildCodexFeaturesArgs,
   buildCodexExecArgs,
   buildCodexInitPrompt,
+  buildCodexReviewArgs,
   buildCodexSearchStatusMessage,
   buildCodexSearchUsageMessage,
   buildCodexUnsupportedSlashMessage,
@@ -132,6 +134,7 @@ interface PreparedRunResult {
   run: PendingRun;
   handledLocally: boolean;
   completionDetail?: string;
+  customExecutor?: (state: ProjectState, run: PendingRun, context: RunContext) => Promise<void>;
 }
 
 interface RunProcessOptions {
@@ -654,6 +657,9 @@ class RuntimeManager extends EventEmitter {
       const prepared = await this.prepareRun(state, next, context);
 
       if (prepared.handledLocally) {
+        completionDetail = prepared.completionDetail ?? completionDetail;
+      } else if (prepared.customExecutor) {
+        await prepared.customExecutor(state, prepared.run, context);
         completionDetail = prepared.completionDetail ?? completionDetail;
       } else {
         const run = prepared.run;
@@ -1192,6 +1198,14 @@ class RuntimeManager extends EventEmitter {
         };
       }
 
+      if (command.name === "review") {
+        return this.prepareCodexReviewSlashCommand(state, run, context, command.args);
+      }
+
+      if (command.name === "features") {
+        return this.prepareCodexFeaturesSlashCommand(state, run, context, command.args);
+      }
+
       const unsupportedText = buildCodexUnsupportedSlashMessage(command.name);
       this.appendAssistantText(state, context, run, unsupportedText);
       run.onTextDelta?.(unsupportedText);
@@ -1203,6 +1217,80 @@ class RuntimeManager extends EventEmitter {
     }
 
     return { run, handledLocally: false };
+  }
+
+  private prepareCodexReviewSlashCommand(
+    state: ProjectState,
+    run: PendingRun,
+    context: RunContext,
+    rawArgs: string,
+  ): PreparedRunResult {
+    const reviewArgs = buildCodexReviewArgs(rawArgs, state.model);
+    if (!reviewArgs.args) {
+      const message = reviewArgs.errorMessage ?? "Usage: /review [--uncommitted] [--base <branch>] [--commit <sha>] [--title <title>] [instructions]";
+      this.appendAssistantText(state, context, run, message);
+      run.onTextDelta?.(message);
+      return {
+        run,
+        handledLocally: true,
+        completionDetail: "Displayed /review usage.",
+      };
+    }
+
+    return {
+      run,
+      handledLocally: false,
+      completionDetail: "Completed Codex review.",
+      customExecutor: async (projectState, preparedRun, preparedContext) => {
+        await this.executeCodexTextCommand(
+          projectState,
+          preparedRun,
+          preparedContext,
+          reviewArgs.args!,
+          {
+            statusDetail: "Running `codex review` for this workspace.",
+            emptyOutputMessage: "Codex review completed with no text output.",
+          },
+        );
+      },
+    };
+  }
+
+  private prepareCodexFeaturesSlashCommand(
+    state: ProjectState,
+    run: PendingRun,
+    context: RunContext,
+    rawArgs: string,
+  ): PreparedRunResult {
+    const featureArgs = buildCodexFeaturesArgs(rawArgs, state.model);
+    if (!featureArgs.args) {
+      const message = featureArgs.errorMessage ?? "Usage: /features [list]";
+      this.appendAssistantText(state, context, run, message);
+      run.onTextDelta?.(message);
+      return {
+        run,
+        handledLocally: true,
+        completionDetail: "Displayed /features usage.",
+      };
+    }
+
+    return {
+      run,
+      handledLocally: false,
+      completionDetail: "Displayed Codex feature flags.",
+      customExecutor: async (projectState, preparedRun, preparedContext) => {
+        await this.executeCodexTextCommand(
+          projectState,
+          preparedRun,
+          preparedContext,
+          featureArgs.args!,
+          {
+            statusDetail: "Listing Codex CLI feature flags.",
+            emptyOutputMessage: "Codex feature listing completed with no text output.",
+          },
+        );
+      },
+    };
   }
 
   private runProcess(
@@ -1382,6 +1470,52 @@ class RuntimeManager extends EventEmitter {
       .filter((line) => line && !this.isCliNoiseLine(line))
       .join("\n")
       .trim();
+  }
+
+  private async executeCodexTextCommand(
+    state: ProjectState,
+    run: PendingRun,
+    context: RunContext,
+    args: string[],
+    options: {
+      statusDetail: string;
+      emptyOutputMessage: string;
+    },
+  ): Promise<void> {
+    const command = process.platform === "win32" ? "codex.cmd" : "codex";
+    let producedOutput = false;
+
+    if (context.runStatusActivityId) {
+      this.updateActivity(state, context.runStatusActivityId, {
+        detail: options.statusDetail,
+      });
+    }
+
+    await this.runProcess(
+      state,
+      command,
+      args,
+      run.cwd,
+      (line) => {
+        producedOutput = true;
+        const chunk = context.assistantMessageId ? `\n${line}` : line;
+        this.appendAssistantText(state, context, run, chunk);
+        run.onTextDelta?.(chunk);
+      },
+      undefined,
+      this.getConfig().getProviderEnvironment?.("codex"),
+    );
+
+    if (!producedOutput) {
+      this.appendAssistantText(state, context, run, options.emptyOutputMessage);
+      run.onTextDelta?.(options.emptyOutputMessage);
+    }
+
+    if (context.assistantMessageId) {
+      this.updateMessage(state, context.assistantMessageId, {
+        status: "done",
+      });
+    }
   }
 
   private shouldResumeConversation(projectId: string, provider: CliProvider): boolean {
