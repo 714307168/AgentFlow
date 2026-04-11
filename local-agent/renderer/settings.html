@@ -550,6 +550,9 @@
     .project-edit-field {
       min-width: 0;
     }
+    .project-edit-field.hidden {
+      display: none;
+    }
     .project-edit-field--wide {
       grid-column: 1 / -1;
     }
@@ -941,6 +944,18 @@
               <div class="field">
                 <label id="projectModelLabel">Project Model</label>
                 <input type="text" id="projectModel" placeholder="Leave blank to use the provider default">
+              </div>
+              <div class="toggle-row field hidden" id="projectCodexSearchRow">
+                <div class="toggle-copy">
+                  <div class="setting-label-row">
+                    <div id="projectCodexSearchLabel">Codex Web Search</div>
+                  </div>
+                  <div class="toggle-help" id="projectCodexSearchHint">Enable the Codex `--search` tool for future runs in this project.</div>
+                </div>
+                <label class="toggle">
+                  <input type="checkbox" id="projectCodexSearchEnabled">
+                  <span class="slider"></span>
+                </label>
               </div>
               <div class="field">
                 <label id="projectPromptLabel">Project Guidance</label>
@@ -2610,6 +2625,21 @@
       );
     }
 
+    function isCodexProvider(provider) {
+      return String(provider || "claude").toLowerCase() === "codex";
+    }
+
+    function setProjectCodexSearchVisibility(provider) {
+      const row = document.getElementById("projectCodexSearchRow");
+      const checkbox = document.getElementById("projectCodexSearchEnabled");
+      const visible = isCodexProvider(provider);
+      row.classList.toggle("hidden", !visible);
+      checkbox.disabled = !visible;
+      if (!visible) {
+        checkbox.checked = false;
+      }
+    }
+
     function projectPromptPlaceholder() {
       return inlineText(
         "Where are the test docs, development docs, deployment docs, server config docs, and what kind of project is this?",
@@ -2650,6 +2680,11 @@
       document.getElementById("projectProviderLabel").textContent = msg("settings.cliProvider", "CLI Provider");
       document.getElementById("projectModelLabel").textContent = inlineText("Project Model", "项目模型");
       document.getElementById("projectModel").placeholder = projectModelPlaceholder();
+      document.getElementById("projectCodexSearchLabel").textContent = inlineText("Codex Web Search", "Codex 网络搜索");
+      document.getElementById("projectCodexSearchHint").textContent = inlineText(
+        "Enable the Codex `--search` tool for future runs in this project.",
+        "为当前项目后续运行启用 Codex `--search` 工具。"
+      );
       document.getElementById("projectPromptLabel").textContent = inlineText("Project Guidance", "项目提示词");
       document.getElementById("projectPrompt").placeholder = projectPromptPlaceholder();
       document.getElementById("projectList").setAttribute("data-empty-message", msg("settings.projectEmpty", "No projects yet. Add one above to get started."));
@@ -3186,6 +3221,9 @@
             <div class="project-meta-row">
               <span class="project-provider-badge ${escapeHtml(project.cliProvider || "claude")}">${escapeHtml(providerLabel(project.cliProvider || "claude"))}</span>
               <span class="project-model-badge">${escapeHtml(modelLabel(project.cliModel))}</span>
+              ${project.cliProvider === "codex" && project.codexWebSearchEnabled
+                ? `<span class="project-model-badge">${escapeHtml(inlineText("Web Search On", "已启用网络搜索"))}</span>`
+                : ""}
             </div>
             <div class="project-path">${escapeHtml((project.groupName || "").trim() || inlineText("Default", "默认分组"))}</div>
             <div class="project-path">${escapeHtml(project.path)}</div>
@@ -3220,6 +3258,24 @@
                   onblur="updateProjectModel('${project.id}', this.value)"
                   onkeydown="handleProjectTextKey(event, '${project.id}', this, 'model')"
                 >
+              </div>
+              <div class="project-edit-field ${project.cliProvider === "codex" ? "" : "hidden"}">
+                <div class="toggle-row">
+                  <div class="toggle-copy">
+                    <div class="setting-label-row">
+                      <div>${escapeHtml(inlineText("Codex Web Search", "Codex 网络搜索"))}</div>
+                    </div>
+                    <div class="toggle-help">${escapeHtml(inlineText("Allow future runs to include the Codex `--search` tool.", "允许当前项目后续运行带上 Codex `--search` 工具。"))}</div>
+                  </div>
+                  <label class="toggle">
+                    <input
+                      type="checkbox"
+                      ${project.codexWebSearchEnabled ? "checked" : ""}
+                      onchange="updateProjectCodexWebSearch('${project.id}', this.checked)"
+                    >
+                    <span class="slider"></span>
+                  </label>
+                </div>
               </div>
               <div class="project-edit-field project-edit-field--wide">
                 <label class="project-edit-label">${escapeHtml(inlineText("Project Prompt", "项目提示词"))}</label>
@@ -4742,6 +4798,12 @@
       });
     }
 
+    async function updateProjectCodexWebSearch(projectId, enabled) {
+      await updateProjectConfig(projectId, {
+        codexWebSearchEnabled: enabled === true,
+      });
+    }
+
     async function updateProjectGroup(projectId, groupName) {
       await updateProjectConfig(projectId, {
         groupName: String(groupName || "").trim() || null,
@@ -4819,6 +4881,8 @@
       document.getElementById("cliProvider").value = config.cliProvider || "claude";
       document.getElementById("projectProvider").value = config.cliProvider || "claude";
       document.getElementById("projectModel").value = "";
+      document.getElementById("projectCodexSearchEnabled").checked = false;
+      setProjectCodexSearchVisibility(document.getElementById("projectProvider").value);
       document.getElementById("projectPrompt").value = "";
       document.getElementById("projectGroup").value = "";
       document.getElementById("e2eToggle").checked = e2e.enabled;
@@ -4847,7 +4911,12 @@
 
     document.getElementById("cliProvider").addEventListener("change", () => {
       document.getElementById("projectProvider").value = document.getElementById("cliProvider").value;
+      setProjectCodexSearchVisibility(document.getElementById("projectProvider").value);
       void saveConnectionConfig();
+    });
+
+    document.getElementById("projectProvider").addEventListener("change", () => {
+      setProjectCodexSearchVisibility(document.getElementById("projectProvider").value);
     });
 
     document.getElementById("loginBtn").addEventListener("click", async () => {
@@ -5231,6 +5300,7 @@
     });
 
     document.getElementById("addProjectBtn").addEventListener("click", () => {
+      setProjectCodexSearchVisibility(document.getElementById("projectProvider").value);
       document.getElementById("addProjectForm").classList.add("visible");
       document.getElementById("projectName").focus();
     });
@@ -5242,6 +5312,8 @@
       document.getElementById("projectGroup").value = "";
       document.getElementById("projectProvider").value = document.getElementById("cliProvider").value || "claude";
       document.getElementById("projectModel").value = "";
+      document.getElementById("projectCodexSearchEnabled").checked = false;
+      setProjectCodexSearchVisibility(document.getElementById("projectProvider").value);
       document.getElementById("projectPrompt").value = "";
     });
 
@@ -5251,6 +5323,7 @@
       const groupName = document.getElementById("projectGroup").value.trim();
       const cliProvider = document.getElementById("projectProvider").value;
       const cliModel = document.getElementById("projectModel").value.trim();
+      const codexWebSearchEnabled = cliProvider === "codex" && document.getElementById("projectCodexSearchEnabled").checked;
       const projectPrompt = document.getElementById("projectPrompt").value.trim();
       if (!name || !path) {
         showStatus(msg("settings.projectRequired", "Project name and path are required."), true);
@@ -5263,6 +5336,7 @@
           groupName: groupName || null,
           cliProvider,
           cliModel: cliModel || null,
+          codexWebSearchEnabled,
           projectPrompt: projectPrompt || null,
         });
         document.getElementById("addProjectForm").classList.remove("visible");
@@ -5271,6 +5345,8 @@
         document.getElementById("projectGroup").value = "";
         document.getElementById("projectProvider").value = document.getElementById("cliProvider").value || "claude";
         document.getElementById("projectModel").value = "";
+        document.getElementById("projectCodexSearchEnabled").checked = false;
+        setProjectCodexSearchVisibility(document.getElementById("projectProvider").value);
         document.getElementById("projectPrompt").value = "";
         paneLoadState.projectsDirty = true;
         paneLoadState.workgroupsDirty = true;

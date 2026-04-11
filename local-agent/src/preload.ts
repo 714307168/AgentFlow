@@ -139,8 +139,19 @@ contextBridge.exposeInMainWorld('claudeAgent', {
   onWorkgroupCollaborationId: (callback: (id: string | null) => void) => {
     ipcRenderer.on('workgroup-collaboration-id', (_event, id: string | null) => callback(id));
   },
-  addProject: (data: { name: string; path: string; groupName?: string | null; cliProvider?: string; cliModel?: string | null; projectPrompt?: string | null }) => ipcRenderer.invoke('add-project', data),
-  updateProject: (data: { projectId: string; updates: Record<string, string | null> }) => ipcRenderer.invoke('update-project', data),
+  addProject: (data: {
+    name: string;
+    path: string;
+    groupName?: string | null;
+    cliProvider?: string;
+    cliModel?: string | null;
+    codexWebSearchEnabled?: boolean;
+    projectPrompt?: string | null;
+  }) => ipcRenderer.invoke('add-project', data),
+  updateProject: (data: {
+    projectId: string;
+    updates: Record<string, string | boolean | null>;
+  }) => ipcRenderer.invoke('update-project', data),
   deleteProject: (projectId: string) => ipcRenderer.invoke('delete-project', projectId),
   openProjectWindow: (projectId: string) => {
     ipcRenderer.send('open-project-window', projectId);

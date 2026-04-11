@@ -641,3 +641,4 @@
 - [x] Desktop settings `Projects & Workgroups` pane now stretches the main content column to the available viewport height again, restoring inner scrolling so lower projects remain reachable instead of being clipped below the fold.
 - [x] Desktop `1.1.125` was published to the update center on `2026-04-11` for the settings-pane scroll recovery patch. Release id: `203`.
 - [x] Desktop `1.1.126` was published to the update center on `2026-04-11` for Codex slash/tool support, including `/tools`, `/search`, and Codex `--search` project settings sync. Release id: `204`.
+- [x] Desktop settings `Projects & Workgroups` now expose a project-level Codex web-search toggle, so Codex projects can enable or disable future `--search` runs without relying on slash commands only.

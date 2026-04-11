@@ -154,6 +154,7 @@ interface ProjectState {
   groupName?: string | null;
   cliProvider: "claude" | "codex";
   cliModel?: string | null;
+  codexWebSearchEnabled?: boolean;
   online?: boolean;
   isRemote?: boolean;
 }
