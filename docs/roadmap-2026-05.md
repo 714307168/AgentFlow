@@ -635,3 +635,6 @@
 - [x] Session-shell sync selection is split into a reusable planner utility and covered by a JVM unit test so later sync-policy changes can be adjusted without reworking `MessageRepository`.
 - [x] Android chat auto-loading of older history is now blocked until the initial bottom anchor has been applied, preventing the first open / resume path from immediately prepending history and leaving the user in the middle of the conversation.
 - [x] `R-mobile-feature`: Android `1.2.18 (build 102)` was published to the update center on `2026-04-11` for the session-shell sync and chat bottom-anchor recovery patch. Release id: `201`.
+- [x] Desktop runtime queue execution now keeps strict FIFO order by local acceptance sequence instead of reordering queued runs by timestamp or `runId`, so older queued prompts no longer get jumped by newer ones when timestamps collide or an active run is interrupted.
+- [x] Desktop runtime queue order is now covered by a dedicated Node test, including the interrupt-while-running path that previously inserted newer work at the front of the queue.
+- [x] `R-desktop-patch`: desktop `1.1.124` was published to the update center on `2026-04-11` for the FIFO queue execution fix. Release id: `202`.

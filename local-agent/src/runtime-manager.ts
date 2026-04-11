@@ -212,16 +212,13 @@ class RuntimeManager extends EventEmitter {
         : Date.now(),
     };
 
+    this.enqueuePendingRun(state, pendingRun);
     if (options.interruptCurrent && state.active) {
-      state.queue.unshift(pendingRun);
       this.stopCurrentRun(
         options.projectId,
         options.interruptReason ?? "Interrupted by a newer prompt.",
         false,
       );
-    } else {
-      state.queue.push(pendingRun);
-      state.queue.sort((left, right) => left.queuedAt - right.queuedAt || left.runId.localeCompare(right.runId));
     }
     this.emitSnapshot(options.projectId);
     void this.processNext(options.projectId);
@@ -2179,6 +2176,10 @@ class RuntimeManager extends EventEmitter {
     this.activateConversationState(created, initialConversation.id, initialConversation);
     this.states.set(projectId, created);
     return created;
+  }
+
+  private enqueuePendingRun(state: ProjectState, pendingRun: PendingRun): void {
+    state.queue.push(pendingRun);
   }
 
   private emitSnapshot(projectId: string): void {
