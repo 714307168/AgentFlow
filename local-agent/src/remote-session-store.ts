@@ -29,6 +29,7 @@ export interface RemoteProjectInfo {
   groupName?: string | null;
   cliProvider: CliProvider;
   cliModel?: string | null;
+  codexWebSearchEnabled?: boolean;
   projectPrompt?: string | null;
   online?: boolean;
 }
@@ -531,6 +532,7 @@ export default class RemoteSessionStore extends EventEmitter {
       groupName?: string | null;
       cliProvider?: CliProvider;
       cliModel?: string | null;
+      codexWebSearchEnabled?: boolean;
       projectPrompt?: string | null;
     } | null;
   } = {}): void {
@@ -552,6 +554,7 @@ export default class RemoteSessionStore extends EventEmitter {
           group_name: options.projectUpdates.groupName ?? undefined,
           cli_provider: options.projectUpdates.cliProvider ?? undefined,
           cli_model: options.projectUpdates.cliModel ?? undefined,
+          codex_web_search: options.projectUpdates.codexWebSearchEnabled ?? undefined,
           project_prompt: options.projectUpdates.projectPrompt ?? undefined,
         } : undefined,
         known_items: this.buildKnownSyncItems(projectId, options),
@@ -563,6 +566,7 @@ export default class RemoteSessionStore extends EventEmitter {
     groupName?: string | null;
     cliProvider?: CliProvider;
     cliModel?: string | null;
+    codexWebSearchEnabled?: boolean;
     projectPrompt?: string | null;
   }): { success: boolean; error?: string } {
     const state = this.states.get(projectId);
@@ -591,6 +595,9 @@ export default class RemoteSessionStore extends EventEmitter {
         : null;
       state.model = state.project.cliModel ?? null;
     }
+    if (updates.codexWebSearchEnabled !== undefined) {
+      state.project.codexWebSearchEnabled = updates.codexWebSearchEnabled === true;
+    }
     if (updates.projectPrompt !== undefined) {
       state.project.projectPrompt = typeof updates.projectPrompt === "string" && updates.projectPrompt.trim()
         ? updates.projectPrompt.trim()
@@ -606,6 +613,7 @@ export default class RemoteSessionStore extends EventEmitter {
         groupName: state.project.groupName ?? null,
         cliProvider: state.project.cliProvider,
         cliModel: state.project.cliModel ?? null,
+        codexWebSearchEnabled: state.project.codexWebSearchEnabled === true,
         projectPrompt: state.project.projectPrompt ?? null,
       },
     });
@@ -806,6 +814,7 @@ export default class RemoteSessionStore extends EventEmitter {
         groupName: readString(item?.groupName ?? item?.group_name).trim() || null,
         cliProvider: readString(item?.cliProvider ?? item?.cli_provider) === "codex" ? "codex" : "claude",
         cliModel: readString(item?.cliModel ?? item?.cli_model).trim() || null,
+        codexWebSearchEnabled: item?.codexWebSearch === true || item?.codex_web_search === true,
         projectPrompt: readString(item?.projectPrompt ?? item?.project_prompt).trim() || null,
         online: item?.online !== false,
         isRemote: true,

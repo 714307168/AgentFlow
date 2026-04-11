@@ -9,7 +9,11 @@ import { createAppIcon, createTrayIcon } from "./app-icon";
 import appLogger from "./app-logger";
 import RelayClient, { RelayConnectionSnapshot } from "./relay-client";
 import MessageRouter from "./message-router";
-import projectStore, { normalizeProjectGroupName, Project } from "./project-store";
+import projectStore, {
+  normalizeCodexWebSearchEnabled,
+  normalizeProjectGroupName,
+  Project,
+} from "./project-store";
 import ptyManager from "./pty-manager";
 import RemoteSessionStore, { RemoteProjectRecord } from "./remote-session-store";
 import RemoteWorkgroupStore, { RemoteWorkgroupRegistryRecord, parseCompositeWorkgroupId } from "./remote-workgroup-store";
@@ -997,6 +1001,11 @@ function getProjectCliModel(projectId: string): string | null {
   return defaultModel || null;
 }
 
+function getProjectCodexWebSearchEnabled(projectId: string): boolean {
+  const project = projectStore.getById(projectId);
+  return normalizeCodexWebSearchEnabled(project?.codexWebSearchEnabled);
+}
+
 function getProjectPrompt(projectId: string): string | null {
   if (isWorkgroupPmProjectId(projectId)) {
     const workgroupId = getWorkgroupIdFromPmProjectId(projectId);
@@ -1034,6 +1043,7 @@ function buildProjectListPayload(agentId: string): {
     group_name: string;
     cli_provider: CliProvider;
     cli_model: string;
+    codex_web_search: boolean;
     project_prompt: string;
   }>;
 } {
@@ -1046,6 +1056,7 @@ function buildProjectListPayload(agentId: string): {
       group_name: project.groupName ?? "",
       cli_provider: project.cliProvider,
       cli_model: project.cliModel ?? "",
+      codex_web_search: normalizeCodexWebSearchEnabled(project.codexWebSearchEnabled),
       project_prompt: project.projectPrompt ?? "",
     })),
   };
@@ -1056,6 +1067,7 @@ normalizeAllWorkgroupPmMembers();
 const runtimeManager = new RuntimeManager(() => ({
   getProjectProvider: getProjectCliProvider,
   getProjectModel: getProjectCliModel,
+  getProjectCodexWebSearchEnabled,
   getProjectPrompt,
   getProviderEnvironment: (provider) => getProviderEnvironment(provider),
   shouldResumeConversation: (projectId) => !isWorkgroupPmProjectId(projectId),
@@ -3688,6 +3700,7 @@ function sendProjectBind(project: Project, agentId: string): void {
       group_name: project.groupName ?? "",
       cli_provider: project.cliProvider,
       cli_model: project.cliModel ?? "",
+      codex_web_search: normalizeCodexWebSearchEnabled(project.codexWebSearchEnabled),
       project_prompt: project.projectPrompt ?? "",
     },
   });
@@ -4267,6 +4280,7 @@ ipcMain.handle("add-project", async (_event, data: {
   groupName?: string | null;
   cliProvider?: CliProvider;
   cliModel?: string | null;
+  codexWebSearchEnabled?: boolean;
   projectPrompt?: string | null;
 }) => {
   const config = loadConfig();
@@ -4283,6 +4297,7 @@ ipcMain.handle("add-project", async (_event, data: {
     groupName: normalizeProjectGroupName(data.groupName),
     cliProvider,
     cliModel,
+    codexWebSearchEnabled: normalizeCodexWebSearchEnabled(data.codexWebSearchEnabled),
     projectPrompt: data.projectPrompt?.trim() ? data.projectPrompt.trim() : null,
     createdAt: Date.now(),
   });
@@ -4299,7 +4314,10 @@ ipcMain.handle("add-project", async (_event, data: {
 
 ipcMain.handle(
   "update-project",
-  (_event, data: { projectId: string; updates: Partial<Pick<Project, "name" | "path" | "groupName" | "cliProvider" | "cliModel" | "projectPrompt">> }) => {
+  (_event, data: {
+    projectId: string;
+    updates: Partial<Pick<Project, "name" | "path" | "groupName" | "cliProvider" | "cliModel" | "codexWebSearchEnabled" | "projectPrompt">>;
+  }) => {
     const liveProject = getProjectById(data.projectId);
     if (!liveProject) {
       return { success: false, error: "Project not found" };
@@ -4318,6 +4336,9 @@ ipcMain.handle(
     if (data.updates.cliModel !== undefined) {
       nextUpdates.cliModel = data.updates.cliModel?.trim() ? data.updates.cliModel.trim() : null;
     }
+    if (data.updates.codexWebSearchEnabled !== undefined) {
+      nextUpdates.codexWebSearchEnabled = normalizeCodexWebSearchEnabled(data.updates.codexWebSearchEnabled);
+    }
     if (data.updates.projectPrompt !== undefined) {
       nextUpdates.projectPrompt = data.updates.projectPrompt?.trim() ? data.updates.projectPrompt.trim() : null;
     }
@@ -4327,6 +4348,7 @@ ipcMain.handle(
         groupName: nextUpdates.groupName,
         cliProvider: nextUpdates.cliProvider,
         cliModel: nextUpdates.cliModel,
+        codexWebSearchEnabled: nextUpdates.codexWebSearchEnabled,
         projectPrompt: nextUpdates.projectPrompt,
       }) ?? { success: false, error: "Remote project sync is unavailable" };
       if (!result.success) {

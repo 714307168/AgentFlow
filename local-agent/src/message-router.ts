@@ -2,7 +2,7 @@ import { v4 as uuidv4 } from "uuid";
 import * as fs from "fs";
 import * as path from "path";
 import RelayClient from "./relay-client";
-import projectStore from "./project-store";
+import projectStore, { normalizeCodexWebSearchEnabled } from "./project-store";
 import RuntimeManager, { CliProvider, RunAttachment } from "./runtime-manager";
 import type { SessionSyncKnownItemDigest } from "./session-sync-hash";
 import { buildSessionSyncPayload } from "./session-sync-payload";
@@ -361,6 +361,7 @@ class MessageRouter {
       group_name?: string | null;
       cli_provider?: CliProvider;
       cli_model?: string | null;
+      codex_web_search?: boolean;
       project_prompt?: string | null;
     } | undefined;
     const projectId = payload?.project_id ?? payload?.id;
@@ -380,6 +381,9 @@ class MessageRouter {
         groupName: payload.group_name?.trim() || (existing.groupName ?? null),
         cliProvider,
         cliModel: payload.cli_model?.trim() ? payload.cli_model.trim() : existing.cliModel ?? null,
+        codexWebSearchEnabled: payload.codex_web_search !== undefined
+          ? normalizeCodexWebSearchEnabled(payload.codex_web_search)
+          : normalizeCodexWebSearchEnabled(existing.codexWebSearchEnabled),
         projectPrompt: payload.project_prompt?.trim() ? payload.project_prompt.trim() : existing.projectPrompt ?? null,
       });
     } else {
@@ -391,6 +395,7 @@ class MessageRouter {
         groupName: payload.group_name?.trim() || null,
         cliProvider,
         cliModel: payload.cli_model?.trim() ? payload.cli_model.trim() : null,
+        codexWebSearchEnabled: normalizeCodexWebSearchEnabled(payload.codex_web_search),
         projectPrompt: payload.project_prompt?.trim() ? payload.project_prompt.trim() : null,
         createdAt: Date.now(),
       });
@@ -710,6 +715,7 @@ class MessageRouter {
         group_name?: string | null;
         cli_provider?: CliProvider;
         cli_model?: string | null;
+        codex_web_search?: boolean;
         project_prompt?: string | null;
       };
       known_items?: Array<{
@@ -748,6 +754,7 @@ class MessageRouter {
           cliModel: payloadObject?.project_updates?.cli_model?.trim()
             ? payloadObject.project_updates.cli_model.trim()
             : null,
+          codexWebSearchEnabled: normalizeCodexWebSearchEnabled(payloadObject?.project_updates?.codex_web_search),
           projectPrompt: payloadObject?.project_updates?.project_prompt?.trim()
             ? payloadObject.project_updates.project_prompt.trim()
             : null,

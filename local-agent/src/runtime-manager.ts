@@ -10,6 +10,16 @@ import {
   getUniqueAttachmentPath,
   isImageAttachment,
 } from "./attachment-utils";
+import {
+  buildCodexExecArgs,
+  buildCodexInitPrompt,
+  buildCodexSearchStatusMessage,
+  buildCodexSearchUsageMessage,
+  buildCodexUnsupportedSlashMessage,
+  buildProviderToolsMessage,
+  buildSlashHelpMessage,
+  parseSlashToggleIntent,
+} from "./codex-command-support";
 import SessionHistoryStore, {
   ChatHistoryRepairSummary,
   PersistedProjectState,
@@ -34,11 +44,15 @@ import type {
 export interface RuntimeConfig {
   getProjectProvider: (projectId: string) => CliProvider;
   getProjectModel: (projectId: string) => string | null;
+  getProjectCodexWebSearchEnabled?: (projectId: string) => boolean;
   getProjectPrompt?: (projectId: string) => string | null;
   getProviderEnvironment?: (provider: CliProvider) => Record<string, string>;
   shouldResumeConversation?: (projectId: string, provider: CliProvider) => boolean;
   shouldPersistProjectHistory?: (projectId: string) => boolean;
-  updateProject: (projectId: string, updates: { cliModel?: string | null }) => void;
+  updateProject: (projectId: string, updates: {
+    cliModel?: string | null;
+    codexWebSearchEnabled?: boolean;
+  }) => void;
   onProjectConfigChanged?: (projectId: string) => void;
   captureProjectScreenshot?: (projectId: string) => Promise<RunAttachment>;
 }
@@ -887,24 +901,12 @@ class RuntimeManager extends EventEmitter {
     const command = process.platform === "win32" ? "codex.cmd" : "codex";
     let codexChild: ChildProcessWithoutNullStreams | null = null;
     let logicalCompletionSeen = false;
-    const canResumeConversation = this.shouldResumeConversation(state.projectId, "codex");
-    const args = canResumeConversation && state.codexThreadId
-      ? [
-          "exec",
-          "resume",
-          "--json",
-          "--dangerously-bypass-approvals-and-sandbox",
-          "--skip-git-repo-check",
-          ...(state.model ? ["--model", state.model] : []),
-          state.codexThreadId,
-        ]
-      : [
-          "exec",
-          "--json",
-          "--dangerously-bypass-approvals-and-sandbox",
-          "--skip-git-repo-check",
-          ...(state.model ? ["--model", state.model] : []),
-        ];
+    const args = buildCodexExecArgs({
+      canResumeConversation: this.shouldResumeConversation(state.projectId, "codex"),
+      codexThreadId: state.codexThreadId,
+      model: state.model,
+      searchEnabled: this.isCodexWebSearchEnabled(state.projectId),
+    });
 
     return this.runProcess(
       state,
@@ -1112,7 +1114,7 @@ class RuntimeManager extends EventEmitter {
     }
 
     if (command.name === "help") {
-      const helpText = this.buildSlashHelpMessage(state.provider);
+      const helpText = buildSlashHelpMessage(state.provider);
       this.appendAssistantText(state, context, run, helpText);
       run.onTextDelta?.(helpText);
       return {
@@ -1122,8 +1124,32 @@ class RuntimeManager extends EventEmitter {
       };
     }
 
+    if (command.name === "tools") {
+      const toolsText = buildProviderToolsMessage({
+        provider: state.provider,
+        model: state.model,
+        codexSearchEnabled: this.isCodexWebSearchEnabled(state.projectId),
+      });
+      this.appendAssistantText(state, context, run, toolsText);
+      run.onTextDelta?.(toolsText);
+      return {
+        run,
+        handledLocally: true,
+        completionDetail: "Displayed provider tool support.",
+      };
+    }
+
     if (command.name === "model") {
       const completionDetail = this.handleModelSlashCommand(state, run, context, command.args);
+      return {
+        run,
+        handledLocally: true,
+        completionDetail,
+      };
+    }
+
+    if (command.name === "search") {
+      const completionDetail = this.handleSearchSlashCommand(state, run, context, command.args);
       return {
         run,
         handledLocally: true,
@@ -1160,13 +1186,13 @@ class RuntimeManager extends EventEmitter {
         return {
           run: {
             ...run,
-            prompt: this.buildCodexInitPrompt(command.args),
+            prompt: buildCodexInitPrompt(command.args),
           },
           handledLocally: false,
         };
       }
 
-      const unsupportedText = this.buildCodexUnsupportedSlashMessage(command.name);
+      const unsupportedText = buildCodexUnsupportedSlashMessage(command.name);
       this.appendAssistantText(state, context, run, unsupportedText);
       run.onTextDelta?.(unsupportedText);
       return {
@@ -1616,6 +1642,10 @@ class RuntimeManager extends EventEmitter {
     return model || null;
   }
 
+  private isCodexWebSearchEnabled(projectId: string): boolean {
+    return this.getConfig().getProjectCodexWebSearchEnabled?.(projectId) ?? false;
+  }
+
   private getProviderLabel(provider: CliProvider): string {
     return provider === "codex" ? "OpenAI Codex" : "Claude Code";
   }
@@ -1710,53 +1740,6 @@ class RuntimeManager extends EventEmitter {
     };
   }
 
-  private buildSlashHelpMessage(provider: CliProvider): string {
-    const lines = [
-      "Supported slash commands in this app:",
-      "- /help: show slash-command support in the desktop workspace.",
-      "- /init [extra notes]: initialize project guidance for future agent runs.",
-      "- /model: show the current project model.",
-      "- /model <name>: switch the current project to a specific model.",
-      "- /model auto: return to the provider default model.",
-      "- /screenshot: capture the primary desktop display and send it back into this chat.",
-      "- /send-image <path>: copy a local image into this chat. Relative paths resolve from the project root.",
-      "",
-      "Provider behavior:",
-      "- Claude Code: native slash commands are passed through when Claude's headless mode supports them.",
-      "- OpenAI Codex: headless codex exec does not expose native slash commands, so this app emulates local commands such as /help, /model, /screenshot, and /send-image.",
-    ];
-
-    if (provider === "codex") {
-      lines.push("- For other Codex slash commands, use a normal prompt or the full interactive Codex CLI.");
-    }
-
-    return lines.join("\n");
-  }
-
-  private buildCodexUnsupportedSlashMessage(commandName: string): string {
-    return [
-      `/${commandName} is not available in headless Codex mode.`,
-      "This workspace currently emulates /help, /model, /screenshot, and /send-image for Codex projects.",
-      "Use a normal prompt for the same intent, or run the full interactive Codex CLI if you need native slash commands.",
-    ].join("\n");
-  }
-
-  private buildCodexInitPrompt(extraNotes: string): string {
-    const parts = [
-      "Initialize this repository for future Codex and coding-agent sessions.",
-      "Inspect the repository first, then create or update a root-level AGENTS.md file.",
-      "Keep AGENTS.md concise and practical.",
-      "Include only guidance you can verify from the repository, such as project structure, important commands, test/build/lint workflows, and coding conventions.",
-      "If AGENTS.md already exists, improve it in place instead of duplicating content.",
-    ];
-
-    if (extraNotes) {
-      parts.push(`Additional user guidance: ${extraNotes}`);
-    }
-
-    return parts.join("\n");
-  }
-
   private handleModelSlashCommand(
     state: ProjectState,
     run: PendingRun,
@@ -1790,6 +1773,57 @@ class RuntimeManager extends EventEmitter {
     const message = nextModel
       ? `Switched ${this.getProviderLabel(state.provider)} to model: ${nextModel}`
       : `Switched ${this.getProviderLabel(state.provider)} back to the provider default model.`;
+    this.appendAssistantText(state, context, run, message);
+    run.onTextDelta?.(message);
+    return message;
+  }
+
+  private handleSearchSlashCommand(
+    state: ProjectState,
+    run: PendingRun,
+    context: RunContext,
+    rawArgs: string,
+  ): string {
+    if (state.provider !== "codex") {
+      const message = "The /search command is currently available only for OpenAI Codex projects.";
+      this.appendAssistantText(state, context, run, message);
+      run.onTextDelta?.(message);
+      return message;
+    }
+
+    const currentEnabled = this.isCodexWebSearchEnabled(state.projectId);
+    const intent = parseSlashToggleIntent(rawArgs);
+    if (!intent) {
+      const usage = buildCodexSearchUsageMessage();
+      this.appendAssistantText(state, context, run, usage);
+      run.onTextDelta?.(usage);
+      return usage;
+    }
+
+    if (intent === "status") {
+      const statusMessage = [
+        buildCodexSearchStatusMessage(currentEnabled),
+        "Use /search on, /search off, or /search toggle to change it.",
+      ].join("\n");
+      this.appendAssistantText(state, context, run, statusMessage);
+      run.onTextDelta?.(statusMessage);
+      return "Displayed Codex web search status.";
+    }
+
+    const nextEnabled = intent === "toggle" ? !currentEnabled : intent === "enable";
+    if (nextEnabled !== currentEnabled) {
+      this.getConfig().updateProject(state.projectId, {
+        codexWebSearchEnabled: nextEnabled,
+      });
+      this.getConfig().onProjectConfigChanged?.(state.projectId);
+    }
+
+    const message = [
+      buildCodexSearchStatusMessage(nextEnabled),
+      nextEnabled
+        ? "Future Codex runs will include the `--search` flag."
+        : "Future Codex runs will no longer include the `--search` flag.",
+    ].join("\n");
     this.appendAssistantText(state, context, run, message);
     run.onTextDelta?.(message);
     return message;

@@ -7,6 +7,10 @@ export function normalizeProjectGroupName(rawValue: string | null | undefined): 
   return normalized || null;
 }
 
+export function normalizeCodexWebSearchEnabled(rawValue: unknown): boolean {
+  return rawValue === true;
+}
+
 interface Project {
   id: string;
   name: string;
@@ -14,6 +18,7 @@ interface Project {
   agentId: string;
   cliProvider: ProjectCliProvider;
   cliModel?: string | null;
+  codexWebSearchEnabled?: boolean;
   groupName?: string | null;
   projectPrompt?: string | null;
   createdAt: number;
@@ -36,6 +41,7 @@ class ProjectStore {
     const projects = this.getAll();
     projects.push({
       ...project,
+      codexWebSearchEnabled: normalizeCodexWebSearchEnabled(project.codexWebSearchEnabled),
       groupName: normalizeProjectGroupName(project.groupName),
       projectPrompt: typeof project.projectPrompt === "string" ? project.projectPrompt.trim() || null : null,
     });
@@ -50,6 +56,7 @@ class ProjectStore {
   getAll(): Project[] {
     return this.store.get("projects", []).map((project) => ({
       ...project,
+      codexWebSearchEnabled: normalizeCodexWebSearchEnabled(project.codexWebSearchEnabled),
       groupName: normalizeProjectGroupName(project.groupName),
       projectPrompt: typeof project.projectPrompt === "string" ? project.projectPrompt.trim() || null : null,
     }));
@@ -65,6 +72,9 @@ class ProjectStore {
         ? {
             ...p,
             ...updates,
+            codexWebSearchEnabled: updates.codexWebSearchEnabled !== undefined
+              ? normalizeCodexWebSearchEnabled(updates.codexWebSearchEnabled)
+              : normalizeCodexWebSearchEnabled(p.codexWebSearchEnabled),
             groupName: updates.groupName !== undefined
               ? normalizeProjectGroupName(updates.groupName)
               : normalizeProjectGroupName(p.groupName),
