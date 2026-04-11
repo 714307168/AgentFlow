@@ -640,3 +640,4 @@
 - [x] `R-desktop-patch`: desktop `1.1.124` was published to the update center on `2026-04-11` for the FIFO queue execution fix. Release id: `202`.
 - [x] Desktop settings `Projects & Workgroups` pane now stretches the main content column to the available viewport height again, restoring inner scrolling so lower projects remain reachable instead of being clipped below the fold.
 - [x] Desktop `1.1.125` was published to the update center on `2026-04-11` for the settings-pane scroll recovery patch. Release id: `203`.
+- [x] Desktop `1.1.126` is queued for release on `2026-04-11` for Codex slash/tool support, including `/tools`, `/search`, and Codex `--search` project settings sync.
