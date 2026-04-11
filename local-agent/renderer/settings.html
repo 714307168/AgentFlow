@@ -747,6 +747,68 @@
       color: var(--muted);
       font-size: 12px;
     }
+    .runtime-status-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 12px;
+      margin-top: 14px;
+    }
+    .runtime-status-card {
+      border: 1px solid var(--border);
+      background: var(--panel-2);
+      border-radius: 14px;
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .runtime-status-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .runtime-status-title {
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .runtime-status-pill {
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 11px;
+      font-weight: 700;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      background: rgba(255, 255, 255, 0.02);
+      flex-shrink: 0;
+    }
+    .runtime-status-pill.ok {
+      color: var(--success);
+      border-color: color-mix(in srgb, var(--success) 48%, var(--border));
+      background: color-mix(in srgb, var(--success-bg) 68%, transparent);
+    }
+    .runtime-status-pill.error {
+      color: var(--error);
+      border-color: color-mix(in srgb, var(--error) 48%, var(--border));
+      background: color-mix(in srgb, var(--error-bg) 72%, transparent);
+    }
+    .runtime-status-version {
+      font-family: Consolas, monospace;
+      font-size: 12px;
+      color: var(--text);
+      word-break: break-word;
+    }
+    .runtime-status-detail {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.5;
+      word-break: break-word;
+    }
+    .runtime-status-actions {
+      margin-top: 12px;
+      display: flex;
+      justify-content: flex-end;
+    }
     @media (max-width: 960px) {
       .settings-shell {
         grid-template-columns: 1fr;
@@ -1588,6 +1650,10 @@
                 <option value="codex">OpenAI Codex</option>
               </select>
               <div id="runtimeHint">Both providers run in full-auto mode with no approval prompts or click-throughs.</div>
+              <div class="runtime-status-grid" id="runtimeStatusGrid"></div>
+              <div class="runtime-status-actions">
+                <button class="btn-secondary" id="refreshRuntimeStatusBtn" type="button">Refresh Runtime Status</button>
+              </div>
             </div>
             <div class="runtime-grid">
               <div class="runtime-card">
@@ -1658,6 +1724,7 @@
     let latestAccessState = null;
     let latestConfig = null;
     let latestAppSettings = null;
+    let latestCliProviderRuntimeStatus = null;
     let latestConnectionSnapshot = null;
     let latestLocalDataMetrics = null;
     let latestRelayTransfers = [];
@@ -1790,6 +1857,23 @@
         return `${(size / (1024 * 1024)).toFixed(1)} MB`;
       }
       return `${(size / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+    }
+
+    function formatProviderStatusCheckedAt(value) {
+      if (!value) {
+        return inlineText("Not checked yet", "尚未检测");
+      }
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) {
+        return inlineText("Unknown check time", "检测时间未知");
+      }
+      return date.toLocaleString(currentLang === "zh" ? "zh-CN" : "en-US", {
+        hour12: false,
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
     }
 
     function formatDateTime(value) {
@@ -1933,6 +2017,54 @@
           `桌面侧文件交接缓存占用 ${formatBytes(latestLocalDataMetrics?.attachments?.totalBytes || 0)}。`
         )
       );
+    }
+
+    function renderCliProviderRuntimeStatus() {
+      const container = document.getElementById("runtimeStatusGrid");
+      if (!container) {
+        return;
+      }
+      const statusMap = latestCliProviderRuntimeStatus || {};
+      const providers = [
+        { id: "claude", label: "Claude Code" },
+        { id: "codex", label: "OpenAI Codex" },
+      ];
+      container.innerHTML = providers.map(({ id, label }) => {
+        const status = statusMap[id] || null;
+        const installed = status?.installed === true;
+        const pillText = installed
+          ? inlineText("Installed", "已安装")
+          : inlineText("Missing", "未安装");
+        const versionText = status?.version
+          ? escapeHtml(status.version)
+          : escapeHtml(inlineText("No version detected", "未检测到版本"));
+        const detailText = status?.detail
+          ? escapeHtml(status.detail)
+          : escapeHtml(inlineText("Runtime detection has not run yet.", "运行环境检测尚未执行。"));
+        const checkedAtText = escapeHtml(
+          inlineText("Checked: ", "检测时间：") + formatProviderStatusCheckedAt(status?.checkedAt)
+        );
+        return `
+          <div class="runtime-status-card">
+            <div class="runtime-status-header">
+              <div class="runtime-status-title">${escapeHtml(label)}</div>
+              <div class="runtime-status-pill ${installed ? "ok" : "error"}">${pillText}</div>
+            </div>
+            <div class="runtime-status-version">${versionText}</div>
+            <div class="runtime-status-detail">${detailText}</div>
+            <div class="runtime-status-detail">${checkedAtText}</div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    async function loadCliProviderRuntimeStatus() {
+      try {
+        latestCliProviderRuntimeStatus = await api.getCliProviderRuntimeStatus();
+        renderCliProviderRuntimeStatus();
+      } catch (error) {
+        console.error("Failed to load CLI provider runtime status:", error);
+      }
     }
 
     function setSelectOptions(selectId, options, selectedValue = "") {
@@ -2975,6 +3107,7 @@
       );
       document.getElementById("cliProviderLabel").textContent = msg("settings.cliProvider", "CLI Provider");
       document.getElementById("runtimeHint").textContent = msg("settings.runtimeHint", "Both providers run in full-auto mode with no approval prompts or click-throughs.");
+      document.getElementById("refreshRuntimeStatusBtn").textContent = inlineText("Refresh Runtime Status", "刷新运行环境状态");
       document.getElementById("openaiRuntimeTitle").textContent = inlineText("OpenAI-Compatible", "OpenAI 协议");
       document.getElementById("openaiApiKeyLabel").textContent = inlineText("OpenAI-Compatible API Key", "OpenAI 协议 API Key");
       document.getElementById("openaiBaseUrlLabel").textContent = inlineText("OpenAI-Compatible Base URL", "OpenAI 协议 Base URL");
@@ -4855,6 +4988,7 @@
         renderAccessGrants(latestAccessState);
       }
       renderOverviewDashboard();
+      renderCliProviderRuntimeStatus();
       renderTransferCenter();
       renderAutomationOverview();
       if (activeSettingsPane === "overview" || activeSettingsPane === "connection") {
@@ -4864,16 +4998,18 @@
     }
 
     async function loadSettings() {
-      const [config, e2e, lang, i18nMessages, appSettings, updateState] = await Promise.all([
+      const [config, e2e, lang, i18nMessages, appSettings, updateState, runtimeStatus] = await Promise.all([
         api.getConfig(),
         api.getE2EStatus(),
         api.getLang(),
         api.getI18nMessages(),
         api.getAppSettings(),
         api.getUpdateState(),
+        api.getCliProviderRuntimeStatus(),
       ]);
       latestConfig = config || null;
       latestAppSettings = appSettings || null;
+      latestCliProviderRuntimeStatus = runtimeStatus || null;
       document.getElementById("serverUrl").value = config.serverUrl || "";
       document.getElementById("username").value = config.username || "";
       document.getElementById("password").value = config.password || "";
@@ -4906,6 +5042,7 @@
       document.getElementById("logPath").textContent = appSettings.logDirectory || "—";
       renderUpdateState(updateState);
       renderOverviewDashboard();
+      renderCliProviderRuntimeStatus();
       renderTransferCenter();
       renderAutomationOverview();
       await syncLanguage(lang || "en", i18nMessages || {});
@@ -4919,6 +5056,11 @@
       document.getElementById("projectProvider").value = document.getElementById("cliProvider").value;
       setProjectCodexSearchVisibility(document.getElementById("projectProvider").value);
       void saveConnectionConfig();
+    });
+
+    document.getElementById("refreshRuntimeStatusBtn").addEventListener("click", async () => {
+      await loadCliProviderRuntimeStatus();
+      flashSaved();
     });
 
     document.getElementById("projectProvider").addEventListener("change", () => {

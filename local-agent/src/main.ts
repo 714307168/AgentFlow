@@ -60,6 +60,7 @@ import {
   resolveLocalDataRoot,
 } from "./user-data-bootstrap";
 import { playSystemNotificationSound } from "./desktop-sound";
+import { getCliProviderRuntimeStatuses } from "./cli-runtime-status";
 
 interface AgentConfig {
   serverUrl: string;
@@ -4647,6 +4648,10 @@ ipcMain.handle("get-app-settings", () => {
     defaultLocalDataRoot: getDefaultLocalDataRoot(),
     logDirectory: appLogger.getLogDirectory(),
   };
+});
+
+ipcMain.handle("get-cli-provider-runtime-status", async () => {
+  return await getCliProviderRuntimeStatuses();
 });
 
 ipcMain.handle("get-local-data-metrics", () => {

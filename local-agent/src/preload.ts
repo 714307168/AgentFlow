@@ -175,6 +175,7 @@ contextBridge.exposeInMainWorld('claudeAgent', {
     ipcRenderer.on('lang-changed', (_event, payload) => callback(payload));
   },
   getAppSettings: () => ipcRenderer.invoke('get-app-settings'),
+  getCliProviderRuntimeStatus: () => ipcRenderer.invoke('get-cli-provider-runtime-status'),
   getLocalDataMetrics: () => ipcRenderer.invoke('get-local-data-metrics'),
   clearLocalDataSegment: (target: 'attachments' | 'updates' | 'all') => ipcRenderer.invoke('clear-local-data-segment', target),
   listRelayTransfers: (options?: number | {
