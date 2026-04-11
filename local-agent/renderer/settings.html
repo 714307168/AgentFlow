@@ -1715,8 +1715,10 @@
     <div class="status" id="status"></div>
   </div>
 
+  <script src="./settings-provider-runtime.js"></script>
   <script>
     const api = window.claudeAgent;
+    const providerRuntimeApi = window.SettingsProviderRuntime;
     let currentLang = "en";
     let msgs = {};
     let activeSettingsPane = "overview";
@@ -1839,6 +1841,100 @@
 
     function inlineText(en, zh) {
       return currentLang === "zh" ? zh : en;
+    }
+
+    function providerLabel(provider) {
+      return providerRuntimeApi?.getProviderLabel(provider) || (provider === "codex" ? "OpenAI Codex" : "Claude Code");
+    }
+
+    function providerAvailability(provider) {
+      return providerRuntimeApi?.getProviderAvailability(latestCliProviderRuntimeStatus, provider) || "unknown";
+    }
+
+    function isProviderUnavailable(provider) {
+      return providerAvailability(provider) === "missing";
+    }
+
+    function providerSelectLabel(provider) {
+      const label = providerLabel(provider);
+      return isProviderUnavailable(provider)
+        ? `${label} ${inlineText("(Missing)", "（未安装）")}`
+        : label;
+    }
+
+    function rememberCliProviderSelection(selectEl) {
+      if (!selectEl) {
+        return;
+      }
+      selectEl.dataset.previousValue = selectEl.value || "";
+    }
+
+    function resolveCliProviderFallback(selectEl, preferredProvider) {
+      const fallback = selectEl?.dataset.previousValue
+        || selectEl?.dataset.lastValidValue
+        || preferredProvider
+        || latestConfig?.cliProvider
+        || "claude";
+      return providerRuntimeApi?.getFirstSelectableProvider(latestCliProviderRuntimeStatus, fallback) || fallback;
+    }
+
+    function applyCliProviderAvailabilityToSelect(selectEl, selectedProvider) {
+      if (!selectEl) {
+        return;
+      }
+      const nextProvider = providerRuntimeApi?.normalizeProviderId(selectedProvider || selectEl.value || "claude") || "claude";
+      const optionStates = getCliProviderOptionStates(nextProvider);
+      const markup = optionStates.map((option) => (
+        `<option value="${escapeHtml(option.id)}"${option.selected ? " selected" : ""}${option.disabled ? " disabled" : ""}>${escapeHtml(providerSelectLabel(option.id))}</option>`
+      )).join("");
+      if (selectEl.dataset.optionMarkup !== markup) {
+        selectEl.dataset.optionMarkup = markup;
+        selectEl.innerHTML = markup;
+      }
+      if (Array.from(selectEl.options).some((option) => option.value === nextProvider)) {
+        selectEl.value = nextProvider;
+      }
+      if (!isProviderUnavailable(selectEl.value)) {
+        selectEl.dataset.lastValidValue = selectEl.value;
+      }
+    }
+
+    function getCliProviderOptionStates(selectedProvider) {
+      const normalizedProvider = providerRuntimeApi?.normalizeProviderId(selectedProvider || "claude") || "claude";
+      return providerRuntimeApi?.getProviderOptions(latestCliProviderRuntimeStatus, normalizedProvider) || [
+        { id: "claude", selected: normalizedProvider === "claude", disabled: false },
+        { id: "codex", selected: normalizedProvider === "codex", disabled: false },
+      ];
+    }
+
+    function applyCliProviderAvailability() {
+      applyCliProviderAvailabilityToSelect(
+        document.getElementById("cliProvider"),
+        document.getElementById("cliProvider")?.value || latestConfig?.cliProvider || "claude"
+      );
+      applyCliProviderAvailabilityToSelect(
+        document.getElementById("projectProvider"),
+        document.getElementById("projectProvider")?.value || document.getElementById("cliProvider")?.value || "claude"
+      );
+      document.querySelectorAll(".project-provider-select").forEach((selectEl) => {
+        applyCliProviderAvailabilityToSelect(selectEl, selectEl.value || "claude");
+      });
+    }
+
+    function rejectUnavailableProviderSelection(selectEl, attemptedProvider, preferredProvider) {
+      const fallbackProvider = resolveCliProviderFallback(selectEl, preferredProvider);
+      applyCliProviderAvailabilityToSelect(selectEl, fallbackProvider);
+      if (selectEl?.id === "projectProvider") {
+        setProjectCodexSearchVisibility(selectEl.value);
+      }
+      showStatus(
+        inlineText(
+          `${providerLabel(attemptedProvider)} is not installed locally. Install it first or keep using ${providerLabel(fallbackProvider)}.`,
+          `本机未安装 ${providerLabel(attemptedProvider)}，请先安装后再切换，或继续使用 ${providerLabel(fallbackProvider)}。`
+        ),
+        true
+      );
+      return false;
     }
 
     function formatCount(value) {
@@ -2025,7 +2121,7 @@
         return;
       }
       const statusMap = latestCliProviderRuntimeStatus || {};
-      const providers = [
+      const providers = providerRuntimeApi?.PROVIDERS || [
         { id: "claude", label: "Claude Code" },
         { id: "codex", label: "OpenAI Codex" },
       ];
@@ -2056,6 +2152,7 @@
           </div>
         `;
       }).join("");
+      applyCliProviderAvailability();
     }
 
     async function loadCliProviderRuntimeStatus() {
@@ -3351,13 +3448,12 @@
         }
         return;
       }
-      const providerLabel = (provider) => provider === "codex" ? "OpenAI Codex" : "Claude Code";
       const markup = latestProjectCatalog.map((project) => `
         <div class="project-item project-item-form">
           <div class="project-info">
             <div class="project-name">${escapeHtml(project.name)}</div>
             <div class="project-meta-row">
-              <span class="project-provider-badge ${escapeHtml(project.cliProvider || "claude")}">${escapeHtml(providerLabel(project.cliProvider || "claude"))}</span>
+              <span class="project-provider-badge ${escapeHtml(project.cliProvider || "claude")}">${escapeHtml(providerSelectLabel(project.cliProvider || "claude"))}</span>
               <span class="project-model-badge">${escapeHtml(modelLabel(project.cliModel))}</span>
               ${project.cliProvider === "codex" && project.codexWebSearchEnabled
                 ? `<span class="project-model-badge">${escapeHtml(inlineText("Web Search On", "已启用网络搜索"))}</span>`
@@ -3381,9 +3477,10 @@
               </div>
               <div class="project-edit-field">
                 <label class="project-edit-label">${escapeHtml(inlineText("CLI Provider", "CLI 提供方"))}</label>
-                <select class="project-provider-select" onchange="updateProjectProvider('${project.id}', this.value)">
-                  <option value="claude" ${(project.cliProvider || "claude") === "claude" ? "selected" : ""}>Claude Code</option>
-                  <option value="codex" ${(project.cliProvider || "claude") === "codex" ? "selected" : ""}>OpenAI Codex</option>
+                <select class="project-provider-select" onfocus="rememberCliProviderSelection(this)" onchange="updateProjectProvider('${project.id}', this)">
+                  ${getCliProviderOptionStates(project.cliProvider || "claude").map((option) => `
+                    <option value="${escapeHtml(option.id)}"${option.selected ? " selected" : ""}${option.disabled ? " disabled" : ""}>${escapeHtml(providerSelectLabel(option.id))}</option>
+                  `).join("")}
                 </select>
               </div>
               <div class="project-edit-field">
@@ -4927,7 +5024,13 @@
       }
     }
 
-    async function updateProjectProvider(projectId, cliProvider) {
+    async function updateProjectProvider(projectId, providerInput) {
+      const selectEl = providerInput instanceof HTMLSelectElement ? providerInput : null;
+      const cliProvider = selectEl ? selectEl.value : String(providerInput || "").trim() || "claude";
+      if (isProviderUnavailable(cliProvider) && cliProvider !== (selectEl?.dataset.previousValue || "")) {
+        rejectUnavailableProviderSelection(selectEl, cliProvider, latestConfig?.cliProvider || "claude");
+        return;
+      }
       await updateProjectConfig(projectId, { cliProvider });
     }
 
@@ -5043,17 +5146,29 @@
       renderUpdateState(updateState);
       renderOverviewDashboard();
       renderCliProviderRuntimeStatus();
+      applyCliProviderAvailability();
       renderTransferCenter();
       renderAutomationOverview();
       await syncLanguage(lang || "en", i18nMessages || {});
     }
+
+    document.getElementById("cliProvider").addEventListener("focus", (event) => {
+      rememberCliProviderSelection(event.target);
+    });
 
     ["serverUrl", "username", "password", "agentId", "openaiApiKey", "openaiBaseUrl", "openaiDefaultModel", "anthropicApiKey", "anthropicBaseUrl", "anthropicDefaultModel"].forEach((id) => {
       document.getElementById(id).addEventListener("blur", () => { void saveConnectionConfig(); });
     });
 
     document.getElementById("cliProvider").addEventListener("change", () => {
+      const cliProviderSelect = document.getElementById("cliProvider");
+      const nextProvider = cliProviderSelect.value || "claude";
+      if (isProviderUnavailable(nextProvider) && nextProvider !== (cliProviderSelect.dataset.previousValue || "")) {
+        rejectUnavailableProviderSelection(cliProviderSelect, nextProvider, latestConfig?.cliProvider || "claude");
+        return;
+      }
       document.getElementById("projectProvider").value = document.getElementById("cliProvider").value;
+      applyCliProviderAvailability();
       setProjectCodexSearchVisibility(document.getElementById("projectProvider").value);
       void saveConnectionConfig();
     });
@@ -5063,8 +5178,18 @@
       flashSaved();
     });
 
+    document.getElementById("projectProvider").addEventListener("focus", (event) => {
+      rememberCliProviderSelection(event.target);
+    });
+
     document.getElementById("projectProvider").addEventListener("change", () => {
-      setProjectCodexSearchVisibility(document.getElementById("projectProvider").value);
+      const projectProviderSelect = document.getElementById("projectProvider");
+      const nextProvider = projectProviderSelect.value || "claude";
+      if (isProviderUnavailable(nextProvider) && nextProvider !== (projectProviderSelect.dataset.previousValue || "")) {
+        rejectUnavailableProviderSelection(projectProviderSelect, nextProvider, document.getElementById("cliProvider").value || "claude");
+        return;
+      }
+      setProjectCodexSearchVisibility(projectProviderSelect.value);
     });
 
     document.getElementById("loginBtn").addEventListener("click", async () => {
@@ -5110,6 +5235,7 @@
         renderAccessGrants(latestAccessState);
       }
       renderOverviewDashboard();
+      renderCliProviderRuntimeStatus();
       renderTransferCenter();
       renderAutomationOverview();
       if (activeSettingsPane === "overview" || activeSettingsPane === "connection") {
@@ -5459,6 +5585,7 @@
       document.getElementById("projectPath").value = "";
       document.getElementById("projectGroup").value = "";
       document.getElementById("projectProvider").value = document.getElementById("cliProvider").value || "claude";
+      applyCliProviderAvailabilityToSelect(document.getElementById("projectProvider"), document.getElementById("projectProvider").value);
       document.getElementById("projectModel").value = "";
       document.getElementById("projectCodexSearchEnabled").checked = false;
       setProjectCodexSearchVisibility(document.getElementById("projectProvider").value);
@@ -5477,6 +5604,10 @@
         showStatus(msg("settings.projectRequired", "Project name and path are required."), true);
         return;
       }
+      if (isProviderUnavailable(cliProvider)) {
+        rejectUnavailableProviderSelection(document.getElementById("projectProvider"), cliProvider, document.getElementById("cliProvider").value || "claude");
+        return;
+      }
       try {
         await api.addProject({
           name,
@@ -5492,6 +5623,7 @@
         document.getElementById("projectPath").value = "";
         document.getElementById("projectGroup").value = "";
         document.getElementById("projectProvider").value = document.getElementById("cliProvider").value || "claude";
+        applyCliProviderAvailabilityToSelect(document.getElementById("projectProvider"), document.getElementById("projectProvider").value);
         document.getElementById("projectModel").value = "";
         document.getElementById("projectCodexSearchEnabled").checked = false;
         setProjectCodexSearchVisibility(document.getElementById("projectProvider").value);
