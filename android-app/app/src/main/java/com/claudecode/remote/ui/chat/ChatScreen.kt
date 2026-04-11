@@ -246,6 +246,14 @@ fun ChatScreen(
             .distinctUntilChanged()
             .collect { state ->
                 val (index, offset) = state ?: return@collect
+                val canAutoLoadOlder = when (selectedPane) {
+                    ChatPane.CONVERSATION -> hasInitialConversationScrollPosition && !pendingConversationBottomScroll
+                    ChatPane.ACTIVITY -> hasInitialActivityScrollPosition && !pendingActivityBottomScroll
+                    ChatPane.QUEUE -> false
+                }
+                if (!canAutoLoadOlder) {
+                    return@collect
+                }
                 if (index == 0 && offset <= 24) {
                     when (selectedPane) {
                         ChatPane.CONVERSATION -> {

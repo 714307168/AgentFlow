@@ -308,6 +308,25 @@ class MessageRepository(
         }
     }
 
+    suspend fun requestSessionShellSyncs(
+        sessions: List<Session>,
+        bypassDedupe: Boolean = false,
+        maxProjects: Int = SESSION_SHELL_SYNC_MAX_PROJECTS
+    ) {
+        selectSessionShellSyncTargets(
+            sessions = sessions,
+            maxProjects = maxProjects
+        ).forEach { session ->
+            requestProjectSync(
+                projectId = session.projectId,
+                agentId = session.agentId,
+                limit = SESSION_SHELL_SYNC_LIMIT,
+                recentOverlapCount = SESSION_SHELL_SYNC_RECENT_OVERLAP_COUNT,
+                bypassDedupe = bypassDedupe
+            )
+        }
+    }
+
     fun getLatestConversationPreviews(): Flow<Map<String, Message>> =
         messageDao.getLatestConversationMessages().map { entities ->
             entities.associate { entity ->

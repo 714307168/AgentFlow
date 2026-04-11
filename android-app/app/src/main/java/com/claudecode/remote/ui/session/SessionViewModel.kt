@@ -153,7 +153,7 @@ class SessionViewModel(
         viewModelScope.launch {
             webSocket.connectionState.collect { state ->
                 if (state == RelayWebSocket.ConnectionState.CONNECTED) {
-                    messageRepository.requestProjectSyncs(repository.getSessions())
+                    messageRepository.requestSessionShellSyncs(repository.getSessions())
                     refreshWorkgroups(showLoading = false)
                 }
             }
@@ -237,7 +237,10 @@ class SessionViewModel(
             repository.syncFromServer(force = true).fold(
                 onSuccess = {
                     if (webSocket.connectionState.value == RelayWebSocket.ConnectionState.CONNECTED) {
-                        messageRepository.requestProjectSyncs(repository.getSessions())
+                        messageRepository.requestSessionShellSyncs(
+                            sessions = repository.getSessions(),
+                            bypassDedupe = true
+                        )
                         refreshWorkgroups(showLoading = false, force = true)
                     }
                     _uiState.update { it.copy(isLoading = false) }
@@ -265,7 +268,7 @@ class SessionViewModel(
                         ts = System.currentTimeMillis()
                     )
                 )
-                messageRepository.requestProjectSyncs(repository.getSessions())
+                messageRepository.requestSessionShellSyncs(repository.getSessions())
                 refreshWorkgroups(showLoading = false)
             } else if (latestSessions.isEmpty()) {
                 repository.syncFromServer(force = true)

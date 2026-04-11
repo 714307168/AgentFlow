@@ -704,16 +704,19 @@ class MainActivity : ComponentActivity() {
         }
 
         runCatching {
-            messageRepository.requestProjectSyncs(sessions, bypassDedupe = true)
+            messageRepository.requestSessionShellSyncs(
+                sessions = sessions,
+                bypassDedupe = true
+            )
         }.onSuccess {
             CrashLogger.logInfo(
                 "MainActivity",
-                "Foreground project sync requested reason=$reason sessionCount=${sessions.size}"
+                "Foreground session-shell sync requested reason=$reason sessionCount=${sessions.size}"
             )
         }.onFailure { error ->
             CrashLogger.logError(
                 "MainActivity",
-                "Failed to request project syncs on foreground: $reason",
+                "Failed to request session-shell syncs on foreground: $reason",
                 error as? Exception ?: Exception(error)
             )
         }

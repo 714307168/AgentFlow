@@ -196,7 +196,10 @@ class AgentHubViewModel(
                 }
 
             if (isConnected()) {
-                messageRepository.requestProjectSyncs(sessionRepository.getSessions())
+                messageRepository.requestSessionShellSyncs(
+                    sessions = sessionRepository.getSessions(),
+                    bypassDedupe = true
+                )
             }
 
             val agentIds = resolveAgentIds()

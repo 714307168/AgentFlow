@@ -628,3 +628,10 @@
 - [x] Android workgroup refresh requests now send the locally known per-agent `revision`, and desktop replies with an explicit `changed=false` lightweight payload when the catalog is unchanged, trimming repeated WebSocket list transfers during reconnect and foreground refresh.
 - [x] Desktop now memoizes serialized workgroup catalogs and relay payloads between structure changes, so repeated list requests and UI lookups reuse the in-memory snapshot instead of reserializing the same workgroups on every read.
 - [x] Workgroup collaboration sessions now carry a stable `snapshot_revision`, and Android / desktop remote clients send their known revision so unchanged session refreshes can return `snapshot_unchanged` payloads and skip redundant message-list rewrites.
+
+## Progress Update 2026-04-11
+
+- [x] Android foreground, reconnect, and manual-refresh entrypoints now use a lightweight session-shell sync plan instead of requesting message syncs for every project, prioritizing only running / queued / recently active sessions to reduce traffic and speed up list recovery.
+- [x] Session-shell sync selection is split into a reusable planner utility and covered by a JVM unit test so later sync-policy changes can be adjusted without reworking `MessageRepository`.
+- [x] Android chat auto-loading of older history is now blocked until the initial bottom anchor has been applied, preventing the first open / resume path from immediately prepending history and leaving the user in the middle of the conversation.
+- [x] `R-mobile-feature`: Android `1.2.18 (build 102)` was published to the update center on `2026-04-11` for the session-shell sync and chat bottom-anchor recovery patch. Release id: `201`.

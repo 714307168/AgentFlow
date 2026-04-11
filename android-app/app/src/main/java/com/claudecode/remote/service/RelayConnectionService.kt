@@ -215,13 +215,13 @@ class RelayConnectionService : Service() {
                 "RelayConnectionService",
                 "Post-auth session catalog refreshed sessionCount=${sessions.size}"
             )
-            container.messageRepository.requestProjectSyncs(
+            container.messageRepository.requestSessionShellSyncs(
                 sessions = sessions,
                 bypassDedupe = true
             )
             CrashLogger.logInfo(
                 "RelayConnectionService",
-                "Requested project syncs after relay authentication sessionCount=${sessions.size}"
+                "Requested session-shell syncs after relay authentication sessionCount=${sessions.size}"
             )
             val trackedAgentIds = container.workgroupRepository.resolveTrackedAgentIds(
                 sessions.map { it.agentId.trim() }.filter { it.isNotEmpty() }.distinct().sorted()
