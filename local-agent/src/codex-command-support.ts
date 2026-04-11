@@ -10,26 +10,26 @@ export interface CodexExecArgsOptions {
 export type SlashToggleIntent = "status" | "enable" | "disable" | "toggle";
 
 export function buildCodexExecArgs(options: CodexExecArgsOptions): string[] {
-  const baseArgs = [
+  const sharedArgs = [
     "--json",
     "--dangerously-bypass-approvals-and-sandbox",
     "--skip-git-repo-check",
     ...(options.model ? ["--model", options.model] : []),
-    ...(options.searchEnabled ? ["--search"] : []),
   ];
 
   if (options.canResumeConversation && options.codexThreadId) {
     return [
       "exec",
       "resume",
-      ...baseArgs,
+      ...sharedArgs,
       options.codexThreadId,
     ];
   }
 
   return [
     "exec",
-    ...baseArgs,
+    ...sharedArgs,
+    ...(options.searchEnabled ? ["--search"] : []),
   ];
 }
 

@@ -65,7 +65,7 @@ function createRunContext() {
   };
 }
 
-test("buildCodexExecArgs enables search and resume when configured", () => {
+test("buildCodexExecArgs omits search when resuming because codex exec resume does not support it", () => {
   const args = buildCodexExecArgs({
     canResumeConversation: true,
     codexThreadId: "thread-123",
@@ -81,8 +81,26 @@ test("buildCodexExecArgs enables search and resume when configured", () => {
     "--skip-git-repo-check",
     "--model",
     "gpt-5.4",
-    "--search",
     "thread-123",
+  ]);
+});
+
+test("buildCodexExecArgs enables search for fresh exec runs", () => {
+  const args = buildCodexExecArgs({
+    canResumeConversation: false,
+    codexThreadId: "thread-123",
+    model: "gpt-5.4",
+    searchEnabled: true,
+  });
+
+  assert.deepEqual(args, [
+    "exec",
+    "--json",
+    "--dangerously-bypass-approvals-and-sandbox",
+    "--skip-git-repo-check",
+    "--model",
+    "gpt-5.4",
+    "--search",
   ]);
 });
 
