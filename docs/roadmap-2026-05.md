@@ -638,3 +638,5 @@
 - [x] Desktop runtime queue execution now keeps strict FIFO order by local acceptance sequence instead of reordering queued runs by timestamp or `runId`, so older queued prompts no longer get jumped by newer ones when timestamps collide or an active run is interrupted.
 - [x] Desktop runtime queue order is now covered by a dedicated Node test, including the interrupt-while-running path that previously inserted newer work at the front of the queue.
 - [x] `R-desktop-patch`: desktop `1.1.124` was published to the update center on `2026-04-11` for the FIFO queue execution fix. Release id: `202`.
+- [x] Desktop settings `Projects & Workgroups` pane now stretches the main content column to the available viewport height again, restoring inner scrolling so lower projects remain reachable instead of being clipped below the fold.
+- [x] Desktop `1.1.125` was published to the update center on `2026-04-11` for the settings-pane scroll recovery patch. Release id: `203`.
