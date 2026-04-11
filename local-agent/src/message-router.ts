@@ -57,9 +57,12 @@ interface MessageRouterOptions {
     beforeId?: string | null;
     limit?: number;
     knownItems?: SessionSyncKnownItemDigest[];
+    knownSnapshotRevision?: string | null;
   }) => {
     agent_id: string;
     workgroup_id: string;
+    snapshot_revision: string;
+    snapshot_unchanged?: boolean;
     session: unknown;
     page: unknown;
   } | null;
@@ -560,6 +563,7 @@ class MessageRouter {
         id?: string;
         content_md5?: string;
       }>;
+      snapshot_revision?: string;
     } | undefined;
     const workgroupId = String(payload?.workgroup_id ?? "").trim();
     if (!workgroupId) {
@@ -578,6 +582,9 @@ class MessageRouter {
             }))
             .filter((item) => Boolean(item.id))
         : [],
+      knownSnapshotRevision: typeof payload?.snapshot_revision === "string"
+        ? payload.snapshot_revision.trim()
+        : null,
     });
     if (!sessionPayload) {
       return;

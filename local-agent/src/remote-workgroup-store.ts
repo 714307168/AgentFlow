@@ -272,6 +272,9 @@ export default class RemoteWorkgroupStore extends EventEmitter {
           workgroup_id: parsed.workgroupId,
           before_id: normalizeText(options.beforeId) || undefined,
           limit: Number(options.limit) > 0 ? Number(options.limit) : DEFAULT_PAGE_SIZE,
+          snapshot_revision: !normalizeText(options.beforeId)
+            ? this.sessionsByCompositeId.get(compositeId)?.session.snapshotRevision ?? undefined
+            : undefined,
           known_items: this.buildKnownItems(compositeId, options.beforeId, options.limit),
         },
       });
@@ -377,6 +380,9 @@ export default class RemoteWorkgroupStore extends EventEmitter {
     const hostAgentId = normalizeText(env.agent_id ?? payload.agent_id);
     const sessionPayload = (payload.session ?? null) as Record<string, unknown> | null;
     const pagePayload = (payload.page ?? null) as Record<string, unknown> | null;
+    const snapshotRevision = normalizeText(payload.snapshot_revision ?? sessionPayload?.snapshotRevision ?? sessionPayload?.snapshot_revision);
+    const snapshotUnchanged = Boolean(payload.snapshot_unchanged);
+    const beforeId = normalizeText(payload.before_id);
     const sourceWorkgroupId = normalizeText(env.workgroup_id ?? payload.workgroup_id ?? sessionPayload?.workgroupId);
     if (!hostAgentId || !sessionPayload || !sourceWorkgroupId) {
       return;
@@ -386,14 +392,33 @@ export default class RemoteWorkgroupStore extends EventEmitter {
     if (!this.registryByCompositeId.has(compositeId)) {
       return;
     }
+    const existingSession = this.sessionsByCompositeId.get(compositeId)?.session ?? null;
+    if (
+      !beforeId
+      && snapshotUnchanged
+      && snapshotRevision
+      && existingSession?.snapshotRevision === snapshotRevision
+    ) {
+      const requestId = normalizeText(payload.request_id);
+      if (requestId) {
+        const pending = this.pendingSessionRequests.get(requestId);
+        if (pending) {
+          clearTimeout(pending.timeout);
+          this.pendingSessionRequests.delete(requestId);
+          pending.resolve({ success: true, session: existingSession });
+        }
+      }
+      return;
+    }
 
     const nextSession = this.parseSession(
       hostAgentId,
       compositeId,
       sourceWorkgroupId,
       sessionPayload,
-      this.sessionsByCompositeId.get(compositeId)?.session ?? null,
+      existingSession,
       pagePayload,
+      snapshotRevision || null,
     );
     this.sessionsByCompositeId.set(compositeId, {
       compositeId,
@@ -494,6 +519,7 @@ export default class RemoteWorkgroupStore extends EventEmitter {
     payload: Record<string, unknown>,
     existing: WorkgroupCollaborationSessionSnapshot | null,
     pagePayload?: Record<string, unknown> | null,
+    snapshotRevision?: string | null,
   ): WorkgroupCollaborationSessionSnapshot {
     const existingMessagesById = new Map((existing?.messages ?? []).map((message) => [message.id, message]));
     const incomingMessages = Array.isArray(payload.messages)
@@ -522,6 +548,7 @@ export default class RemoteWorkgroupStore extends EventEmitter {
       updatedAt: Number(payload.updatedAt ?? payload.updated_at ?? Date.now()) || Date.now(),
       isRunning: Boolean(payload.isRunning),
       messageTotal: Number(payload.messageTotal ?? payload.message_total ?? mergedMessages.size) || mergedMessages.size,
+      snapshotRevision: snapshotRevision?.trim() || normalizeText(payload.snapshotRevision ?? payload.snapshot_revision) || existing?.snapshotRevision || "",
       members: Array.isArray(payload.members)
         ? payload.members
             .map((entry) => this.parseMember(entry as Record<string, unknown>))

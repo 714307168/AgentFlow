@@ -31,7 +31,6 @@ import WorkgroupCollaborationService, {
 } from "./workgroup-collaboration-service";
 import { buildSessionSyncPayload } from "./session-sync-payload";
 import {
-  createSessionSyncContentMd5,
   type SessionSyncKnownItemDigest,
 } from "./session-sync-hash";
 import UpdateManager, { UpdateState } from "./update-manager";
@@ -46,6 +45,7 @@ import {
   isImageAttachment,
 } from "./attachment-utils";
 import { WorkgroupRelayCache } from "./workgroup-relay-cache";
+import { buildWorkgroupCollaborationSessionRelayPayload as createWorkgroupCollaborationSessionRelayPayload } from "./workgroup-collaboration-relay-payload";
 import {
   getDefaultLocalDataRoot,
   getPersistedLocalDataRoot,
@@ -1817,9 +1817,12 @@ function buildWorkgroupCollaborationSessionRelayPayload(data: {
   beforeId?: string | null;
   limit?: number;
   knownItems?: SessionSyncKnownItemDigest[];
+  knownSnapshotRevision?: string | null;
 }): {
   agent_id: string;
   workgroup_id: string;
+  snapshot_revision: string;
+  snapshot_unchanged?: boolean;
   session: WorkgroupCollaborationSessionSnapshot & {
     messages: Array<WorkgroupCollaborationSessionSnapshot["messages"][number] & {
       content_md5: string;
@@ -1852,41 +1855,15 @@ function buildWorkgroupCollaborationSessionRelayPayload(data: {
   if (!page) {
     return null;
   }
-
-  const knownMap = new Map<string, string>();
-  for (const item of data.knownItems ?? []) {
-    const id = String(item?.id ?? "").trim();
-    const contentMd5 = typeof item?.content_md5 === "string" ? item.content_md5.trim() : "";
-    if (id && contentMd5) {
-      knownMap.set(id, contentMd5);
-    }
-  }
-
-  const normalizeMessages = <T extends WorkgroupCollaborationSessionSnapshot["messages"][number]>(messages: T[]) => {
-    return messages.map((message) => {
-      const contentMd5 = createSessionSyncContentMd5(message.content);
-      const shouldOmitContent = knownMap.get(message.id) === contentMd5;
-      return {
-        ...message,
-        content: shouldOmitContent ? "" : message.content,
-        content_md5: contentMd5,
-        content_omitted: shouldOmitContent || undefined,
-      };
-    });
-  };
-
-  return {
-    agent_id: agentId,
-    workgroup_id: data.workgroupId,
-    session: {
-      ...session,
-      messages: normalizeMessages(session.messages),
-    },
-    page: {
-      ...page,
-      items: normalizeMessages(page.items),
-    },
-  };
+  return createWorkgroupCollaborationSessionRelayPayload({
+    agentId,
+    workgroupId: data.workgroupId,
+    session,
+    page,
+    beforeId: data.beforeId,
+    knownItems: data.knownItems,
+    knownSnapshotRevision: data.knownSnapshotRevision,
+  });
 }
 
 function broadcastWorkgroupCollaborationRelaySummaries(): void {

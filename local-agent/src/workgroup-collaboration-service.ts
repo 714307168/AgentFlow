@@ -9,6 +9,7 @@ import workgroupCollaborationStore, {
   WorkgroupCollaborationProjectKind,
 } from "./workgroup-collaboration-store";
 import type { ProjectSessionSnapshot } from "./runtime-types";
+import { createWorkgroupCollaborationSnapshotRevision } from "./workgroup-collaboration-relay-payload";
 
 const DEFAULT_HISTORY_PAGE_SIZE = 30;
 const DEFAULT_CONTEXT_MESSAGE_COUNT = 16;
@@ -54,6 +55,7 @@ export interface WorkgroupCollaborationSessionSnapshot {
   updatedAt: number;
   isRunning: boolean;
   messageTotal: number;
+  snapshotRevision: string;
   members: WorkgroupCollaborationMemberSnapshot[];
   messages: WorkgroupCollaborationMessage[];
 }
@@ -285,7 +287,7 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       historyPage.items[historyPage.items.length - 1]?.updatedAt ?? 0,
     );
 
-    return {
+    const snapshot: WorkgroupCollaborationSessionSnapshot = {
       workgroupId: workgroup.id,
       workgroupName: workgroup.name,
       description: normalizeText(workgroup.description),
@@ -293,8 +295,13 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       updatedAt,
       isRunning: this.computeWorkgroupRunningState(workgroup.id),
       messageTotal: historyPage.total,
+      snapshotRevision: "",
       members,
       messages: historyPage.items,
+    };
+    return {
+      ...snapshot,
+      snapshotRevision: createWorkgroupCollaborationSnapshotRevision(snapshot),
     };
   }
 

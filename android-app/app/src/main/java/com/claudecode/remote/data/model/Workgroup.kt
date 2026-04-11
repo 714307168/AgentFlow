@@ -71,6 +71,7 @@ data class WorkgroupSession(
     val updatedAt: Long = 0L,
     val isRunning: Boolean = false,
     val messageTotal: Int = 0,
+    val snapshotRevision: String? = null,
     val members: List<WorkgroupMember> = emptyList(),
     val messages: List<WorkgroupMessage> = emptyList(),
     val hasMoreHistory: Boolean = false

@@ -208,6 +208,13 @@ class WorkgroupRepository(
                             put("before_id", JsonPrimitive(it))
                         }
                         put("limit", JsonPrimitive(limit))
+                        if (beforeId.isNullOrBlank()) {
+                            getSession(normalizedAgentId, normalizedWorkgroupId)
+                                ?.snapshotRevision
+                                ?.trim()
+                                ?.takeIf { it.isNotEmpty() }
+                                ?.let { put("snapshot_revision", JsonPrimitive(it)) }
+                        }
                         val knownItems = buildKnownItems(
                             agentId = normalizedAgentId,
                             workgroupId = normalizedWorkgroupId,
@@ -623,24 +630,36 @@ class WorkgroupRepository(
         val agentId = payload["agent_id"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
         val sessionObject = payload["session"]?.jsonObject ?: return null
         val beforeId = payload["before_id"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        val snapshotRevision = payload["snapshot_revision"]?.jsonPrimitive?.contentOrNull?.trim()
+            ?.takeUnless { it.isEmpty() }
+            ?: sessionObject["snapshotRevision"]?.jsonPrimitive?.contentOrNull?.trim()?.takeUnless { it.isEmpty() }
+            ?: sessionObject["snapshot_revision"]?.jsonPrimitive?.contentOrNull?.trim()?.takeUnless { it.isEmpty() }
         val pageObject = payload["page"]?.jsonObject
-        val existingMessages = _sessions.value[sessionKey(agentId, sessionObject["workgroupId"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty())]
-            ?.messages
-            .orEmpty()
+        val key = sessionKey(agentId, sessionObject["workgroupId"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty())
+        val existingSession = _sessions.value[key]
+        if (
+            beforeId.isBlank() &&
+            payload["snapshot_unchanged"]?.jsonPrimitive?.booleanOrNull == true &&
+            !snapshotRevision.isNullOrBlank() &&
+            existingSession?.snapshotRevision == snapshotRevision
+        ) {
+            return SessionResponse(agentId = agentId, session = existingSession)
+        }
+        val existingMessages = existingSession?.messages.orEmpty()
         val existingById = existingMessages.associateBy { it.id }
-        val parsedSession = parseSession(agentId, sessionObject, existingById) ?: return null
+        val parsedSession = parseSession(agentId, sessionObject, existingById, snapshotRevision) ?: return null
         val pageMessages = pageObject?.get("items")?.jsonArray?.mapNotNull { parseMessage(it, existingById) }.orEmpty()
         val hasMore = pageObject?.get("hasMore")?.jsonPrimitive?.booleanOrNull
             ?: (parsedSession.messageTotal > parsedSession.messages.size)
 
         val mergedMessages = if (beforeId.isBlank()) {
             mergeMessages(
-                _sessions.value[sessionKey(agentId, parsedSession.workgroupId)]?.messages.orEmpty(),
+                existingSession?.messages.orEmpty(),
                 parsedSession.messages
             )
         } else {
             mergeMessages(
-                _sessions.value[sessionKey(agentId, parsedSession.workgroupId)]?.messages.orEmpty(),
+                existingSession?.messages.orEmpty(),
                 pageMessages
             )
         }
@@ -654,9 +673,15 @@ class WorkgroupRepository(
     }
 
     private fun applySessionSnapshot(agentId: String, sessionObject: JsonObject) {
+        val snapshotRevision = sessionObject["snapshotRevision"]?.jsonPrimitive?.contentOrNull?.trim()
+            ?.takeUnless { it.isEmpty() }
+            ?: sessionObject["snapshot_revision"]?.jsonPrimitive?.contentOrNull?.trim()?.takeUnless { it.isEmpty() }
         val currentSession = _sessions.value[sessionKey(agentId, sessionObject["workgroupId"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty())]
+        if (!snapshotRevision.isNullOrBlank() && currentSession?.snapshotRevision == snapshotRevision) {
+            return
+        }
         val existingById = currentSession?.messages.orEmpty().associateBy { it.id }
-        val parsedSession = parseSession(agentId, sessionObject, existingById) ?: return
+        val parsedSession = parseSession(agentId, sessionObject, existingById, snapshotRevision) ?: return
         val existing = _sessions.value[sessionKey(agentId, parsedSession.workgroupId)]
         val mergedMessages = mergeMessages(existing?.messages.orEmpty(), parsedSession.messages)
         val nextSession = parsedSession.copy(
@@ -695,7 +720,8 @@ class WorkgroupRepository(
     private fun parseSession(
         agentId: String,
         obj: JsonObject,
-        existingById: Map<String, WorkgroupMessage> = emptyMap()
+        existingById: Map<String, WorkgroupMessage> = emptyMap(),
+        snapshotRevision: String? = null
     ): WorkgroupSession? {
         val workgroupId = obj["workgroupId"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
         if (agentId.isBlank() || workgroupId.isBlank()) {
@@ -710,6 +736,9 @@ class WorkgroupRepository(
             updatedAt = obj["updatedAt"]?.jsonPrimitive?.longOrNull ?: 0L,
             isRunning = obj["isRunning"]?.jsonPrimitive?.booleanOrNull == true,
             messageTotal = obj["messageTotal"]?.jsonPrimitive?.intOrNull ?: 0,
+            snapshotRevision = snapshotRevision
+                ?: obj["snapshotRevision"]?.jsonPrimitive?.contentOrNull?.trim()?.takeUnless { it.isNullOrEmpty() }
+                ?: obj["snapshot_revision"]?.jsonPrimitive?.contentOrNull?.trim()?.takeUnless { it.isNullOrEmpty() },
             members = obj["members"]?.jsonArray?.mapNotNull(::parseMember).orEmpty(),
             messages = obj["messages"]?.jsonArray?.mapNotNull { parseMessage(it, existingById) }.orEmpty()
         )
