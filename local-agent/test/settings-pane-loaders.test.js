@@ -12,15 +12,15 @@ test("loadOverviewPaneData loads projects once before workgroups and scheduled t
   let projectsResolved = false;
 
   await loadOverviewPaneData({
-    refreshLocalDataMetrics: async () => {
-      calls.push("localData:start");
+    refreshLocalDataMetrics: async (options = {}) => {
+      calls.push(`localData:${JSON.stringify(options)}:start`);
       await Promise.resolve();
-      calls.push("localData:done");
+      calls.push(`localData:${JSON.stringify(options)}:done`);
     },
-    loadAccessGrants: async () => {
-      calls.push("access:start");
+    loadAccessGrants: async (options = {}) => {
+      calls.push(`access:${JSON.stringify(options)}:start`);
       await Promise.resolve();
-      calls.push("access:done");
+      calls.push(`access:${JSON.stringify(options)}:done`);
     },
     loadProjects: async (options = {}) => {
       calls.push(`projects:${JSON.stringify(options)}`);
@@ -40,11 +40,11 @@ test("loadOverviewPaneData loads projects once before workgroups and scheduled t
   }, { force: true });
 
   assert.deepEqual(calls, [
-    "localData:start",
-    "access:start",
+    "localData:{\"force\":true}:start",
+    "access:{\"force\":true}:start",
     "projects:{\"force\":true}",
-    "localData:done",
-    "access:done",
+    "localData:{\"force\":true}:done",
+    "access:{\"force\":true}:done",
     "workgroups:{\"force\":true,\"skipProjectRefresh\":true}",
     "tasks:{\"force\":true,\"skipProjectRefresh\":true}",
   ]);
@@ -55,10 +55,10 @@ test("loadMessagePaneData loads projects before workgroups and skips the duplica
   let projectsResolved = false;
 
   await loadMessagePaneData({
-    refreshLocalDataMetrics: async () => {
-      calls.push("localData:start");
+    refreshLocalDataMetrics: async (options = {}) => {
+      calls.push(`localData:${JSON.stringify(options)}:start`);
       await Promise.resolve();
-      calls.push("localData:done");
+      calls.push(`localData:${JSON.stringify(options)}:done`);
     },
     loadProjects: async (options = {}) => {
       calls.push(`projects:${JSON.stringify(options)}`);
@@ -70,20 +70,20 @@ test("loadMessagePaneData loads projects before workgroups and skips the duplica
       assert.equal(projectsResolved, true);
       assert.equal(options.skipProjectRefresh, true);
     },
-    loadRelayDevices: async () => {
-      calls.push("devices");
+    loadRelayDevices: async (options = {}) => {
+      calls.push(`devices:${JSON.stringify(options)}`);
     },
-    refreshRelayTransfers: async () => {
-      calls.push("transfers");
+    refreshRelayTransfers: async (options = {}) => {
+      calls.push(`transfers:${JSON.stringify(options)}`);
     },
   }, { force: true });
 
   assert.deepEqual(calls, [
-    "localData:start",
+    "localData:{\"force\":true}:start",
     "projects:{\"force\":true}",
-    "devices",
-    "transfers",
-    "localData:done",
+    "devices:{\"force\":true}",
+    "transfers:{\"force\":true}",
+    "localData:{\"force\":true}:done",
     "workgroups:{\"force\":true,\"skipProjectRefresh\":true}",
   ]);
 });

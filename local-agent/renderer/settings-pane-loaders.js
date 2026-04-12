@@ -10,8 +10,8 @@
   async function loadOverviewPaneData(deps, options = {}) {
     const force = options.force === true;
     await Promise.all([
-      deps.refreshLocalDataMetrics(),
-      deps.loadAccessGrants(),
+      deps.refreshLocalDataMetrics({ force }),
+      deps.loadAccessGrants({ force }),
       (async () => {
         await deps.loadProjects({ force });
         await Promise.all([
@@ -25,13 +25,13 @@
   async function loadMessagePaneData(deps, options = {}) {
     const force = options.force === true;
     await Promise.all([
-      deps.refreshLocalDataMetrics(),
+      deps.refreshLocalDataMetrics({ force }),
       (async () => {
         await deps.loadProjects({ force });
         await deps.loadWorkgroups({ force, skipProjectRefresh: true });
       })(),
-      deps.loadRelayDevices(),
-      deps.refreshRelayTransfers(),
+      deps.loadRelayDevices({ force }),
+      deps.refreshRelayTransfers({ force }),
     ]);
   }
 
