@@ -1716,9 +1716,11 @@
   </div>
 
   <script src="./settings-provider-runtime.js"></script>
+  <script src="./settings-pane-loaders.js"></script>
   <script>
     const api = window.claudeAgent;
     const providerRuntimeApi = window.SettingsProviderRuntime;
+    const settingsPaneLoaders = window.SettingsPaneLoaders;
     let currentLang = "en";
     let msgs = {};
     let activeSettingsPane = "overview";
@@ -2764,13 +2766,13 @@
         return;
       }
       if (normalizedPane === "message") {
-        await Promise.all([
-          refreshLocalDataMetrics(),
-          loadProjects(),
-          loadWorkgroups(),
-          loadRelayDevices(),
-          refreshRelayTransfers(),
-        ]);
+        await settingsPaneLoaders.loadMessagePaneData({
+          refreshLocalDataMetrics,
+          loadProjects,
+          loadWorkgroups,
+          loadRelayDevices,
+          refreshRelayTransfers,
+        });
         return;
       }
       if (normalizedPane === "automation") {

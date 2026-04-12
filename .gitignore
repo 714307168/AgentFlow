@@ -29,6 +29,7 @@ local-agent/test-appdata-*/
 local-agent/tmp-extracted/
 local-agent/renderer/*.js
 !local-agent/renderer/settings-provider-runtime.js
+!local-agent/renderer/settings-pane-loaders.js
 local-agent/renderer/*.js.map
 
 # === Android (android-app) ===
