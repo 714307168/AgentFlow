@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const {
+  loadAutomationPaneData,
   loadMessagePaneData,
 } = require("../renderer/settings-pane-loaders.js");
 
@@ -40,5 +41,24 @@ test("loadMessagePaneData loads projects before workgroups and skips the duplica
     "transfers",
     "localData:done",
     "workgroups:{\"force\":true,\"skipProjectRefresh\":true}",
+  ]);
+});
+
+test("loadAutomationPaneData loads projects first and asks scheduled tasks to reuse that catalog", async () => {
+  const calls = [];
+
+  await loadAutomationPaneData({
+    loadProjects: async (options = {}) => {
+      calls.push(`projects:${JSON.stringify(options)}`);
+    },
+    loadScheduledTasks: async (options = {}) => {
+      calls.push(`tasks:${JSON.stringify(options)}`);
+      assert.equal(options.skipProjectRefresh, true);
+    },
+  }, { force: true });
+
+  assert.deepEqual(calls, [
+    "projects:{\"force\":true}",
+    "tasks:{\"force\":true,\"skipProjectRefresh\":true}",
   ]);
 });

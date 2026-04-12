@@ -20,7 +20,14 @@
     ]);
   }
 
+  async function loadAutomationPaneData(deps, options = {}) {
+    const force = options.force === true;
+    await deps.loadProjects({ force });
+    await deps.loadScheduledTasks({ force, skipProjectRefresh: true });
+  }
+
   return {
+    loadAutomationPaneData,
     loadMessagePaneData,
   };
 });

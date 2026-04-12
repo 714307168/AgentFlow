@@ -2776,7 +2776,10 @@
         return;
       }
       if (normalizedPane === "automation") {
-        await loadScheduledTasks();
+        await settingsPaneLoaders.loadAutomationPaneData({
+          loadProjects,
+          loadScheduledTasks,
+        });
         return;
       }
       await Promise.all([
@@ -3922,6 +3925,7 @@
 
     async function loadScheduledTasks(options = {}) {
       const force = options.force === true;
+      const skipProjectRefresh = options.skipProjectRefresh === true;
       const draft = !editingScheduledTaskId ? captureScheduledTaskDraft() : null;
       if (!force && paneLoadState.scheduledTasksPromise) {
         await paneLoadState.scheduledTasksPromise;
@@ -3937,11 +3941,8 @@
 
       try {
         paneLoadState.scheduledTasksPromise = (async () => {
-          if (force || !paneLoadState.projectsLoaded || paneLoadState.projectsDirty) {
-            const projects = await api.getProjects({ refreshRemote: force });
-            latestProjectCatalog = Array.isArray(projects) ? projects : [];
-            paneLoadState.projectsLoaded = true;
-            paneLoadState.projectsDirty = false;
+          if (!skipProjectRefresh && (force || !paneLoadState.projectsLoaded || paneLoadState.projectsDirty)) {
+            await loadProjects({ force });
           }
           const result = await api.listScheduledTasks();
           latestScheduledTasks = Array.isArray(result?.tasks) ? result.tasks : [];
