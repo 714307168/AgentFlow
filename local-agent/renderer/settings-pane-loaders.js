@@ -7,6 +7,20 @@
     root.SettingsPaneLoaders = api;
   }
 })(typeof globalThis !== "undefined" ? globalThis : this, function createSettingsPaneLoaders() {
+  async function refreshTransferPaneData(deps, options = {}) {
+    const force = options.force === true;
+    const includeLocalData = options.includeLocalData === true;
+    const jobs = [];
+    if (includeLocalData) {
+      jobs.push(deps.refreshLocalDataMetrics({ force }));
+    }
+    jobs.push(
+      deps.loadRelayDevices({ force }),
+      deps.refreshRelayTransfers({ force }),
+    );
+    await Promise.all(jobs);
+  }
+
   async function loadOverviewPaneData(deps, options = {}) {
     const force = options.force === true;
     await Promise.all([
@@ -25,13 +39,11 @@
   async function loadMessagePaneData(deps, options = {}) {
     const force = options.force === true;
     await Promise.all([
-      deps.refreshLocalDataMetrics({ force }),
       (async () => {
         await deps.loadProjects({ force });
         await deps.loadWorkgroups({ force, skipProjectRefresh: true });
       })(),
-      deps.loadRelayDevices({ force }),
-      deps.refreshRelayTransfers({ force }),
+      refreshTransferPaneData(deps, { force, includeLocalData: true }),
     ]);
   }
 
@@ -45,5 +57,6 @@
     loadAutomationPaneData,
     loadMessagePaneData,
     loadOverviewPaneData,
+    refreshTransferPaneData,
   };
 });

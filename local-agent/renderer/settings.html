@@ -5727,8 +5727,10 @@
     document.getElementById("messageRefreshTransfersBtn").addEventListener("click", async () => {
       paneLoadState.transfersDirty = true;
       paneLoadState.transferDevicesDirty = true;
-      await loadRelayDevices({ force: true });
-      await refreshRelayTransfers({ force: true });
+      await settingsPaneLoaders.refreshTransferPaneData({
+        loadRelayDevices,
+        refreshRelayTransfers,
+      }, { force: true });
     });
     document.getElementById("messageSendFileBtn").addEventListener("click", async () => {
       try {

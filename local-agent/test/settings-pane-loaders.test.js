@@ -5,6 +5,7 @@ const {
   loadAutomationPaneData,
   loadMessagePaneData,
   loadOverviewPaneData,
+  refreshTransferPaneData,
 } = require("../renderer/settings-pane-loaders.js");
 
 test("loadOverviewPaneData loads projects once before workgroups and scheduled tasks reuse the same catalog", async () => {
@@ -50,6 +51,28 @@ test("loadOverviewPaneData loads projects once before workgroups and scheduled t
   ]);
 });
 
+test("refreshTransferPaneData propagates force to relay refreshers and optionally includes local metrics", async () => {
+  const calls = [];
+
+  await refreshTransferPaneData({
+    refreshLocalDataMetrics: async (options = {}) => {
+      calls.push(`localData:${JSON.stringify(options)}`);
+    },
+    loadRelayDevices: async (options = {}) => {
+      calls.push(`devices:${JSON.stringify(options)}`);
+    },
+    refreshRelayTransfers: async (options = {}) => {
+      calls.push(`transfers:${JSON.stringify(options)}`);
+    },
+  }, { force: true, includeLocalData: true });
+
+  assert.deepEqual(calls, [
+    "localData:{\"force\":true}",
+    "devices:{\"force\":true}",
+    "transfers:{\"force\":true}",
+  ]);
+});
+
 test("loadMessagePaneData loads projects before workgroups and skips the duplicate project refresh inside workgroups", async () => {
   const calls = [];
   let projectsResolved = false;
@@ -79,8 +102,8 @@ test("loadMessagePaneData loads projects before workgroups and skips the duplica
   }, { force: true });
 
   assert.deepEqual(calls, [
-    "localData:{\"force\":true}:start",
     "projects:{\"force\":true}",
+    "localData:{\"force\":true}:start",
     "devices:{\"force\":true}",
     "transfers:{\"force\":true}",
     "localData:{\"force\":true}:done",
