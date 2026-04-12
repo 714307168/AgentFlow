@@ -2749,12 +2749,13 @@
     async function ensurePaneDataLoaded(pane = activeSettingsPane) {
       const normalizedPane = normalizeSettingsPane(pane);
       if (normalizedPane === "overview") {
-        await Promise.all([
-          refreshLocalDataMetrics(),
-          loadAccessGrants(),
-          refreshProjectPaneData(),
-          loadScheduledTasks(),
-        ]);
+        await settingsPaneLoaders.loadOverviewPaneData({
+          refreshLocalDataMetrics,
+          loadAccessGrants,
+          loadProjects,
+          loadWorkgroups,
+          loadScheduledTasks,
+        });
         return;
       }
       if (normalizedPane === "connection") {

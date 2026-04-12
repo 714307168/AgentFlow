@@ -7,6 +7,21 @@
     root.SettingsPaneLoaders = api;
   }
 })(typeof globalThis !== "undefined" ? globalThis : this, function createSettingsPaneLoaders() {
+  async function loadOverviewPaneData(deps, options = {}) {
+    const force = options.force === true;
+    await Promise.all([
+      deps.refreshLocalDataMetrics(),
+      deps.loadAccessGrants(),
+      (async () => {
+        await deps.loadProjects({ force });
+        await Promise.all([
+          deps.loadWorkgroups({ force, skipProjectRefresh: true }),
+          deps.loadScheduledTasks({ force, skipProjectRefresh: true }),
+        ]);
+      })(),
+    ]);
+  }
+
   async function loadMessagePaneData(deps, options = {}) {
     const force = options.force === true;
     await Promise.all([
@@ -29,5 +44,6 @@
   return {
     loadAutomationPaneData,
     loadMessagePaneData,
+    loadOverviewPaneData,
   };
 });
