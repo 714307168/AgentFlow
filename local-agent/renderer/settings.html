@@ -5704,25 +5704,45 @@
       syncTransferTargetFields();
     });
     document.getElementById("transferFilterType").addEventListener("change", async () => {
-      syncTransferFilterFields();
-      paneLoadState.transfersDirty = true;
-      await refreshRelayTransfers({ force: true });
+      await settingsPaneLoaders.applyTransferFilterChange({
+        syncTransferFilterFields,
+        markTransfersDirty: () => {
+          paneLoadState.transfersDirty = true;
+        },
+        refreshRelayTransfers,
+      });
     });
     document.getElementById("transferFilterProject").addEventListener("change", async () => {
-      paneLoadState.transfersDirty = true;
-      await refreshRelayTransfers({ force: true });
+      await settingsPaneLoaders.applyTransferFilterChange({
+        markTransfersDirty: () => {
+          paneLoadState.transfersDirty = true;
+        },
+        refreshRelayTransfers,
+      });
     });
     document.getElementById("transferFilterWorkgroup").addEventListener("change", async () => {
-      paneLoadState.transfersDirty = true;
-      await refreshRelayTransfers({ force: true });
+      await settingsPaneLoaders.applyTransferFilterChange({
+        markTransfersDirty: () => {
+          paneLoadState.transfersDirty = true;
+        },
+        refreshRelayTransfers,
+      });
     });
     document.getElementById("transferFilterDevice").addEventListener("change", async () => {
-      paneLoadState.transfersDirty = true;
-      await refreshRelayTransfers({ force: true });
+      await settingsPaneLoaders.applyTransferFilterChange({
+        markTransfersDirty: () => {
+          paneLoadState.transfersDirty = true;
+        },
+        refreshRelayTransfers,
+      });
     });
     document.getElementById("transferIncludeReceipts").addEventListener("change", async () => {
-      paneLoadState.transfersDirty = true;
-      await refreshRelayTransfers({ force: true });
+      await settingsPaneLoaders.applyTransferFilterChange({
+        markTransfersDirty: () => {
+          paneLoadState.transfersDirty = true;
+        },
+        refreshRelayTransfers,
+      });
     });
     document.getElementById("messageRefreshTransfersBtn").addEventListener("click", async () => {
       paneLoadState.transfersDirty = true;

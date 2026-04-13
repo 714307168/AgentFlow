@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const {
+  applyTransferFilterChange,
   loadAutomationPaneData,
   loadMessagePaneData,
   loadOverviewPaneData,
@@ -70,6 +71,28 @@ test("refreshTransferPaneData propagates force to relay refreshers and optionall
     "localData:{\"force\":true}",
     "devices:{\"force\":true}",
     "transfers:{\"force\":true}",
+  ]);
+});
+
+test("applyTransferFilterChange syncs fields when provided, marks transfers dirty, and forces a refresh by default", async () => {
+  const calls = [];
+
+  await applyTransferFilterChange({
+    syncTransferFilterFields: () => {
+      calls.push("sync");
+    },
+    markTransfersDirty: () => {
+      calls.push("dirty");
+    },
+    refreshRelayTransfers: async (options = {}) => {
+      calls.push(`refresh:${JSON.stringify(options)}`);
+    },
+  });
+
+  assert.deepEqual(calls, [
+    "sync",
+    "dirty",
+    "refresh:{\"force\":true}",
   ]);
 });
 

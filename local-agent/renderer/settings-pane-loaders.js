@@ -21,6 +21,17 @@
     await Promise.all(jobs);
   }
 
+  async function applyTransferFilterChange(deps, options = {}) {
+    const force = options.force !== false;
+    if (typeof deps.syncTransferFilterFields === "function") {
+      deps.syncTransferFilterFields();
+    }
+    if (typeof deps.markTransfersDirty === "function") {
+      deps.markTransfersDirty();
+    }
+    await deps.refreshRelayTransfers({ force });
+  }
+
   async function loadOverviewPaneData(deps, options = {}) {
     const force = options.force === true;
     await Promise.all([
@@ -54,6 +65,7 @@
   }
 
   return {
+    applyTransferFilterChange,
     loadAutomationPaneData,
     loadMessagePaneData,
     loadOverviewPaneData,
