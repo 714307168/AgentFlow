@@ -3,8 +3,12 @@ const assert = require("node:assert/strict");
 
 const {
   getProviderAvailability,
+  getProviderCapabilityEntries,
   getProviderOptions,
   getFirstSelectableProvider,
+  getInstallMethodLabel,
+  getProviderRuntimeMode,
+  hasProviderApiFallback,
 } = require("../renderer/settings-provider-runtime.js");
 
 test("getProviderAvailability returns unknown when runtime detection has not populated the provider yet", () => {
@@ -51,4 +55,72 @@ test("getFirstSelectableProvider falls back to the first installed provider when
     claude: { installed: true },
     codex: { installed: false },
   }, "codex"), "claude");
+});
+
+test("hasProviderApiFallback checks provider-specific API keys", () => {
+  assert.equal(hasProviderApiFallback({ openaiApiKey: "sk-test" }, "codex"), true);
+  assert.equal(hasProviderApiFallback({ anthropicApiKey: "ak-test" }, "claude"), true);
+  assert.equal(hasProviderApiFallback({ openaiApiKey: " " }, "codex"), false);
+});
+
+test("getProviderRuntimeMode prefers a working local CLI and otherwise falls back to API credentials", () => {
+  assert.equal(getProviderRuntimeMode({
+    codex: {
+      installed: true,
+      capabilities: {
+        promptExecution: true,
+      },
+    },
+  }, { openaiApiKey: "sk-test" }, "codex"), "cli");
+
+  assert.equal(getProviderRuntimeMode({
+    codex: {
+      installed: true,
+      capabilities: {
+        promptExecution: false,
+      },
+    },
+  }, { openaiApiKey: "sk-test" }, "codex"), "sdk");
+
+  assert.equal(getProviderRuntimeMode({
+    codex: {
+      installed: false,
+      capabilities: {
+        promptExecution: false,
+      },
+    },
+  }, { openaiApiKey: "" }, "codex"), "unavailable");
+});
+
+test("getInstallMethodLabel formats known install sources", () => {
+  assert.equal(getInstallMethodLabel("npm"), "npm");
+  assert.equal(getInstallMethodLabel("brew"), "Homebrew");
+  assert.equal(getInstallMethodLabel("scoop"), "Scoop");
+  assert.equal(getInstallMethodLabel("winget"), "Winget");
+  assert.equal(getInstallMethodLabel("unknown"), null);
+});
+
+test("getProviderCapabilityEntries returns provider-specific capability keys", () => {
+  assert.deepEqual(
+    getProviderCapabilityEntries("claude", {
+      capabilities: {
+        promptExecution: true,
+        resumeConversation: false,
+        versionCommand: true,
+        nativeTools: true,
+      },
+    }).map((entry) => entry.key),
+    ["promptExecution", "resumeConversation", "versionCommand", "nativeTools"],
+  );
+
+  assert.equal(
+    getProviderCapabilityEntries("codex", {
+      capabilities: {
+        promptExecution: true,
+        resumeConversation: true,
+        webSearch: true,
+      },
+    }).length,
+    9,
+  );
 });

@@ -53,6 +53,75 @@
     return nextAvailable?.id || preferred;
   }
 
+  function hasProviderApiFallback(config, provider) {
+    const normalized = normalizeProviderId(provider);
+    if (!config || typeof config !== "object") {
+      return false;
+    }
+    const apiKey = normalized === "codex"
+      ? config.openaiApiKey
+      : config.anthropicApiKey;
+    return Boolean(typeof apiKey === "string" && apiKey.trim());
+  }
+
+  function getProviderRuntimeMode(statusMap, config, provider) {
+    const normalized = normalizeProviderId(provider);
+    const status = statusMap && typeof statusMap === "object" ? statusMap[normalized] : null;
+    const promptExecutionAvailable = status?.installed === true
+      && (!status.capabilities || status.capabilities.promptExecution !== false);
+    if (promptExecutionAvailable) {
+      return "cli";
+    }
+    if (hasProviderApiFallback(config, normalized)) {
+      return "sdk";
+    }
+    return "unavailable";
+  }
+
+  function getInstallMethodLabel(installMethod) {
+    switch (installMethod) {
+      case "npm":
+        return "npm";
+      case "brew":
+        return "Homebrew";
+      case "scoop":
+        return "Scoop";
+      case "winget":
+        return "Winget";
+      default:
+        return null;
+    }
+  }
+
+  function getProviderCapabilityEntries(provider, status) {
+    const normalized = normalizeProviderId(provider);
+    const capabilities = status && status.capabilities && typeof status.capabilities === "object"
+      ? status.capabilities
+      : {};
+    const keys = normalized === "codex"
+      ? [
+        "promptExecution",
+        "resumeConversation",
+        "webSearch",
+        "reviewCommand",
+        "featuresCommand",
+        "mcpCommand",
+        "completionCommand",
+        "versionCommand",
+        "nativeTools",
+      ]
+      : [
+        "promptExecution",
+        "resumeConversation",
+        "versionCommand",
+        "nativeTools",
+      ];
+    return keys.map((key) => ({
+      key,
+      available: capabilities[key] === true,
+    }));
+  }
+
   return {
     PROVIDERS,
     normalizeProviderId,
@@ -60,5 +129,9 @@
     getProviderAvailability,
     getProviderOptions,
     getFirstSelectableProvider,
+    hasProviderApiFallback,
+    getProviderRuntimeMode,
+    getInstallMethodLabel,
+    getProviderCapabilityEntries,
   };
 });

@@ -787,6 +787,11 @@
       border-color: color-mix(in srgb, var(--success) 48%, var(--border));
       background: color-mix(in srgb, var(--success-bg) 68%, transparent);
     }
+    .runtime-status-pill.warn {
+      color: #9a6700;
+      border-color: color-mix(in srgb, #f59e0b 44%, var(--border));
+      background: color-mix(in srgb, #fef3c7 72%, transparent);
+    }
     .runtime-status-pill.error {
       color: var(--error);
       border-color: color-mix(in srgb, var(--error) 48%, var(--border));
@@ -802,6 +807,57 @@
       font-size: 12px;
       color: var(--muted);
       line-height: 1.5;
+      word-break: break-word;
+    }
+    .runtime-status-meta {
+      display: grid;
+      gap: 6px;
+      margin-top: 4px;
+    }
+    .runtime-status-meta-row {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.45;
+      word-break: break-word;
+    }
+    .runtime-status-meta-label {
+      color: var(--text);
+      font-weight: 700;
+    }
+    .runtime-status-chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 6px;
+    }
+    .runtime-status-chip {
+      border-radius: 999px;
+      padding: 4px 9px;
+      font-size: 11px;
+      font-weight: 600;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      background: rgba(255, 255, 255, 0.03);
+    }
+    .runtime-status-chip.ok {
+      color: var(--success);
+      border-color: color-mix(in srgb, var(--success) 44%, var(--border));
+      background: color-mix(in srgb, var(--success-bg) 68%, transparent);
+    }
+    .runtime-status-chip.error {
+      color: var(--error);
+      border-color: color-mix(in srgb, var(--error) 44%, var(--border));
+      background: color-mix(in srgb, var(--error-bg) 70%, transparent);
+    }
+    .runtime-status-upgrade {
+      margin-top: 6px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      font-size: 12px;
+      line-height: 1.5;
+      color: #9a3412;
+      background: rgba(255, 247, 237, 0.92);
+      border: 1px solid rgba(251, 146, 60, 0.24);
       word-break: break-word;
     }
     .runtime-status-actions {
@@ -2127,30 +2183,126 @@
         { id: "claude", label: "Claude Code" },
         { id: "codex", label: "OpenAI Codex" },
       ];
+      const getCapabilityLabel = (providerId, key) => {
+        switch (key) {
+          case "promptExecution":
+            return inlineText("Prompt Runs", "执行任务");
+          case "resumeConversation":
+            return inlineText("Resume", "续接会话");
+          case "webSearch":
+            return inlineText("Web Search", "联网搜索");
+          case "reviewCommand":
+            return inlineText("Review", "代码评审");
+          case "featuresCommand":
+            return inlineText("Features", "特性列表");
+          case "mcpCommand":
+            return inlineText("MCP", "MCP");
+          case "completionCommand":
+            return inlineText("Completion", "补全脚本");
+          case "versionCommand":
+            return inlineText("Version", "版本查询");
+          case "nativeTools":
+            return providerId === "codex"
+              ? inlineText("Built-in Tools", "内置工具")
+              : inlineText("Native Tools", "原生工具");
+          default:
+            return key;
+        }
+      };
       container.innerHTML = providers.map(({ id, label }) => {
         const status = statusMap[id] || null;
-        const installed = status?.installed === true;
-        const pillText = installed
-          ? inlineText("Installed", "已安装")
-          : inlineText("Missing", "未安装");
+        const runtimeMode = providerRuntimeApi?.getProviderRuntimeMode
+          ? providerRuntimeApi.getProviderRuntimeMode(statusMap, latestConfig, id)
+          : (status?.installed ? "cli" : "unavailable");
+        const pillText = runtimeMode === "cli"
+          ? inlineText("Local CLI Ready", "本地 CLI 可用")
+          : (runtimeMode === "sdk"
+            ? inlineText("API Fallback Ready", "API 回退可用")
+            : inlineText("Runtime Missing", "运行环境缺失"));
+        const pillClass = runtimeMode === "cli" ? "ok" : (runtimeMode === "sdk" ? "warn" : "error");
         const versionText = status?.version
           ? escapeHtml(status.version)
           : escapeHtml(inlineText("No version detected", "未检测到版本"));
         const detailText = status?.detail
           ? escapeHtml(status.detail)
           : escapeHtml(inlineText("Runtime detection has not run yet.", "运行环境检测尚未执行。"));
-        const checkedAtText = escapeHtml(
-          inlineText("Checked: ", "检测时间：") + formatProviderStatusCheckedAt(status?.checkedAt)
-        );
+        const installMethodLabel = providerRuntimeApi?.getInstallMethodLabel?.(status?.installMethod) || null;
+        const apiFallbackReady = providerRuntimeApi?.hasProviderApiFallback?.(latestConfig, id) === true;
+        const capabilityEntries = providerRuntimeApi?.getProviderCapabilityEntries
+          ? providerRuntimeApi.getProviderCapabilityEntries(id, status)
+          : [];
+        const metaRows = [
+          {
+            label: inlineText("Effective Runtime", "实际运行时"),
+            value: runtimeMode === "cli"
+              ? inlineText("Use local CLI first.", "优先使用本地 CLI。")
+              : (runtimeMode === "sdk"
+                ? inlineText("Will fall back to provider API.", "将回退到 provider API。")
+                : inlineText("No usable local CLI or API fallback.", "没有可用的本地 CLI 或 API 回退。")),
+          },
+          {
+            label: inlineText("API Fallback", "API 回退"),
+            value: apiFallbackReady
+              ? inlineText("Configured", "已配置")
+              : inlineText("Not configured", "未配置"),
+          },
+          ...(installMethodLabel
+            ? [{
+              label: inlineText("Install Source", "安装来源"),
+              value: installMethodLabel,
+            }]
+            : []),
+          ...(status?.resolvedPath
+            ? [{
+              label: inlineText("Resolved Path", "命令路径"),
+              value: status.resolvedPath,
+            }]
+            : []),
+          {
+            label: inlineText("Checked", "检测时间"),
+            value: formatProviderStatusCheckedAt(status?.checkedAt),
+          },
+        ];
+        const capabilityMarkup = capabilityEntries.length
+          ? `
+            <div class="runtime-status-chip-row">
+              ${capabilityEntries.map((entry) => `
+                <div class="runtime-status-chip ${entry.available ? "ok" : "error"}">
+                  ${escapeHtml(getCapabilityLabel(id, entry.key))}
+                </div>
+              `).join("")}
+            </div>
+          `
+          : "";
+        const upgradeMarkup = status?.upgrade?.available
+          ? `
+            <div class="runtime-status-upgrade">
+              <strong>${escapeHtml(inlineText("Upgrade Recommended", "建议升级"))}</strong><br>
+              ${escapeHtml(status.upgrade.reason || inlineText("A newer CLI is recommended.", "建议升级到较新的 CLI。"))}
+              ${status.upgrade.commandPreview
+                ? `<br>${escapeHtml(inlineText("Suggested command: ", "建议命令：") + status.upgrade.commandPreview)}`
+                : ""}
+            </div>
+          `
+          : "";
         return `
           <div class="runtime-status-card">
             <div class="runtime-status-header">
               <div class="runtime-status-title">${escapeHtml(label)}</div>
-              <div class="runtime-status-pill ${installed ? "ok" : "error"}">${pillText}</div>
+              <div class="runtime-status-pill ${pillClass}">${pillText}</div>
             </div>
             <div class="runtime-status-version">${versionText}</div>
             <div class="runtime-status-detail">${detailText}</div>
-            <div class="runtime-status-detail">${checkedAtText}</div>
+            <div class="runtime-status-meta">
+              ${metaRows.map((row) => `
+                <div class="runtime-status-meta-row">
+                  <span class="runtime-status-meta-label">${escapeHtml(row.label)}:</span>
+                  ${escapeHtml(row.value)}
+                </div>
+              `).join("")}
+            </div>
+            ${capabilityMarkup}
+            ${upgradeMarkup}
           </div>
         `;
       }).join("");
