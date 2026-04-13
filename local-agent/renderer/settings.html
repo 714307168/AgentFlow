@@ -1906,11 +1906,12 @@
     }
 
     function providerAvailability(provider) {
-      return providerRuntimeApi?.getProviderAvailability(latestCliProviderRuntimeStatus, provider) || "unknown";
+      return providerRuntimeApi?.getProviderAvailability(latestCliProviderRuntimeStatus, provider, latestConfig) || "unknown";
     }
 
     function isProviderUnavailable(provider) {
-      return providerAvailability(provider) === "missing";
+      const availability = providerAvailability(provider);
+      return availability === "missing" || availability === "degraded";
     }
 
     function providerSelectLabel(provider) {
@@ -1933,7 +1934,7 @@
         || preferredProvider
         || latestConfig?.cliProvider
         || "claude";
-      return providerRuntimeApi?.getFirstSelectableProvider(latestCliProviderRuntimeStatus, fallback) || fallback;
+      return providerRuntimeApi?.getFirstSelectableProvider(latestCliProviderRuntimeStatus, fallback, latestConfig) || fallback;
     }
 
     function applyCliProviderAvailabilityToSelect(selectEl, selectedProvider) {
@@ -1959,7 +1960,7 @@
 
     function getCliProviderOptionStates(selectedProvider) {
       const normalizedProvider = providerRuntimeApi?.normalizeProviderId(selectedProvider || "claude") || "claude";
-      return providerRuntimeApi?.getProviderOptions(latestCliProviderRuntimeStatus, normalizedProvider) || [
+      return providerRuntimeApi?.getProviderOptions(latestCliProviderRuntimeStatus, normalizedProvider, latestConfig) || [
         { id: "claude", selected: normalizedProvider === "claude", disabled: false },
         { id: "codex", selected: normalizedProvider === "codex", disabled: false },
       ];

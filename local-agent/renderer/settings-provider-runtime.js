@@ -21,35 +21,46 @@
     return PROVIDERS.find((entry) => entry.id === normalized)?.label || "Claude Code";
   }
 
-  function getProviderAvailability(statusMap, provider) {
+  function getProviderAvailability(statusMap, provider, config) {
     const normalized = normalizeProviderId(provider);
     const status = statusMap && typeof statusMap === "object" ? statusMap[normalized] : null;
     if (!status || typeof status.installed !== "boolean") {
-      return "unknown";
+      return hasProviderApiFallback(config, normalized) ? "fallback" : "unknown";
     }
-    return status.installed ? "installed" : "missing";
+    const runtimeMode = getProviderRuntimeMode(statusMap, config, normalized);
+    if (runtimeMode === "cli") {
+      return "installed";
+    }
+    if (runtimeMode === "sdk") {
+      return "fallback";
+    }
+    return status.installed ? "degraded" : "missing";
   }
 
-  function getProviderOptions(statusMap, selectedProvider) {
+  function getProviderOptions(statusMap, selectedProvider, config) {
     const normalizedSelected = normalizeProviderId(selectedProvider);
     return PROVIDERS.map((provider) => {
-      const availability = getProviderAvailability(statusMap, provider.id);
+      const availability = getProviderAvailability(statusMap, provider.id, config);
       return {
         id: provider.id,
         label: provider.label,
         availability,
         selected: provider.id === normalizedSelected,
-        disabled: availability === "missing" && provider.id !== normalizedSelected,
+        disabled: (availability === "missing" || availability === "degraded") && provider.id !== normalizedSelected,
       };
     });
   }
 
-  function getFirstSelectableProvider(statusMap, preferredProvider) {
+  function getFirstSelectableProvider(statusMap, preferredProvider, config) {
     const preferred = normalizeProviderId(preferredProvider);
-    if (getProviderAvailability(statusMap, preferred) !== "missing") {
+    const preferredAvailability = getProviderAvailability(statusMap, preferred, config);
+    if (preferredAvailability !== "missing" && preferredAvailability !== "degraded") {
       return preferred;
     }
-    const nextAvailable = PROVIDERS.find((provider) => getProviderAvailability(statusMap, provider.id) !== "missing");
+    const nextAvailable = PROVIDERS.find((provider) => {
+      const availability = getProviderAvailability(statusMap, provider.id, config);
+      return availability !== "missing" && availability !== "degraded";
+    });
     return nextAvailable?.id || preferred;
   }
 

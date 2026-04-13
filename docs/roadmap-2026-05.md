@@ -486,4 +486,5 @@
 - [x] Desktop runtime-selection, CLI-upgrade planning, and Codex CLI-compatibility paths are covered by dedicated Node tests to reduce regressions in future runtime iterations.
 - [x] `R-desktop-patch`: desktop `1.1.132` was published to the update center on `2026-04-14` for the adaptive CLI / API fallback runtime patch. Release id: `212`. GitHub Release: `v1.1.132`.
 - [x] Desktop runtime status cards now expose the effective runtime mode, API fallback readiness, install source, resolved CLI path, capability chips, and upgrade hints so runtime diagnostics no longer stop at a bare installed/missing badge.
+- [x] Desktop provider selectors now treat API fallback as a valid runtime, so a provider with configured OpenAI / Anthropic credentials stays selectable even when the local CLI is missing; only truly unusable or degraded runtimes are blocked.
 

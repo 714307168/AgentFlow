@@ -20,7 +20,7 @@ test("getProviderOptions disables only missing providers that are not already se
   const options = getProviderOptions({
     claude: { installed: true },
     codex: { installed: false },
-  }, "claude");
+  }, "claude", null);
 
   assert.deepEqual(options, [
     {
@@ -44,7 +44,7 @@ test("getProviderOptions keeps the current missing provider selectable so existi
   const options = getProviderOptions({
     claude: { installed: true },
     codex: { installed: false },
-  }, "codex");
+  }, "codex", null);
 
   assert.equal(options[1].selected, true);
   assert.equal(options[1].disabled, false);
@@ -54,7 +54,43 @@ test("getFirstSelectableProvider falls back to the first installed provider when
   assert.equal(getFirstSelectableProvider({
     claude: { installed: true },
     codex: { installed: false },
-  }, "codex"), "claude");
+  }, "codex", null), "claude");
+});
+
+test("getProviderAvailability reports fallback when API credentials are usable without a local CLI", () => {
+  assert.equal(getProviderAvailability({
+    codex: { installed: false },
+  }, "codex", {
+    openaiApiKey: "sk-test",
+  }), "fallback");
+});
+
+test("getProviderOptions keeps API-fallback providers selectable", () => {
+  const options = getProviderOptions({
+    claude: { installed: true },
+    codex: {
+      installed: false,
+      capabilities: {
+        promptExecution: false,
+      },
+    },
+  }, "claude", {
+    openaiApiKey: "sk-test",
+  });
+
+  assert.equal(options[1].availability, "fallback");
+  assert.equal(options[1].disabled, false);
+});
+
+test("getProviderAvailability reports degraded when a CLI is installed but cannot execute prompts and no fallback exists", () => {
+  assert.equal(getProviderAvailability({
+    codex: {
+      installed: true,
+      capabilities: {
+        promptExecution: false,
+      },
+    },
+  }, "codex", null), "degraded");
 });
 
 test("hasProviderApiFallback checks provider-specific API keys", () => {
