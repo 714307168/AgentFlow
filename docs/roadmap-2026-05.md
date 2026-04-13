@@ -658,3 +658,9 @@
 - [x] Desktop transfer send/retry/manual-refresh paths now reuse a shared transfer-refresh request helper for `mark dirty + optional device refresh + force reload`, so transfer-center post-action refreshes no longer duplicate the same renderer-side state choreography.
 - [x] Desktop completion-sound handling now covers remote project runs as well as local runtime completions, so a remote session finishing on the desktop side also triggers the same completion chime instead of staying silent.
 - [x] `R-desktop-patch`: desktop `1.1.129` was published to the update center on `2026-04-13` for the unified completion-sound patch, so both local and remote project runs now play the same completion prompt on finish. Release id: `207`. GitHub Release: `v1.1.129`.
+
+## Progress Update 2026-04-13
+
+- [x] Desktop relay-device loading now uses a shared timed async cache in the main process, so repeated settings / transfer-center reads reuse the latest receiver list for a short window instead of re-requesting `/api/devices` on every pane visit.
+- [x] Desktop relay-device caching now coalesces concurrent callers and drops stale in-flight results after config or login invalidation, avoiding duplicate relay requests and preventing old device payloads from being written back after the server target changes.
+- [x] The relay-device cache policy is covered by dedicated Node tests for cache reuse, forced refresh, concurrent single-flight reuse, and stale-generation invalidation.

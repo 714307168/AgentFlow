@@ -8,6 +8,7 @@ import { v4 as uuidv4 } from "uuid";
 import { createAppIcon, createTrayIcon } from "./app-icon";
 import appLogger from "./app-logger";
 import { createCoalescedTrigger } from "./coalesced-trigger";
+import { createTimedAsyncCache } from "./timed-async-cache";
 import RelayClient, { RelayConnectionSnapshot } from "./relay-client";
 import MessageRouter from "./message-router";
 import projectStore, {
@@ -350,6 +351,7 @@ const RELAY_MAINTENANCE_INTERVAL_MS = 60_000;
 const MAX_DESKTOP_LOG_UPLOAD_BYTES = 1_600_000;
 const MAX_DESKTOP_LOG_FILES = 4;
 const MAX_DESKTOP_LOG_EXTRACTED_IDS = 20;
+const RELAY_DEVICE_LIST_CACHE_TTL_MS = 15_000;
 const DESKTOP_LOG_TRACE_ID_PATTERN = /(?:trace[_-]?id["=: ]+|traceId["=: ]+)([a-z0-9:-]{6,})/ig;
 const DESKTOP_LOG_WORKGROUP_ID_PATTERN = /(?:workgroup[_-]?id["=: ]+|workgroupId["=: ]+)([a-z0-9._:-]{3,})/ig;
 const RELAY_FOLLOW_UP_REFRESH_DELAYS_MS = [300, 1_500, 5_000] as const;
@@ -823,6 +825,38 @@ async function ensureDesktopTransferAuthToken(): Promise<string> {
   return token;
 }
 
+async function fetchRelayDevicesFromServer(): Promise<RelayDeviceSummary[]> {
+  const config = loadConfig();
+  if (!config.serverUrl.trim()) {
+    throw new Error("Server URL is not configured.");
+  }
+
+  const token = await ensureDesktopTransferAuthToken();
+  const response = await fetch(`${toHttpBaseUrl(config.serverUrl)}/api/devices`, {
+    method: "GET",
+    headers: buildRelayApiHeaders({
+      Authorization: `Bearer ${token}`,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = (await response.text()).trim();
+    throw new Error(errorText || response.statusText || "Failed to load relay devices.");
+  }
+
+  const payload = await response.json() as RelayDeviceSummary[];
+  return Array.isArray(payload) ? payload : [];
+}
+
+const relayDeviceListCache = createTimedAsyncCache<RelayDeviceSummary[]>({
+  ttlMs: RELAY_DEVICE_LIST_CACHE_TTL_MS,
+  load: fetchRelayDevicesFromServer,
+});
+
+function clearRelayDeviceListCache(): void {
+  relayDeviceListCache.clear();
+}
+
 async function listRelayTransfers(limit = 12): Promise<RelayTransferRecord[]> {
   return await listRelayTransfersWithOptions({ limit });
 }
@@ -871,27 +905,8 @@ async function listRelayTransfersWithOptions(options: RelayTransferListOptions =
   return payload;
 }
 
-async function listRelayDevices(): Promise<RelayDeviceSummary[]> {
-  const config = loadConfig();
-  if (!config.serverUrl.trim()) {
-    throw new Error("Server URL is not configured.");
-  }
-
-  const token = await ensureDesktopTransferAuthToken();
-  const response = await fetch(`${toHttpBaseUrl(config.serverUrl)}/api/devices`, {
-    method: "GET",
-    headers: buildRelayApiHeaders({
-      Authorization: `Bearer ${token}`,
-    }),
-  });
-
-  if (!response.ok) {
-    const errorText = (await response.text()).trim();
-    throw new Error(errorText || response.statusText || "Failed to load relay devices.");
-  }
-
-  const payload = await response.json() as RelayDeviceSummary[];
-  return Array.isArray(payload) ? payload : [];
+async function listRelayDevices(options: { force?: boolean } = {}): Promise<RelayDeviceSummary[]> {
+  return await relayDeviceListCache.get({ force: options.force === true });
 }
 
 async function createRelayTransferFromDesktop(
@@ -4526,6 +4541,7 @@ ipcMain.handle("revoke-access-grant", async (_event, data: { controllerUserId: n
 });
 
 ipcMain.handle("save-config", (_event, config: Partial<AgentConfig>) => {
+  clearRelayDeviceListCache();
   if (config.serverUrl !== undefined) configStore.set("serverUrl", config.serverUrl);
   if (config.agentId !== undefined) configStore.set("agentId", config.agentId);
   if (config.token !== undefined) {
@@ -4572,6 +4588,7 @@ ipcMain.handle("login", async (_event, data: { username: string; password: strin
       expiresAt: result.expires_at,
       username: result.user?.username?.trim() || data.username,
     });
+    clearRelayDeviceListCache();
     scheduleTokenRefresh();
     updateRelayClientAuthFromConfig();
     await refreshControllerToken(true);
@@ -4603,6 +4620,7 @@ ipcMain.handle("set-e2e-enabled", (_event, enabled: boolean) => {
 });
 
 ipcMain.handle("reconnect-relay", async () => {
+  clearRelayDeviceListCache();
   await refreshAgentToken(false);
   await refreshControllerToken(false);
   clearRelayFollowUpRefreshTimers();
@@ -4688,9 +4706,9 @@ ipcMain.handle("list-relay-transfers", async (_event, options?: number | RelayTr
   }
 });
 
-ipcMain.handle("list-relay-devices", async () => {
+ipcMain.handle("list-relay-devices", async (_event, options?: { force?: boolean } | null) => {
   try {
-    const items = await listRelayDevices();
+    const items = await listRelayDevices({ force: options?.force === true });
     return {
       success: true,
       items,

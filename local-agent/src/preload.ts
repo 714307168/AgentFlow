@@ -186,7 +186,7 @@ contextBridge.exposeInMainWorld('claudeAgent', {
     workgroupId?: string | null;
     includeReceipts?: boolean;
   }) => ipcRenderer.invoke('list-relay-transfers', options),
-  listRelayDevices: () => ipcRenderer.invoke('list-relay-devices'),
+  listRelayDevices: (options?: { force?: boolean }) => ipcRenderer.invoke('list-relay-devices', options ?? null),
   createRelayTransfer: (options?: {
     targetType?: string | null;
     targetId?: string | null;

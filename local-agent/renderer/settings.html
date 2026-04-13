@@ -2671,7 +2671,7 @@
       }
       try {
         paneLoadState.transferDevicesPromise = (async () => {
-          const result = await api.listRelayDevices();
+          const result = await api.listRelayDevices({ force });
           if (!result?.success) {
             throw new Error(result?.error || inlineText("Failed to load relay devices.", "加载 relay 设备失败。"));
           }
