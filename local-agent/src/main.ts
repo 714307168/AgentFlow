@@ -3868,6 +3868,13 @@ function initRemoteRelay(config: AgentConfig): void {
     updateWindowTitles();
     requestPrioritizedRemoteProjectSyncs("remote-projects-changed");
   });
+  remoteSessionStore.on("run-completed", (payload: { projectId: string; source?: string | null }) => {
+    appLogger.info("relay", "Remote project run completed.", {
+      projectId: payload?.projectId || null,
+      source: payload?.source || null,
+    });
+    playCompletionSound();
+  });
   remoteSessionStore.on("snapshot", (projectId: string, snapshot: ProjectSessionSnapshot) => {
     appLogger.info("relay", "Remote session snapshot updated.", {
       projectId,

@@ -929,6 +929,9 @@ export default class RemoteSessionStore extends EventEmitter {
       return false;
     }
 
+    const didCompleteRun = state.isRunning && !nextIsRunning;
+    const completedSource = state.currentSource ?? nextCurrentSource;
+
     state.provider = nextProvider;
     state.model = nextModel;
     state.snapshotRevision = nextSnapshotRevision;
@@ -940,6 +943,12 @@ export default class RemoteSessionStore extends EventEmitter {
     state.activeConversationId = nextActiveConversationId;
     state.queue = nextQueue;
     state.conversations = nextConversations;
+    if (didCompleteRun) {
+      this.emit("run-completed", {
+        projectId: state.project.id,
+        source: completedSource,
+      });
+    }
     return true;
   }
 
