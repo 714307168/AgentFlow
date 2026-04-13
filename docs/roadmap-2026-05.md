@@ -664,3 +664,4 @@
 - [x] Desktop relay-device loading now uses a shared timed async cache in the main process, so repeated settings / transfer-center reads reuse the latest receiver list for a short window instead of re-requesting `/api/devices` on every pane visit.
 - [x] Desktop relay-device caching now coalesces concurrent callers and drops stale in-flight results after config or login invalidation, avoiding duplicate relay requests and preventing old device payloads from being written back after the server target changes.
 - [x] The relay-device cache policy is covered by dedicated Node tests for cache reuse, forced refresh, concurrent single-flight reuse, and stale-generation invalidation.
+- [x] `R-desktop-patch`: desktop `1.1.130` was published to the update center on `2026-04-13` for the relay-device cache patch, reducing repeated `/api/devices` requests from settings and transfer-center refreshes. Release id: `208`.
