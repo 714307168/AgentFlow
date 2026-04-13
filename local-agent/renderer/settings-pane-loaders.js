@@ -10,14 +10,18 @@
   async function refreshTransferPaneData(deps, options = {}) {
     const force = options.force === true;
     const includeLocalData = options.includeLocalData === true;
+    const includeDevices = options.includeDevices !== false;
+    const includeTransfers = options.includeTransfers !== false;
     const jobs = [];
     if (includeLocalData) {
       jobs.push(deps.refreshLocalDataMetrics({ force }));
     }
-    jobs.push(
-      deps.loadRelayDevices({ force }),
-      deps.refreshRelayTransfers({ force }),
-    );
+    if (includeDevices) {
+      jobs.push(deps.loadRelayDevices({ force }));
+    }
+    if (includeTransfers) {
+      jobs.push(deps.refreshRelayTransfers({ force }));
+    }
     await Promise.all(jobs);
   }
 
@@ -30,6 +34,25 @@
       deps.markTransfersDirty();
     }
     await deps.refreshRelayTransfers({ force });
+  }
+
+  async function requestTransferRefresh(deps, options = {}) {
+    const force = options.force !== false;
+    const includeDevices = options.includeDevices === true;
+    const includeTransfers = options.includeTransfers !== false;
+    const includeLocalData = options.includeLocalData === true;
+    if (typeof deps.markTransfersDirty === "function" && includeTransfers) {
+      deps.markTransfersDirty();
+    }
+    if (typeof deps.markTransferDevicesDirty === "function" && includeDevices) {
+      deps.markTransferDevicesDirty();
+    }
+    await refreshTransferPaneData(deps, {
+      force,
+      includeDevices,
+      includeTransfers,
+      includeLocalData,
+    });
   }
 
   async function loadOverviewPaneData(deps, options = {}) {
@@ -70,5 +93,6 @@
     loadMessagePaneData,
     loadOverviewPaneData,
     refreshTransferPaneData,
+    requestTransferRefresh,
   };
 });

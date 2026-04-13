@@ -7,6 +7,7 @@ const {
   loadMessagePaneData,
   loadOverviewPaneData,
   refreshTransferPaneData,
+  requestTransferRefresh,
 } = require("../renderer/settings-pane-loaders.js");
 
 test("loadOverviewPaneData loads projects once before workgroups and scheduled tasks reuse the same catalog", async () => {
@@ -69,6 +70,32 @@ test("refreshTransferPaneData propagates force to relay refreshers and optionall
 
   assert.deepEqual(calls, [
     "localData:{\"force\":true}",
+    "devices:{\"force\":true}",
+    "transfers:{\"force\":true}",
+  ]);
+});
+
+test("requestTransferRefresh marks transfer state and refreshes only the requested transfer resources", async () => {
+  const calls = [];
+
+  await requestTransferRefresh({
+    markTransfersDirty: () => {
+      calls.push("dirty:transfers");
+    },
+    markTransferDevicesDirty: () => {
+      calls.push("dirty:devices");
+    },
+    loadRelayDevices: async (options = {}) => {
+      calls.push(`devices:${JSON.stringify(options)}`);
+    },
+    refreshRelayTransfers: async (options = {}) => {
+      calls.push(`transfers:${JSON.stringify(options)}`);
+    },
+  }, { force: true, includeDevices: true });
+
+  assert.deepEqual(calls, [
+    "dirty:transfers",
+    "dirty:devices",
     "devices:{\"force\":true}",
     "transfers:{\"force\":true}",
   ]);

@@ -2411,8 +2411,12 @@
       try {
         const result = await api.createRelayTransfer(buildRelayTransferOptionsFromItem(item));
         if (result?.success) {
-          paneLoadState.transfersDirty = true;
-          await refreshRelayTransfers({ force: true });
+          await settingsPaneLoaders.requestTransferRefresh({
+            markTransfersDirty: () => {
+              paneLoadState.transfersDirty = true;
+            },
+            refreshRelayTransfers,
+          });
           showStatus(inlineText("Transfer retried with the same target scope.", "已按相同目标范围重新发送传输。"), false);
           return;
         }
@@ -5745,12 +5749,16 @@
       });
     });
     document.getElementById("messageRefreshTransfersBtn").addEventListener("click", async () => {
-      paneLoadState.transfersDirty = true;
-      paneLoadState.transferDevicesDirty = true;
-      await settingsPaneLoaders.refreshTransferPaneData({
+      await settingsPaneLoaders.requestTransferRefresh({
+        markTransfersDirty: () => {
+          paneLoadState.transfersDirty = true;
+        },
+        markTransferDevicesDirty: () => {
+          paneLoadState.transferDevicesDirty = true;
+        },
         loadRelayDevices,
         refreshRelayTransfers,
-      }, { force: true });
+      }, { force: true, includeDevices: true });
     });
     document.getElementById("messageSendFileBtn").addEventListener("click", async () => {
       try {
@@ -5787,8 +5795,12 @@
         }
         const result = await api.createRelayTransfer(options);
         if (result?.success) {
-          paneLoadState.transfersDirty = true;
-          await refreshRelayTransfers({ force: true });
+          await settingsPaneLoaders.requestTransferRefresh({
+            markTransfersDirty: () => {
+              paneLoadState.transfersDirty = true;
+            },
+            refreshRelayTransfers,
+          });
           showStatus(inlineText("File uploaded. Target clients can download it now.", "文件已上传，目标客户端现在可以下载了。"), false);
           return;
         }
