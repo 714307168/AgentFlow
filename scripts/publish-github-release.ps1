@@ -2,7 +2,7 @@ param(
     [string]$Repo,
     [string]$Tag,
     [string]$Name,
-    [string]$TargetCommitish = "main",
+    [string]$TargetCommitish,
     [string]$Notes,
     [string]$NotesFile,
     [string]$DesktopAsset,
@@ -56,6 +56,32 @@ function Resolve-GitHubRepo {
     }
 
     throw "Remote origin is not a GitHub repository: $remoteUrl"
+}
+
+function Resolve-TargetCommitish {
+    param([string]$ExplicitTargetCommitish)
+
+    if ($ExplicitTargetCommitish) {
+        return $ExplicitTargetCommitish
+    }
+
+    $remoteInfo = git remote show origin 2>$null
+    if ($LASTEXITCODE -eq 0) {
+        $headBranchLine = $remoteInfo | Where-Object { $_ -match 'HEAD branch:\s*(.+)$' } | Select-Object -First 1
+        if ($headBranchLine -and $headBranchLine -match 'HEAD branch:\s*(.+)$') {
+            $resolvedHeadBranch = $Matches[1].Trim()
+            if ($resolvedHeadBranch) {
+                return $resolvedHeadBranch
+            }
+        }
+    }
+
+    $currentBranch = (git branch --show-current 2>$null).Trim()
+    if ($LASTEXITCODE -eq 0 -and $currentBranch) {
+        return $currentBranch
+    }
+
+    return "main"
 }
 
 function Get-DesktopVersion {
@@ -225,6 +251,7 @@ function Upload-ReleaseAsset {
 
 $repoRoot = Get-RepoRoot
 $resolvedRepo = Resolve-GitHubRepo -ExplicitRepo $Repo
+$resolvedTargetCommitish = Resolve-TargetCommitish -ExplicitTargetCommitish $TargetCommitish
 $desktopVersion = Get-DesktopVersion -RepoRoot $repoRoot
 $androidVersion = Get-AndroidVersion -RepoRoot $repoRoot
 $resolvedTag = if ($Tag) { $Tag } else { "v$desktopVersion" }
@@ -263,6 +290,7 @@ $assetPaths = @(@($resolvedDesktopAsset, $resolvedAndroidAsset, $resolvedRelayAs
 Write-Step "Repository: $resolvedRepo"
 Write-Step "Tag: $resolvedTag"
 Write-Step "Release name: $resolvedName"
+Write-Step "Target commitish: $resolvedTargetCommitish"
 if ($assetPaths.Count -gt 0) {
     Write-Step "Assets:"
     $assetPaths | ForEach-Object { Write-Host "   $_" }
@@ -286,7 +314,7 @@ if ($existingRelease) {
         -Headers $headers `
         -Body @{
             tag_name               = $resolvedTag
-            target_commitish       = $TargetCommitish
+            target_commitish       = $resolvedTargetCommitish
             name                   = $resolvedName
             body                   = $releaseNotes
             draft                  = [bool]$Draft
@@ -300,7 +328,7 @@ if ($existingRelease) {
         -Headers $headers `
         -Body @{
             tag_name               = $resolvedTag
-            target_commitish       = $TargetCommitish
+            target_commitish       = $resolvedTargetCommitish
             name                   = $resolvedName
             body                   = $releaseNotes
             draft                  = [bool]$Draft
