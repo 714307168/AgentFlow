@@ -25,6 +25,8 @@ import {
   buildSlashHelpMessage,
   parseSlashToggleIntent,
 } from "./codex-command-support";
+import { executeProviderSdkRun, type ProviderSdkConfig } from "./provider-sdk";
+import { type ProviderRuntimeSelection } from "./provider-runtime";
 import SessionHistoryStore, {
   ChatHistoryRepairSummary,
   PersistedProjectState,
@@ -52,6 +54,8 @@ export interface RuntimeConfig {
   getProjectCodexWebSearchEnabled?: (projectId: string) => boolean;
   getProjectPrompt?: (projectId: string) => string | null;
   getProviderEnvironment?: (provider: CliProvider) => Record<string, string>;
+  resolveProviderRuntime?: (projectId: string, provider: CliProvider) => Promise<ProviderRuntimeSelection>;
+  getProviderSdkConfig?: (provider: CliProvider) => ProviderSdkConfig | null;
   shouldResumeConversation?: (projectId: string, provider: CliProvider) => boolean;
   shouldPersistProjectHistory?: (projectId: string) => boolean;
   updateProject: (projectId: string, updates: {
@@ -111,13 +115,18 @@ interface ProjectState {
   activities: SessionActivity[];
   claudeSessionId: string | null;
   codexThreadId: string | null;
-  process: ChildProcessWithoutNullStreams | null;
+  process: ActiveRunProcessHandle | null;
   pendingStop: PendingStop | null;
 }
 
 interface PendingStop {
   reason: string;
   notifyAsError: boolean;
+}
+
+interface ActiveRunProcessHandle {
+  killed: boolean;
+  kill: () => void;
 }
 
 interface RunContext {
@@ -658,6 +667,9 @@ class RuntimeManager extends EventEmitter {
     try {
       let completionDetail = `${this.getProviderLabel(state.provider)} finished successfully.`;
       const prepared = await this.prepareRun(state, next, context);
+      const providerRuntime = prepared.handledLocally
+        ? null
+        : await this.resolveProviderRuntime(state.projectId, state.provider);
 
       if (prepared.handledLocally) {
         completionDetail = prepared.completionDetail ?? completionDetail;
@@ -666,13 +678,18 @@ class RuntimeManager extends EventEmitter {
         completionDetail = prepared.completionDetail ?? completionDetail;
       } else {
         const run = prepared.run;
-        if (state.provider === "claude") {
-          await this.executeClaude(state, run, context);
+        if (!providerRuntime || providerRuntime.kind === "unavailable") {
+          throw new Error(providerRuntime?.detail ?? "No provider runtime is available.");
+        }
+        if (providerRuntime.kind === "sdk") {
+          await this.executeProviderSdk(state, run, context, providerRuntime);
+        } else if (state.provider === "claude") {
+          await this.executeClaude(state, run, context, providerRuntime);
         } else {
           let lastCodexError: unknown = null;
           for (let attempt = 0; attempt <= CODEX_EXIT_CODE_1_MAX_RETRIES; attempt += 1) {
             try {
-              await this.executeCodex(state, run, context);
+              await this.executeCodex(state, run, context, providerRuntime);
               lastCodexError = null;
               break;
             } catch (error) {
@@ -756,8 +773,13 @@ class RuntimeManager extends EventEmitter {
     }
   }
 
-  private executeClaude(state: ProjectState, run: PendingRun, context: RunContext): Promise<void> {
-    const command = process.platform === "win32" ? "claude.cmd" : "claude";
+  private executeClaude(
+    state: ProjectState,
+    run: PendingRun,
+    context: RunContext,
+    runtime: ProviderRuntimeSelection,
+  ): Promise<void> {
+    const command = runtime.cliStatus?.command ?? (process.platform === "win32" ? "claude.cmd" : "claude");
     const args = [
       "-p",
       "--output-format",
@@ -906,8 +928,13 @@ class RuntimeManager extends EventEmitter {
     );
   }
 
-  private executeCodex(state: ProjectState, run: PendingRun, context: RunContext): Promise<void> {
-    const command = process.platform === "win32" ? "codex.cmd" : "codex";
+  private executeCodex(
+    state: ProjectState,
+    run: PendingRun,
+    context: RunContext,
+    runtime: ProviderRuntimeSelection,
+  ): Promise<void> {
+    const command = runtime.cliStatus?.command ?? (process.platform === "win32" ? "codex.cmd" : "codex");
     let codexChild: ChildProcessWithoutNullStreams | null = null;
     let logicalCompletionSeen = false;
     const args = buildCodexExecArgs({
@@ -915,6 +942,10 @@ class RuntimeManager extends EventEmitter {
       codexThreadId: state.codexThreadId,
       model: state.model,
       searchEnabled: this.isCodexWebSearchEnabled(state.projectId),
+      capabilities: {
+        resumeConversation: runtime.capabilities.resumeConversation,
+        webSearch: runtime.capabilities.webSearch,
+      },
     });
 
     return this.runProcess(
@@ -1134,10 +1165,14 @@ class RuntimeManager extends EventEmitter {
     }
 
     if (command.name === "tools") {
+      const runtime = await this.resolveProviderRuntime(state.projectId, state.provider);
       const toolsText = buildProviderToolsMessage({
         provider: state.provider,
         model: state.model,
         codexSearchEnabled: this.isCodexWebSearchEnabled(state.projectId),
+        runtimeKind: runtime.kind,
+        runtimeDetail: runtime.detail,
+        runtimeStatus: runtime.cliStatus,
       });
       this.appendAssistantText(state, context, run, toolsText);
       run.onTextDelta?.(toolsText);
@@ -1185,6 +1220,7 @@ class RuntimeManager extends EventEmitter {
     }
 
     if (state.provider === "codex") {
+      const runtime = await this.resolveProviderRuntime(state.projectId, state.provider);
       if (command.name === "init") {
         const detail = "Headless Codex mode does not expose native slash commands; /init is being emulated with an equivalent AGENTS.md bootstrap prompt.";
         if (context.runStatusActivityId) {
@@ -1202,22 +1238,37 @@ class RuntimeManager extends EventEmitter {
       }
 
       if (command.name === "review") {
+        if (runtime.kind !== "cli") {
+          return this.handleCliOnlyCodexCommandUnavailable(state, run, context, command.name, runtime.detail);
+        }
         return this.prepareCodexReviewSlashCommand(state, run, context, command.args);
       }
 
       if (command.name === "features") {
+        if (runtime.kind !== "cli") {
+          return this.handleCliOnlyCodexCommandUnavailable(state, run, context, command.name, runtime.detail);
+        }
         return this.prepareCodexFeaturesSlashCommand(state, run, context, command.args);
       }
 
       if (command.name === "version") {
+        if (runtime.kind !== "cli") {
+          return this.handleCliOnlyCodexCommandUnavailable(state, run, context, command.name, runtime.detail);
+        }
         return this.prepareCodexVersionSlashCommand(run, context);
       }
 
       if (command.name === "completion") {
+        if (runtime.kind !== "cli") {
+          return this.handleCliOnlyCodexCommandUnavailable(state, run, context, command.name, runtime.detail);
+        }
         return this.prepareCodexCompletionSlashCommand(run, context, command.args);
       }
 
       if (command.name === "mcp") {
+        if (runtime.kind !== "cli") {
+          return this.handleCliOnlyCodexCommandUnavailable(state, run, context, command.name, runtime.detail);
+        }
         return this.prepareCodexMcpSlashCommand(run, context, command.args);
       }
 
@@ -1251,6 +1302,26 @@ class RuntimeManager extends EventEmitter {
         emptyOutputMessage: "Codex review completed with no text output.",
       },
     );
+  }
+
+  private handleCliOnlyCodexCommandUnavailable(
+    state: ProjectState,
+    run: PendingRun,
+    context: RunContext,
+    commandName: string,
+    detail: string,
+  ): PreparedRunResult {
+    const message = [
+      `/${commandName} currently requires a compatible local Codex CLI.`,
+      detail,
+    ].join("\n");
+    this.appendAssistantText(state, context, run, message);
+    run.onTextDelta?.(message);
+    return {
+      run,
+      handledLocally: true,
+      completionDetail: `Displayed /${commandName} runtime requirements.`,
+    };
   }
 
   private prepareCodexFeaturesSlashCommand(
@@ -1593,6 +1664,102 @@ class RuntimeManager extends EventEmitter {
         status: "done",
       });
     }
+  }
+
+  private async executeProviderSdk(
+    state: ProjectState,
+    run: PendingRun,
+    context: RunContext,
+    runtime: ProviderRuntimeSelection,
+  ): Promise<void> {
+    const sdkConfig = this.getConfig().getProviderSdkConfig?.(state.provider) ?? null;
+    if (!sdkConfig) {
+      throw new Error(runtime.detail || "Provider SDK fallback is not configured.");
+    }
+
+    if (context.runStatusActivityId) {
+      this.updateActivity(state, context.runStatusActivityId, {
+        detail: `Running through the ${state.provider === "codex" ? "OpenAI" : "Anthropic"} API fallback runtime.`,
+      });
+    }
+
+    const abortController = new AbortController();
+    const processHandle: ActiveRunProcessHandle = {
+      killed: false,
+      kill: () => {
+        processHandle.killed = true;
+        abortController.abort();
+      },
+    };
+    state.process = processHandle;
+
+    try {
+      const result = await executeProviderSdkRun({
+        provider: state.provider,
+        config: sdkConfig,
+        model: state.model,
+        prompt: run.prompt,
+        projectPrompt: this.getConfig().getProjectPrompt?.(state.projectId) ?? null,
+        messages: state.messages,
+        attachments: run.attachments,
+        signal: abortController.signal,
+      });
+
+      if (result.model) {
+        state.model = result.model;
+      }
+      this.appendAssistantText(state, context, run, result.text);
+      run.onTextDelta?.(result.text);
+      if (context.assistantMessageId) {
+        this.updateMessage(state, context.assistantMessageId, {
+          status: "done",
+        });
+      }
+      this.addActivity(state, {
+        id: uuidv4(),
+        kind: "status",
+        title: `${this.getProviderLabel(state.provider)} API fallback`,
+        detail: "Completed through the provider API runtime.",
+        status: "completed",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        meta: {
+          source: run.source,
+          runId: run.runId,
+        },
+      });
+    } catch (error) {
+      if (state.pendingStop) {
+        throw new StopRunError(state.pendingStop.reason, state.pendingStop.notifyAsError);
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(message);
+    }
+  }
+
+  private async resolveProviderRuntime(projectId: string, provider: CliProvider): Promise<ProviderRuntimeSelection> {
+    const configured = this.getConfig().resolveProviderRuntime;
+    if (configured) {
+      return await configured(projectId, provider);
+    }
+    return {
+      provider,
+      kind: "cli",
+      detail: "Using the local CLI runtime.",
+      sdkConfigured: false,
+      cliStatus: null,
+      capabilities: {
+        promptExecution: true,
+        resumeConversation: true,
+        webSearch: provider === "codex",
+        reviewCommand: provider === "codex",
+        featuresCommand: provider === "codex",
+        mcpCommand: provider === "codex",
+        completionCommand: provider === "codex",
+        versionCommand: true,
+        nativeTools: true,
+      },
+    };
   }
 
   private shouldResumeConversation(projectId: string, provider: CliProvider): boolean {

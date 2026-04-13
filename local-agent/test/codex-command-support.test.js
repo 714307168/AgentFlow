@@ -39,6 +39,8 @@ function createRuntimeManager(options = {}) {
     getProjectProvider: () => options.provider || "codex",
     getProjectModel: () => options.model || null,
     getProjectCodexWebSearchEnabled: () => options.codexWebSearchEnabled === true,
+    resolveProviderRuntime: options.resolveProviderRuntime,
+    getProviderSdkConfig: options.getProviderSdkConfig,
     updateProject: (_projectId, updates) => {
       updateCalls.push(updates);
     },
@@ -87,10 +89,6 @@ test("buildCodexExecArgs omits search when resuming because codex exec resume do
     "--enable",
     "code_mode_only",
     "--disable",
-    "shell_tool",
-    "--disable",
-    "tool_search",
-    "--disable",
     "tool_suggest",
     "--disable",
     "tool_call_mcp_elicitation",
@@ -116,16 +114,40 @@ test("buildCodexExecArgs enables search for fresh exec runs", () => {
     "--enable",
     "code_mode_only",
     "--disable",
-    "shell_tool",
-    "--disable",
-    "tool_search",
-    "--disable",
     "tool_suggest",
     "--disable",
     "tool_call_mcp_elicitation",
     "--model",
     "gpt-5.4",
     "--search",
+  ]);
+});
+
+test("buildCodexExecArgs drops unsupported resume and search flags when the local CLI lacks them", () => {
+  const args = buildCodexExecArgs({
+    canResumeConversation: true,
+    codexThreadId: "thread-123",
+    model: "gpt-5.4",
+    searchEnabled: true,
+    capabilities: {
+      resumeConversation: false,
+      webSearch: false,
+    },
+  });
+
+  assert.deepEqual(args, [
+    "exec",
+    "--json",
+    "--dangerously-bypass-approvals-and-sandbox",
+    "--skip-git-repo-check",
+    "--enable",
+    "code_mode_only",
+    "--disable",
+    "tool_suggest",
+    "--disable",
+    "tool_call_mcp_elicitation",
+    "--model",
+    "gpt-5.4",
   ]);
 });
 
@@ -139,10 +161,6 @@ test("buildCodexReviewArgs defaults to uncommitted review and preserves quoted t
       'model="gpt-5.4"',
       "--enable",
       "code_mode_only",
-      "--disable",
-      "shell_tool",
-      "--disable",
-      "tool_search",
       "--disable",
       "tool_suggest",
       "--disable",
@@ -170,10 +188,6 @@ test("buildCodexFeaturesArgs accepts list and rejects unknown subcommands", () =
       'model="gpt-5.4"',
       "--enable",
       "code_mode_only",
-      "--disable",
-      "shell_tool",
-      "--disable",
-      "tool_search",
       "--disable",
       "tool_suggest",
       "--disable",
@@ -268,10 +282,49 @@ test("RuntimeManager /tools reports current Codex support and search status", as
   assert.equal(prepared.handledLocally, true);
   const message = runtimeManager.getSnapshot("project-codex").messages.at(-1)?.content || "";
   assert.equal(message.includes("codex exec --json"), true);
-  assert.equal(message.includes("restricted tool profile"), true);
+  assert.equal(message.includes("built-in agent tools"), true);
+  assert.equal(message.includes("command execution"), true);
   assert.equal(message.includes("Web search tool: enabled"), true);
   assert.equal(message.includes("/mcp list|get"), true);
   assert.equal(message.includes("Not exposed in this app"), true);
+
+  runtimeManager.dispose();
+});
+
+test("RuntimeManager blocks CLI-only Codex slash commands when the runtime falls back to the API", async () => {
+  const { runtimeManager } = createRuntimeManager({
+    provider: "codex",
+    resolveProviderRuntime: async () => ({
+      provider: "codex",
+      kind: "sdk",
+      detail: "CLI is unavailable, so the desktop will fall back to the configured API runtime.",
+      sdkConfigured: true,
+      cliStatus: null,
+      capabilities: {
+        promptExecution: true,
+        resumeConversation: false,
+        webSearch: false,
+        reviewCommand: false,
+        featuresCommand: false,
+        mcpCommand: false,
+        completionCommand: false,
+        versionCommand: false,
+        nativeTools: false,
+      },
+    }),
+  });
+  const state = runtimeManager.ensureState("project-codex");
+
+  const prepared = await runtimeManager.prepareRun(
+    state,
+    createPreparedRun("/review focus on regressions"),
+    createRunContext(),
+  );
+
+  assert.equal(prepared.handledLocally, true);
+  const message = runtimeManager.getSnapshot("project-codex").messages.at(-1)?.content || "";
+  assert.equal(message.includes("requires a compatible local Codex CLI"), true);
+  assert.equal(message.includes("fall back to the configured API runtime"), true);
 
   runtimeManager.dispose();
 });

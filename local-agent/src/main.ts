@@ -61,7 +61,10 @@ import {
   resolveLocalDataRoot,
 } from "./user-data-bootstrap";
 import { playSystemNotificationSound } from "./desktop-sound";
-import { getCliProviderRuntimeStatuses } from "./cli-runtime-status";
+import { getCliProviderRuntimeStatuses, probeCliProviderRuntime, type CliProviderRuntimeStatus } from "./cli-runtime-status";
+import { upgradeCliProvider } from "./cli-updater";
+import { selectProviderRuntime, type ProviderRuntimeSelection } from "./provider-runtime";
+import { isProviderSdkConfigured, type ProviderSdkConfig } from "./provider-sdk";
 
 interface AgentConfig {
   serverUrl: string;
@@ -352,6 +355,8 @@ const MAX_DESKTOP_LOG_UPLOAD_BYTES = 1_600_000;
 const MAX_DESKTOP_LOG_FILES = 4;
 const MAX_DESKTOP_LOG_EXTRACTED_IDS = 20;
 const RELAY_DEVICE_LIST_CACHE_TTL_MS = 15_000;
+const CLI_PROVIDER_RUNTIME_STATUS_CACHE_TTL_MS = 15_000;
+const CLI_PROVIDER_AUTO_UPGRADE_COOLDOWN_MS = 6 * 60 * 60 * 1000;
 const DESKTOP_LOG_TRACE_ID_PATTERN = /(?:trace[_-]?id["=: ]+|traceId["=: ]+)([a-z0-9:-]{6,})/ig;
 const DESKTOP_LOG_WORKGROUP_ID_PATTERN = /(?:workgroup[_-]?id["=: ]+|workgroupId["=: ]+)([a-z0-9._:-]{3,})/ig;
 const RELAY_FOLLOW_UP_REFRESH_DELAYS_MS = [300, 1_500, 5_000] as const;
@@ -374,6 +379,136 @@ const pendingRemoteWorkgroupSessionSyncs = new Set<string>();
 let lastAgentRelayRecoveryAt = 0;
 let lastControllerRelayRecoveryAt = 0;
 const relayFollowUpRefreshTimers = new Set<NodeJS.Timeout>();
+const lastCliProviderAutoUpgradeAt = new Map<CliProvider, number>();
+const pendingCliProviderAutoUpgrades = new Map<CliProvider, Promise<CliProviderRuntimeStatus>>();
+const cliProviderRuntimeStatusCache = createTimedAsyncCache<Record<CliProvider, CliProviderRuntimeStatus>>({
+  ttlMs: CLI_PROVIDER_RUNTIME_STATUS_CACHE_TTL_MS,
+  load: getCliProviderRuntimeStatuses,
+});
+
+function clearCliProviderRuntimeStatusCache(): void {
+  cliProviderRuntimeStatusCache.clear();
+}
+
+async function loadCliProviderRuntimeStatuses(options: { force?: boolean } = {}): Promise<Record<CliProvider, CliProviderRuntimeStatus>> {
+  return await cliProviderRuntimeStatusCache.get({ force: options.force === true });
+}
+
+function getProviderSdkConfig(provider: CliProvider): ProviderSdkConfig | null {
+  const config = loadConfig();
+  if (provider === "codex") {
+    return {
+      apiKey: config.openaiApiKey?.trim() || null,
+      baseUrl: config.openaiBaseUrl?.trim() || null,
+      defaultModel: config.openaiDefaultModel?.trim() || null,
+    };
+  }
+
+  return {
+    apiKey: config.anthropicApiKey?.trim() || null,
+    baseUrl: config.anthropicBaseUrl?.trim() || null,
+    defaultModel: config.anthropicDefaultModel?.trim() || null,
+  };
+}
+
+function canAutoUpgradeCliProvider(status: CliProviderRuntimeStatus | null | undefined): status is CliProviderRuntimeStatus {
+  return Boolean(
+    status
+    && status.installed
+    && status.upgrade.available
+    && status.installMethod
+    && status.upgrade.command,
+  );
+}
+
+async function maybeAutoUpgradeCliProvider(status: CliProviderRuntimeStatus): Promise<CliProviderRuntimeStatus> {
+  if (!canAutoUpgradeCliProvider(status)) {
+    return status;
+  }
+
+  const pendingUpgrade = pendingCliProviderAutoUpgrades.get(status.provider);
+  if (pendingUpgrade) {
+    return await pendingUpgrade;
+  }
+
+  const lastStartedAt = lastCliProviderAutoUpgradeAt.get(status.provider) ?? 0;
+  if (Date.now() - lastStartedAt < CLI_PROVIDER_AUTO_UPGRADE_COOLDOWN_MS) {
+    return status;
+  }
+
+  const upgradePromise = (async () => {
+    lastCliProviderAutoUpgradeAt.set(status.provider, Date.now());
+    appLogger.info("runtime", "Attempting automatic CLI upgrade.", {
+      provider: status.provider,
+      version: status.version,
+      installMethod: status.installMethod,
+      command: status.upgrade.commandPreview,
+      reason: status.upgrade.reason,
+    });
+
+    const result = await upgradeCliProvider(status.provider, status.installMethod);
+    if (!result.success) {
+      appLogger.warn("runtime", "Automatic CLI upgrade failed.", {
+        provider: status.provider,
+        command: result.commandPreview,
+        error: result.error,
+        output: result.output,
+      });
+      return status;
+    }
+
+    appLogger.info("runtime", "Automatic CLI upgrade completed.", {
+      provider: status.provider,
+      command: result.commandPreview,
+      output: result.output,
+    });
+
+    clearCliProviderRuntimeStatusCache();
+    return await probeCliProviderRuntime(status.provider);
+  })();
+
+  pendingCliProviderAutoUpgrades.set(status.provider, upgradePromise);
+  try {
+    return await upgradePromise;
+  } finally {
+    if (pendingCliProviderAutoUpgrades.get(status.provider) === upgradePromise) {
+      pendingCliProviderAutoUpgrades.delete(status.provider);
+    }
+  }
+}
+
+async function getCliProviderRuntimeStatus(
+  provider: CliProvider,
+  options: { force?: boolean; allowAutoUpgrade?: boolean } = {},
+): Promise<CliProviderRuntimeStatus> {
+  const statuses = await loadCliProviderRuntimeStatuses({ force: options.force === true });
+  const status = statuses[provider] ?? await probeCliProviderRuntime(provider);
+  if (!options.allowAutoUpgrade) {
+    return status;
+  }
+  return await maybeAutoUpgradeCliProvider(status);
+}
+
+async function resolveProviderRuntime(projectId: string, provider: CliProvider): Promise<ProviderRuntimeSelection> {
+  const cliStatus = await getCliProviderRuntimeStatus(provider, { allowAutoUpgrade: true });
+  const sdkConfig = getProviderSdkConfig(provider);
+  const runtime = selectProviderRuntime({
+    provider,
+    cliStatus,
+    sdkConfigured: isProviderSdkConfigured(sdkConfig),
+  });
+  appLogger.info("runtime", "Resolved provider runtime.", {
+    projectId,
+    provider,
+    runtimeKind: runtime.kind,
+    detail: runtime.detail,
+    cliInstalled: cliStatus.installed,
+    cliVersion: cliStatus.version,
+    upgradeAvailable: cliStatus.upgrade.available,
+    sdkConfigured: runtime.sdkConfigured,
+  });
+  return runtime;
+}
 const uiRemoteProjectRefreshTrigger = createCoalescedTrigger({
   minIntervalMs: UI_REMOTE_PROJECT_REFRESH_COALESCE_MS,
 });
@@ -1091,6 +1226,8 @@ const runtimeManager = new RuntimeManager(() => ({
   getProjectCodexWebSearchEnabled,
   getProjectPrompt,
   getProviderEnvironment: (provider) => getProviderEnvironment(provider),
+  resolveProviderRuntime,
+  getProviderSdkConfig,
   shouldResumeConversation: (projectId) => !isWorkgroupPmProjectId(projectId),
   shouldPersistProjectHistory: (projectId) => !isWorkgroupPmProjectId(projectId),
   updateProject: (projectId, updates) => {
@@ -4542,6 +4679,7 @@ ipcMain.handle("revoke-access-grant", async (_event, data: { controllerUserId: n
 
 ipcMain.handle("save-config", (_event, config: Partial<AgentConfig>) => {
   clearRelayDeviceListCache();
+  clearCliProviderRuntimeStatusCache();
   if (config.serverUrl !== undefined) configStore.set("serverUrl", config.serverUrl);
   if (config.agentId !== undefined) configStore.set("agentId", config.agentId);
   if (config.token !== undefined) {
@@ -4675,8 +4813,8 @@ ipcMain.handle("get-app-settings", () => {
   };
 });
 
-ipcMain.handle("get-cli-provider-runtime-status", async () => {
-  return await getCliProviderRuntimeStatuses();
+ipcMain.handle("get-cli-provider-runtime-status", async (_event, options?: { force?: boolean } | null) => {
+  return await loadCliProviderRuntimeStatuses({ force: options?.force === true });
 });
 
 ipcMain.handle("get-local-data-metrics", () => {
@@ -5895,6 +6033,16 @@ app.whenReady().then(async () => {
     runRelayMaintenanceTask("unlock-screen");
   });
   updateManager.start();
+  void Promise.all((["claude", "codex"] as CliProvider[]).map(async (provider) => {
+    try {
+      await getCliProviderRuntimeStatus(provider, { allowAutoUpgrade: true });
+    } catch (error) {
+      appLogger.warn("runtime", "Failed to warm provider runtime status.", {
+        provider,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }));
 
   // Open workspace window unless silent launch is configured
   const silentLaunch = appSettingsStore.get("silentLaunch") as boolean;

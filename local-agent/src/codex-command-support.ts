@@ -1,10 +1,13 @@
 import type { CliProvider } from "./runtime-types";
+import type { ProviderRuntimeCapabilities, CliProviderRuntimeStatus } from "./cli-runtime-status";
+import type { ProviderRuntimeKind } from "./provider-runtime";
 
 export interface CodexExecArgsOptions {
   canResumeConversation: boolean;
   codexThreadId: string | null;
   model: string | null;
   searchEnabled: boolean;
+  capabilities?: Partial<Pick<ProviderRuntimeCapabilities, "resumeConversation" | "webSearch">>;
 }
 
 export type SlashToggleIntent = "status" | "enable" | "disable" | "toggle";
@@ -21,16 +24,14 @@ const CODEX_RESTRICTED_TOOL_ARGS = [
   "--enable",
   "code_mode_only",
   "--disable",
-  "shell_tool",
-  "--disable",
-  "tool_search",
-  "--disable",
   "tool_suggest",
   "--disable",
   "tool_call_mcp_elicitation",
 ] as const;
 
 export function buildCodexExecArgs(options: CodexExecArgsOptions): string[] {
+  const supportsResume = options.capabilities?.resumeConversation !== false;
+  const supportsSearch = options.capabilities?.webSearch !== false;
   const sharedArgs = [
     "--json",
     "--dangerously-bypass-approvals-and-sandbox",
@@ -39,7 +40,7 @@ export function buildCodexExecArgs(options: CodexExecArgsOptions): string[] {
     ...(options.model ? ["--model", options.model] : []),
   ];
 
-  if (options.canResumeConversation && options.codexThreadId) {
+  if (supportsResume && options.canResumeConversation && options.codexThreadId) {
     return [
       "exec",
       "resume",
@@ -51,7 +52,7 @@ export function buildCodexExecArgs(options: CodexExecArgsOptions): string[] {
   return [
     "exec",
     ...sharedArgs,
-    ...(options.searchEnabled ? ["--search"] : []),
+    ...(options.searchEnabled && supportsSearch ? ["--search"] : []),
   ];
 }
 
@@ -118,26 +119,46 @@ export function buildProviderToolsMessage(options: {
   provider: CliProvider;
   model: string | null;
   codexSearchEnabled: boolean;
+  runtimeKind?: ProviderRuntimeKind;
+  runtimeDetail?: string | null;
+  runtimeStatus?: CliProviderRuntimeStatus | null;
 }): string {
   const lines = [
     `Current provider: ${options.provider === "codex" ? "OpenAI Codex" : "Claude Code"}`,
     `Current model: ${options.model ?? "Auto"}`,
+    `Current runtime: ${options.runtimeKind === "sdk" ? "API fallback" : (options.runtimeKind === "unavailable" ? "Unavailable" : "Local CLI")}`,
+    ...(options.runtimeDetail ? [`Runtime detail: ${options.runtimeDetail}`] : []),
     "",
   ];
 
   if (options.provider === "codex") {
+    lines.push("Codex capabilities available through this app:");
+    if (options.runtimeKind === "sdk") {
+      lines.push(
+        "- The desktop is currently using the API fallback runtime because a compatible local Codex CLI is unavailable.",
+        "- Basic prompt execution continues to work through the configured OpenAI API credentials.",
+        "- CLI-only flows such as /review, /features, /version, /completion, /mcp, native tool execution, and Codex web-search flags require a compatible local CLI.",
+      );
+    } else {
+      lines.push(
+        "- Runs Codex through `codex exec --json` and resumes threads with `codex exec resume --json` when the installed CLI supports it.",
+        "- Codex can still use its built-in agent tools during a run, including command execution and file editing inside the workspace.",
+        "- App-side Codex runs still disable Codex tool discovery helpers that are not needed in this desktop flow.",
+        "- This app surfaces Codex activity such as command execution, agent messages, and completion events into the chat/activity timeline.",
+        `- Web search tool: ${options.codexSearchEnabled ? "enabled" : "disabled"} for subsequent runs. Use /search on|off|toggle to change it.`,
+        "- `/review` runs `codex review` for workspace changes without leaving the app.",
+        "- `/features` runs `codex features list` so you can inspect CLI feature flags from the app.",
+        "- `/version` shows the installed Codex CLI version used by the desktop agent.",
+        "- `/completion` generates shell completion scripts from the installed Codex CLI.",
+        "- `/mcp list|get` lets you inspect configured MCP servers without leaving the app.",
+      );
+      if (options.runtimeStatus?.upgrade.available) {
+        lines.push(
+          `- Auto-upgrade: ${options.runtimeStatus.upgrade.reason ?? "an upgrade is available"}${options.runtimeStatus.upgrade.commandPreview ? ` (${options.runtimeStatus.upgrade.commandPreview})` : ""}.`,
+        );
+      }
+    }
     lines.push(
-      "Codex capabilities available through this app:",
-      "- Runs Codex through `codex exec --json` and resumes threads with `codex exec resume --json`.",
-      "- App-side Codex runs are started with a restricted tool profile that disables shell-tool style invocation and Codex tool discovery helpers.",
-      "- The chat flow keeps Codex focused on direct responses instead of tool-calling orchestration.",
-      "- This app surfaces Codex activity such as command execution, agent messages, and completion events into the chat/activity timeline.",
-      `- Web search tool: ${options.codexSearchEnabled ? "enabled" : "disabled"} for subsequent runs. Use /search on|off|toggle to change it.`,
-      "- `/review` runs `codex review` for workspace changes without leaving the app.",
-      "- `/features` runs `codex features list` so you can inspect CLI feature flags from the app.",
-      "- `/version` shows the installed Codex CLI version used by the desktop agent.",
-      "- `/completion` generates shell completion scripts from the installed Codex CLI.",
-      "- `/mcp list|get` lets you inspect configured MCP servers without leaving the app.",
       "",
       "Not exposed in this app:",
       "- The full interactive Codex TUI.",
@@ -150,8 +171,16 @@ export function buildProviderToolsMessage(options: {
 
   lines.push(
     "Claude Code capabilities available through this app:",
-    "- Runs Claude Code headlessly and streams agent/tool activity back into the chat timeline.",
-    "- Native slash commands are only available when Claude's headless mode supports them.",
+    ...(options.runtimeKind === "sdk"
+      ? [
+        "- The desktop is currently using the API fallback runtime because a compatible local Claude CLI is unavailable.",
+        "- Prompt execution continues to work through the configured Anthropic API credentials.",
+        "- Native slash commands and CLI tool activity require a compatible local Claude CLI.",
+      ]
+      : [
+        "- Runs Claude Code headlessly and streams agent/tool activity back into the chat timeline.",
+        "- Native slash commands are only available when Claude's headless mode supports them.",
+      ]),
     "",
     "Use /model to change models, or switch the project provider to OpenAI Codex if you need Codex-specific flows.",
   );

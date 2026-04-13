@@ -5182,7 +5182,8 @@
     });
 
     document.getElementById("refreshRuntimeStatusBtn").addEventListener("click", async () => {
-      await loadCliProviderRuntimeStatus();
+      latestCliProviderRuntimeStatus = await api.getCliProviderRuntimeStatus({ force: true });
+      renderCliProviderRuntimeStatus();
       flashSaved();
     });
 

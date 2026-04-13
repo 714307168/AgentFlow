@@ -665,3 +665,12 @@
 - [x] Desktop relay-device caching now coalesces concurrent callers and drops stale in-flight results after config or login invalidation, avoiding duplicate relay requests and preventing old device payloads from being written back after the server target changes.
 - [x] The relay-device cache policy is covered by dedicated Node tests for cache reuse, forced refresh, concurrent single-flight reuse, and stale-generation invalidation.
 - [x] `R-desktop-patch`: desktop `1.1.130` was published to the update center on `2026-04-13` for the relay-device cache patch, reducing repeated `/api/devices` requests from settings and transfer-center refreshes. Release id: `208`. GitHub Release: `v1.1.130`.
+
+## Progress Update 2026-04-14
+
+- [x] Desktop runtime resolution now chooses a working local CLI when available, otherwise falls back to configured OpenAI / Anthropic API credentials without adding extra SDK dependencies.
+- [x] Desktop Codex and Claude runtime probes now feed a cached main-process runtime selection path, and settings-page refresh can force a fresh CLI probe without waiting for the cache TTL.
+- [x] Desktop now auto-detects the local CLI install source (`npm` / `brew` / `scoop` / `winget` when recognizable), recommends upgrades based on missing runtime capabilities, and can trigger a throttled automatic CLI self-upgrade before runs continue.
+- [x] Codex command construction now adapts to the detected CLI capability set, dropping unsupported resume / web-search flags instead of sending incompatible arguments to older local CLIs.
+- [x] Desktop runtime-selection, CLI-upgrade planning, and Codex CLI-compatibility paths are covered by dedicated Node tests to reduce regressions in future runtime iterations.
+- [ ] `R-desktop-patch`: desktop `1.1.132` planned release for the adaptive CLI / API fallback runtime patch, pending installer build and publish to the update center plus GitHub Release.
