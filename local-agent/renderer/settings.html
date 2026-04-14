@@ -2895,13 +2895,16 @@
       if (!force && paneLoadState.transfersLoaded && !paneLoadState.transfersDirty) {
         renderTransferCenter();
         return;
-      }
-      try {
-        paneLoadState.transfersPromise = (async () => {
-          const result = await api.listRelayTransfers(buildRelayTransferQuery());
-          if (!result?.success) {
-            throw new Error(result?.error || inlineText("Failed to load relay transfers.", "加载 relay 传输记录失败。"));
-          }
+        }
+        try {
+          paneLoadState.transfersPromise = (async () => {
+            const result = await api.listRelayTransfers({
+              ...buildRelayTransferQuery(),
+              force,
+            });
+            if (!result?.success) {
+              throw new Error(result?.error || inlineText("Failed to load relay transfers.", "加载 relay 传输记录失败。"));
+            }
           latestRelayTransfers = Array.isArray(result.items) ? result.items : [];
           paneLoadState.transfersLoaded = true;
           paneLoadState.transfersDirty = false;
@@ -4270,13 +4273,13 @@
       if (!force && paneLoadState.accessLoaded && !paneLoadState.accessDirty) {
         renderAccessGrants(latestAccessState);
         return;
-      }
-      try {
-        paneLoadState.accessPromise = (async () => {
-          const result = await api.listAccessGrants();
-          if (result?.success) {
-            renderAccessGrants(result.data || {});
-          }
+        }
+        try {
+          paneLoadState.accessPromise = (async () => {
+            const result = await api.listAccessGrants({ force });
+            if (result?.success) {
+              renderAccessGrants(result.data || {});
+            }
           paneLoadState.accessLoaded = true;
           paneLoadState.accessDirty = false;
         })();

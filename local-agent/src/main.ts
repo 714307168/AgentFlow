@@ -8,6 +8,7 @@ import { v4 as uuidv4 } from "uuid";
 import { createAppIcon, createTrayIcon } from "./app-icon";
 import appLogger from "./app-logger";
 import { createCoalescedTrigger } from "./coalesced-trigger";
+import { createKeyedTimedAsyncCache } from "./keyed-timed-async-cache";
 import { createTimedAsyncCache } from "./timed-async-cache";
 import RelayClient, { RelayConnectionSnapshot } from "./relay-client";
 import MessageRouter from "./message-router";
@@ -154,6 +155,7 @@ interface RelayTransferListOptions {
   projectId?: string | null;
   workgroupId?: string | null;
   includeReceipts?: boolean;
+  force?: boolean;
 }
 
 interface RelayTransferCreateOptions {
@@ -356,6 +358,8 @@ const MAX_DESKTOP_LOG_UPLOAD_BYTES = 1_600_000;
 const MAX_DESKTOP_LOG_FILES = 4;
 const MAX_DESKTOP_LOG_EXTRACTED_IDS = 20;
 const RELAY_DEVICE_LIST_CACHE_TTL_MS = 15_000;
+const RELAY_TRANSFER_LIST_CACHE_TTL_MS = 8_000;
+const ACCESS_GRANTS_CACHE_TTL_MS = 8_000;
 const CLI_PROVIDER_RUNTIME_STATUS_CACHE_TTL_MS = 15_000;
 const CLI_PROVIDER_AUTO_UPGRADE_COOLDOWN_MS = 6 * 60 * 60 * 1000;
 const DESKTOP_LOG_TRACE_ID_PATTERN = /(?:trace[_-]?id["=: ]+|traceId["=: ]+)([a-z0-9:-]{6,})/ig;
@@ -996,7 +1000,23 @@ async function listRelayTransfers(limit = 12): Promise<RelayTransferRecord[]> {
   return await listRelayTransfersWithOptions({ limit });
 }
 
-async function listRelayTransfersWithOptions(options: RelayTransferListOptions = {}): Promise<RelayTransferRecord[]> {
+function normalizeRelayTransferListOptions(options: RelayTransferListOptions = {}): Required<Omit<RelayTransferListOptions, "force">> {
+  return {
+    limit: Math.max(1, Math.min(50, Math.floor(Number(options.limit) || 12))),
+    targetType: options.targetType?.trim() || "",
+    targetId: options.targetId?.trim() || "",
+    projectId: options.projectId?.trim() || "",
+    workgroupId: options.workgroupId?.trim() || "",
+    includeReceipts: options.includeReceipts !== false,
+  };
+}
+
+function createRelayTransferListCacheKey(options: RelayTransferListOptions = {}): string {
+  return JSON.stringify(normalizeRelayTransferListOptions(options));
+}
+
+async function fetchRelayTransfersFromServer(cacheKey: string): Promise<RelayTransferRecord[]> {
+  const options = JSON.parse(cacheKey) as ReturnType<typeof normalizeRelayTransferListOptions>;
   const config = loadConfig();
   if (!config.serverUrl.trim()) {
     throw new Error("Server URL is not configured.");
@@ -1004,28 +1024,28 @@ async function listRelayTransfersWithOptions(options: RelayTransferListOptions =
 
   const token = await ensureDesktopTransferAuthToken();
   const query = new URLSearchParams();
-  query.set("limit", String(Math.max(1, Math.min(50, Math.floor(Number(options.limit) || 12)))));
-  if (options.targetType?.trim()) {
-    query.set("target_type", options.targetType.trim());
+  query.set("limit", String(options.limit));
+  if (options.targetType) {
+    query.set("target_type", options.targetType);
   }
-  if (options.targetId?.trim()) {
-    query.set("target_id", options.targetId.trim());
+  if (options.targetId) {
+    query.set("target_id", options.targetId);
   }
-  if (options.projectId?.trim()) {
-    query.set("project_id", options.projectId.trim());
+  if (options.projectId) {
+    query.set("project_id", options.projectId);
   }
-  if (options.workgroupId?.trim()) {
-    query.set("workgroup_id", options.workgroupId.trim());
+  if (options.workgroupId) {
+    query.set("workgroup_id", options.workgroupId);
   }
-  if (options.includeReceipts !== false) {
+  if (options.includeReceipts) {
     query.set("include_receipts", "1");
   }
 
-  const response = await fetch(`${toHttpBaseUrl(config.serverUrl)}/api/transfers?${query.toString()}`, {
+  const response = await fetchRelayJson(`${toHttpBaseUrl(config.serverUrl)}/api/transfers?${query.toString()}`, {
     method: "GET",
-    headers: buildRelayApiHeaders({
+    headers: {
       Authorization: `Bearer ${token}`,
-    }),
+    },
   });
 
   if (!response.ok) {
@@ -1038,6 +1058,22 @@ async function listRelayTransfersWithOptions(options: RelayTransferListOptions =
     return [];
   }
   return payload;
+}
+
+const relayTransferListCache = createKeyedTimedAsyncCache<RelayTransferRecord[]>({
+  ttlMs: RELAY_TRANSFER_LIST_CACHE_TTL_MS,
+  load: fetchRelayTransfersFromServer,
+});
+
+function clearRelayTransferListCache(): void {
+  relayTransferListCache.clear();
+}
+
+async function listRelayTransfersWithOptions(options: RelayTransferListOptions = {}): Promise<RelayTransferRecord[]> {
+  return await relayTransferListCache.get(
+    createRelayTransferListCacheKey(options),
+    { force: options.force === true },
+  );
 }
 
 async function listRelayDevices(options: { force?: boolean } = {}): Promise<RelayDeviceSummary[]> {
@@ -1105,7 +1141,37 @@ async function createRelayTransferFromDesktop(
     throw new Error(errorText || response.statusText || "Failed to upload relay transfer.");
   }
 
+  clearRelayTransferListCache();
   return await response.json() as RelayTransferRecord;
+}
+
+async function fetchAccessGrantsFromServer(): Promise<unknown> {
+  const refreshed = await refreshAgentToken(false);
+  const config = loadConfig();
+  if (!refreshed || !config.token) {
+    throw new Error("Not logged in");
+  }
+
+  const response = await fetchRelayJson(`${toHttpBaseUrl(config.serverUrl)}/api/access/grants`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${config.token}`,
+    },
+  });
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(errorText || response.statusText);
+  }
+  return await response.json();
+}
+
+const accessGrantCache = createTimedAsyncCache<unknown>({
+  ttlMs: ACCESS_GRANTS_CACHE_TTL_MS,
+  load: fetchAccessGrantsFromServer,
+});
+
+function clearAccessGrantCache(): void {
+  accessGrantCache.clear();
 }
 
 function isTokenExpiringSoon(expiresAt?: string, nowMs: number = Date.now()): boolean {
@@ -4588,25 +4654,9 @@ ipcMain.on("open-project-window", (_event, projectId: string) => {
 
 ipcMain.handle("get-config", () => getPublicConfig());
 
-ipcMain.handle("list-access-grants", async () => {
-  const refreshed = await refreshAgentToken(false);
-  const config = loadConfig();
-  if (!refreshed || !config.token) {
-    return { success: false, error: "Not logged in" };
-  }
-
+ipcMain.handle("list-access-grants", async (_event, options?: { force?: boolean } | null) => {
   try {
-    const response = await fetch(`${toHttpBaseUrl(config.serverUrl)}/api/access/grants`, {
-      headers: buildRelayApiHeaders({
-        Authorization: `Bearer ${config.token}`,
-      }),
-    });
-    if (!response.ok) {
-      const errorText = await response.text();
-      return { success: false, error: errorText || response.statusText };
-    }
-    const data = await response.json();
-    requestRemoteProjectCatalogRefresh();
+    const data = await accessGrantCache.get({ force: options?.force === true });
     return { success: true, data };
   } catch (error: any) {
     return { success: false, error: error?.message ?? String(error) };
@@ -4636,6 +4686,7 @@ ipcMain.handle("grant-access-to-user", async (_event, data: { controllerUsername
       const errorText = await response.text();
       return { success: false, error: errorText || response.statusText };
     }
+    clearAccessGrantCache();
     requestRemoteProjectCatalogRefresh();
     return { success: true };
   } catch (error: any) {
@@ -4656,16 +4707,17 @@ ipcMain.handle("revoke-access-grant", async (_event, data: { controllerUserId: n
       controller_user_id: String(data.controllerUserId),
       target_agent_id: targetAgentId,
     });
-    const response = await fetch(`${toHttpBaseUrl(config.serverUrl)}/api/access/grants?${query.toString()}`, {
+    const response = await fetchRelayJson(`${toHttpBaseUrl(config.serverUrl)}/api/access/grants?${query.toString()}`, {
       method: "DELETE",
-      headers: buildRelayApiHeaders({
+      headers: {
         Authorization: `Bearer ${config.token}`,
-      }),
+      },
     });
     if (!response.ok) {
       const errorText = await response.text();
       return { success: false, error: errorText || response.statusText };
     }
+    clearAccessGrantCache();
     requestRemoteProjectCatalogRefresh();
     return { success: true };
   } catch (error: any) {
@@ -4675,6 +4727,8 @@ ipcMain.handle("revoke-access-grant", async (_event, data: { controllerUserId: n
 
 ipcMain.handle("save-config", (_event, config: Partial<AgentConfig>) => {
   clearRelayDeviceListCache();
+  clearRelayTransferListCache();
+  clearAccessGrantCache();
   clearCliProviderRuntimeStatusCache();
   if (config.serverUrl !== undefined) configStore.set("serverUrl", config.serverUrl);
   if (config.agentId !== undefined) configStore.set("agentId", config.agentId);
@@ -4722,6 +4776,8 @@ ipcMain.handle("login", async (_event, data: { username: string; password: strin
       username: result.user?.username?.trim() || data.username,
     });
     clearRelayDeviceListCache();
+    clearRelayTransferListCache();
+    clearAccessGrantCache();
     scheduleTokenRefresh();
     updateRelayClientAuthFromConfig();
     await refreshControllerToken(true);

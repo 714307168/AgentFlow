@@ -491,4 +491,7 @@
 - [x] `R-desktop-patch`: desktop `1.1.133` was published to the update center on `2026-04-14` for the runtime diagnostics and API-fallback-aware provider availability patch. Release id: `213`. GitHub Release: `v1.1.133`.
 - [x] Desktop relay JSON POST requests now route through a shared helper that centralizes relay headers, body serialization, and automatic gzip compression for larger payloads instead of duplicating raw `fetch + JSON.stringify` logic across the main process.
 - [x] Desktop relay JSON compression behavior is covered by dedicated Node tests, including the threshold gate plus gzip request-body generation for larger payloads such as diagnostics uploads and registry sync actions.
+- [x] Desktop relay transfer-history requests now reuse a keyed timed async cache per normalized filter set, so repeated message-pane and transfer-center refreshes can reuse the latest matching list briefly instead of refetching the same `/api/transfers` query every time.
+- [x] Desktop access-grant loading now uses a short-lived main-process cache and no longer triggers a follow-up remote project catalog refresh on every overview-pane read, trimming a redundant relay request chain from the settings overview path.
+- [x] The keyed timed async cache behavior is covered by dedicated Node tests, including per-key TTL reuse, per-key force refresh, same-key single-flight coalescing, and targeted invalidation.
 
