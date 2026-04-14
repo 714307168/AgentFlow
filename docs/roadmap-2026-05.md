@@ -497,4 +497,7 @@
 - [x] Desktop workgroup-registry search results and published-member lists now reuse short-lived keyed caches, reducing repeated `/api/workgroups/registry` and `/api/workgroups/registry/members` reads while users reopen the same published group or repeat the same join/search query.
 - [x] Workgroup registry caches now invalidate immediately after publish, join, leave, kick, delete, login, and config changes, so mutation paths keep the next read fresh without permanently disabling the cache for steady-state browsing.
 - [x] Workgroup registry query normalization and cache-key stability are covered by dedicated Node tests, preventing equivalent queries from missing the same cache bucket because of whitespace or partially omitted fields.
+- [x] Desktop remote project sync requests now use a shared request gate with in-flight suppression plus cooldown tracking, so repeated workspace-open, session-open, and conversation-list entrypoints no longer emit duplicate remote sync requests for the same project while one sync is already pending.
+- [x] Desktop remote workgroup session syncs now reuse the same request-gate pattern instead of separate timestamp and pending-set bookkeeping, reducing repeated code while keeping follow-up sync pressure under control.
+- [x] The shared request-gate behavior is covered by dedicated Node tests for pending suppression, force-bypass of cooldown, timeout release, and full reset, so later relay sync tuning can reuse the same primitive safely.
 

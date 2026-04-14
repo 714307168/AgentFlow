@@ -9,6 +9,7 @@ import { createAppIcon, createTrayIcon } from "./app-icon";
 import appLogger from "./app-logger";
 import { createCoalescedTrigger } from "./coalesced-trigger";
 import { createKeyedTimedAsyncCache } from "./keyed-timed-async-cache";
+import { createRequestGate } from "./request-gate";
 import { createTimedAsyncCache } from "./timed-async-cache";
 import RelayClient, { RelayConnectionSnapshot } from "./relay-client";
 import MessageRouter from "./message-router";
@@ -389,8 +390,10 @@ const RELAY_STALE_CONNECTION_TIMEOUT_MS = 75_000;
 const RELAY_RECOVERY_COOLDOWN_MS = 45_000;
 const RELAY_FORCE_RECOVERY_AFTER_MS = 90_000;
 const ACTIVE_REMOTE_PROJECT_SYNC_MIN_INTERVAL_MS = 3_000;
+const REMOTE_PROJECT_SYNC_PENDING_TIMEOUT_MS = 10_000;
 const REMOTE_PROJECT_FOLLOW_UP_SYNC_LIMIT = 4;
 const REMOTE_WORKGROUP_SESSION_SYNC_MIN_INTERVAL_MS = 3_000;
+const REMOTE_WORKGROUP_SESSION_SYNC_PENDING_TIMEOUT_MS = 15_000;
 const REMOTE_WORKGROUP_FOLLOW_UP_SYNC_LIMIT = 4;
 let lastRemoteProjectCatalogRefreshAt = 0;
 let remoteProjectCatalogRefreshTimer: NodeJS.Timeout | null = null;
@@ -398,9 +401,6 @@ let lastRemoteWorkgroupCatalogRefreshAt = 0;
 let relayHealthCheckTimer: NodeJS.Timeout | null = null;
 let relayMaintenanceTimer: NodeJS.Timeout | null = null;
 let lastActiveRemoteProjectSyncAt = 0;
-const lastRemoteProjectSyncRequestedAtByProject = new Map<string, number>();
-const lastRemoteWorkgroupSessionRequestedAtByCompositeId = new Map<string, number>();
-const pendingRemoteWorkgroupSessionSyncs = new Set<string>();
 let lastAgentRelayRecoveryAt = 0;
 let lastControllerRelayRecoveryAt = 0;
 const relayFollowUpRefreshTimers = new Set<NodeJS.Timeout>();
@@ -409,6 +409,14 @@ const pendingCliProviderAutoUpgrades = new Map<CliProvider, Promise<CliProviderR
 const cliProviderRuntimeStatusCache = createTimedAsyncCache<Record<CliProvider, CliProviderRuntimeStatus>>({
   ttlMs: CLI_PROVIDER_RUNTIME_STATUS_CACHE_TTL_MS,
   load: getCliProviderRuntimeStatuses,
+});
+const remoteProjectSyncGate = createRequestGate({
+  minIntervalMs: ACTIVE_REMOTE_PROJECT_SYNC_MIN_INTERVAL_MS,
+  pendingTimeoutMs: REMOTE_PROJECT_SYNC_PENDING_TIMEOUT_MS,
+});
+const remoteWorkgroupSessionSyncGate = createRequestGate({
+  minIntervalMs: REMOTE_WORKGROUP_SESSION_SYNC_MIN_INTERVAL_MS,
+  pendingTimeoutMs: REMOTE_WORKGROUP_SESSION_SYNC_PENDING_TIMEOUT_MS,
 });
 
 function clearCliProviderRuntimeStatusCache(): void {
@@ -3303,13 +3311,9 @@ function requestRemoteProjectSync(projectId: string, reason: string, force: bool
     return false;
   }
 
-  const now = Date.now();
-  const lastRequestedAt = lastRemoteProjectSyncRequestedAtByProject.get(normalizedProjectId) ?? 0;
-  if (!force && now - lastRequestedAt < ACTIVE_REMOTE_PROJECT_SYNC_MIN_INTERVAL_MS) {
+  if (!remoteProjectSyncGate.tryStart(normalizedProjectId, { force })) {
     return false;
   }
-
-  lastRemoteProjectSyncRequestedAtByProject.set(normalizedProjectId, now);
   remoteSessionStore.requestSessionSync(normalizedProjectId, { limit: 30 });
   appLogger.info("relay", "Requested remote project sync.", {
     reason,
@@ -3402,17 +3406,10 @@ function requestRemoteWorkgroupSessionSync(compositeId: string, reason: string, 
     return false;
   }
 
-  const now = Date.now();
-  const lastRequestedAt = lastRemoteWorkgroupSessionRequestedAtByCompositeId.get(normalizedCompositeId) ?? 0;
-  if (!force && now - lastRequestedAt < REMOTE_WORKGROUP_SESSION_SYNC_MIN_INTERVAL_MS) {
-    return false;
-  }
-  if (!force && pendingRemoteWorkgroupSessionSyncs.has(normalizedCompositeId)) {
+  if (!remoteWorkgroupSessionSyncGate.tryStart(normalizedCompositeId, { force })) {
     return false;
   }
 
-  lastRemoteWorkgroupSessionRequestedAtByCompositeId.set(normalizedCompositeId, now);
-  pendingRemoteWorkgroupSessionSyncs.add(normalizedCompositeId);
   appLogger.info("workgroup", "Requested remote workgroup session sync.", {
     reason,
     force,
@@ -3430,7 +3427,7 @@ function requestRemoteWorkgroupSessionSync(compositeId: string, reason: string, 
       }
     })
     .finally(() => {
-      pendingRemoteWorkgroupSessionSyncs.delete(normalizedCompositeId);
+      remoteWorkgroupSessionSyncGate.finish(normalizedCompositeId);
     });
   return true;
 }
@@ -4167,6 +4164,7 @@ function initRemoteRelay(config: AgentConfig): void {
       isRunning: snapshot.isRunning,
       activeConversationId: snapshot.activeConversationId || null,
     });
+    remoteProjectSyncGate.finish(projectId);
     syncWorkgroupTasksForProjectSnapshot(snapshot);
     if (workspaceWindow && !workspaceWindow.isDestroyed()) {
       workspaceWindow.webContents.send("project-session-snapshot", snapshot);
@@ -4185,6 +4183,7 @@ function initRemoteRelay(config: AgentConfig): void {
       messageCount: Array.isArray(snapshot.messages) ? snapshot.messages.length : 0,
       updatedAt: snapshot.updatedAt,
     });
+    remoteWorkgroupSessionSyncGate.finish(snapshot.workgroupId);
     if (workspaceWindow && !workspaceWindow.isDestroyed()) {
       workspaceWindow.webContents.send("workgroup-collaboration-snapshot", snapshot);
     }
@@ -4883,9 +4882,8 @@ ipcMain.handle("reconnect-relay", async () => {
   await refreshControllerToken(false);
   clearRelayFollowUpRefreshTimers();
   lastActiveRemoteProjectSyncAt = 0;
-  lastRemoteProjectSyncRequestedAtByProject.clear();
-  lastRemoteWorkgroupSessionRequestedAtByCompositeId.clear();
-  pendingRemoteWorkgroupSessionSyncs.clear();
+  remoteProjectSyncGate.clear();
+  remoteWorkgroupSessionSyncGate.clear();
   if (relayClient) {
     relayClient.disconnect();
   }
