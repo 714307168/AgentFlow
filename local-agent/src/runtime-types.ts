@@ -80,6 +80,7 @@ export interface ProjectSessionSnapshot {
   provider: CliProvider;
   model: string | null;
   automationMode: "full-auto";
+  projectSignature: string | null;
   isRunning: boolean;
   queuedCount: number;
   currentSource: RunSource | null;

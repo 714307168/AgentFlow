@@ -53,6 +53,7 @@ internal fun mergeSessionEntityFromProject(
         activeConversationTitle = existing?.activeConversationTitle,
         conversationsJson = existing?.conversationsJson,
         snapshotRevision = existing?.snapshotRevision,
+        projectSignature = existing?.projectSignature,
         createdAt = existing?.createdAt ?: now,
         lastActiveAt = if (project.online != null) now else (existing?.lastActiveAt ?: now)
     )

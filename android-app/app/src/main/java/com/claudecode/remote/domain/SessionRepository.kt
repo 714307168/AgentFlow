@@ -497,6 +497,8 @@ class SessionRepository(
         activeConversationId = activeConversationId,
         activeConversationTitle = activeConversationTitle,
         conversationsJson = conversationsJson,
+        snapshotRevision = snapshotRevision,
+        projectSignature = projectSignature,
         createdAt = createdAt,
         lastActiveAt = lastActiveAt
     )

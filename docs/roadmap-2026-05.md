@@ -509,6 +509,8 @@
 - [x] Desktop runtime settings now support an optional GitHub token for non-interactive CLI Git auth, and Claude/Codex runs inject process-local GitHub HTTPS URL rewrites so \`git push\` against \`https://github.com/... \` remotes can complete without opening the GitHub credential popup.
 - [x] Added \`docs/golutra-review-and-optimization-plan.md\` after a focused repo review of \`golutra/golutra\`, extracting reusable ideas for runtime layering, session-state rules, output backpressure, local command IPC, and storage boundaries so the next optimization round can borrow proven patterns instead of only iterating locally.
 - [x] Added \`docs/project-sync-signature-design.md\`, proposing per-project \`project_signature\` plus \`hot / warm / cold / dormant\` sync buckets so inactive projects stop participating in every foreground recovery and session-shell comparison round.
+- [x] Local session-sync payloads now include a stable per-project \`project_signature\` derived from the session shell summary, so Android and desktop remote caches can persist a project-level shell digest alongside the existing \`snapshot_revision\`.
+- [x] Android session persistence now stores \`projectSignature\`, and the session-shell sync planner skips signed dormant projects when enough active targets are available, trimming another slice of redundant foreground/reconnect shell-sync requests without starving hotter projects.
 
 ## Next Optimization Queue 2026-04-15
 

@@ -17,7 +17,8 @@ class SessionShellSyncPlannerTest {
                 session(projectId = "older-online", lastActiveAt = 50L),
                 session(projectId = "offline-newer", isAgentOnline = false, lastActiveAt = 500L),
             ),
-            maxProjects = 4
+            maxProjects = 4,
+            nowMs = 1_000L
         )
 
         assertEquals(
@@ -36,11 +37,39 @@ class SessionShellSyncPlannerTest {
                 session(projectId = " ", agentId = "agent-2", lastActiveAt = 40L),
                 session(projectId = "project-c", agentId = "agent-2", lastActiveAt = 50L),
             ),
-            maxProjects = 2
+            maxProjects = 2,
+            nowMs = 1_000L
         )
 
         assertEquals(listOf("project-c", "project-b"), selected.map { it.projectId })
         assertTrue(selected.none { it.projectId.isBlank() })
+    }
+
+    @Test
+    fun `selectSessionShellSyncTargets skips dormant signed sessions when active targets are available`() {
+        val nowMs = 3 * SESSION_SHELL_SYNC_DORMANT_AGE_MS
+        val selected = selectSessionShellSyncTargets(
+            sessions = listOf(
+                session(projectId = "running", isRunning = true, lastActiveAt = nowMs - 100L),
+                session(projectId = "recent", lastActiveAt = nowMs - 1_000L),
+                session(
+                    projectId = "dormant-a",
+                    lastActiveAt = nowMs - SESSION_SHELL_SYNC_DORMANT_AGE_MS - 5_000L,
+                    snapshotRevision = "rev-a",
+                    projectSignature = "sig-a"
+                ),
+                session(
+                    projectId = "dormant-b",
+                    lastActiveAt = nowMs - SESSION_SHELL_SYNC_DORMANT_AGE_MS - 10_000L,
+                    snapshotRevision = "rev-b",
+                    projectSignature = "sig-b"
+                ),
+            ),
+            maxProjects = 2,
+            nowMs = nowMs
+        )
+
+        assertEquals(listOf("running", "recent"), selected.map { it.projectId })
     }
 
     private fun session(
@@ -50,7 +79,9 @@ class SessionShellSyncPlannerTest {
         isRunning: Boolean = false,
         queuedCount: Int = 0,
         lastActiveAt: Long = 0L,
-        createdAt: Long = 1L
+        createdAt: Long = 1L,
+        snapshotRevision: String? = null,
+        projectSignature: String? = null
     ): Session = Session(
         id = "$agentId::$projectId",
         name = projectId,
@@ -60,6 +91,8 @@ class SessionShellSyncPlannerTest {
         isAgentOnline = isAgentOnline,
         isRunning = isRunning,
         queuedCount = queuedCount,
+        snapshotRevision = snapshotRevision,
+        projectSignature = projectSignature,
         createdAt = createdAt,
         lastActiveAt = lastActiveAt
     )

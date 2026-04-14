@@ -92,6 +92,7 @@ interface SessionDao {
             activeConversationTitle = :activeConversationTitle,
             conversationsJson = :conversationsJson,
             snapshotRevision = :snapshotRevision,
+            projectSignature = :projectSignature,
             lastActiveAt = :lastActiveAt
         WHERE projectId = :projectId
         """
@@ -110,6 +111,7 @@ interface SessionDao {
         activeConversationTitle: String?,
         conversationsJson: String?,
         snapshotRevision: String?,
+        projectSignature: String?,
         lastActiveAt: Long
     )
 

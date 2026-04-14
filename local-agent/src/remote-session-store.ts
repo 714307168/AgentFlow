@@ -76,6 +76,7 @@ interface RemoteState {
   provider: CliProvider;
   model: string | null;
   snapshotRevision: string | null;
+  projectSignature: string | null;
   isRunning: boolean;
   queuedCount: number;
   currentSource: "remote" | "desktop" | null;
@@ -357,6 +358,7 @@ export default class RemoteSessionStore extends EventEmitter {
       provider: state.provider,
       model: state.model,
       automationMode: "full-auto",
+      projectSignature: state.projectSignature,
       isRunning: state.isRunning,
       queuedCount: state.queuedCount,
       currentSource: state.currentSource,
@@ -875,7 +877,12 @@ export default class RemoteSessionStore extends EventEmitter {
 
   private applySessionRuntimeSnapshot(state: RemoteState, payload: LooseRecord): boolean {
     const nextSnapshotRevision = readString(payload.snapshot_revision ?? payload.snapshotRevision).trim() || null;
-    if (nextSnapshotRevision && state.snapshotRevision === nextSnapshotRevision) {
+    const nextProjectSignature = readString(payload.project_signature ?? payload.projectSignature).trim() || null;
+    if (
+      nextSnapshotRevision
+      && state.snapshotRevision === nextSnapshotRevision
+      && (!nextProjectSignature || state.projectSignature === nextProjectSignature)
+    ) {
       return false;
     }
 
@@ -916,6 +923,7 @@ export default class RemoteSessionStore extends EventEmitter {
       state.provider !== nextProvider
       || state.model !== nextModel
       || state.snapshotRevision !== nextSnapshotRevision
+      || state.projectSignature !== nextProjectSignature
       || state.isRunning !== nextIsRunning
       || state.queuedCount !== nextQueuedCount
       || state.currentSource !== nextCurrentSource
@@ -935,6 +943,7 @@ export default class RemoteSessionStore extends EventEmitter {
     state.provider = nextProvider;
     state.model = nextModel;
     state.snapshotRevision = nextSnapshotRevision;
+    state.projectSignature = nextProjectSignature;
     state.isRunning = nextIsRunning;
     state.queuedCount = nextQueuedCount;
     state.currentSource = nextCurrentSource;
@@ -1782,6 +1791,7 @@ export default class RemoteSessionStore extends EventEmitter {
       provider: project.cliProvider,
       model: project.cliModel ?? null,
       snapshotRevision: null,
+      projectSignature: null,
       isRunning: false,
       queuedCount: 0,
       currentSource: null,

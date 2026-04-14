@@ -120,7 +120,8 @@ class MessageRepository(
         val activeConversationId: String?,
         val activeConversationTitle: String?,
         val conversationsJson: String?,
-        val snapshotRevision: String?
+        val snapshotRevision: String?,
+        val projectSignature: String?
     )
 
     private data class PendingDownloadRequest(
@@ -1355,6 +1356,7 @@ class MessageRepository(
             activeConversationTitle = session.activeConversationTitle,
             conversationsJson = session.conversationsJson,
             snapshotRevision = session.snapshotRevision,
+            projectSignature = session.projectSignature,
             lastActiveAt = now
         )
     }
@@ -1393,6 +1395,8 @@ class MessageRepository(
             .takeUnless { it.isNullOrBlank() }
         val snapshotRevision = payloadObj["snapshot_revision"]?.jsonPrimitive?.contentOrNull?.trim()
             .takeUnless { it.isNullOrBlank() }
+        val projectSignature = payloadObj["project_signature"]?.jsonPrimitive?.contentOrNull?.trim()
+            .takeUnless { it.isNullOrBlank() }
 
         return IncomingSessionRuntime(
             provider = provider,
@@ -1406,7 +1410,8 @@ class MessageRepository(
             activeConversationId = activeConversationId,
             activeConversationTitle = activeConversationTitle,
             conversationsJson = conversationsArray?.toString(),
-            snapshotRevision = snapshotRevision
+            snapshotRevision = snapshotRevision,
+            projectSignature = projectSignature
         )
     }
 
@@ -1438,6 +1443,7 @@ class MessageRepository(
             activeConversationTitle = runtime.activeConversationTitle,
             conversationsJson = runtime.conversationsJson,
             snapshotRevision = runtime.snapshotRevision,
+            projectSignature = runtime.projectSignature,
             lastActiveAt = timestamp
         )
     }
@@ -2333,6 +2339,7 @@ class MessageRepository(
         activeConversationTitle = activeConversationTitle,
         conversationsJson = conversationsJson,
         snapshotRevision = snapshotRevision,
+        projectSignature = projectSignature,
         createdAt = createdAt,
         lastActiveAt = lastActiveAt
     )

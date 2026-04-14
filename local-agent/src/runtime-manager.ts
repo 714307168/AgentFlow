@@ -47,6 +47,8 @@ import type {
   SessionActivity,
   SessionMessage,
 } from "./runtime-types";
+import { createProjectSessionSignature } from "./project-session-signature";
+import { createSessionSnapshotRevision } from "./session-snapshot-revision";
 
 export interface RuntimeConfig {
   getProjectProvider: (projectId: string) => CliProvider;
@@ -280,11 +282,12 @@ class RuntimeManager extends EventEmitter {
     const state = this.ensureState(projectId);
     this.syncActiveConversationMeta(state);
     const provider = state.active ? state.provider : this.getResolvedProvider(projectId);
-    return {
+    const snapshotBase: ProjectSessionSnapshot = {
       projectId,
       provider,
       model: state.model,
       automationMode: "full-auto",
+      projectSignature: null,
       isRunning: state.active,
       queuedCount: state.queue.length,
       currentSource: state.currentSource,
@@ -312,6 +315,11 @@ class RuntimeManager extends EventEmitter {
         claudeSessionId: state.claudeSessionId,
         codexThreadId: state.codexThreadId,
       },
+    };
+    const snapshotRevision = createSessionSnapshotRevision(snapshotBase);
+    return {
+      ...snapshotBase,
+      projectSignature: createProjectSessionSignature(snapshotBase, snapshotRevision),
     };
   }
 
