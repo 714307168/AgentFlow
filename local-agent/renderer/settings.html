@@ -1914,11 +1914,19 @@
       return availability === "missing" || availability === "degraded";
     }
 
-    function providerSelectLabel(provider) {
+    function providerSelectLabel(provider, availabilityOverride) {
       const label = providerLabel(provider);
-      return isProviderUnavailable(provider)
-        ? `${label} ${inlineText("(Missing)", "（未安装）")}`
-        : label;
+      const availability = availabilityOverride || providerAvailability(provider);
+      if (availability === "fallback") {
+        return `${label} ${inlineText("(API Fallback)", "（API 回退）")}`;
+      }
+      if (availability === "degraded") {
+        return `${label} ${inlineText("(Unavailable)", "（当前不可用）")}`;
+      }
+      if (availability === "missing") {
+        return `${label} ${inlineText("(Missing)", "（未安装）")}`;
+      }
+      return label;
     }
 
     function rememberCliProviderSelection(selectEl) {
@@ -1944,7 +1952,7 @@
       const nextProvider = providerRuntimeApi?.normalizeProviderId(selectedProvider || selectEl.value || "claude") || "claude";
       const optionStates = getCliProviderOptionStates(nextProvider);
       const markup = optionStates.map((option) => (
-        `<option value="${escapeHtml(option.id)}"${option.selected ? " selected" : ""}${option.disabled ? " disabled" : ""}>${escapeHtml(providerSelectLabel(option.id))}</option>`
+        `<option value="${escapeHtml(option.id)}"${option.selected ? " selected" : ""}${option.disabled ? " disabled" : ""}>${escapeHtml(providerSelectLabel(option.id, option.availability))}</option>`
       )).join("");
       if (selectEl.dataset.optionMarkup !== markup) {
         selectEl.dataset.optionMarkup = markup;
@@ -1982,15 +1990,22 @@
 
     function rejectUnavailableProviderSelection(selectEl, attemptedProvider, preferredProvider) {
       const fallbackProvider = resolveCliProviderFallback(selectEl, preferredProvider);
+      const attemptedAvailability = providerAvailability(attemptedProvider);
       applyCliProviderAvailabilityToSelect(selectEl, fallbackProvider);
       if (selectEl?.id === "projectProvider") {
         setProjectCodexSearchVisibility(selectEl.value);
       }
-      showStatus(
-        inlineText(
+      const message = attemptedAvailability === "degraded"
+        ? inlineText(
+          `${providerLabel(attemptedProvider)} is installed locally, but the current runtime is not usable yet. Upgrade or repair it first, or keep using ${providerLabel(fallbackProvider)}.`,
+          `${providerLabel(attemptedProvider)} 已在本机安装，但当前运行时还不可用。请先升级或修复后再切换，或继续使用 ${providerLabel(fallbackProvider)}。`
+        )
+        : inlineText(
           `${providerLabel(attemptedProvider)} is not installed locally. Install it first or keep using ${providerLabel(fallbackProvider)}.`,
           `本机未安装 ${providerLabel(attemptedProvider)}，请先安装后再切换，或继续使用 ${providerLabel(fallbackProvider)}。`
-        ),
+        );
+      showStatus(
+        message,
         true
       );
       return false;
