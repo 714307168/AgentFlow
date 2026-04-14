@@ -494,4 +494,7 @@
 - [x] Desktop relay transfer-history requests now reuse a keyed timed async cache per normalized filter set, so repeated message-pane and transfer-center refreshes can reuse the latest matching list briefly instead of refetching the same `/api/transfers` query every time.
 - [x] Desktop access-grant loading now uses a short-lived main-process cache and no longer triggers a follow-up remote project catalog refresh on every overview-pane read, trimming a redundant relay request chain from the settings overview path.
 - [x] The keyed timed async cache behavior is covered by dedicated Node tests, including per-key TTL reuse, per-key force refresh, same-key single-flight coalescing, and targeted invalidation.
+- [x] Desktop workgroup-registry search results and published-member lists now reuse short-lived keyed caches, reducing repeated `/api/workgroups/registry` and `/api/workgroups/registry/members` reads while users reopen the same published group or repeat the same join/search query.
+- [x] Workgroup registry caches now invalidate immediately after publish, join, leave, kick, delete, login, and config changes, so mutation paths keep the next read fresh without permanently disabling the cache for steady-state browsing.
+- [x] Workgroup registry query normalization and cache-key stability are covered by dedicated Node tests, preventing equivalent queries from missing the same cache bucket because of whitespace or partially omitted fields.
 

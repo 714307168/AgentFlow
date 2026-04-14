@@ -67,6 +67,12 @@ import { getCliProviderRuntimeStatuses, probeCliProviderRuntime, type CliProvide
 import { upgradeCliProvider } from "./cli-updater";
 import { selectProviderRuntime, type ProviderRuntimeSelection } from "./provider-runtime";
 import { isProviderSdkConfigured, type ProviderSdkConfig } from "./provider-sdk";
+import {
+  createWorkgroupRegistryMembersCacheKey,
+  normalizeWorkgroupRegistrySearchQuery,
+  parseWorkgroupRegistryMembersCacheKey,
+  type WorkgroupRegistryMembersQuery,
+} from "./workgroup-registry-query";
 
 interface AgentConfig {
   serverUrl: string;
@@ -113,6 +119,18 @@ interface RelayTransferReceiptSummary {
   status: string;
   note?: string;
   created_at: string;
+}
+
+interface WorkgroupRegistryMemberRecord {
+  userId: number;
+  username: string;
+  isOwner: boolean;
+  joinedAt: number;
+}
+
+interface WorkgroupRegistryMembersResponse {
+  record: WorkgroupRegistryRecord;
+  members: WorkgroupRegistryMemberRecord[];
 }
 
 interface RelayTransferRecord {
@@ -360,6 +378,8 @@ const MAX_DESKTOP_LOG_EXTRACTED_IDS = 20;
 const RELAY_DEVICE_LIST_CACHE_TTL_MS = 15_000;
 const RELAY_TRANSFER_LIST_CACHE_TTL_MS = 8_000;
 const ACCESS_GRANTS_CACHE_TTL_MS = 8_000;
+const WORKGROUP_REGISTRY_SEARCH_CACHE_TTL_MS = 12_000;
+const WORKGROUP_REGISTRY_MEMBERS_CACHE_TTL_MS = 12_000;
 const CLI_PROVIDER_RUNTIME_STATUS_CACHE_TTL_MS = 15_000;
 const CLI_PROVIDER_AUTO_UPGRADE_COOLDOWN_MS = 6 * 60 * 60 * 1000;
 const DESKTOP_LOG_TRACE_ID_PATTERN = /(?:trace[_-]?id["=: ]+|traceId["=: ]+)([a-z0-9:-]{6,})/ig;
@@ -1172,6 +1192,53 @@ const accessGrantCache = createTimedAsyncCache<unknown>({
 
 function clearAccessGrantCache(): void {
   accessGrantCache.clear();
+}
+
+async function fetchWorkgroupRegistrySearchResults(cacheKey: string): Promise<WorkgroupRegistryRecord[]> {
+  const normalizedQuery = normalizeWorkgroupRegistrySearchQuery(cacheKey);
+  if (!normalizedQuery) {
+    return [];
+  }
+  const response = await requestWorkgroupRegistry<{ records: WorkgroupRegistryRecord[] }>(
+    `/api/workgroups/registry?q=${encodeURIComponent(normalizedQuery)}`,
+  );
+  return Array.isArray(response.records) ? response.records : [];
+}
+
+const workgroupRegistrySearchCache = createKeyedTimedAsyncCache<WorkgroupRegistryRecord[]>({
+  ttlMs: WORKGROUP_REGISTRY_SEARCH_CACHE_TTL_MS,
+  load: fetchWorkgroupRegistrySearchResults,
+});
+
+async function fetchWorkgroupRegistryMembers(cacheKey: string): Promise<WorkgroupRegistryMembersResponse> {
+  const query = parseWorkgroupRegistryMembersCacheKey(cacheKey);
+  const params = new URLSearchParams();
+  if (query.groupNumber) {
+    params.set("group_number", query.groupNumber);
+  }
+  if (query.workgroupId) {
+    params.set("workgroup_id", query.workgroupId);
+  }
+  if (query.hostAgentId) {
+    params.set("host_agent_id", query.hostAgentId);
+  }
+  const response = await requestWorkgroupRegistry<WorkgroupRegistryMembersResponse>(
+    `/api/workgroups/registry/members?${params.toString()}`,
+  );
+  return {
+    record: response.record,
+    members: Array.isArray(response.members) ? response.members : [],
+  };
+}
+
+const workgroupRegistryMembersCache = createKeyedTimedAsyncCache<WorkgroupRegistryMembersResponse>({
+  ttlMs: WORKGROUP_REGISTRY_MEMBERS_CACHE_TTL_MS,
+  load: fetchWorkgroupRegistryMembers,
+});
+
+function clearWorkgroupRegistryCaches(): void {
+  workgroupRegistrySearchCache.clear();
+  workgroupRegistryMembersCache.clear();
 }
 
 function isTokenExpiringSoon(expiresAt?: string, nowMs: number = Date.now()): boolean {
@@ -4729,6 +4796,7 @@ ipcMain.handle("save-config", (_event, config: Partial<AgentConfig>) => {
   clearRelayDeviceListCache();
   clearRelayTransferListCache();
   clearAccessGrantCache();
+  clearWorkgroupRegistryCaches();
   clearCliProviderRuntimeStatusCache();
   if (config.serverUrl !== undefined) configStore.set("serverUrl", config.serverUrl);
   if (config.agentId !== undefined) configStore.set("agentId", config.agentId);
@@ -4778,6 +4846,7 @@ ipcMain.handle("login", async (_event, data: { username: string; password: strin
     clearRelayDeviceListCache();
     clearRelayTransferListCache();
     clearAccessGrantCache();
+    clearWorkgroupRegistryCaches();
     scheduleTokenRefresh();
     updateRelayClientAuthFromConfig();
     await refreshControllerToken(true);
@@ -5795,6 +5864,7 @@ ipcMain.handle("delete-workgroup", (_event, workgroupId: string) => {
   }
 
   if (workgroup.groupNumber?.trim()) {
+    clearWorkgroupRegistryCaches();
     void removeWorkgroupRegistry(workgroup.id).catch((error) => {
       appLogger.warn("workgroup", "Failed to remove workgroup registry.", {
         workgroupId: workgroup.id,
@@ -5811,6 +5881,7 @@ ipcMain.handle("delete-workgroup", (_event, workgroupId: string) => {
 ipcMain.handle("publish-workgroup-registry", async (_event, workgroupId: string) => {
   try {
     const record = await publishWorkgroupRegistry(String(workgroupId ?? "").trim());
+    clearWorkgroupRegistryCaches();
     broadcastWorkgroupsChanged();
     return {
       success: true,
@@ -5827,13 +5898,11 @@ ipcMain.handle("publish-workgroup-registry", async (_event, workgroupId: string)
 
 ipcMain.handle("search-workgroup-registry", async (_event, query: string) => {
   try {
-    const normalizedQuery = String(query ?? "").trim();
-    const response = await requestWorkgroupRegistry<{ records: WorkgroupRegistryRecord[] }>(
-      `/api/workgroups/registry?q=${encodeURIComponent(normalizedQuery)}`,
-    );
+    const normalizedQuery = normalizeWorkgroupRegistrySearchQuery(query);
+    const records = await workgroupRegistrySearchCache.get(normalizedQuery);
     return {
       success: true,
-      records: response.records,
+      records,
     };
   } catch (error) {
     return {
@@ -5849,6 +5918,8 @@ ipcMain.handle("join-workgroup-registry", async (_event, groupNumber: string) =>
       method: "POST",
       body: { group_number: String(groupNumber ?? "").trim() },
     });
+    clearWorkgroupRegistryCaches();
+    clearAccessGrantCache();
     void refreshRemoteWorkgroupCatalog(true);
     return {
       ...response,
@@ -5862,29 +5933,11 @@ ipcMain.handle("join-workgroup-registry", async (_event, groupNumber: string) =>
   }
 });
 
-ipcMain.handle("get-workgroup-registry-members", async (_event, data: {
-  groupNumber?: string | null;
-  workgroupId?: string | null;
-  hostAgentId?: string | null;
-}) => {
+ipcMain.handle("get-workgroup-registry-members", async (_event, data: WorkgroupRegistryMembersQuery) => {
   try {
-    const params = new URLSearchParams();
-    const groupNumber = String(data?.groupNumber ?? "").trim();
-    const workgroupId = String(data?.workgroupId ?? "").trim();
-    const hostAgentId = String(data?.hostAgentId ?? "").trim();
-    if (groupNumber) {
-      params.set("group_number", groupNumber);
-    }
-    if (workgroupId) {
-      params.set("workgroup_id", workgroupId);
-    }
-    if (hostAgentId) {
-      params.set("host_agent_id", hostAgentId);
-    }
-    const response = await requestWorkgroupRegistry<{
-      record: WorkgroupRegistryRecord;
-      members: Array<{ userId: number; username: string; isOwner: boolean; joinedAt: number }>;
-    }>(`/api/workgroups/registry/members?${params.toString()}`);
+    const response = await workgroupRegistryMembersCache.get(
+      createWorkgroupRegistryMembersCacheKey(data),
+    );
     return {
       success: true,
       ...response,
@@ -5911,6 +5964,8 @@ ipcMain.handle("leave-workgroup-registry", async (_event, data: {
         host_agent_id: String(data?.hostAgentId ?? "").trim() || undefined,
       },
     });
+    clearWorkgroupRegistryCaches();
+    clearAccessGrantCache();
     void refreshRemoteWorkgroupCatalog(true);
     return {
       success: response.success !== false,
@@ -5939,6 +5994,7 @@ ipcMain.handle("kick-workgroup-registry-member", async (_event, data: {
         user_id: Number(data?.userId) || 0,
       },
     });
+    clearWorkgroupRegistryCaches();
     void refreshRemoteWorkgroupCatalog();
     return {
       success: response.success !== false,
