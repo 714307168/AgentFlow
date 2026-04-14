@@ -509,3 +509,38 @@
 - [x] Desktop runtime settings now support an optional GitHub token for non-interactive CLI Git auth, and Claude/Codex runs inject process-local GitHub HTTPS URL rewrites so \`git push\` against \`https://github.com/... \` remotes can complete without opening the GitHub credential popup.
 - [x] Added \`docs/golutra-review-and-optimization-plan.md\` after a focused repo review of \`golutra/golutra\`, extracting reusable ideas for runtime layering, session-state rules, output backpressure, local command IPC, and storage boundaries so the next optimization round can borrow proven patterns instead of only iterating locally.
 
+## Next Optimization Queue 2026-04-15
+
+这部分基于 \`golutra/golutra\` 的结构复盘结果整理，目标不是照搬产品形态，而是优先吸收对当前桌面端 + Android + relay-server 架构最有价值的运行时和同步模式。
+
+### P0: runtime state and traffic control
+
+1. 抽离桌面端会话状态规则层，把运行中、输出中、完成、空闲、失败的切换从 UI 刷新逻辑中继续下沉到独立 runtime 模块。
+2. 把当前打开中的聊天页或项目页继续提升为高优先级实时流，列表页和非活跃项目只保留摘要、未读数、更新时间和运行状态。
+3. 为消息流、活动流和 CLI 输出补 ACK / 背压窗口，避免网络抖动时持续堆积完整输出，并给非活跃会话进一步降频。
+4. 补问题诊断导出包，至少包含桌面端运行日志、最近同步摘要、最近活动窗口、provider runtime 状态和 relay API 版本信息。
+
+发版节点:
+- \`R-runtime-rules\`: 会话状态规则收口并完成桌面端验证后发一个内部补丁版。
+- \`R-traffic-control\`: 活跃会话优先同步 + ACK / 背压完成后发一次 desktop + Android + relay-server 三端联动版。
+
+### P1: structure cleanup and runtime gateway
+
+1. 把 Claude / Codex 以及后续 provider 的命令、能力、版本探测、自动升级策略和环境注入继续收口到统一 registry。
+2. 增加桌面端本地命令 IPC 网关，为后续小程序、iOS、mac 和外部自动化接入提供统一桥接层。
+3. 继续拆桌面端设置页、消息页、活动页和同步入口，减少大文件和重复逻辑，保持 renderer 侧 feature/store 边界更清晰。
+
+发版节点:
+- \`R-provider-registry\`: provider registry 和 CLI/API fallback 结构升级完成后发桌面端结构补丁版。
+- \`R-runtime-gateway\`: 本地命令 IPC 网关接入完成后发一次桌面端版本，并同步记录 GitHub Release / 更新中心版本号。
+
+### P2: multi-end capability expansion
+
+1. 把图片和文件发送继续并入消息时间线，而不是单独维护额外的发文件入口。
+2. 为 Android / iOS / 小程序 / mac 抽统一 capability layer，按端能力降级，不再让协议分叉继续扩大。
+3. 继续深化缓存优先、版本比对和增量拉取，让消息列表、活动列表和会话详情尽量只拉变更块。
+
+发版节点:
+- \`R-message-transfer\`: 文件传输并入消息时间线后发 Android + desktop 联动版。
+- \`R-multi-end-capability\`: 多端统一 capability layer 第一阶段完成后，补一次 roadmap 节点和版本登记。
+
