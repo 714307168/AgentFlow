@@ -316,6 +316,16 @@ golutra 的产品是“多成员 AI 团队工作台”，所以：
 
 这会比只做接口缓存更进一步。
 
+这里建议继续往前走一步，不只是“活跃项目拿完整流，非活跃项目拿摘要”，而是把项目本身再做一层冷热分层：
+
+- 给每个项目生成轻量 \`project_signature\`，只表示这个项目的会话壳是否发生了实质变化
+- 把项目分成 \`hot / warm / cold / dormant\` 四档
+- 前后台恢复、列表刷新、自动补拉时，只让 \`hot / warm\` 项目进入高频同步窗口
+- \`cold\` 项目只在 TTL 到期时抽样检查
+- \`dormant\` 项目默认不参与每轮同步和逐项比对，只有显式打开、手动刷新或服务端 revision 变化时再激活
+
+这样就能避免“为了确认大量长期不变项目没有变化，反而每次都把这些项目再同步一遍”。这条设计已经单独整理到 \`docs/project-sync-signature-design.md\`，后续实现时可以按那份文档分阶段落地。
+
 #### 5.3 给实时输出加 ACK / 背压思路
 
 目标：
@@ -435,9 +445,9 @@ golutra 很重视诊断日志，这点值得补。
 
 - \`desktop runtime state rules extraction\`
 - \`active-session prioritized streaming with summary fallback\`
+- \`per-project project_signature with hot/warm/cold/dormant sync buckets\`
 - \`relay/client output ack and backpressure\`
 - \`provider capability registry\`
 - \`local command IPC gateway\`
 - \`message-integrated file transfer timeline\`
 - \`diagnostic bundle export for desktop/android/relay\`
-
