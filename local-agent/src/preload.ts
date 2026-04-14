@@ -8,7 +8,7 @@ contextBridge.exposeInMainWorld('claudeAgent', {
   onProjectsChanged: (callback: (projects: unknown[]) => void) => {
     ipcRenderer.on('projects-changed', (_event, projects: unknown[]) => callback(projects));
   },
-  getProjectSession: (projectId: string) => ipcRenderer.invoke('get-project-session', projectId),
+  getProjectSession: (data: { projectId: string; forceRemoteSync?: boolean }) => ipcRenderer.invoke('get-project-session', data),
   getProjectHistoryPage: (data: {
     projectId: string;
     kind: 'messages' | 'activities' | 'cli';

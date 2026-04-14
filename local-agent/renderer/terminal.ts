@@ -27,7 +27,7 @@ interface ClaudeAgentApi {
   onWorkgroupCollaborationSummaries?: (callback: (workgroups: WorkgroupSummary[]) => void) => void;
   onWorkgroupCollaborationSnapshot?: (callback: (snapshot: WorkgroupSessionSnapshot) => void) => void;
   onWorkgroupCollaborationId?: (callback: (workgroupId: string | null) => void) => void;
-  getProjectSession: (projectId: string) => Promise<ProjectSessionResponse>;
+  getProjectSession: (data: { projectId: string; forceRemoteSync?: boolean }) => Promise<ProjectSessionResponse>;
   getProjectHistoryPage?: (data: {
     projectId: string;
     kind: "messages" | "activities" | "cli";
@@ -3658,7 +3658,10 @@ function renderWorkspaceOnly(): void {
   });
 }
 
-async function loadProjectSession(projectId: string): Promise<void> {
+async function loadProjectSession(
+  projectId: string,
+  options: { forceRemoteSync?: boolean } = {},
+): Promise<void> {
   if (state.sessionsByProjectId.has(projectId)) {
     return;
   }
@@ -3668,7 +3671,10 @@ async function loadProjectSession(projectId: string): Promise<void> {
     return;
   }
   const loadPromise = (async () => {
-    const result = await api.getProjectSession(projectId);
+    const result = await api.getProjectSession({
+      projectId,
+      forceRemoteSync: options.forceRemoteSync === true,
+    });
     if (!result.success || !result.session) {
       return;
     }
@@ -3684,6 +3690,15 @@ async function loadProjectSession(projectId: string): Promise<void> {
       projectSessionLoads.delete(projectId);
     }
   }
+}
+
+async function ensureActiveProjectSessionLoaded(forceRemoteSync = false): Promise<boolean> {
+  const projectId = state.projectId?.trim() ?? "";
+  if (!projectId || !state.projects.some((project) => project.id === projectId) || state.sessionsByProjectId.has(projectId)) {
+    return false;
+  }
+  await loadProjectSession(projectId, { forceRemoteSync });
+  return true;
 }
 
 async function loadWorkgroupSession(workgroupId: string): Promise<void> {
@@ -3723,8 +3738,6 @@ async function syncProjects(projects?: ProjectState[]): Promise<void> {
   const nextSignature = buildProjectCatalogSignature(nextProjects);
   const hadSameCatalog = nextSignature === lastProjectCatalogSignature;
   const projectIds = new Set(nextProjects.map((project) => project.id));
-  const missingSessionProjects = nextProjects
-    .filter((project) => !state.sessionsByProjectId.has(project.id));
   const hadRemovedProjects = Array.from(state.sessionsByProjectId.keys()).some((projectId) => !projectIds.has(projectId));
   const previousProjectId = state.projectId;
   const previousWorkgroupId = state.workgroupId;
@@ -3740,10 +3753,6 @@ async function syncProjects(projects?: ProjectState[]): Promise<void> {
       projectSessionLoads.delete(projectId);
     }
   }
-
-  await Promise.all(
-    missingSessionProjects.map((project) => loadProjectSession(project.id)),
-  );
 
   if (state.projectId && !projectIds.has(state.projectId)) {
     if (state.workgroupId) {
@@ -3767,12 +3776,13 @@ async function syncProjects(projects?: ProjectState[]): Promise<void> {
     }
   }
 
+  const hydratedActiveProject = await ensureActiveProjectSessionLoaded(true);
   syncActiveViewForCurrentProject();
   if (state.messageSearchQuery.trim()) {
     scheduleMessageSearch();
   }
   const selectionChanged = previousProjectId !== state.projectId || previousWorkgroupId !== state.workgroupId;
-  if (hadSameCatalog && !hadRemovedProjects && missingSessionProjects.length === 0 && !selectionChanged) {
+  if (hadSameCatalog && !hadRemovedProjects && !selectionChanged && !hydratedActiveProject) {
     return;
   }
   render();
@@ -3835,7 +3845,7 @@ async function selectProject(projectId: string): Promise<void> {
 
   setActiveProject(projectId);
   if (!state.sessionsByProjectId.has(projectId)) {
-    await loadProjectSession(projectId);
+    await loadProjectSession(projectId, { forceRemoteSync: true });
   }
   syncActiveViewForCurrentProject();
   if (state.messageSearchQuery.trim()) {

@@ -5187,13 +5187,18 @@ ipcMain.on("set-active-workgroup-collaboration", (_event, workgroupId: string | 
   updateWindowTitles();
 });
 
-ipcMain.handle("get-project-session", (_event, projectId: string) => {
+ipcMain.handle("get-project-session", (_event, payload: string | { projectId: string; forceRemoteSync?: boolean }) => {
+  const projectId = (typeof payload === "string" ? payload : payload?.projectId)?.trim() || "";
+  const forceRemoteSync = typeof payload === "string" ? true : payload?.forceRemoteSync === true;
+  if (!projectId) {
+    return { success: false, error: "Project not found" };
+  }
   const project = getProjectById(projectId);
   if (!project) {
     return { success: false, error: "Project not found" };
   }
 
-  if (isRemoteProject(projectId)) {
+  if (isRemoteProject(projectId) && forceRemoteSync) {
     requestRemoteProjectSync(projectId, "open-remote-project-session", true);
   }
 

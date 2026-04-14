@@ -501,3 +501,9 @@
 - [x] Desktop remote workgroup session syncs now reuse the same request-gate pattern instead of separate timestamp and pending-set bookkeeping, reducing repeated code while keeping follow-up sync pressure under control.
 - [x] The shared request-gate behavior is covered by dedicated Node tests for pending suppression, force-bypass of cooldown, timeout release, and full reset, so later relay sync tuning can reuse the same primitive safely.
 
+## Progress Update 2026-04-15
+
+- [x] Desktop workspace project syncing no longer preloads every missing project session during catalog refresh, so opening the workspace or refreshing the sidebar stops fanning out background \`get-project-session\` reads across all remote projects.
+- [x] Project-session loading now accepts an explicit \`forceRemoteSync\` flag, and only the actively opened project requests a forced remote session sync; background catalog refresh paths reuse cached empty/known session state instead of waking every remote agent.
+- [x] The renderer still hydrates the currently selected project on demand, preserving the existing open-project experience while trimming another layer of avoidable relay traffic from remote-heavy workspaces.
+
