@@ -506,4 +506,5 @@
 - [x] Desktop workspace project syncing no longer preloads every missing project session during catalog refresh, so opening the workspace or refreshing the sidebar stops fanning out background \`get-project-session\` reads across all remote projects.
 - [x] Project-session loading now accepts an explicit \`forceRemoteSync\` flag, and only the actively opened project requests a forced remote session sync; background catalog refresh paths reuse cached empty/known session state instead of waking every remote agent.
 - [x] The renderer still hydrates the currently selected project on demand, preserving the existing open-project experience while trimming another layer of avoidable relay traffic from remote-heavy workspaces.
+- [x] Desktop runtime settings now support an optional GitHub token for non-interactive CLI Git auth, and Claude/Codex runs inject process-local GitHub HTTPS URL rewrites so \`git push\` against \`https://github.com/... \` remotes can complete without opening the GitHub credential popup.
 

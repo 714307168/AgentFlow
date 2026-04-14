@@ -68,6 +68,7 @@ import { getCliProviderRuntimeStatuses, probeCliProviderRuntime, type CliProvide
 import { upgradeCliProvider } from "./cli-updater";
 import { selectProviderRuntime, type ProviderRuntimeSelection } from "./provider-runtime";
 import { isProviderSdkConfigured, type ProviderSdkConfig } from "./provider-sdk";
+import { buildGitHubCommandEnvironment } from "./github-command-env";
 import {
   createWorkgroupRegistryMembersCacheKey,
   normalizeWorkgroupRegistrySearchQuery,
@@ -94,8 +95,10 @@ interface AgentConfig {
   anthropicApiKey?: string;
   anthropicBaseUrl?: string;
   anthropicDefaultModel?: string;
+  githubToken?: string;
   encryptedOpenaiApiKey?: string;
   encryptedAnthropicApiKey?: string;
+  encryptedGithubToken?: string;
   cliProvider: CliProvider;
 }
 
@@ -270,8 +273,10 @@ const configStore = new Store<AgentConfig>({
     anthropicApiKey: "",
     anthropicBaseUrl: "",
     anthropicDefaultModel: "",
+    githubToken: "",
     encryptedOpenaiApiKey: "",
     encryptedAnthropicApiKey: "",
+    encryptedGithubToken: "",
     cliProvider: "claude",
   },
 });
@@ -3041,12 +3046,13 @@ function loadConfig(): AgentConfig {
     anthropicApiKey: decodeSecretFromStore(configStore.get("encryptedAnthropicApiKey") as string),
     anthropicBaseUrl: (configStore.get("anthropicBaseUrl") as string) || "",
     anthropicDefaultModel: (configStore.get("anthropicDefaultModel") as string) || "",
+    githubToken: decodeSecretFromStore(configStore.get("encryptedGithubToken") as string),
     tokenExpiresAt: (configStore.get("tokenExpiresAt") as string) || "",
     cliProvider: ((process.env.CLI_PROVIDER ?? configStore.get("cliProvider")) as CliProvider) || "claude",
   };
 }
 
-function getPublicConfig(): Omit<AgentConfig, "encryptedToken" | "encryptedPassword" | "encryptedOpenaiApiKey" | "encryptedAnthropicApiKey"> {
+function getPublicConfig(): Omit<AgentConfig, "encryptedToken" | "encryptedPassword" | "encryptedOpenaiApiKey" | "encryptedAnthropicApiKey" | "encryptedGithubToken"> {
   const config = loadConfig();
   return {
     serverUrl: config.serverUrl,
@@ -3063,6 +3069,7 @@ function getPublicConfig(): Omit<AgentConfig, "encryptedToken" | "encryptedPassw
     anthropicApiKey: config.anthropicApiKey,
     anthropicBaseUrl: config.anthropicBaseUrl,
     anthropicDefaultModel: config.anthropicDefaultModel,
+    githubToken: config.githubToken,
     tokenExpiresAt: config.tokenExpiresAt,
     cliProvider: config.cliProvider,
   };
@@ -3070,8 +3077,10 @@ function getPublicConfig(): Omit<AgentConfig, "encryptedToken" | "encryptedPassw
 
 function getProviderEnvironment(provider: CliProvider): Record<string, string> {
   const config = loadConfig();
+  const githubToken = config.githubToken?.trim() || process.env.GITHUB_TOKEN?.trim() || process.env.GH_TOKEN?.trim() || "";
+  const gitEnv = buildGitHubCommandEnvironment(githubToken);
   if (provider === "codex") {
-    const env: Record<string, string> = {};
+    const env: Record<string, string> = { ...gitEnv };
     if (config.openaiApiKey?.trim()) {
       env.OPENAI_API_KEY = config.openaiApiKey.trim();
     }
@@ -3081,7 +3090,7 @@ function getProviderEnvironment(provider: CliProvider): Record<string, string> {
     return env;
   }
 
-  const env: Record<string, string> = {};
+  const env: Record<string, string> = { ...gitEnv };
   if (config.anthropicApiKey?.trim()) {
     env.ANTHROPIC_API_KEY = config.anthropicApiKey.trim();
     env.ANTHROPIC_AUTH_TOKEN = config.anthropicApiKey.trim();
@@ -4811,6 +4820,7 @@ ipcMain.handle("save-config", (_event, config: Partial<AgentConfig>) => {
   if (config.anthropicApiKey !== undefined) configStore.set("encryptedAnthropicApiKey", encodeSecretForStore(config.anthropicApiKey));
   if (config.anthropicBaseUrl !== undefined) configStore.set("anthropicBaseUrl", config.anthropicBaseUrl);
   if (config.anthropicDefaultModel !== undefined) configStore.set("anthropicDefaultModel", config.anthropicDefaultModel);
+  if (config.githubToken !== undefined) configStore.set("encryptedGithubToken", encodeSecretForStore(config.githubToken));
   if (config.cliProvider !== undefined) configStore.set("cliProvider", config.cliProvider);
   return true;
 });

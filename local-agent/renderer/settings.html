@@ -1744,6 +1744,14 @@
                   <div class="field-help" id="anthropicDefaultModelHint">Used when a Claude project does not set its own model.</div>
                 </div>
               </div>
+              <div class="runtime-card">
+                <div class="runtime-card-title" id="gitAutomationTitle">Git & GitHub</div>
+                <div class="field">
+                  <label id="githubTokenLabel">GitHub Token</label>
+                  <input type="password" id="githubToken" placeholder="ghp_...">
+                  <div class="field-help" id="githubTokenHint">Optional. When set, CLI runs can push to https://github.com remotes without opening the GitHub credential popup.</div>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -3402,6 +3410,12 @@
         "Used when a Claude project does not set its own model.",
         "当 Claude 项目未单独设置模型时，使用这里的默认模型。"
       );
+      document.getElementById("gitAutomationTitle").textContent = inlineText("Git & GitHub", "Git 与 GitHub");
+      document.getElementById("githubTokenLabel").textContent = inlineText("GitHub Token", "GitHub Token");
+      document.getElementById("githubTokenHint").textContent = inlineText(
+        "Optional. When set, CLI runs can push to https://github.com remotes without opening the GitHub credential popup.",
+        "可选。配置后，CLI 在推送到 https://github.com 仓库时会走非交互认证，不再弹 GitHub 凭证窗口。"
+      );
       document.getElementById("serverSection").textContent = msg("settings.serverConnection", "Server Connection");
       document.getElementById("serverUrlLabel").textContent = msg("settings.relayServerUrl", "Relay Server URL");
       document.getElementById("serverUrlScope").textContent = inlineText("Current Device", "当前设备");
@@ -3453,6 +3467,7 @@
         openaiDefaultModel: document.getElementById("openaiDefaultModel").value.trim(),
         anthropicBaseUrl: document.getElementById("anthropicBaseUrl").value.trim(),
         anthropicDefaultModel: document.getElementById("anthropicDefaultModel").value.trim(),
+        githubToken: document.getElementById("githubToken").value,
         cliProvider: document.getElementById("cliProvider").value,
       };
       await api.saveConfig({
@@ -3466,6 +3481,7 @@
         anthropicApiKey: document.getElementById("anthropicApiKey").value,
         anthropicBaseUrl: document.getElementById("anthropicBaseUrl").value.trim(),
         anthropicDefaultModel: document.getElementById("anthropicDefaultModel").value.trim(),
+        githubToken: document.getElementById("githubToken").value,
         cliProvider: document.getElementById("cliProvider").value,
       });
       renderOverviewDashboard();
@@ -5302,6 +5318,7 @@
       document.getElementById("anthropicApiKey").value = config.anthropicApiKey || "";
       document.getElementById("anthropicBaseUrl").value = config.anthropicBaseUrl || "";
       document.getElementById("anthropicDefaultModel").value = config.anthropicDefaultModel || "";
+      document.getElementById("githubToken").value = config.githubToken || "";
       document.getElementById("cliProvider").value = config.cliProvider || "claude";
       document.getElementById("projectProvider").value = config.cliProvider || "claude";
       document.getElementById("projectModel").value = "";
@@ -5335,7 +5352,7 @@
       rememberCliProviderSelection(event.target);
     });
 
-    ["serverUrl", "username", "password", "agentId", "openaiApiKey", "openaiBaseUrl", "openaiDefaultModel", "anthropicApiKey", "anthropicBaseUrl", "anthropicDefaultModel"].forEach((id) => {
+    ["serverUrl", "username", "password", "agentId", "openaiApiKey", "openaiBaseUrl", "openaiDefaultModel", "anthropicApiKey", "anthropicBaseUrl", "anthropicDefaultModel", "githubToken"].forEach((id) => {
       document.getElementById(id).addEventListener("blur", () => { void saveConnectionConfig(); });
     });
 
