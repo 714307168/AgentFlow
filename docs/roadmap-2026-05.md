@@ -508,6 +508,7 @@
 - [x] The renderer still hydrates the currently selected project on demand, preserving the existing open-project experience while trimming another layer of avoidable relay traffic from remote-heavy workspaces.
 - [x] Desktop runtime settings now support an optional GitHub token for non-interactive CLI Git auth, and Claude/Codex runs inject process-local GitHub HTTPS URL rewrites so \`git push\` against \`https://github.com/... \` remotes can complete without opening the GitHub credential popup.
 - [x] Added \`docs/golutra-review-and-optimization-plan.md\` after a focused repo review of \`golutra/golutra\`, extracting reusable ideas for runtime layering, session-state rules, output backpressure, local command IPC, and storage boundaries so the next optimization round can borrow proven patterns instead of only iterating locally.
+- [x] Added \`docs/project-sync-signature-design.md\`, proposing per-project \`project_signature\` plus \`hot / warm / cold / dormant\` sync buckets so inactive projects stop participating in every foreground recovery and session-shell comparison round.
 
 ## Next Optimization Queue 2026-04-15
 
