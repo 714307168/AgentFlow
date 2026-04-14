@@ -488,4 +488,5 @@
 - [x] Desktop runtime status cards now expose the effective runtime mode, API fallback readiness, install source, resolved CLI path, capability chips, and upgrade hints so runtime diagnostics no longer stop at a bare installed/missing badge.
 - [x] Desktop provider selectors now treat API fallback as a valid runtime, so a provider with configured OpenAI / Anthropic credentials stays selectable even when the local CLI is missing; only truly unusable or degraded runtimes are blocked.
 - [x] Desktop provider selectors and rejection copy now distinguish API fallback, missing CLI, and degraded local runtimes, so users no longer see stale Missing labels when a provider is still runnable through fallback.
+- [x] `R-desktop-patch`: desktop `1.1.133` was published to the update center on `2026-04-14` for the runtime diagnostics and API-fallback-aware provider availability patch. Release id: `213`. GitHub Release: `v1.1.133`.
 
