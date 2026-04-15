@@ -570,6 +570,13 @@
 3. 继续深化缓存优先、版本比对和增量拉取，让消息列表、活动列表和会话详情尽量只拉变更块。
 
 发版节点:
-- \`R-message-transfer\`: 文件传输并入消息时间线后发 Android + desktop 联动版。
-- \`R-multi-end-capability\`: 多端统一 capability layer 第一阶段完成后，补一次 roadmap 节点和版本登记。
+- `R-message-transfer`: 文件传输并入消息时间线后发 Android + desktop 联动版。
+- `R-multi-end-capability`: 多端统一 capability layer 第一阶段完成后，补一次 roadmap 节点和版本登记。
+
+## Next Optimization Queue 2026-04-16
+
+- [x] 当前 `2026-04-15` 优化队列已进入发布验证态，新增独立专项文档 `docs/ws-stability-and-recovery-plan.md` 作为下一轮优化入口。
+- [x] WS 专项 `P0` 第一批已落地：桌面端连接快照和诊断导出补齐最近连接事件、最近一次 `close code / close reason`、最近一次重连计划，先把掉线排障的数据基础补齐。
+- [ ] Android 连接恢复日志按同口径对齐。
+- [ ] relay-server close-code 聚合与代理超时核查清单。
 
