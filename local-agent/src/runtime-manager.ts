@@ -283,6 +283,10 @@ class RuntimeManager extends EventEmitter {
     const state = this.ensureState(projectId);
     this.syncActiveConversationMeta(state);
     const provider = state.active ? state.provider : this.getResolvedProvider(projectId);
+    const visibleCurrentSource = this.getProjectVisibleCurrentSource(state);
+    const visibleQueue = this.getVisibleProjectQueue(state);
+    const visibleMessages = this.getVisibleProjectMessages(state);
+    const visibleActivities = this.getVisibleProjectActivities(state);
     const snapshotBase: ProjectSessionSnapshot = {
       projectId,
       provider,
@@ -291,16 +295,16 @@ class RuntimeManager extends EventEmitter {
       projectSignature: null,
       syncBucket: null,
       isRunning: state.active,
-      queuedCount: state.queue.length,
-      currentSource: state.currentSource,
-      currentPrompt: state.currentPrompt,
-      currentStartedAt: state.currentStartedAt,
+      queuedCount: visibleQueue.length,
+      currentSource: visibleCurrentSource,
+      currentPrompt: visibleCurrentSource ? state.currentPrompt : null,
+      currentStartedAt: visibleCurrentSource ? state.currentStartedAt : null,
       activeConversationId: state.activeConversationId,
       conversations: this.listConversationSummaries(projectId),
-      messageTotal: state.messages.length,
-      activityTotal: state.activities.length,
+      messageTotal: visibleMessages.length,
+      activityTotal: visibleActivities.length,
       cliTraceTotal: state.cliTrace.length,
-      queue: state.queue.map((entry) => ({
+      queue: visibleQueue.map((entry) => ({
         runId: entry.runId,
         prompt: entry.prompt,
         attachments: this.cloneAttachments(entry.attachments),
@@ -308,8 +312,8 @@ class RuntimeManager extends EventEmitter {
         queuedAt: entry.queuedAt,
       })),
       cliTrace: state.cliTrace.slice(-DEFAULT_HISTORY_PAGE_SIZE).map((entry) => ({ ...entry })),
-      messages: state.messages.slice(-DEFAULT_HISTORY_PAGE_SIZE).map((message) => this.cloneMessage(message)),
-      activities: state.activities.slice(-DEFAULT_HISTORY_PAGE_SIZE).map((activity) => ({
+      messages: visibleMessages.slice(-DEFAULT_HISTORY_PAGE_SIZE).map((message) => this.cloneMessage(message)),
+      activities: visibleActivities.slice(-DEFAULT_HISTORY_PAGE_SIZE).map((activity) => ({
         ...activity,
         meta: activity.meta ? { ...activity.meta } : undefined,
       })),
@@ -362,8 +366,8 @@ class RuntimeManager extends EventEmitter {
     }
 
     const sourceItems = kind === "messages"
-      ? conversation.messages
-      : (kind === "activities" ? conversation.activities : conversation.cliTrace);
+      ? this.getVisibleProjectMessages(conversation)
+      : (kind === "activities" ? this.getVisibleProjectActivities(conversation) : conversation.cliTrace);
     const limit = Number(request.limit) > 0 ? Math.max(1, Number(request.limit)) : DEFAULT_HISTORY_PAGE_SIZE;
     const beforeId = request.beforeId?.trim() || "";
     const anchorIndex = beforeId
@@ -401,8 +405,7 @@ class RuntimeManager extends EventEmitter {
     }
 
     const limit = Number(request.limit) > 0 ? Math.max(1, Number(request.limit)) : 200;
-    return conversation.messages
-      .filter((message) => message.source !== "workgroup")
+    return this.getVisibleProjectMessages(conversation)
       .filter((message) => {
         const attachmentText = (message.attachments ?? [])
           .map((attachment) => `${attachment.name} ${attachment.path}`)
@@ -426,16 +429,20 @@ class RuntimeManager extends EventEmitter {
     const state = this.ensureState(projectId);
     this.syncActiveConversationMeta(state);
     return state.conversations
-      .map((conversation) => ({
-        id: conversation.id,
-        title: this.getConversationTitle(conversation),
-        createdAt: conversation.createdAt,
-        updatedAt: conversation.updatedAt,
-        isActive: conversation.id === state.activeConversationId,
-        messageCount: conversation.messages.length,
-        activityCount: conversation.activities.length,
-        cliCount: conversation.cliTrace.length,
-      }))
+      .map((conversation) => {
+        const visibleMessages = this.getVisibleProjectMessages(conversation);
+        const visibleActivities = this.getVisibleProjectActivities(conversation);
+        return {
+          id: conversation.id,
+          title: this.getConversationTitle(conversation),
+          createdAt: conversation.createdAt,
+          updatedAt: conversation.updatedAt,
+          isActive: conversation.id === state.activeConversationId,
+          messageCount: visibleMessages.length,
+          activityCount: visibleActivities.length,
+          cliCount: conversation.cliTrace.length,
+        };
+      })
       .sort((left, right) => right.updatedAt - left.updatedAt || right.createdAt - left.createdAt);
   }
 
@@ -1908,6 +1915,38 @@ class RuntimeManager extends EventEmitter {
     };
   }
 
+  private isProjectVisibleMessage(message: SessionMessage): boolean {
+    return message.source !== "workgroup";
+  }
+
+  private isProjectVisibleActivity(activity: SessionActivity): boolean {
+    return activity.meta?.source !== "workgroup";
+  }
+
+  private isProjectVisibleQueueEntry(entry: Pick<PendingRun, "source">): boolean {
+    return entry.source !== "workgroup";
+  }
+
+  private getProjectVisibleCurrentSource(state: ProjectState): RunSource | null {
+    return state.currentSource === "workgroup" ? null : state.currentSource;
+  }
+
+  private getVisibleProjectMessages(
+    owner: Pick<ProjectState | ProjectConversationState, "messages">,
+  ): SessionMessage[] {
+    return owner.messages.filter((message) => this.isProjectVisibleMessage(message));
+  }
+
+  private getVisibleProjectActivities(
+    owner: Pick<ProjectState | ProjectConversationState, "activities">,
+  ): SessionActivity[] {
+    return owner.activities.filter((activity) => this.isProjectVisibleActivity(activity));
+  }
+
+  private getVisibleProjectQueue(state: Pick<ProjectState, "queue">): PendingRun[] {
+    return state.queue.filter((entry) => this.isProjectVisibleQueueEntry(entry));
+  }
+
   private updateMessage(
     state: ProjectState,
     messageId: string,
@@ -2410,13 +2449,15 @@ class RuntimeManager extends EventEmitter {
     if (!conversation) {
       return;
     }
+    const visibleMessages = this.getVisibleProjectMessages(state);
+    const visibleActivities = this.getVisibleProjectActivities(state);
     conversation.claudeSessionId = state.claudeSessionId;
     conversation.codexThreadId = state.codexThreadId;
     conversation.updatedAt = Math.max(
       conversation.updatedAt,
-      state.currentStartedAt ?? 0,
-      state.messages[state.messages.length - 1]?.updatedAt ?? 0,
-      state.activities[state.activities.length - 1]?.updatedAt ?? 0,
+      this.getProjectVisibleCurrentSource(state) ? (state.currentStartedAt ?? 0) : 0,
+      visibleMessages[visibleMessages.length - 1]?.updatedAt ?? 0,
+      visibleActivities[visibleActivities.length - 1]?.updatedAt ?? 0,
       state.cliTrace[state.cliTrace.length - 1]?.createdAt ?? 0,
     );
   }
@@ -2427,7 +2468,8 @@ class RuntimeManager extends EventEmitter {
       return explicitTitle;
     }
 
-    const firstUserMessage = conversation.messages.find((entry) => entry.role === "user" && entry.content.trim());
+    const firstUserMessage = this.getVisibleProjectMessages(conversation)
+      .find((entry) => entry.role === "user" && entry.content.trim());
     if (firstUserMessage) {
       return this.previewConversationTitle(firstUserMessage.content);
     }

@@ -329,6 +329,9 @@ class SessionHistoryStore {
     const changes: ProjectSyncChange[] = [];
 
     for (const message of conversation.messages) {
+      if (!this.isProjectVisibleMessage(message)) {
+        continue;
+      }
       changes.push({
         id: message.id,
         kind: "message",
@@ -344,6 +347,9 @@ class SessionHistoryStore {
     }
 
     for (const activity of conversation.activities) {
+      if (!this.isProjectVisibleActivity(activity)) {
+        continue;
+      }
       changes.push({
         id: `activity:${activity.id}`,
         kind: activity.kind === "thinking" ? "thinking" : "activity",
@@ -354,6 +360,9 @@ class SessionHistoryStore {
         status: activity.status,
         title: activity.title,
         activityKind: activity.kind,
+        source: activity.meta?.source === "remote" || activity.meta?.source === "desktop" || activity.meta?.source === "workgroup"
+          ? activity.meta.source
+          : undefined,
       });
     }
 
@@ -399,6 +408,14 @@ class SessionHistoryStore {
       items,
       truncated,
     };
+  }
+
+  private isProjectVisibleMessage(message: PersistedSessionMessage): boolean {
+    return message.source !== "workgroup";
+  }
+
+  private isProjectVisibleActivity(activity: PersistedSessionActivity): boolean {
+    return activity.meta?.source !== "workgroup";
   }
 
   clearProject(projectId: string): void {

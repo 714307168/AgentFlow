@@ -51,6 +51,7 @@ interface SyncItemPayload {
   createdAt: number;
   updatedAt: number;
   role?: SessionMessage["role"];
+  source?: SessionMessage["source"];
   content: string;
   content_md5?: string;
   content_omitted?: boolean;
@@ -367,6 +368,9 @@ export default class RemoteSessionStore extends EventEmitter {
     if (!state) {
       return null;
     }
+    const visibleQueue = this.getVisibleQueue(state);
+    const visibleMessages = this.getVisibleMessages(state);
+    const visibleActivities = this.getVisibleActivities(state);
     const totals = this.getConversationTotals(state);
     return {
       projectId,
@@ -376,7 +380,7 @@ export default class RemoteSessionStore extends EventEmitter {
       projectSignature: state.projectSignature,
       syncBucket: state.syncBucket,
       isRunning: state.isRunning,
-      queuedCount: state.queuedCount,
+      queuedCount: visibleQueue.length,
       currentSource: state.currentSource,
       currentPrompt: state.currentPrompt,
       currentStartedAt: state.currentStartedAt,
@@ -385,13 +389,13 @@ export default class RemoteSessionStore extends EventEmitter {
       messageTotal: totals.messageTotal,
       activityTotal: totals.activityTotal,
       cliTraceTotal: totals.cliTraceTotal,
-      queue: state.queue.map((entry) => ({
+      queue: visibleQueue.map((entry) => ({
         ...entry,
         attachments: cloneAttachments(entry.attachments),
       })),
       cliTrace: state.cliTrace.slice(-DEFAULT_PAGE_SIZE).map((entry) => ({ ...entry })),
-      messages: state.messages.slice(-DEFAULT_PAGE_SIZE).map(cloneMessage),
-      activities: state.activities.slice(-DEFAULT_PAGE_SIZE).map((entry) => ({ ...entry })),
+      messages: visibleMessages.slice(-DEFAULT_PAGE_SIZE).map(cloneMessage),
+      activities: visibleActivities.slice(-DEFAULT_PAGE_SIZE).map((entry) => ({ ...entry })),
       sessionRefs: {
         claudeSessionId: null,
         codexThreadId: null,
@@ -413,8 +417,8 @@ export default class RemoteSessionStore extends EventEmitter {
     }
 
     const source = kind === "messages"
-      ? state.messages
-      : (kind === "activities" ? state.activities : state.cliTrace);
+      ? this.getVisibleMessages(state)
+      : (kind === "activities" ? this.getVisibleActivities(state) : state.cliTrace);
     const limit = Number(request.limit) > 0 ? Number(request.limit) : DEFAULT_PAGE_SIZE;
     const beforeId = request.beforeId?.trim() ?? "";
     const anchorIndex = beforeId
@@ -460,7 +464,7 @@ export default class RemoteSessionStore extends EventEmitter {
     }
 
     const limit = Number(request.limit) > 0 ? Math.max(1, Number(request.limit)) : 200;
-    return state.messages
+    return this.getVisibleMessages(state)
       .filter((message) => {
         const attachmentText = (message.attachments ?? [])
           .map((attachment) => `${attachment.name} ${attachment.path}`)
@@ -1465,6 +1469,7 @@ export default class RemoteSessionStore extends EventEmitter {
     const itemRecord = item as unknown as LooseRecord;
     const itemId = readString(item.id ?? itemRecord.id).trim();
     const itemKind = readString(item.kind ?? itemRecord.kind);
+    const incomingSource = readString(item.source ?? itemRecord.source).trim();
     const itemCreatedAt = readNumber(item.createdAt ?? itemRecord.created_at);
     const itemUpdatedAt = readNumber(item.updatedAt ?? itemRecord.updated_at);
     const itemSeq = readNumber(item.seq ?? itemRecord.seq);
@@ -1473,7 +1478,15 @@ export default class RemoteSessionStore extends EventEmitter {
     }
 
     if (itemKind === "message") {
-      const existingMessage = state.messages.find((entry) => entry.id === itemId);
+      const index = state.messages.findIndex((entry) => entry.id === itemId);
+      const existingMessage = index >= 0 ? state.messages[index] : undefined;
+      if (incomingSource === "workgroup") {
+        if (index >= 0) {
+          state.messages.splice(index, 1);
+          return true;
+        }
+        return false;
+      }
       const contentMd5 = readString(item.content_md5 ?? itemRecord.content_md5).trim();
       const attachmentsMd5 = readString(item.attachments_md5 ?? itemRecord.attachments_md5).trim();
       const contentOmitted = Boolean(item.content_omitted ?? itemRecord.content_omitted);
@@ -1491,13 +1504,14 @@ export default class RemoteSessionStore extends EventEmitter {
           && createSessionSyncAttachmentsMd5(existingMessage.attachments) === attachmentsMd5
           ? cloneAttachments(existingMessage.attachments)
           : mergeAttachments(existingMessage?.attachments, item.attachments),
-        source: item.role === "user" ? "desktop" : "remote",
+        source: incomingSource === "remote"
+          ? "remote"
+          : (incomingSource === "desktop" ? "desktop" : (item.role === "user" ? "desktop" : "remote")),
         createdAt: itemCreatedAt,
         updatedAt: itemUpdatedAt,
         status: item.status === "streaming" ? "streaming" : "done",
         syncSeq: itemSeq,
       };
-      const index = state.messages.findIndex((entry) => entry.id === itemId);
       const changed = !existingMessage || !this.messagesEqual(existingMessage, nextMessage);
       if (index >= 0) {
         state.messages[index] = nextMessage;
@@ -1553,7 +1567,15 @@ export default class RemoteSessionStore extends EventEmitter {
       return changed;
     }
 
-    const existingActivity = state.activities.find((entry) => entry.id === itemId);
+    const index = state.activities.findIndex((entry) => entry.id === itemId);
+    const existingActivity = index >= 0 ? state.activities[index] : undefined;
+    if (incomingSource === "workgroup") {
+      if (index >= 0) {
+        state.activities.splice(index, 1);
+        return true;
+      }
+      return false;
+    }
     const contentMd5 = readString(item.content_md5 ?? itemRecord.content_md5).trim();
     const contentOmitted = Boolean(item.content_omitted ?? itemRecord.content_omitted);
     const nextActivity: RemoteActivityEntry = {
@@ -1571,9 +1593,14 @@ export default class RemoteSessionStore extends EventEmitter {
       status: this.mapActivityStatus(item.status),
       createdAt: itemCreatedAt,
       updatedAt: itemUpdatedAt,
+      meta: incomingSource
+        ? {
+          ...(existingActivity?.meta ? { ...existingActivity.meta } : {}),
+          source: incomingSource,
+        }
+        : (existingActivity?.meta ? { ...existingActivity.meta } : undefined),
       syncSeq: itemSeq,
     };
-    const index = state.activities.findIndex((entry) => entry.id === itemId);
     const changed = !existingActivity || !this.activitiesEqual(existingActivity, nextActivity);
     if (index >= 0) {
       state.activities[index] = nextActivity;
@@ -1906,17 +1933,41 @@ export default class RemoteSessionStore extends EventEmitter {
       ?? null;
     if (!activeConversation) {
       return {
-        messageTotal: state.messages.length,
-        activityTotal: state.activities.length,
+        messageTotal: this.getVisibleMessages(state).length,
+        activityTotal: this.getVisibleActivities(state).length,
         cliTraceTotal: state.cliTrace.length,
       };
     }
 
     return {
-      messageTotal: Math.max(activeConversation.messageCount, state.messages.length),
-      activityTotal: Math.max(activeConversation.activityCount, state.activities.length),
+      messageTotal: Math.max(activeConversation.messageCount, this.getVisibleMessages(state).length),
+      activityTotal: Math.max(activeConversation.activityCount, this.getVisibleActivities(state).length),
       cliTraceTotal: Math.max(activeConversation.cliCount, state.cliTrace.length),
     };
+  }
+
+  private isVisibleMessage(message: RemoteMessageEntry): boolean {
+    return message.source !== "workgroup";
+  }
+
+  private isVisibleActivity(activity: RemoteActivityEntry): boolean {
+    return activity.meta?.source !== "workgroup";
+  }
+
+  private isVisibleQueueEntry(entry: QueuedRunSnapshot): boolean {
+    return entry.source !== "workgroup";
+  }
+
+  private getVisibleMessages(state: Pick<RemoteState, "messages">): RemoteMessageEntry[] {
+    return state.messages.filter((message) => this.isVisibleMessage(message));
+  }
+
+  private getVisibleActivities(state: Pick<RemoteState, "activities">): RemoteActivityEntry[] {
+    return state.activities.filter((activity) => this.isVisibleActivity(activity));
+  }
+
+  private getVisibleQueue(state: Pick<RemoteState, "queue">): QueuedRunSnapshot[] {
+    return state.queue.filter((entry) => this.isVisibleQueueEntry(entry));
   }
 
   private getTotalForKind(state: RemoteState, kind: HistoryPageKind): number {
