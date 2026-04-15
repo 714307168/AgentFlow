@@ -511,6 +511,8 @@
 - [x] Added \`docs/project-sync-signature-design.md\`, proposing per-project \`project_signature\` plus \`hot / warm / cold / dormant\` sync buckets so inactive projects stop participating in every foreground recovery and session-shell comparison round.
 - [x] Local session-sync payloads now include a stable per-project \`project_signature\` derived from the session shell summary, so Android and desktop remote caches can persist a project-level shell digest alongside the existing \`snapshot_revision\`.
 - [x] Android session persistence now stores \`projectSignature\`, and the session-shell sync planner skips signed dormant projects when enough active targets are available, trimming another slice of redundant foreground/reconnect shell-sync requests without starving hotter projects.
+- [x] Local runtime snapshots now compute and publish an explicit \`sync_bucket\` (\`hot / warm / cold / dormant\`) alongside \`project_signature\`, keeping the cold-project classification in one place instead of forcing each client to infer it independently.
+- [x] Android session persistence now stores \`syncBucket\` and prefers the runtime-provided bucket during shell-sync planning, while still falling back to local activity timestamps for sessions that predate the new payload field.
 
 ## Next Optimization Queue 2026-04-15
 

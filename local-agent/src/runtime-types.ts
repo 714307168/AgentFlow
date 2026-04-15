@@ -1,5 +1,6 @@
 export type CliProvider = "claude" | "codex";
 export type RunSource = "remote" | "desktop" | "workgroup";
+export type ProjectSyncBucket = "hot" | "warm" | "cold" | "dormant";
 
 export interface RunAttachment {
   id: string;
@@ -81,6 +82,7 @@ export interface ProjectSessionSnapshot {
   model: string | null;
   automationMode: "full-auto";
   projectSignature: string | null;
+  syncBucket: ProjectSyncBucket | null;
   isRunning: boolean;
   queuedCount: number;
   currentSource: RunSource | null;

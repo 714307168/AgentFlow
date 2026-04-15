@@ -121,7 +121,8 @@ class MessageRepository(
         val activeConversationTitle: String?,
         val conversationsJson: String?,
         val snapshotRevision: String?,
-        val projectSignature: String?
+        val projectSignature: String?,
+        val syncBucket: String?
     )
 
     private data class PendingDownloadRequest(
@@ -1357,6 +1358,7 @@ class MessageRepository(
             conversationsJson = session.conversationsJson,
             snapshotRevision = session.snapshotRevision,
             projectSignature = session.projectSignature,
+            syncBucket = session.syncBucket,
             lastActiveAt = now
         )
     }
@@ -1397,6 +1399,9 @@ class MessageRepository(
             .takeUnless { it.isNullOrBlank() }
         val projectSignature = payloadObj["project_signature"]?.jsonPrimitive?.contentOrNull?.trim()
             .takeUnless { it.isNullOrBlank() }
+        val syncBucket = payloadObj["sync_bucket"]?.jsonPrimitive?.contentOrNull?.trim()
+            ?.lowercase()
+            ?.takeUnless { it.isBlank() }
 
         return IncomingSessionRuntime(
             provider = provider,
@@ -1411,7 +1416,8 @@ class MessageRepository(
             activeConversationTitle = activeConversationTitle,
             conversationsJson = conversationsArray?.toString(),
             snapshotRevision = snapshotRevision,
-            projectSignature = projectSignature
+            projectSignature = projectSignature,
+            syncBucket = syncBucket
         )
     }
 
@@ -1424,7 +1430,9 @@ class MessageRepository(
         if (
             currentSession != null &&
             runtime.snapshotRevision != null &&
-            runtime.snapshotRevision == currentSession.snapshotRevision
+            runtime.snapshotRevision == currentSession.snapshotRevision &&
+            (runtime.projectSignature == null || runtime.projectSignature == currentSession.projectSignature) &&
+            (runtime.syncBucket == null || runtime.syncBucket == currentSession.syncBucket)
         ) {
             return
         }
@@ -1444,6 +1452,7 @@ class MessageRepository(
             conversationsJson = runtime.conversationsJson,
             snapshotRevision = runtime.snapshotRevision,
             projectSignature = runtime.projectSignature,
+            syncBucket = runtime.syncBucket,
             lastActiveAt = timestamp
         )
     }
@@ -2340,6 +2349,7 @@ class MessageRepository(
         conversationsJson = conversationsJson,
         snapshotRevision = snapshotRevision,
         projectSignature = projectSignature,
+        syncBucket = syncBucket,
         createdAt = createdAt,
         lastActiveAt = lastActiveAt
     )

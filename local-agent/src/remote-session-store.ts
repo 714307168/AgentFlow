@@ -12,6 +12,7 @@ import type {
   HistoryPageKind,
   HistoryPageResult,
   ProjectSessionSnapshot,
+  ProjectSyncBucket,
   QueuedRunSnapshot,
   RunAttachment,
   SessionActivity,
@@ -77,6 +78,7 @@ interface RemoteState {
   model: string | null;
   snapshotRevision: string | null;
   projectSignature: string | null;
+  syncBucket: ProjectSyncBucket | null;
   isRunning: boolean;
   queuedCount: number;
   currentSource: "remote" | "desktop" | null;
@@ -359,6 +361,7 @@ export default class RemoteSessionStore extends EventEmitter {
       model: state.model,
       automationMode: "full-auto",
       projectSignature: state.projectSignature,
+      syncBucket: state.syncBucket,
       isRunning: state.isRunning,
       queuedCount: state.queuedCount,
       currentSource: state.currentSource,
@@ -878,10 +881,18 @@ export default class RemoteSessionStore extends EventEmitter {
   private applySessionRuntimeSnapshot(state: RemoteState, payload: LooseRecord): boolean {
     const nextSnapshotRevision = readString(payload.snapshot_revision ?? payload.snapshotRevision).trim() || null;
     const nextProjectSignature = readString(payload.project_signature ?? payload.projectSignature).trim() || null;
+    const nextSyncBucketRaw = readString(payload.sync_bucket ?? payload.syncBucket).trim().toLowerCase();
+    const nextSyncBucket = (
+      nextSyncBucketRaw === "hot"
+      || nextSyncBucketRaw === "warm"
+      || nextSyncBucketRaw === "cold"
+      || nextSyncBucketRaw === "dormant"
+    ) ? nextSyncBucketRaw : null;
     if (
       nextSnapshotRevision
       && state.snapshotRevision === nextSnapshotRevision
       && (!nextProjectSignature || state.projectSignature === nextProjectSignature)
+      && (!nextSyncBucket || state.syncBucket === nextSyncBucket)
     ) {
       return false;
     }
@@ -924,6 +935,7 @@ export default class RemoteSessionStore extends EventEmitter {
       || state.model !== nextModel
       || state.snapshotRevision !== nextSnapshotRevision
       || state.projectSignature !== nextProjectSignature
+      || state.syncBucket !== nextSyncBucket
       || state.isRunning !== nextIsRunning
       || state.queuedCount !== nextQueuedCount
       || state.currentSource !== nextCurrentSource
@@ -944,6 +956,7 @@ export default class RemoteSessionStore extends EventEmitter {
     state.model = nextModel;
     state.snapshotRevision = nextSnapshotRevision;
     state.projectSignature = nextProjectSignature;
+    state.syncBucket = nextSyncBucket;
     state.isRunning = nextIsRunning;
     state.queuedCount = nextQueuedCount;
     state.currentSource = nextCurrentSource;
@@ -1792,6 +1805,7 @@ export default class RemoteSessionStore extends EventEmitter {
       model: project.cliModel ?? null,
       snapshotRevision: null,
       projectSignature: null,
+      syncBucket: null,
       isRunning: false,
       queuedCount: 0,
       currentSource: null,

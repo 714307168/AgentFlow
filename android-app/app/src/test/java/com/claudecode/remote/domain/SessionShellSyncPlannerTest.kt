@@ -72,6 +72,23 @@ class SessionShellSyncPlannerTest {
         assertEquals(listOf("running", "recent"), selected.map { it.projectId })
     }
 
+    @Test
+    fun `selectSessionShellSyncTargets honors explicit sync buckets from the runtime shell`() {
+        val nowMs = 3 * SESSION_SHELL_SYNC_DORMANT_AGE_MS
+        val selected = selectSessionShellSyncTargets(
+            sessions = listOf(
+                session(projectId = "warm-project", syncBucket = "warm", lastActiveAt = nowMs - 5_000L),
+                session(projectId = "dormant-project", syncBucket = "dormant", lastActiveAt = nowMs - 1_000L),
+                session(projectId = "hot-project", syncBucket = "hot", lastActiveAt = nowMs - 10_000L),
+                session(projectId = "cold-project", syncBucket = "cold", lastActiveAt = nowMs - 20_000L),
+            ),
+            maxProjects = 3,
+            nowMs = nowMs
+        )
+
+        assertEquals(listOf("hot-project", "warm-project", "cold-project"), selected.map { it.projectId })
+    }
+
     private fun session(
         projectId: String,
         agentId: String = "agent-1",
@@ -81,7 +98,8 @@ class SessionShellSyncPlannerTest {
         lastActiveAt: Long = 0L,
         createdAt: Long = 1L,
         snapshotRevision: String? = null,
-        projectSignature: String? = null
+        projectSignature: String? = null,
+        syncBucket: String? = null
     ): Session = Session(
         id = "$agentId::$projectId",
         name = projectId,
@@ -93,6 +111,7 @@ class SessionShellSyncPlannerTest {
         queuedCount = queuedCount,
         snapshotRevision = snapshotRevision,
         projectSignature = projectSignature,
+        syncBucket = syncBucket,
         createdAt = createdAt,
         lastActiveAt = lastActiveAt
     )

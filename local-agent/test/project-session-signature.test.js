@@ -10,6 +10,7 @@ function buildSnapshot(overrides = {}) {
     model: "sonnet",
     automationMode: "full-auto",
     projectSignature: null,
+    syncBucket: null,
     isRunning: false,
     queuedCount: 0,
     currentSource: null,

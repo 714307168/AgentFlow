@@ -4,6 +4,7 @@ import {
   createSessionSyncAttachmentsMd5,
   type SessionSyncKnownItemDigest,
 } from "./session-sync-hash";
+import { createProjectSyncBucket } from "./project-sync-bucket";
 import { createSessionSnapshotRevision } from "./session-snapshot-revision";
 import { createProjectSessionSignature } from "./project-session-signature";
 import type {
@@ -60,6 +61,7 @@ export interface SessionSyncPayload {
   sync_version: 2;
   snapshot_revision: string;
   project_signature: string;
+  sync_bucket: string;
   runtime_unchanged?: boolean;
   project_id: string;
   provider?: ProjectSessionSnapshot["provider"];
@@ -247,12 +249,15 @@ export function buildSessionSyncPayload(
   const snapshotRevision = createSessionSnapshotRevision(snapshot);
   const projectSignature = snapshot.projectSignature?.trim()
     || createProjectSessionSignature(snapshot, snapshotRevision);
+  const syncBucket = snapshot.syncBucket?.trim()
+    || createProjectSyncBucket(snapshot);
   const knownSnapshotRevision = request.knownSnapshotRevision?.trim() || "";
   const runtimeUnchanged = knownSnapshotRevision !== "" && knownSnapshotRevision === snapshotRevision;
   let payload: SessionSyncPayload = {
     sync_version: 2,
     snapshot_revision: snapshotRevision,
     project_signature: projectSignature,
+    sync_bucket: syncBucket,
     runtime_unchanged: runtimeUnchanged || undefined,
     project_id: snapshot.projectId,
     provider: runtimeUnchanged ? undefined : snapshot.provider,

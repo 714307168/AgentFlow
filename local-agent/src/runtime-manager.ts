@@ -47,6 +47,7 @@ import type {
   SessionActivity,
   SessionMessage,
 } from "./runtime-types";
+import { createProjectSyncBucket } from "./project-sync-bucket";
 import { createProjectSessionSignature } from "./project-session-signature";
 import { createSessionSnapshotRevision } from "./session-snapshot-revision";
 
@@ -288,6 +289,7 @@ class RuntimeManager extends EventEmitter {
       model: state.model,
       automationMode: "full-auto",
       projectSignature: null,
+      syncBucket: null,
       isRunning: state.active,
       queuedCount: state.queue.length,
       currentSource: state.currentSource,
@@ -316,9 +318,11 @@ class RuntimeManager extends EventEmitter {
         codexThreadId: state.codexThreadId,
       },
     };
+    const syncBucket = createProjectSyncBucket(snapshotBase);
     const snapshotRevision = createSessionSnapshotRevision(snapshotBase);
     return {
       ...snapshotBase,
+      syncBucket,
       projectSignature: createProjectSessionSignature(snapshotBase, snapshotRevision),
     };
   }

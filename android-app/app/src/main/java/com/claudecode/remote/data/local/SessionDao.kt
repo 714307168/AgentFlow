@@ -93,6 +93,7 @@ interface SessionDao {
             conversationsJson = :conversationsJson,
             snapshotRevision = :snapshotRevision,
             projectSignature = :projectSignature,
+            syncBucket = :syncBucket,
             lastActiveAt = :lastActiveAt
         WHERE projectId = :projectId
         """
@@ -112,6 +113,7 @@ interface SessionDao {
         conversationsJson: String?,
         snapshotRevision: String?,
         projectSignature: String?,
+        syncBucket: String?,
         lastActiveAt: Long
     )
 
