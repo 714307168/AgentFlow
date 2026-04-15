@@ -8,8 +8,33 @@
   }
 })(typeof globalThis !== "undefined" ? globalThis : this, function createSettingsProviderRuntime() {
   const PROVIDERS = [
-    { id: "claude", label: "Claude Code" },
-    { id: "codex", label: "OpenAI Codex" },
+    {
+      id: "claude",
+      label: "Claude Code",
+      apiKeyField: "anthropicApiKey",
+      capabilityKeys: [
+        "promptExecution",
+        "resumeConversation",
+        "versionCommand",
+        "nativeTools",
+      ],
+    },
+    {
+      id: "codex",
+      label: "OpenAI Codex",
+      apiKeyField: "openaiApiKey",
+      capabilityKeys: [
+        "promptExecution",
+        "resumeConversation",
+        "webSearch",
+        "reviewCommand",
+        "featuresCommand",
+        "mcpCommand",
+        "completionCommand",
+        "versionCommand",
+        "nativeTools",
+      ],
+    },
   ];
 
   function normalizeProviderId(provider) {
@@ -19,6 +44,11 @@
   function getProviderLabel(provider) {
     const normalized = normalizeProviderId(provider);
     return PROVIDERS.find((entry) => entry.id === normalized)?.label || "Claude Code";
+  }
+
+  function getProviderEntry(provider) {
+    const normalized = normalizeProviderId(provider);
+    return PROVIDERS.find((entry) => entry.id === normalized) || PROVIDERS[0];
   }
 
   function getProviderAvailability(statusMap, provider, config) {
@@ -65,13 +95,11 @@
   }
 
   function hasProviderApiFallback(config, provider) {
-    const normalized = normalizeProviderId(provider);
     if (!config || typeof config !== "object") {
       return false;
     }
-    const apiKey = normalized === "codex"
-      ? config.openaiApiKey
-      : config.anthropicApiKey;
+    const apiKeyField = getProviderEntry(provider).apiKeyField;
+    const apiKey = config[apiKeyField];
     return Boolean(typeof apiKey === "string" && apiKey.trim());
   }
 
@@ -105,29 +133,11 @@
   }
 
   function getProviderCapabilityEntries(provider, status) {
-    const normalized = normalizeProviderId(provider);
+    const entry = getProviderEntry(provider);
     const capabilities = status && status.capabilities && typeof status.capabilities === "object"
       ? status.capabilities
       : {};
-    const keys = normalized === "codex"
-      ? [
-        "promptExecution",
-        "resumeConversation",
-        "webSearch",
-        "reviewCommand",
-        "featuresCommand",
-        "mcpCommand",
-        "completionCommand",
-        "versionCommand",
-        "nativeTools",
-      ]
-      : [
-        "promptExecution",
-        "resumeConversation",
-        "versionCommand",
-        "nativeTools",
-      ];
-    return keys.map((key) => ({
+    return entry.capabilityKeys.map((key) => ({
       key,
       available: capabilities[key] === true,
     }));

@@ -550,6 +550,8 @@
 2. 增加桌面端本地命令 IPC 网关，为后续小程序、iOS、mac 和外部自动化接入提供统一桥接层。
 3. 继续拆桌面端设置页、消息页、活动页和同步入口，减少大文件和重复逻辑，保持 renderer 侧 feature/store 边界更清晰。
 
+- [x] Provider runtime probing, CLI install targets, upgrade-required capability checks, SDK default base-url/model fallbacks, and main-process provider environment injection now reuse a shared `provider-registry.ts`. Added dedicated Node coverage for the registry metadata and environment mapping in this round. Renderer-side provider label/capability cleanup remains tracked under P1.3 before `R-provider-registry` closes.
+
 发版节点:
 - \`R-provider-registry\`: provider registry 和 CLI/API fallback 结构升级完成后发桌面端结构补丁版。
 - \`R-runtime-gateway\`: 本地命令 IPC 网关接入完成后发一次桌面端版本，并同步记录 GitHub Release / 更新中心版本号。

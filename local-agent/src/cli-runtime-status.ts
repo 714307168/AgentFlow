@@ -1,18 +1,17 @@
 import { execFile } from "child_process";
 import { buildCliUpgradeCommand, detectCliInstallMethod, formatCliUpgradeCommandPreview, type CliInstallMethod, type CliUpgradePlan } from "./cli-updater";
+import {
+  EMPTY_PROVIDER_CAPABILITIES,
+  getCliProviderCommand,
+  getProviderUpgradeMissingCapabilityLabels,
+  type ProviderRuntimeCapabilities,
+} from "./provider-registry";
 import type { CliProvider } from "./runtime-types";
 
-export interface ProviderRuntimeCapabilities {
-  promptExecution: boolean;
-  resumeConversation: boolean;
-  webSearch: boolean;
-  reviewCommand: boolean;
-  featuresCommand: boolean;
-  mcpCommand: boolean;
-  completionCommand: boolean;
-  versionCommand: boolean;
-  nativeTools: boolean;
-}
+export {
+  getCliProviderCommand,
+} from "./provider-registry";
+export type { ProviderRuntimeCapabilities } from "./provider-registry";
 
 export interface CliProviderRuntimeStatus {
   provider: CliProvider;
@@ -36,26 +35,6 @@ interface RunCommandResult {
 
 const CLI_COMMAND_TIMEOUT_MS = 3_000;
 const CLI_COMMAND_MAX_BUFFER = 64 * 1024;
-
-const EMPTY_CAPABILITIES: ProviderRuntimeCapabilities = {
-  promptExecution: false,
-  resumeConversation: false,
-  webSearch: false,
-  reviewCommand: false,
-  featuresCommand: false,
-  mcpCommand: false,
-  completionCommand: false,
-  versionCommand: false,
-  nativeTools: false,
-};
-
-export function getCliProviderCommand(
-  provider: CliProvider,
-  platform: NodeJS.Platform = process.platform,
-): string {
-  const base = provider === "codex" ? "codex" : "claude";
-  return platform === "win32" ? `${base}.cmd` : base;
-}
 
 export function normalizeCliVersionOutput(stdout: string, stderr = ""): string | null {
   const merged = `${stdout}\n${stderr}`
@@ -116,7 +95,7 @@ export async function probeCliProviderRuntime(provider: CliProvider): Promise<Cl
       checkedAt,
       resolvedPath: null,
       installMethod: null,
-      capabilities: { ...EMPTY_CAPABILITIES },
+      capabilities: { ...EMPTY_PROVIDER_CAPABILITIES },
       upgrade: {
         available: false,
         required: false,
@@ -196,18 +175,7 @@ async function probeProviderCapabilities(provider: CliProvider, command: string)
 }
 
 function buildUpgradeReason(provider: CliProvider, capabilities: ProviderRuntimeCapabilities): string | null {
-  const missingCapabilities: string[] = [];
-  if (!capabilities.promptExecution) {
-    missingCapabilities.push("prompt execution");
-  }
-  if (provider === "codex") {
-    if (!capabilities.resumeConversation) {
-      missingCapabilities.push("conversation resume");
-    }
-    if (!capabilities.webSearch) {
-      missingCapabilities.push("web search flag");
-    }
-  }
+  const missingCapabilities = getProviderUpgradeMissingCapabilityLabels(provider, capabilities);
   if (missingCapabilities.length === 0) {
     return null;
   }

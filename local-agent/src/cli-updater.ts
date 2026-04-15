@@ -1,4 +1,5 @@
 import { execFile } from "child_process";
+import { getProviderInstallTargets } from "./provider-registry";
 import type { CliProvider } from "./runtime-types";
 
 export type CliInstallMethod = "npm" | "brew" | "scoop" | "winget" | "unknown";
@@ -161,17 +162,17 @@ export async function upgradeCliProvider(
 }
 
 function getCliPackageName(provider: CliProvider): string {
-  return provider === "codex" ? "@openai/codex@latest" : "@anthropic-ai/claude-code@latest";
+  return getProviderInstallTargets(provider).npm;
 }
 
 function getBrewFormulaName(provider: CliProvider): string {
-  return provider === "codex" ? "codex" : "claude-code";
+  return getProviderInstallTargets(provider).brew;
 }
 
 function getScoopPackageName(provider: CliProvider): string {
-  return provider === "codex" ? "codex" : "claude-code";
+  return getProviderInstallTargets(provider).scoop;
 }
 
 function getWingetPackageId(provider: CliProvider): string {
-  return provider === "codex" ? "OpenAI.Codex" : "Anthropic.ClaudeCode";
+  return getProviderInstallTargets(provider).winget;
 }

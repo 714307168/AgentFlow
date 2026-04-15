@@ -69,6 +69,14 @@ import { getCliProviderRuntimeStatuses, probeCliProviderRuntime, type CliProvide
 import { upgradeCliProvider } from "./cli-updater";
 import { selectProviderRuntime, type ProviderRuntimeSelection } from "./provider-runtime";
 import { isProviderSdkConfigured, type ProviderSdkConfig } from "./provider-sdk";
+import {
+  buildProviderEnvironment,
+  getProviderDefaultSdkModel,
+  getProviderSdkConfigValue,
+  hasProviderApiFallback,
+  normalizeCliProvider as normalizeRegisteredCliProvider,
+  type ProviderConfigSnapshot,
+} from "./provider-registry";
 import { buildGitHubCommandEnvironment } from "./github-command-env";
 import {
   createWorkgroupRegistryMembersCacheKey,
@@ -438,18 +446,10 @@ async function loadCliProviderRuntimeStatuses(options: { force?: boolean } = {})
 
 function getProviderSdkConfig(provider: CliProvider): ProviderSdkConfig | null {
   const config = loadConfig();
-  if (provider === "codex") {
-    return {
-      apiKey: config.openaiApiKey?.trim() || null,
-      baseUrl: config.openaiBaseUrl?.trim() || null,
-      defaultModel: config.openaiDefaultModel?.trim() || null,
-    };
-  }
-
   return {
-    apiKey: config.anthropicApiKey?.trim() || null,
-    baseUrl: config.anthropicBaseUrl?.trim() || null,
-    defaultModel: config.anthropicDefaultModel?.trim() || null,
+    apiKey: getProviderSdkConfigValue(config, provider, "apiKey"),
+    baseUrl: getProviderSdkConfigValue(config, provider, "baseUrl"),
+    defaultModel: getProviderSdkConfigValue(config, provider, "defaultModel"),
   };
 }
 
@@ -864,8 +864,8 @@ function buildDiagnosticConfigSummary() {
     cliProvider: config.cliProvider,
     tokenConfigured: Boolean(config.token?.trim()),
     controllerTokenConfigured: Boolean(config.controllerToken?.trim()),
-    openaiConfigured: Boolean(config.openaiApiKey?.trim()),
-    anthropicConfigured: Boolean(config.anthropicApiKey?.trim()),
+    openaiConfigured: hasProviderApiFallback(config, "codex"),
+    anthropicConfigured: hasProviderApiFallback(config, "claude"),
     githubTokenConfigured: Boolean(config.githubToken?.trim()),
   };
 }
@@ -1454,17 +1454,14 @@ function isTokenExpiringSoon(expiresAt?: string, nowMs: number = Date.now()): bo
 }
 
 function getDefaultCliProvider(): CliProvider {
-  return loadConfig().cliProvider === "codex" ? "codex" : "claude";
+  return normalizeRegisteredCliProvider(loadConfig().cliProvider, "claude");
 }
 
 function normalizeCliProvider(
   provider: string | null | undefined,
   fallback: CliProvider = "claude",
 ): CliProvider {
-  if (provider === "claude" || provider === "codex") {
-    return provider;
-  }
-  return fallback;
+  return normalizeRegisteredCliProvider(provider, fallback);
 }
 
 function getProjectCliProvider(projectId: string): CliProvider {
@@ -1479,14 +1476,9 @@ function getProjectCliModel(projectId: string): string | null {
     return model;
   }
 
-  const config = loadConfig();
-  if (getProjectCliProvider(projectId) === "codex") {
-    const defaultModel = config.openaiDefaultModel?.trim() ?? "";
-    return defaultModel || null;
-  }
-
-  const defaultModel = config.anthropicDefaultModel?.trim() ?? "";
-  return defaultModel || null;
+  const provider = getProjectCliProvider(projectId);
+  return getProviderSdkConfigValue(loadConfig(), provider, "defaultModel")
+    || getProviderDefaultSdkModel(provider);
 }
 
 function getProjectCodexWebSearchEnabled(projectId: string): boolean {
@@ -3265,26 +3257,7 @@ function getProviderEnvironment(provider: CliProvider): Record<string, string> {
   const config = loadConfig();
   const githubToken = config.githubToken?.trim() || process.env.GITHUB_TOKEN?.trim() || process.env.GH_TOKEN?.trim() || "";
   const gitEnv = buildGitHubCommandEnvironment(githubToken);
-  if (provider === "codex") {
-    const env: Record<string, string> = { ...gitEnv };
-    if (config.openaiApiKey?.trim()) {
-      env.OPENAI_API_KEY = config.openaiApiKey.trim();
-    }
-    if (config.openaiBaseUrl?.trim()) {
-      env.OPENAI_BASE_URL = config.openaiBaseUrl.trim();
-    }
-    return env;
-  }
-
-  const env: Record<string, string> = { ...gitEnv };
-  if (config.anthropicApiKey?.trim()) {
-    env.ANTHROPIC_API_KEY = config.anthropicApiKey.trim();
-    env.ANTHROPIC_AUTH_TOKEN = config.anthropicApiKey.trim();
-  }
-  if (config.anthropicBaseUrl?.trim()) {
-    env.ANTHROPIC_BASE_URL = config.anthropicBaseUrl.trim();
-  }
-  return env;
+  return buildProviderEnvironment(config as ProviderConfigSnapshot, provider, gitEnv);
 }
 
 function saveAuthState(data: {

@@ -25,6 +25,7 @@ import {
   buildSlashHelpMessage,
   parseSlashToggleIntent,
 } from "./codex-command-support";
+import { createProviderNativeCliCapabilities, getProviderLabel as getRegisteredProviderLabel } from "./provider-registry";
 import { executeProviderSdkRun, type ProviderSdkConfig } from "./provider-sdk";
 import { type ProviderRuntimeSelection } from "./provider-runtime";
 import SessionHistoryStore, {
@@ -1767,17 +1768,7 @@ class RuntimeManager extends EventEmitter {
       detail: "Using the local CLI runtime.",
       sdkConfigured: false,
       cliStatus: null,
-      capabilities: {
-        promptExecution: true,
-        resumeConversation: true,
-        webSearch: provider === "codex",
-        reviewCommand: provider === "codex",
-        featuresCommand: provider === "codex",
-        mcpCommand: provider === "codex",
-        completionCommand: provider === "codex",
-        versionCommand: true,
-        nativeTools: true,
-      },
+      capabilities: createProviderNativeCliCapabilities(provider),
     };
   }
 
@@ -2076,7 +2067,7 @@ class RuntimeManager extends EventEmitter {
   }
 
   private getProviderLabel(provider: CliProvider): string {
-    return provider === "codex" ? "OpenAI Codex" : "Claude Code";
+    return getRegisteredProviderLabel(provider);
   }
 
   private normalizeAttachments(attachments?: RunAttachment[]): RunAttachment[] | undefined {

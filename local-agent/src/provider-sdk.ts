@@ -1,4 +1,8 @@
 import * as fs from "fs";
+import {
+  getProviderDefaultSdkBaseUrl,
+  getProviderDefaultSdkModel,
+} from "./provider-registry";
 import type { CliProvider, RunAttachment, SessionMessage } from "./runtime-types";
 
 export interface ProviderSdkConfig {
@@ -23,8 +27,6 @@ export interface ProviderSdkExecutionResult {
   model: string | null;
 }
 
-const OPENAI_DEFAULT_MODEL = "gpt-5.4";
-const ANTHROPIC_DEFAULT_MODEL = "claude-3-7-sonnet-latest";
 const MAX_SDK_MESSAGES = 12;
 const MAX_SDK_TOTAL_CHARS = 24_000;
 
@@ -79,7 +81,7 @@ function buildConversationHistory(messages: SessionMessage[] | undefined, prompt
 async function executeOpenAiChatCompletion(
   options: ProviderSdkExecutionOptions,
 ): Promise<ProviderSdkExecutionResult> {
-  const url = joinBaseUrl(options.config.baseUrl || "https://api.openai.com", "/v1/chat/completions");
+  const url = joinBaseUrl(options.config.baseUrl || getProviderDefaultSdkBaseUrl("codex"), "/v1/chat/completions");
   const messages = await Promise.all(
     buildConversationHistory(options.messages, options.prompt).map(async (message) => ({
       role: message.role,
@@ -102,7 +104,7 @@ async function executeOpenAiChatCompletion(
       Authorization: `Bearer ${options.config.apiKey!.trim()}`,
     },
     body: JSON.stringify({
-      model: normalizeText(options.model) || normalizeText(options.config.defaultModel) || OPENAI_DEFAULT_MODEL,
+      model: normalizeText(options.model) || normalizeText(options.config.defaultModel) || getProviderDefaultSdkModel("codex"),
       messages: payloadMessages,
     }),
     signal: options.signal,
@@ -135,7 +137,7 @@ async function executeOpenAiChatCompletion(
 async function executeAnthropicMessages(
   options: ProviderSdkExecutionOptions,
 ): Promise<ProviderSdkExecutionResult> {
-  const url = joinBaseUrl(options.config.baseUrl || "https://api.anthropic.com", "/v1/messages");
+  const url = joinBaseUrl(options.config.baseUrl || getProviderDefaultSdkBaseUrl("claude"), "/v1/messages");
   const messages = await Promise.all(
     buildConversationHistory(options.messages, options.prompt).map(async (message) => ({
       role: message.role,
@@ -154,7 +156,7 @@ async function executeAnthropicMessages(
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
-      model: normalizeText(options.model) || normalizeText(options.config.defaultModel) || ANTHROPIC_DEFAULT_MODEL,
+      model: normalizeText(options.model) || normalizeText(options.config.defaultModel) || getProviderDefaultSdkModel("claude"),
       max_tokens: 4096,
       system: normalizeText(options.projectPrompt) || undefined,
       messages,

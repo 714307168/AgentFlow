@@ -1,5 +1,6 @@
 import type { CliProvider } from "./runtime-types";
-import type { CliProviderRuntimeStatus, ProviderRuntimeCapabilities } from "./cli-runtime-status";
+import type { CliProviderRuntimeStatus } from "./cli-runtime-status";
+import { EMPTY_PROVIDER_CAPABILITIES, type ProviderRuntimeCapabilities } from "./provider-registry";
 
 export type ProviderRuntimeKind = "cli" | "sdk" | "unavailable";
 
@@ -44,15 +45,8 @@ export function selectProviderRuntime(options: {
       sdkConfigured: true,
       cliStatus,
       capabilities: {
+        ...EMPTY_PROVIDER_CAPABILITIES,
         promptExecution: true,
-        resumeConversation: false,
-        webSearch: false,
-        reviewCommand: false,
-        featuresCommand: false,
-        mcpCommand: false,
-        completionCommand: false,
-        versionCommand: false,
-        nativeTools: false,
       },
     };
   }
@@ -70,15 +64,5 @@ export function selectProviderRuntime(options: {
 }
 
 function createUnavailableCapabilities(): ProviderRuntimeCapabilities {
-  return {
-    promptExecution: false,
-    resumeConversation: false,
-    webSearch: false,
-    reviewCommand: false,
-    featuresCommand: false,
-    mcpCommand: false,
-    completionCommand: false,
-    versionCommand: false,
-    nativeTools: false,
-  };
+  return { ...EMPTY_PROVIDER_CAPABILITIES };
 }
