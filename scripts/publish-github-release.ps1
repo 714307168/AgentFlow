@@ -25,6 +25,17 @@ function Write-Step {
     Write-Host "==> $Message"
 }
 
+function Get-RequiredTool {
+    param([Parameter(Mandatory = $true)][string]$Name)
+
+    $command = Get-Command $Name -ErrorAction SilentlyContinue
+    if (-not $command) {
+        throw "Required tool not found: $Name"
+    }
+
+    return $command.Source
+}
+
 function Get-RepoRoot {
     return Split-Path -Parent $PSScriptRoot
 }
@@ -246,7 +257,31 @@ function Upload-ReleaseAsset {
     $uploadBase = $Release.upload_url -replace '\{.*$', ''
     $uploadUri = "{0}?name={1}" -f $uploadBase, [System.Uri]::EscapeDataString($file.Name)
     Write-Step "Uploading asset $($file.Name)"
-    Invoke-RestMethod -Method "POST" -Uri $uploadUri -Headers $Headers -InFile $file.FullName -ContentType "application/octet-stream" | Out-Null
+    $curlPath = Get-RequiredTool "curl.exe"
+    $tempAssetPath = Join-Path $env:TEMP $file.Name
+
+    try {
+        Copy-Item -Path $file.FullName -Destination $tempAssetPath -Force
+        & $curlPath `
+            --fail `
+            --silent `
+            --show-error `
+            --http1.1 `
+            -X POST `
+            $uploadUri `
+            -H "Authorization: $($Headers.Authorization)" `
+            -H "Accept: $($Headers.Accept)" `
+            -H "X-GitHub-Api-Version: $($Headers['X-GitHub-Api-Version'])" `
+            -H "Content-Type: application/octet-stream" `
+            --data-binary "@$tempAssetPath" | Out-Null
+
+        if ($LASTEXITCODE -ne 0) {
+            throw "curl.exe upload failed for $($file.Name) with exit code $LASTEXITCODE"
+        }
+    }
+    finally {
+        Remove-Item -Path $tempAssetPath -Force -ErrorAction SilentlyContinue
+    }
 }
 
 $repoRoot = Get-RepoRoot

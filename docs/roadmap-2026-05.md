@@ -526,6 +526,7 @@
 - [x] Added dedicated Node tests for session-sync backpressure eligibility, queued-request merge behavior, and ACK-triggered flushes so the traffic-control guardrail is verified instead of relying on manual relay checks.
 - [x] The diagnostics bundle deliverable is now treated as closed in the P0 queue because the desktop export already captures runtime status, relay health, local-data metrics, connection snapshots, and bounded recent project activity for issue triage.
 - [x] `P0` in the 2026-04-15 optimization queue is now fully implemented; the remaining work for `R-traffic-control` is release verification rather than feature completion.
+- [x] `R-traffic-control`: desktop `1.1.134`, Android `1.2.19 (build 103)`, and the current relay-server build were published on `2026-04-15` for the traffic-control bundle, covering runtime-rule extraction, active-detail sync prioritization, diagnostics export, project-scoped access grants, project-signature/sync-bucket sync planning, and session-sync ACK/backpressure. Update center release ids: desktop `214`, Android `215`. GitHub Release: `v1.1.134`.
 
 ## Next Optimization Queue 2026-04-15
 
