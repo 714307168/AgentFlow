@@ -368,6 +368,81 @@ func TestWorkgroupCollabSnapshotBroadcastsToJoinedMemberWithoutDirectAgentAccess
 	}
 }
 
+func TestProjectScopedGrantFiltersProjectListAndStatusBroadcasts(t *testing.T) {
+	dataDir := t.TempDir()
+	database, err := db.Open(dataDir)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer database.Close()
+
+	owner, err := database.CreateUser("owner", "Owner12345A", false)
+	if err != nil {
+		t.Fatalf("create owner: %v", err)
+	}
+	viewer, err := database.CreateUser("viewer", "Viewer12345A", false)
+	if err != nil {
+		t.Fatalf("create viewer: %v", err)
+	}
+	if err := database.RegisterAgent("owner-agent", owner.ID, "Owner desktop"); err != nil {
+		t.Fatalf("register owner agent: %v", err)
+	}
+	if err := database.RegisterDevice("device-1", viewer.ID, "", "Viewer phone"); err != nil {
+		t.Fatalf("register viewer device: %v", err)
+	}
+	if err := database.CreateAgentAccessGrant(viewer.ID, "owner-agent", owner.ID, "scoped", []string{"project-1"}); err != nil {
+		t.Fatalf("create access grant: %v", err)
+	}
+
+	h := NewHub(&config.Config{}, store.NewStore(database))
+	device := newTestClient(h, model.ClientTypeDevice, "", "device-1")
+	device.UserID = viewer.ID
+	device.AccessibleAgentIDs = map[string]struct{}{"owner-agent": {}}
+	h.RegisterDevice(device)
+
+	h.projects.Store("project-1", "owner-agent")
+	h.projects.Store("project-2", "owner-agent")
+	h.projectInfos.Store("project-1", &ProjectInfo{
+		ID:      "project-1",
+		Name:    "Project 1",
+		Path:    "/tmp/project-1",
+		AgentID: "owner-agent",
+	})
+	h.projectInfos.Store("project-2", &ProjectInfo{
+		ID:      "project-2",
+		Name:    "Project 2",
+		Path:    "/tmp/project-2",
+		AgentID: "owner-agent",
+	})
+
+	h.broadcastProjectList("owner-agent")
+
+	listed := readEnvelope(t, device)
+	if listed.Event != model.EventProjectListed {
+		t.Fatalf("expected %q, got %q", model.EventProjectListed, listed.Event)
+	}
+
+	var listPayload model.ProjectListPayload
+	if err := json.Unmarshal(listed.Payload, &listPayload); err != nil {
+		t.Fatalf("unmarshal project.listed payload: %v", err)
+	}
+	if len(listPayload.Projects) != 1 || listPayload.Projects[0].ID != "project-1" {
+		t.Fatalf("expected only project-1 in scoped project list, got %+v", listPayload.Projects)
+	}
+
+	h.broadcastAgentStatus("owner-agent", true, "project-1", "project-2")
+
+	status := readEnvelope(t, device)
+	if status.Event != model.EventAgentStatus {
+		t.Fatalf("expected %q, got %q", model.EventAgentStatus, status.Event)
+	}
+	if status.ProjectID != "project-1" {
+		t.Fatalf("expected only project-1 status event, got %q", status.ProjectID)
+	}
+
+	assertNoEnvelope(t, device)
+}
+
 func newCollaborationTestHub(t *testing.T) (*Hub, *db.DB, *db.User, *db.User) {
 	t.Helper()
 

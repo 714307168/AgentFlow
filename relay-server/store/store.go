@@ -186,6 +186,11 @@ func (s *Store) UserCanAccessAgent(userID int, agentID string) bool {
 	return err == nil && ok
 }
 
+func (s *Store) UserCanAccessProject(userID int, agentID string, projectID string) bool {
+	ok, err := s.db.UserCanAccessProject(userID, agentID, projectID)
+	return err == nil && ok
+}
+
 func (s *Store) CheckCollaborationGroupAccess(userID int, hostAgentID string, workgroupID string) (bool, bool) {
 	exists, allowed, err := s.db.CheckCollaborationGroupAccess(userID, hostAgentID, workgroupID)
 	if err != nil {

@@ -173,7 +173,7 @@ func WorkgroupRegistryHandler(cfg *config.Config, database *db.DB) http.HandlerF
 
 				grantedAccess := false
 				if session.User.ID != record.OwnerUserID {
-					err = database.CreateAgentAccessGrant(session.User.ID, record.HostAgentID, record.OwnerUserID, "joined via collaboration group "+record.GroupNumber)
+					err = database.CreateAgentAccessGrant(session.User.ID, record.HostAgentID, record.OwnerUserID, "joined via collaboration group "+record.GroupNumber, nil)
 					if err == nil {
 						grantedAccess = true
 					} else if strings.Contains(strings.ToLower(err.Error()), "grant already exists") {

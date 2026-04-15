@@ -44,9 +44,10 @@ func AccessGrantsHandler(cfg *config.Config, database *db.DB) http.HandlerFunc {
 
 		case http.MethodPost:
 			var body struct {
-				ControllerUsername string `json:"controller_username"`
-				TargetAgentID      string `json:"target_agent_id"`
-				Note               string `json:"note"`
+				ControllerUsername string   `json:"controller_username"`
+				TargetAgentID      string   `json:"target_agent_id"`
+				ProjectIDs         []string `json:"project_ids"`
+				Note               string   `json:"note"`
 			}
 			if err := decodeJSONBody(w, r, &body); err != nil {
 				http.Error(w, "invalid request body", http.StatusBadRequest)
@@ -78,7 +79,7 @@ func AccessGrantsHandler(cfg *config.Config, database *db.DB) http.HandlerFunc {
 				return
 			}
 
-			if err := database.CreateAgentAccessGrant(controllerUser.ID, body.TargetAgentID, session.User.ID, strings.TrimSpace(body.Note)); err != nil {
+			if err := database.CreateAgentAccessGrant(controllerUser.ID, body.TargetAgentID, session.User.ID, strings.TrimSpace(body.Note), body.ProjectIDs); err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}

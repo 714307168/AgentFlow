@@ -189,12 +189,14 @@ The script:
 `relay-server` now also stores one-way desktop control grants in SQLite:
 
 - table: `agent_access_grants`
+- table: `agent_access_grant_projects`
 - purpose: allow user `A` to see and control user `B`'s desktop agent projects without giving `B` visibility into `A`
 
 Current access behavior:
 
 - mobile sync can aggregate projects from multiple accessible desktop agents
-- WebSocket project broadcasts are scoped by accessible agent set instead of a single bound agent
+- WebSocket project broadcasts are scoped by accessible agent set and, when present, the granted project-id subset for that agent
+- legacy grants without rows in `agent_access_grant_projects` continue to behave as full-agent access until they are recreated with an explicit project scope
 - the public app-side grant API is `GET/POST/DELETE /api/access/grants`
 
 This is a server-side migration only. Deploy the latest `relay-server` before relying on multi-desktop access.

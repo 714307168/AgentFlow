@@ -4738,7 +4738,7 @@ ipcMain.handle("list-access-grants", async (_event, options?: { force?: boolean 
   }
 });
 
-ipcMain.handle("grant-access-to-user", async (_event, data: { controllerUsername: string; note?: string | null }) => {
+ipcMain.handle("grant-access-to-user", async (_event, data: { controllerUsername: string; projectIds?: string[] | null; note?: string | null }) => {
   const refreshed = await refreshAgentToken(false);
   const config = loadConfig();
   if (!refreshed || !config.token || !config.agentId) {
@@ -4754,6 +4754,7 @@ ipcMain.handle("grant-access-to-user", async (_event, data: { controllerUsername
       body: {
         controller_username: data.controllerUsername,
         target_agent_id: config.agentId,
+        project_ids: Array.isArray(data.projectIds) ? data.projectIds : [],
         note: data.note ?? "",
       },
     });

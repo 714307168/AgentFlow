@@ -198,12 +198,22 @@ func (db *DB) initSchema() error {
 		FOREIGN KEY (transfer_id) REFERENCES transfers(id) ON DELETE CASCADE
 	);
 
+	CREATE TABLE IF NOT EXISTS agent_access_grant_projects (
+		controller_user_id INTEGER NOT NULL,
+		target_agent_id TEXT NOT NULL,
+		project_id TEXT NOT NULL,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		PRIMARY KEY (controller_user_id, target_agent_id, project_id)
+	);
+
 	-- Indexes
 	CREATE INDEX IF NOT EXISTS idx_agents_user_id ON agents(user_id);
 	CREATE INDEX IF NOT EXISTS idx_devices_user_id ON devices(user_id);
 	CREATE INDEX IF NOT EXISTS idx_devices_agent_id ON devices(agent_id);
 	CREATE INDEX IF NOT EXISTS idx_agent_access_grants_controller ON agent_access_grants(controller_user_id);
 	CREATE INDEX IF NOT EXISTS idx_agent_access_grants_target_agent ON agent_access_grants(target_agent_id);
+	CREATE INDEX IF NOT EXISTS idx_agent_access_grant_projects_controller ON agent_access_grant_projects(controller_user_id, target_agent_id);
+	CREATE INDEX IF NOT EXISTS idx_agent_access_grant_projects_target_project ON agent_access_grant_projects(target_agent_id, project_id);
 	CREATE INDEX IF NOT EXISTS idx_login_sessions_user_id ON login_sessions(user_id);
 	CREATE INDEX IF NOT EXISTS idx_login_sessions_token_hash ON login_sessions(token_hash);
 	CREATE INDEX IF NOT EXISTS idx_releases_lookup ON releases(platform, channel, arch, published, created_at);

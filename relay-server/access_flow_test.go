@@ -15,13 +15,15 @@ import (
 
 type accessOverviewPayload struct {
 	ControllableAgents []struct {
-		AgentID       string `json:"agent_id"`
-		OwnerUsername string `json:"owner_username"`
-		IsOwned       bool   `json:"is_owned"`
+		AgentID           string   `json:"agent_id"`
+		OwnerUsername     string   `json:"owner_username"`
+		GrantedProjectIDs []string `json:"granted_project_ids"`
+		IsOwned           bool     `json:"is_owned"`
 	} `json:"controllable_agents"`
 	IncomingGrants []struct {
-		ControllerUsername string `json:"controller_username"`
-		TargetAgentID      string `json:"target_agent_id"`
+		ControllerUsername string   `json:"controller_username"`
+		TargetAgentID      string   `json:"target_agent_id"`
+		GrantedProjectIDs  []string `json:"granted_project_ids"`
 	} `json:"incoming_grants"`
 }
 
@@ -47,7 +49,7 @@ func TestAccessGrantsHandlerListsOwnedAndGrantedAgents(t *testing.T) {
 	if err := database.RegisterAgent("viewer-agent", controller.ID, "Viewer desktop"); err != nil {
 		t.Fatalf("register viewer agent: %v", err)
 	}
-	if err := database.CreateAgentAccessGrant(controller.ID, "owner-agent", owner.ID, "shared"); err != nil {
+	if err := database.CreateAgentAccessGrant(controller.ID, "owner-agent", owner.ID, "shared", []string{"project-alpha", "project-beta"}); err != nil {
 		t.Fatalf("create access grant: %v", err)
 	}
 
@@ -78,6 +80,9 @@ func TestAccessGrantsHandlerListsOwnedAndGrantedAgents(t *testing.T) {
 	if ownerOverview.IncomingGrants[0].ControllerUsername != "viewer" || ownerOverview.IncomingGrants[0].TargetAgentID != "owner-agent" {
 		t.Fatalf("unexpected owner incoming grant payload: %+v", ownerOverview.IncomingGrants[0])
 	}
+	if len(ownerOverview.IncomingGrants[0].GrantedProjectIDs) != 2 {
+		t.Fatalf("expected incoming grant project scope, got %+v", ownerOverview.IncomingGrants[0].GrantedProjectIDs)
+	}
 	if len(ownerOverview.ControllableAgents) != 1 || ownerOverview.ControllableAgents[0].AgentID != "owner-agent" || !ownerOverview.ControllableAgents[0].IsOwned {
 		t.Fatalf("unexpected owner controllable agents payload: %+v", ownerOverview.ControllableAgents)
 	}
@@ -90,6 +95,16 @@ func TestAccessGrantsHandlerListsOwnedAndGrantedAgents(t *testing.T) {
 	if len(controllerOverview.ControllableAgents) != 2 {
 		t.Fatalf("expected 2 controllable agents for controller, got %d", len(controllerOverview.ControllableAgents))
 	}
+	for _, agent := range controllerOverview.ControllableAgents {
+		if agent.AgentID != "owner-agent" {
+			continue
+		}
+		if len(agent.GrantedProjectIDs) != 2 {
+			t.Fatalf("expected granted project scope for owner-agent, got %+v", agent.GrantedProjectIDs)
+		}
+		return
+	}
+	t.Fatalf("expected owner-agent in controller overview: %+v", controllerOverview.ControllableAgents)
 }
 
 func TestWorkgroupLeaveRevokesGrantedAccess(t *testing.T) {

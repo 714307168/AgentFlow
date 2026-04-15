@@ -3,17 +3,21 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"sort"
+	"strconv"
+	"strings"
 	"time"
 )
 
 type AccessibleAgent struct {
-	AgentID         string    `json:"agent_id"`
-	OwnerUserID     int       `json:"owner_user_id"`
-	OwnerUsername   string    `json:"owner_username"`
-	OwnerNote       string    `json:"owner_note"`
-	IsOwned         bool      `json:"is_owned"`
-	GrantedByUserID int       `json:"granted_by_user_id"`
-	CreatedAt       time.Time `json:"created_at"`
+	AgentID           string    `json:"agent_id"`
+	OwnerUserID       int       `json:"owner_user_id"`
+	OwnerUsername     string    `json:"owner_username"`
+	OwnerNote         string    `json:"owner_note"`
+	IsOwned           bool      `json:"is_owned"`
+	GrantedByUserID   int       `json:"granted_by_user_id"`
+	GrantedProjectIDs []string  `json:"granted_project_ids"`
+	CreatedAt         time.Time `json:"created_at"`
 }
 
 type AgentAccessGrant struct {
@@ -22,9 +26,35 @@ type AgentAccessGrant struct {
 	TargetAgentID      string    `json:"target_agent_id"`
 	TargetOwnerUserID  int       `json:"target_owner_user_id"`
 	TargetOwnerName    string    `json:"target_owner_name"`
+	GrantedProjectIDs  []string  `json:"granted_project_ids"`
 	Note               string    `json:"note"`
 	CreatedByUserID    int       `json:"created_by_user_id"`
 	CreatedAt          time.Time `json:"created_at"`
+}
+
+func normalizeAccessGrantProjectIDs(projectIDs []string) []string {
+	if len(projectIDs) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(projectIDs))
+	items := make([]string, 0, len(projectIDs))
+	for _, projectID := range projectIDs {
+		normalized := strings.TrimSpace(projectID)
+		if normalized == "" {
+			continue
+		}
+		if _, ok := seen[normalized]; ok {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		items = append(items, normalized)
+	}
+	sort.Strings(items)
+	return items
+}
+
+func grantScopeKey(controllerUserID int, targetAgentID string) string {
+	return strconv.Itoa(controllerUserID) + ":" + targetAgentID
 }
 
 func (db *DB) GetAgentUserID(agentID string) (int, error) {
@@ -62,6 +92,46 @@ func (db *DB) UserCanAccessAgent(userID int, agentID string) (bool, error) {
 	`, agentID, userID, userID).Scan(&count)
 	if err != nil {
 		return false, fmt.Errorf("failed to check agent access: %w", err)
+	}
+	return count > 0, nil
+}
+
+func (db *DB) UserCanAccessProject(userID int, agentID string, projectID string) (bool, error) {
+	if strings.TrimSpace(projectID) == "" {
+		return db.UserCanAccessAgent(userID, agentID)
+	}
+
+	var count int
+	err := db.QueryRow(`
+		SELECT COUNT(*)
+		FROM agents a
+		WHERE a.id = ? AND (
+			a.user_id = ?
+			OR EXISTS (
+				SELECT 1
+				FROM agent_access_grants g
+				WHERE g.controller_user_id = ?
+					AND g.target_agent_id = a.id
+					AND (
+						NOT EXISTS (
+							SELECT 1
+							FROM agent_access_grant_projects gp
+							WHERE gp.controller_user_id = g.controller_user_id
+								AND gp.target_agent_id = g.target_agent_id
+						)
+						OR EXISTS (
+							SELECT 1
+							FROM agent_access_grant_projects gp
+							WHERE gp.controller_user_id = g.controller_user_id
+								AND gp.target_agent_id = g.target_agent_id
+								AND gp.project_id = ?
+						)
+					)
+			)
+		)
+	`, agentID, userID, userID, strings.TrimSpace(projectID)).Scan(&count)
+	if err != nil {
+		return false, fmt.Errorf("failed to check project access: %w", err)
 	}
 	return count > 0, nil
 }
@@ -108,6 +178,7 @@ func (db *DB) ListAccessibleAgentsForUser(userID int) ([]AccessibleAgent, error)
 			return nil, fmt.Errorf("failed to scan accessible agent: %w", err)
 		}
 		item.IsOwned = isOwned == 1
+		item.GrantedProjectIDs = []string{}
 		item.CreatedAt = agentCreatedAt
 		if grantCreatedAt.Valid {
 			item.CreatedAt = grantCreatedAt.Time
@@ -117,10 +188,24 @@ func (db *DB) ListAccessibleAgentsForUser(userID int) ([]AccessibleAgent, error)
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("failed to read accessible agents: %w", err)
 	}
+
+	scopes, err := db.listGrantProjectIDsForController(userID)
+	if err != nil {
+		return nil, err
+	}
+	for index := range items {
+		if items[index].IsOwned {
+			continue
+		}
+		items[index].GrantedProjectIDs = scopes[items[index].AgentID]
+		if items[index].GrantedProjectIDs == nil {
+			items[index].GrantedProjectIDs = []string{}
+		}
+	}
 	return items, nil
 }
 
-func (db *DB) CreateAgentAccessGrant(controllerUserID int, targetAgentID string, createdByUserID int, note string) error {
+func (db *DB) CreateAgentAccessGrant(controllerUserID int, targetAgentID string, createdByUserID int, note string, projectIDs []string) error {
 	targetOwnerID, err := db.GetAgentUserID(targetAgentID)
 	if err != nil {
 		return err
@@ -129,7 +214,15 @@ func (db *DB) CreateAgentAccessGrant(controllerUserID int, targetAgentID string,
 		return fmt.Errorf("controller already owns the target agent")
 	}
 
-	_, err = db.Exec(`
+	normalizedProjectIDs := normalizeAccessGrantProjectIDs(projectIDs)
+
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to start access grant transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	_, err = tx.Exec(`
 		INSERT INTO agent_access_grants (controller_user_id, target_agent_id, note, created_by_user_id)
 		VALUES (?, ?, ?, ?)
 	`, controllerUserID, targetAgentID, note, createdByUserID)
@@ -142,11 +235,37 @@ func (db *DB) CreateAgentAccessGrant(controllerUserID int, targetAgentID string,
 		}
 		return fmt.Errorf("failed to create access grant: %w", err)
 	}
+
+	for _, projectID := range normalizedProjectIDs {
+		if _, err := tx.Exec(`
+			INSERT INTO agent_access_grant_projects (controller_user_id, target_agent_id, project_id)
+			VALUES (?, ?, ?)
+		`, controllerUserID, targetAgentID, projectID); err != nil {
+			return fmt.Errorf("failed to save access grant project scope: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit access grant: %w", err)
+	}
 	return nil
 }
 
 func (db *DB) DeleteAgentAccessGrant(controllerUserID int, targetAgentID string) error {
-	res, err := db.Exec(`
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to start delete access grant transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`
+		DELETE FROM agent_access_grant_projects
+		WHERE controller_user_id = ? AND target_agent_id = ?
+	`, controllerUserID, targetAgentID); err != nil {
+		return fmt.Errorf("failed to delete access grant projects: %w", err)
+	}
+
+	res, err := tx.Exec(`
 		DELETE FROM agent_access_grants
 		WHERE controller_user_id = ? AND target_agent_id = ?
 	`, controllerUserID, targetAgentID)
@@ -160,11 +279,34 @@ func (db *DB) DeleteAgentAccessGrant(controllerUserID int, targetAgentID string)
 	if rowsAffected == 0 {
 		return fmt.Errorf("grant not found")
 	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit delete access grant: %w", err)
+	}
 	return nil
 }
 
 func (db *DB) DeleteAgentAccessGrantByNote(controllerUserID int, targetAgentID string, note string) error {
-	res, err := db.Exec(`
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to start delete access grant by note transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`
+		DELETE FROM agent_access_grant_projects
+		WHERE controller_user_id = ? AND target_agent_id = ?
+			AND EXISTS (
+				SELECT 1
+				FROM agent_access_grants g
+				WHERE g.controller_user_id = ?
+					AND g.target_agent_id = ?
+					AND g.note = ?
+			)
+	`, controllerUserID, targetAgentID, controllerUserID, targetAgentID, note); err != nil {
+		return fmt.Errorf("failed to delete access grant projects by note: %w", err)
+	}
+
+	res, err := tx.Exec(`
 		DELETE FROM agent_access_grants
 		WHERE controller_user_id = ? AND target_agent_id = ? AND note = ?
 	`, controllerUserID, targetAgentID, note)
@@ -173,6 +315,9 @@ func (db *DB) DeleteAgentAccessGrantByNote(controllerUserID int, targetAgentID s
 	}
 	if _, err := res.RowsAffected(); err != nil {
 		return fmt.Errorf("failed to read delete result: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit delete access grant by note: %w", err)
 	}
 	return nil
 }
@@ -215,10 +360,80 @@ func (db *DB) ListIncomingAgentAccessGrants(ownerUserID int) ([]AgentAccessGrant
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan incoming access grant: %w", err)
 		}
+		grant.GrantedProjectIDs = []string{}
 		grants = append(grants, grant)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("failed to read incoming access grants: %w", err)
 	}
+
+	scopes, err := db.listGrantProjectIDsForOwner(ownerUserID)
+	if err != nil {
+		return nil, err
+	}
+	for index := range grants {
+		key := grantScopeKey(grants[index].ControllerUserID, grants[index].TargetAgentID)
+		grants[index].GrantedProjectIDs = scopes[key]
+		if grants[index].GrantedProjectIDs == nil {
+			grants[index].GrantedProjectIDs = []string{}
+		}
+	}
 	return grants, nil
+}
+
+func (db *DB) listGrantProjectIDsForController(controllerUserID int) (map[string][]string, error) {
+	rows, err := db.Query(`
+		SELECT target_agent_id, project_id
+		FROM agent_access_grant_projects
+		WHERE controller_user_id = ?
+		ORDER BY target_agent_id ASC, project_id ASC
+	`, controllerUserID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query access grant project scopes: %w", err)
+	}
+	defer rows.Close()
+
+	scopes := make(map[string][]string)
+	for rows.Next() {
+		var targetAgentID string
+		var projectID string
+		if err := rows.Scan(&targetAgentID, &projectID); err != nil {
+			return nil, fmt.Errorf("failed to scan access grant project scope: %w", err)
+		}
+		scopes[targetAgentID] = append(scopes[targetAgentID], projectID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to read access grant project scopes: %w", err)
+	}
+	return scopes, nil
+}
+
+func (db *DB) listGrantProjectIDsForOwner(ownerUserID int) (map[string][]string, error) {
+	rows, err := db.Query(`
+		SELECT gp.controller_user_id, gp.target_agent_id, gp.project_id
+		FROM agent_access_grant_projects gp
+		INNER JOIN agents a ON a.id = gp.target_agent_id
+		WHERE a.user_id = ?
+		ORDER BY gp.controller_user_id ASC, gp.target_agent_id ASC, gp.project_id ASC
+	`, ownerUserID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query incoming access grant project scopes: %w", err)
+	}
+	defer rows.Close()
+
+	scopes := make(map[string][]string)
+	for rows.Next() {
+		var controllerUserID int
+		var targetAgentID string
+		var projectID string
+		if err := rows.Scan(&controllerUserID, &targetAgentID, &projectID); err != nil {
+			return nil, fmt.Errorf("failed to scan incoming access grant project scope: %w", err)
+		}
+		key := grantScopeKey(controllerUserID, targetAgentID)
+		scopes[key] = append(scopes[key], projectID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to read incoming access grant project scopes: %w", err)
+	}
+	return scopes, nil
 }

@@ -1020,6 +1020,10 @@
               <input type="text" id="shareAccessUser" placeholder="friend-account">
             </div>
             <div class="field">
+              <label id="shareAccessProjectsLabel">Authorized Projects</label>
+              <div class="project-list" id="shareAccessProjectPicker" data-empty-message="No local projects available yet."></div>
+            </div>
+            <div class="field">
               <label id="shareAccessNoteLabel">Note</label>
               <input type="text" id="shareAccessNote" placeholder="Optional note">
             </div>
@@ -1806,6 +1810,7 @@
     const renderSignatures = {
       accessIncoming: "",
       accessControllable: "",
+      accessGrantProjectPicker: "",
       projects: "",
       relayDevices: "",
       transferList: "",
@@ -2377,6 +2382,68 @@
     function resolveProjectLabel(projectId) {
       const project = latestProjectCatalog.find((entry) => entry.id === projectId);
       return project?.name || projectId || inlineText("Unknown project", "未知项目");
+    }
+
+    function getLocalProjectsForAccessGrants() {
+      return sortProjectsForWorkgroups(latestProjectCatalog).filter((project) => !project?.isRemote);
+    }
+
+    function getSelectedAccessGrantProjectIds() {
+      return Array.from(document.querySelectorAll('#shareAccessProjectPicker input[type="checkbox"]:checked'))
+        .map((input) => input.value)
+        .filter(Boolean);
+    }
+
+    function renderAccessGrantProjectPicker(selectedProjectIds = null) {
+      const listEl = document.getElementById("shareAccessProjectPicker");
+      const currentSelected = selectedProjectIds === null
+        ? getSelectedAccessGrantProjectIds()
+        : selectedProjectIds;
+      const selected = new Set((currentSelected || []).map((entry) => String(entry || "")));
+      const projects = getLocalProjectsForAccessGrants();
+      if (!projects.length) {
+        const markup = `<div class="empty-state">${escapeHtml(listEl.dataset.emptyMessage || inlineText("No local projects available yet.", "暂时还没有本地项目可授权。"))}</div>`;
+        if (renderSignatures.accessGrantProjectPicker !== markup) {
+          renderSignatures.accessGrantProjectPicker = markup;
+          listEl.innerHTML = markup;
+        }
+        return;
+      }
+
+      const effectiveSelected = selected.size > 0
+        ? selected
+        : new Set(projects.map((project) => project.id));
+      const markup = projects.map((project) => {
+        const checked = effectiveSelected.has(project.id);
+        const providerLabel = project?.cliProvider === "codex" ? "OpenAI Codex" : "Claude Code";
+        return `
+          <label class="workgroup-agent-picker-item">
+            <input type="checkbox" value="${escapeHtml(project.id)}" ${checked ? "checked" : ""}>
+            <div class="project-info">
+              <div class="project-name">${escapeHtml(project.name)}</div>
+              <div class="project-path">${escapeHtml(providerLabel)}</div>
+              <div class="project-path">${escapeHtml(project.path || "")}</div>
+            </div>
+          </label>
+        `;
+      }).join("");
+      if (renderSignatures.accessGrantProjectPicker !== markup) {
+        renderSignatures.accessGrantProjectPicker = markup;
+        listEl.innerHTML = markup;
+      }
+    }
+
+    function formatAccessGrantScope(item) {
+      const projectIds = Array.isArray(item?.granted_project_ids)
+        ? item.granted_project_ids.map((entry) => String(entry || "").trim()).filter(Boolean)
+        : [];
+      if (item?.is_owned) {
+        return inlineText("All local projects", "全部本地项目");
+      }
+      if (!projectIds.length) {
+        return inlineText("All current and future projects", "全部当前和后续项目");
+      }
+      return projectIds.map((projectId) => resolveProjectLabel(projectId)).join(" · ");
     }
 
     function resolveWorkgroupLabel(workgroupId) {
@@ -3432,6 +3499,8 @@
       document.getElementById("shareAccessUserLabel").textContent = inlineText("Allow Username", "允许访问的用户名");
       document.getElementById("shareAccessUserScope").textContent = inlineText("Current Device", "当前设备");
       document.getElementById("shareAccessUser").placeholder = inlineText("friend-account", "朋友账号");
+      document.getElementById("shareAccessProjectsLabel").textContent = inlineText("Authorized Projects", "授权项目");
+      document.getElementById("shareAccessProjectPicker").setAttribute("data-empty-message", inlineText("No local projects available yet.", "暂时还没有本地项目可授权。"));
       document.getElementById("shareAccessNoteLabel").textContent = inlineText("Note", "备注");
       document.getElementById("shareAccessNote").placeholder = inlineText("Optional note", "可选备注");
       document.getElementById("shareAccessBtn").textContent = inlineText("Grant Access", "授权访问");
@@ -3607,6 +3676,7 @@
               <div class="project-info">
                 <div class="project-name">${escapeHtml(grant.controller_username || "")}</div>
                 <div class="project-path">${escapeHtml(grant.target_agent_id || "")}</div>
+                <div class="project-path">${escapeHtml(`${inlineText("Project Scope", "项目范围")}: ${formatAccessGrantScope(grant)}`)}</div>
                 <div class="project-path">${escapeHtml(grant.note || "")}</div>
               </div>
               <div class="project-actions">
@@ -3626,6 +3696,7 @@
               <div class="project-info">
                 <div class="project-name">${escapeHtml(agent.owner_username || "")}</div>
                 <div class="project-path">${escapeHtml(agent.agent_id || "")}</div>
+                <div class="project-path">${escapeHtml(`${inlineText("Project Scope", "项目范围")}: ${formatAccessGrantScope(agent)}`)}</div>
                 <div class="project-path">${escapeHtml(agent.owner_note || "")}</div>
               </div>
             </div>
@@ -4351,6 +4422,8 @@
         })();
         await paneLoadState.projectsPromise;
         renderProjects();
+        renderAccessGrantProjectPicker();
+        renderAccessGrants(latestAccessState);
         renderOverviewDashboard();
         renderTransferControlOptions();
       } catch (error) {
@@ -5711,14 +5784,20 @@
 
     document.getElementById("shareAccessBtn").addEventListener("click", async () => {
       const controllerUsername = document.getElementById("shareAccessUser").value.trim();
+      const projectIds = getSelectedAccessGrantProjectIds();
       const note = document.getElementById("shareAccessNote").value.trim();
       if (!controllerUsername) {
         showStatus(inlineText("Enter a username to grant access.", "请输入要授权的用户名。"), true);
         return;
       }
+      if (!projectIds.length) {
+        showStatus(inlineText("Select at least one local project to share.", "请至少勾选一个要授权的本地项目。"), true);
+        return;
+      }
       try {
         const result = await api.grantAccessToUser({
           controllerUsername,
+          projectIds,
           note: note || null,
         });
         if (!result?.success) {
@@ -5727,6 +5806,7 @@
         }
         document.getElementById("shareAccessUser").value = "";
         document.getElementById("shareAccessNote").value = "";
+        renderAccessGrantProjectPicker(getLocalProjectsForAccessGrants().map((project) => project.id));
         paneLoadState.accessDirty = true;
         await loadAccessGrants({ force: true });
         flashSaved();

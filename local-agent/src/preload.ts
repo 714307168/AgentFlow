@@ -158,7 +158,7 @@ contextBridge.exposeInMainWorld('claudeAgent', {
   },
   getConfig: () => ipcRenderer.invoke('get-config'),
   listAccessGrants: (options?: { force?: boolean }) => ipcRenderer.invoke('list-access-grants', options ?? null),
-  grantAccessToUser: (data: { controllerUsername: string; note?: string | null }) => ipcRenderer.invoke('grant-access-to-user', data),
+  grantAccessToUser: (data: { controllerUsername: string; projectIds?: string[] | null; note?: string | null }) => ipcRenderer.invoke('grant-access-to-user', data),
   revokeAccessGrant: (data: { controllerUserId: number; targetAgentId?: string | null }) => ipcRenderer.invoke('revoke-access-grant', data),
   saveConfig: (config: Record<string, string>) => ipcRenderer.invoke('save-config', config),
   login: (data: { username: string; password: string; agentId: string }) => ipcRenderer.invoke('login', data),

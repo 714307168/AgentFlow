@@ -702,7 +702,7 @@ func (h *Hub) BroadcastToDevices(env *model.Envelope, projectID string) {
 	if !ok {
 		return
 	}
-	h.broadcastToDevicesByAgent(agentID, env)
+	h.broadcastToDevicesByProject(agentID, projectID, env)
 }
 
 func (h *Hub) broadcastToDevicesByAgent(agentID string, env *model.Envelope) {
@@ -712,6 +712,23 @@ func (h *Hub) broadcastToDevicesByAgent(agentID string, env *model.Envelope) {
 			if err := d.Send(env); err != nil {
 				log.Warn().Err(err).Str("device_id", d.DeviceID).Msg("broadcast send failed")
 			}
+		}
+		return true
+	})
+}
+
+func (h *Hub) broadcastToDevicesByProject(agentID string, projectID string, env *model.Envelope) {
+	if strings.TrimSpace(projectID) == "" {
+		h.broadcastToDevicesByAgent(agentID, env)
+		return
+	}
+	h.devices.Range(func(_, v interface{}) bool {
+		device := v.(*Client)
+		if !h.deviceCanAccessProject(device, agentID, projectID) {
+			return true
+		}
+		if err := device.Send(env); err != nil {
+			log.Warn().Err(err).Str("device_id", device.DeviceID).Msg("project broadcast send failed")
 		}
 		return true
 	})
@@ -765,6 +782,9 @@ func (h *Hub) SendToDevice(deviceID string, env *model.Envelope, agentID string)
 	if !h.refreshDeviceAccess(device, env.ID) {
 		return false
 	}
+	if env.ProjectID != "" && !h.deviceCanAccessProject(device, agentID, env.ProjectID) {
+		return false
+	}
 	if agentID != "" && !device.CanAccessAgent(agentID) {
 		return false
 	}
@@ -800,7 +820,7 @@ func (h *Hub) authorizeProjectAccess(from *Client, env *model.Envelope) (string,
 		if !h.refreshDeviceAccess(from, env.ID) {
 			return "", false
 		}
-		if !from.CanAccessAgent(agentID) {
+		if !h.deviceCanAccessProject(from, agentID, projectID) {
 			h.sendError(from, env, "forbidden", "device is not authorized for project")
 			return "", false
 		}
@@ -1088,23 +1108,14 @@ func (h *Hub) ReplaceAgentProjects(agentID string, projects []model.ProjectListI
 }
 
 func (h *Hub) broadcastProjectList(agentID string) {
-	payload, err := json.Marshal(model.ProjectListPayload{
-		AgentID:  agentID,
-		Projects: h.getAgentProjectListItems(agentID),
+	h.devices.Range(func(_, value interface{}) bool {
+		device := value.(*Client)
+		if !device.CanAccessAgent(agentID) {
+			return true
+		}
+		h.sendProjectListToClient(device, agentID)
+		return true
 	})
-	if err != nil {
-		log.Warn().Err(err).Str("agent_id", agentID).Msg("failed to marshal project.listed payload")
-		return
-	}
-
-	env := &model.Envelope{
-		ID:        newID(),
-		Event:     model.EventProjectListed,
-		Seq:       h.NextSeq(),
-		Timestamp: time.Now().UnixMilli(),
-		Payload:   payload,
-	}
-	h.broadcastToDevicesByAgent(agentID, env)
 }
 
 func (h *Hub) getAgentProjectListItems(agentID string) []model.ProjectListItem {
@@ -1138,7 +1149,7 @@ func (h *Hub) sendProjectListToClient(client *Client, agentID string) {
 
 	payload, err := json.Marshal(model.ProjectListPayload{
 		AgentID:  agentID,
-		Projects: h.getAgentProjectListItems(agentID),
+		Projects: h.getClientProjectListItems(client, agentID),
 	})
 	if err != nil {
 		log.Warn().Err(err).Str("agent_id", agentID).Msg("failed to marshal targeted project.listed payload")
@@ -1152,6 +1163,31 @@ func (h *Hub) sendProjectListToClient(client *Client, agentID string) {
 		Timestamp: time.Now().UnixMilli(),
 		Payload:   payload,
 	})
+}
+
+func (h *Hub) getClientProjectListItems(client *Client, agentID string) []model.ProjectListItem {
+	projects := h.getAgentProjectListItems(agentID)
+	if client == nil || client.Type != model.ClientTypeDevice || h.store == nil || client.UserID <= 0 {
+		return projects
+	}
+
+	filtered := make([]model.ProjectListItem, 0, len(projects))
+	for _, item := range projects {
+		if item.ID == "" || h.store.UserCanAccessProject(client.UserID, agentID, item.ID) {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered
+}
+
+func (h *Hub) deviceCanAccessProject(client *Client, agentID string, projectID string) bool {
+	if client == nil || !client.CanAccessAgent(agentID) {
+		return false
+	}
+	if strings.TrimSpace(projectID) == "" || h.store == nil || client.UserID <= 0 {
+		return true
+	}
+	return h.store.UserCanAccessProject(client.UserID, agentID, projectID)
 }
 
 func (h *Hub) getSortedAccessibleAgentIDs(client *Client) []string {
