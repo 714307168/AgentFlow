@@ -168,6 +168,8 @@ contextBridge.exposeInMainWorld('claudeAgent', {
   getE2EStatus: () => ipcRenderer.invoke('get-e2e-status'),
   setE2EEnabled: (enabled: boolean) => ipcRenderer.invoke('set-e2e-enabled', enabled),
   reconnectRelay: () => ipcRenderer.invoke('reconnect-relay'),
+  listLocalCommands: () => ipcRenderer.invoke('list-local-commands'),
+  runLocalCommand: (data: { commandId: string; payload?: unknown }) => ipcRenderer.invoke('run-local-command', data),
   getLang: () => ipcRenderer.invoke('get-lang'),
   setLang: (lang: string) => ipcRenderer.invoke('set-lang', lang),
   getI18nMessages: () => ipcRenderer.invoke('get-i18n-messages'),

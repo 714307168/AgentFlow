@@ -77,6 +77,7 @@ import {
   normalizeCliProvider as normalizeRegisteredCliProvider,
   type ProviderConfigSnapshot,
 } from "./provider-registry";
+import { createLocalCommandGateway, defineLocalCommand, type LocalCommandDescriptor } from "./local-command-gateway";
 import { buildGitHubCommandEnvironment } from "./github-command-env";
 import {
   createWorkgroupRegistryMembersCacheKey,
@@ -5061,7 +5062,9 @@ ipcMain.handle("set-e2e-enabled", (_event, enabled: boolean) => {
   return true;
 });
 
-ipcMain.handle("reconnect-relay", async () => {
+ipcMain.handle("reconnect-relay", async () => handleReconnectRelayCommand());
+
+async function handleReconnectRelayCommand(): Promise<boolean> {
   clearRelayDeviceListCache();
   await refreshAgentToken(false);
   await refreshControllerToken(false);
@@ -5082,7 +5085,7 @@ ipcMain.handle("reconnect-relay", async () => {
   ensureRemoteRelayReady(config);
   scheduleRelayFollowUpRefreshes("manual-reconnect");
   return true;
-});
+}
 
 ipcMain.handle("get-lang", () => getLang());
 
@@ -5257,7 +5260,7 @@ ipcMain.handle("pick-local-data-root", async (event, rawPath?: string | null) =>
   };
 });
 
-ipcMain.handle("open-local-data-root", async (_event, rawPath?: string | null) => {
+async function handleOpenLocalDataRootCommand(rawPath?: string | null) {
   const targetPath = resolveLocalDataRoot(rawPath ?? app.getPath("userData"));
   fs.mkdirSync(targetPath, { recursive: true });
   const errorMessage = await shell.openPath(targetPath);
@@ -5265,6 +5268,62 @@ ipcMain.handle("open-local-data-root", async (_event, rawPath?: string | null) =
     success: !errorMessage,
     error: errorMessage || undefined,
   };
+}
+
+const localCommandGateway = createLocalCommandGateway([
+  defineLocalCommand({
+    id: "relay.reconnect",
+    title: "Reconnect relay and refresh remote sync state",
+    group: "runtime",
+    run: () => handleReconnectRelayCommand(),
+  }),
+  defineLocalCommand({
+    id: "updates.check",
+    title: "Check for desktop updates immediately",
+    group: "updates",
+    run: () => updateManager.checkForUpdates(true),
+  }),
+  defineLocalCommand({
+    id: "updates.download",
+    title: "Download the latest available desktop update",
+    group: "updates",
+    run: () => updateManager.downloadAvailableUpdate(),
+  }),
+  defineLocalCommand({
+    id: "updates.install",
+    title: "Install the downloaded desktop update",
+    group: "updates",
+    run: () => updateManager.installDownloadedUpdate(),
+  }),
+  defineLocalCommand({
+    id: "diagnostics.uploadLogs",
+    title: "Upload the latest desktop logs to the relay",
+    group: "diagnostics",
+    run: () => uploadDesktopLogs(),
+  }),
+  defineLocalCommand({
+    id: "diagnostics.exportBundle",
+    title: "Export a desktop diagnostics bundle",
+    group: "diagnostics",
+    run: () => exportDesktopDiagnosticsBundle(),
+  }),
+  defineLocalCommand({
+    id: "storage.openLocalDataRoot",
+    title: "Open the local data directory",
+    group: "storage",
+    payloadSchema: "optionalPath",
+    run: (payload) => handleOpenLocalDataRootCommand(typeof payload === "string" ? payload : undefined),
+  }),
+]);
+
+ipcMain.handle("list-local-commands", (): LocalCommandDescriptor[] => localCommandGateway.listCommands());
+
+ipcMain.handle("run-local-command", async (_event, request: { commandId: string; payload?: unknown }) => {
+  return localCommandGateway.runCommand(request);
+});
+
+ipcMain.handle("open-local-data-root", async (_event, rawPath?: string | null) => {
+  return handleOpenLocalDataRootCommand(rawPath);
 });
 
 ipcMain.handle("upload-desktop-logs", async () => {

@@ -551,6 +551,7 @@
 3. 继续拆桌面端设置页、消息页、活动页和同步入口，减少大文件和重复逻辑，保持 renderer 侧 feature/store 边界更清晰。
 
 - [x] Provider runtime probing, CLI install targets, upgrade-required capability checks, SDK default base-url/model fallbacks, and main-process provider environment injection now reuse a shared `provider-registry.ts`. Added dedicated Node coverage for the registry metadata and environment mapping in this round. Renderer-side provider label/capability cleanup remains tracked under P1.3 before `R-provider-registry` closes.
+- [x] Added a first desktop local-command IPC gateway with a shared command registry, payload validation, preload exposure, and dedicated Node tests. The gateway currently covers relay reconnect, update actions, diagnostics export/log upload, and local-data-root opening while legacy IPC channels remain in place for backwards compatibility; wider UI migration stays tracked under P1.2.
 
 发版节点:
 - \`R-provider-registry\`: provider registry 和 CLI/API fallback 结构升级完成后发桌面端结构补丁版。
