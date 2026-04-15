@@ -1098,7 +1098,7 @@
 
           <div class="section" id="workgroupSectionCard">
             <div class="section-title" id="workgroupSection">Workgroups</div>
-            <div class="section-subtitle" id="workgroupSectionHint">Create a shared collaboration room with selected agents. PM Agent and planning space are created automatically.</div>
+            <div class="section-subtitle" id="workgroupSectionHint">Create a lightweight collaboration group: pick the agents, write one group announcement, and coordinate directly in the chat.</div>
             <div class="workgroup-toolbar">
               <select id="workgroupSelect"></select>
               <button class="btn-secondary btn-small" id="newWorkgroupBtn">New Workgroup</button>
@@ -1107,10 +1107,10 @@
             </div>
             <div class="split-grid">
               <div class="workgroup-card">
-                <div class="workgroup-card-title" id="workgroupFormTitle">Workgroup Profile</div>
+                <div class="workgroup-card-title" id="workgroupFormTitle">Collaboration Group</div>
                 <div class="workgroup-form-grid">
                   <div class="field">
-                    <label id="workgroupNameLabel">Workgroup Name</label>
+                    <label id="workgroupNameLabel">Group Name</label>
                     <input type="text" id="workgroupName" placeholder="Release Squad">
                   </div>
                   <div class="field">
@@ -1120,7 +1120,7 @@
                       <button class="btn-secondary btn-small" id="publishWorkgroupBtn">Publish</button>
                     </div>
                   </div>
-                  <div class="field">
+                  <div class="field" style="display:none;">
                     <label id="workgroupPlanPathLabel">Planning Workspace</label>
                     <input type="text" id="workgroupPlanPath" readonly>
                   </div>
@@ -1128,9 +1128,9 @@
                     <label id="workgroupAgentsLabel">Agents</label>
                     <div class="project-list" id="workgroupProjectPicker" data-empty-message="No projects available."></div>
                   </div>
-                  <div class="field workgroup-field--wide" style="display:none;">
-                    <label id="workgroupDescriptionLabel">Description</label>
-                    <textarea id="workgroupDescription" rows="4"></textarea>
+                  <div class="field workgroup-field--wide">
+                    <label id="workgroupDescriptionLabel">Group Announcement</label>
+                    <textarea id="workgroupDescription" rows="4" placeholder="Write the shared collaboration rules, context, and long-term notes for this group."></textarea>
                   </div>
                   <div class="toggle-row workgroup-field--wide" style="display:none;">
                     <div class="toggle-copy">
@@ -1149,7 +1149,7 @@
                 </div>
               </div>
               <div class="workgroup-card">
-                <div class="workgroup-card-title" id="workgroupMemberTitle">Members</div>
+                <div class="workgroup-card-title" id="workgroupMemberTitle">Agents</div>
                 <div style="display:none;">
                 <div class="field">
                   <label id="memberNameLabel">Member Name</label>
@@ -1184,7 +1184,7 @@
                 <div class="project-list" id="workgroupMemberList" data-empty-message="No members yet."></div>
               </div>
             </div>
-            <div class="workgroup-card" style="margin-top: 14px;">
+            <div class="workgroup-card" style="display:none; margin-top: 14px;">
               <div class="workgroup-card-title" id="workgroupRegistryTitle">Join Workgroup</div>
               <div class="field">
                 <label id="workgroupRegistryQueryLabel">Group Number</label>
@@ -3183,29 +3183,34 @@
       document.getElementById("cancelProjectBtn").textContent = msg("settings.cancel", "Cancel");
       document.getElementById("workgroupSection").textContent = inlineText("Workgroups", "工作组");
       document.getElementById("workgroupSectionHint").textContent = inlineText(
-        "Create a shared collaboration room with selected agents. PM Agent and planning space are created automatically.",
-        "创建协作组时只需要选成员，系统会自动补上 PM Agent 和独立规划空间。"
+        "Create a lightweight collaboration group: pick the agents, write one group announcement, and coordinate directly in the chat.",
+        "协作组保持轻量：选择成员 Agent，写一条群公告，然后直接在群聊里协作。"
       );
       document.getElementById("newWorkgroupBtn").textContent = inlineText("New Workgroup", "新建工作组");
       document.getElementById("deleteWorkgroupBtn").textContent = inlineText("Delete", "删除");
       document.getElementById("refreshWorkgroupBtn").textContent = inlineText("Refresh", "刷新");
-      document.getElementById("workgroupFormTitle").textContent = inlineText("Workgroup Profile", "工作组信息");
-      document.getElementById("workgroupNameLabel").textContent = inlineText("Workgroup Name", "工作组名称");
+      document.getElementById("workgroupFormTitle").textContent = inlineText("Collaboration Group", "协作组");
+      document.getElementById("workgroupNameLabel").textContent = inlineText("Group Name", "协作组名称");
       document.getElementById("workgroupName").placeholder = inlineText("Release Squad", "发布小组");
       document.getElementById("workgroupGroupNumberLabel").textContent = inlineText("Group Number", "群号");
       document.getElementById("workgroupGroupNumber").placeholder = inlineText("Not published yet", "未发布");
       document.getElementById("publishWorkgroupBtn").textContent = inlineText("Publish", "发布");
       document.getElementById("workgroupPlanPathLabel").textContent = inlineText("Planning Workspace", "规划空间");
       document.getElementById("workgroupAgentsLabel").textContent = inlineText("Agents", "成员 Agent");
+      document.getElementById("workgroupDescriptionLabel").textContent = inlineText("Group Announcement", "群公告");
+      document.getElementById("workgroupDescription").placeholder = inlineText(
+        "Write the shared collaboration rules, context, and long-term notes for this group.",
+        "写下这个协作组共享的协作规则、背景信息和长期说明。"
+      );
       document.getElementById("workgroupProjectPicker").setAttribute("data-empty-message", inlineText("No projects available.", "暂无可选项目。"));
       document.getElementById("workgroupDirectMessageLabel").textContent = inlineText("Allow member-to-member handoff notes", "允许成员间交接备注");
       document.getElementById("workgroupDirectMessageHint").textContent = inlineText(
         "When disabled, tasks are isolated and members should only report back their own result.",
         "关闭后，任务默认隔离，成员只汇报自己负责的结果。"
       );
-      document.getElementById("saveWorkgroupBtn").textContent = inlineText("Save Workgroup", "保存工作组");
+      document.getElementById("saveWorkgroupBtn").textContent = inlineText("Save Group", "保存协作组");
       document.getElementById("cancelWorkgroupBtn").textContent = inlineText("Reset", "重置");
-      document.getElementById("workgroupMemberTitle").textContent = inlineText("Members", "成员");
+      document.getElementById("workgroupMemberTitle").textContent = inlineText("Agents", "成员 Agent");
       document.getElementById("memberNameLabel").textContent = inlineText("Member Name", "成员名称");
       document.getElementById("workgroupMemberName").placeholder = inlineText("Desktop Developer", "桌面开发");
       document.getElementById("memberRoleLabel").textContent = inlineText("Role", "角色");
@@ -4659,7 +4664,10 @@
         }
         return;
       }
-      if (!workgroup.members || workgroup.members.length === 0) {
+      const visibleMembers = Array.isArray(workgroup.members)
+        ? workgroup.members.filter((member) => member.kind !== "pm" && member.role !== "project_manager")
+        : [];
+      if (visibleMembers.length === 0) {
         const registryState = latestWorkgroupRegistryMembersById.get(workgroup.id) || null;
         const registryMarkup = Array.isArray(registryState?.members) && registryState.members.length > 0
           ? `
@@ -4677,17 +4685,14 @@
         }
         return;
       }
-      const localMarkup = workgroup.members.map((member) => `
+      const localMarkup = visibleMembers.map((member) => `
         <div class="project-item">
           <div class="project-info">
             <div class="project-name">${escapeHtml(member.name)}</div>
             <div class="workgroup-inline-meta">
-              <span class="workgroup-pill">${escapeHtml(getRoleLabel(member.role))}</span>
-              ${member.kind === "pm" ? `<span class="workgroup-pill">${escapeHtml(inlineText("Virtual", "虚拟"))}</span>` : ""}
               <span class="workgroup-pill">${escapeHtml(member.projectBindingLabel || inlineText("Unbound", "未绑定"))}</span>
             </div>
-            <div class="workgroup-subtext">${escapeHtml(member.allowedPaths?.length ? member.allowedPaths.join("\n") : inlineText("No path restriction", "未设置路径限制"))}</div>
-            ${member.systemPrompt ? `<div class="workgroup-subtext" style="margin-top: 6px;">${escapeHtml(member.systemPrompt)}</div>` : ""}
+            <div class="workgroup-subtext">${escapeHtml(member.projectBindingLabel || inlineText("No bound project yet.", "暂未绑定项目。"))}</div>
           </div>
         </div>
       `).join("");
@@ -5004,9 +5009,9 @@
         return;
       }
       if (!confirmRiskAction({
-        action: inlineText("Delete this workgroup and all members/tasks?", "删除这个工作组以及其下所有成员和任务？"),
-        impact: inlineText("The workgroup profile, task board, and local member assignments will all be removed.", "工作组档案、任务看板和本地成员绑定都会一起删除。"),
-        recovery: inlineText("You would need to create the workgroup again and re-add members or tasks manually.", "如果后续还需要，只能重新创建工作组并手动补回成员和任务。"),
+        action: inlineText("Delete this collaboration group and all member bindings?", "删除这个协作组以及其下成员绑定？"),
+        impact: inlineText("The group profile, announcement, and local member bindings will all be removed.", "协作组档案、群公告和本地成员绑定都会一起删除。"),
+        recovery: inlineText("If needed, recreate the group later and select the agents again.", "如果后续还需要，可以重新创建协作组并重新选择成员。"),
       })) {
         return;
       }

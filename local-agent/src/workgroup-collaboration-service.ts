@@ -430,7 +430,7 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       }
     }
 
-    const members = workgroupStore.listMembers(workgroup.id);
+    const members = this.listCollaborativeMembers(workgroup.id);
     const selection = this.resolveTargets(workgroup, members, trimmedContent);
     if (selection.targets.length === 0 && selection.mode !== "explicit") {
       this.logWorkgroupEvent(
@@ -564,8 +564,7 @@ export default class WorkgroupCollaborationService extends EventEmitter {
   }
 
   private buildMemberSnapshots(workgroup: Workgroup): WorkgroupCollaborationMemberSnapshot[] {
-    return workgroupStore
-      .listMembers(workgroup.id)
+    return this.listCollaborativeMembers(workgroup.id)
       .map((member) => {
         const project = member.projectId ? this.options.getBoundProject(member.projectId) : null;
         const projectSnapshot = project?.id
@@ -584,6 +583,12 @@ export default class WorkgroupCollaborationService extends EventEmitter {
         };
       })
       .sort((left, right) => left.name.localeCompare(right.name, "zh-CN"));
+  }
+
+  private listCollaborativeMembers(workgroupId: string): WorkgroupMember[] {
+    return workgroupStore
+      .listMembers(workgroupId)
+      .filter((member) => member.kind !== "pm" && member.role !== "project_manager");
   }
 
   private computeWorkgroupRunningState(workgroupId: string): boolean {
@@ -876,12 +881,12 @@ export default class WorkgroupCollaborationService extends EventEmitter {
   ): string {
     const project = member.projectId ? this.options.getBoundProject(member.projectId) : null;
     const roleInstruction = member.role === "developer"
-      ? "You are the implementation role. Make code and local repo changes only inside your bound project."
+      ? "You are one member in a shared multi-agent group. Make code and local repo changes only inside your bound project."
       : member.role === "qa"
-        ? "You are the verification and deployment role. Focus on testing, verification, deployment checks, logs, and evidence."
+        ? "You are one member in a shared multi-agent group. Focus on testing, verification, deployment checks, logs, and evidence inside your bound project."
         : member.role === "project_manager"
-          ? "You are the coordination role. Break tasks down, summarize status, and call out handoffs or blockers."
-          : "Follow your custom role instructions while staying scoped to your bound project.";
+          ? "You are one member in a shared multi-agent group. Keep the discussion aligned with the latest shared context."
+          : "Follow your custom member instructions while staying scoped to your bound project.";
     const allowedPaths = Array.isArray(member.allowedPaths) && member.allowedPaths.length > 0
       ? member.allowedPaths.map((entry) => `- ${entry}`).join("\n")
       : "- No extra path restriction configured.";
@@ -899,6 +904,7 @@ export default class WorkgroupCollaborationService extends EventEmitter {
     return [
       "Shared workgroup collaboration context",
       `Workgroup: ${workgroup.name}`,
+      `Group announcement: ${workgroup.description?.trim() || "None"}`,
       `You are: ${member.name}`,
       `Role: ${member.role}`,
       `Bound project: ${project?.name ?? member.projectName ?? member.projectId ?? "unknown"}`,
@@ -907,7 +913,7 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       roleInstruction,
       "Reply only as your own role. Do not fabricate work from other members.",
       workgroup.allowDirectMemberMessages
-        ? "You may mention other members for handoff notes, but only report work you actually completed."
+        ? "You may @mention other members when coordination helps, but only report work you actually completed."
         : "Do not simulate other members. Report only your own work and blockers.",
       "Stay inside your bound project and allowed paths.",
       allowedPaths,
@@ -920,7 +926,7 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       userMessage.content.trim(),
       "",
       "Response requirements",
-      "Reply in first person as your role, keep it concise, and include outcome, validation, blockers, and any handoff note if needed.",
+      "Reply in first person as your member role, keep it concise, and include what you completed, what you validated, blockers, and any needed follow-up.",
     ]
       .filter((entry, index, source) => !(entry === "" && source[index - 1] === ""))
       .join("\n");
@@ -1174,7 +1180,7 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       return;
     }
 
-    const members = workgroupStore.listMembers(workgroup.id);
+    const members = this.listCollaborativeMembers(workgroup.id);
     const selection = this.resolveTargets(workgroup, members, sourceMessage.content, {
       requireExplicitMention: true,
       excludeMemberIds: [sender.id],

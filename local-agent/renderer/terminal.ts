@@ -3257,8 +3257,8 @@ function renderHeader(): void {
     }
     if (elements.composerInput) {
       elements.composerInput.placeholder = inlineText(
-        "Talk to the group with @all, @developer, @qa, or member names.",
-        "可用 @all、@developer、@qa 或成员名称与群组协作。",
+        "Talk to the group and @member names when needed.",
+        "直接在群里协作，必要时用 @成员名 提及。",
       );
     }
     syncDocumentTitleIfNeeded();
