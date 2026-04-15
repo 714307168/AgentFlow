@@ -196,6 +196,7 @@ contextBridge.exposeInMainWorld('claudeAgent', {
   }) => ipcRenderer.invoke('create-relay-transfer', options),
   setAppSettings: (settings: Record<string, boolean | number>) => ipcRenderer.invoke('set-app-settings', settings),
   uploadDesktopLogs: () => ipcRenderer.invoke('upload-desktop-logs'),
+  exportDesktopDiagnosticsBundle: () => ipcRenderer.invoke('export-desktop-diagnostics-bundle'),
   pickLocalDataRoot: (currentPath?: string | null) => ipcRenderer.invoke('pick-local-data-root', currentPath),
   openLocalDataRoot: (currentPath?: string | null) => ipcRenderer.invoke('open-local-data-root', currentPath),
   changeLocalDataRoot: (nextPath?: string | null) => ipcRenderer.invoke('change-local-data-root', nextPath),

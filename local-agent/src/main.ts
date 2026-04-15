@@ -44,7 +44,7 @@ import {
 import UpdateManager, { UpdateState } from "./update-manager";
 import { Events } from "./types";
 import { t, getLang, setLang, getAllMessages, Lang } from "./i18n";
-import { buildRelayApiHeaders } from "./api-version";
+import { buildRelayApiHeaders, getRelayApiClientVersion, RELAY_API_VERSION } from "./api-version";
 import { fetchRelayJson } from "./relay-http";
 import {
   buildImagePreviewDataUrlFromNativeImage,
@@ -75,6 +75,7 @@ import {
   parseWorkgroupRegistryMembersCacheKey,
   type WorkgroupRegistryMembersQuery,
 } from "./workgroup-registry-query";
+import { buildDiagnosticBundleArtifacts, writeDiagnosticBundle } from "./diagnostic-bundle";
 
 interface AgentConfig {
   serverUrl: string;
@@ -378,9 +379,11 @@ const UI_REMOTE_PROJECT_REFRESH_COALESCE_MS = 1_200;
 const REMOTE_WORKGROUP_CATALOG_REFRESH_MIN_INTERVAL_MS = 15_000;
 const RELAY_HEALTH_CHECK_INTERVAL_MS = 15_000;
 const RELAY_MAINTENANCE_INTERVAL_MS = 60_000;
+const RELAY_DIAGNOSTIC_HEALTH_TIMEOUT_MS = 4_000;
 const MAX_DESKTOP_LOG_UPLOAD_BYTES = 1_600_000;
 const MAX_DESKTOP_LOG_FILES = 4;
 const MAX_DESKTOP_LOG_EXTRACTED_IDS = 20;
+const DESKTOP_DIAGNOSTIC_EXPORT_DIRECTORY = "diagnostics";
 const RELAY_DEVICE_LIST_CACHE_TTL_MS = 15_000;
 const RELAY_TRANSFER_LIST_CACHE_TTL_MS = 8_000;
 const ACCESS_GRANTS_CACHE_TTL_MS = 8_000;
@@ -848,6 +851,188 @@ function buildLocalDataMetrics(): {
     history: summarizeDirectoryTree(path.join(localDataRoot, "runtime-history")),
     logs: summarizeDirectoryTree(logDirectory),
   };
+}
+
+function buildDiagnosticConfigSummary() {
+  const config = loadConfig();
+  return {
+    serverUrl: config.serverUrl?.trim() ?? "",
+    agentId: config.agentId?.trim() ?? "",
+    username: config.username?.trim() ?? "",
+    controllerDeviceId: config.controllerDeviceId?.trim() ?? "",
+    cliProvider: config.cliProvider,
+    tokenConfigured: Boolean(config.token?.trim()),
+    controllerTokenConfigured: Boolean(config.controllerToken?.trim()),
+    openaiConfigured: Boolean(config.openaiApiKey?.trim()),
+    anthropicConfigured: Boolean(config.anthropicApiKey?.trim()),
+    githubTokenConfigured: Boolean(config.githubToken?.trim()),
+  };
+}
+
+function buildDiagnosticAppSettingsSummary() {
+  return {
+    autoStart: appSettingsStore.get("autoStart") as boolean,
+    silentLaunch: appSettingsStore.get("silentLaunch") as boolean,
+    completionSound: appSettingsStore.get("completionSound") as boolean,
+    saveLogs: appSettingsStore.get("saveLogs") as boolean,
+    e2eEnabled: appSettingsStore.get("e2eEnabled") as boolean,
+    autoUpdateCheck: appSettingsStore.get("autoUpdateCheck") as boolean,
+    autoUpdateDownload: appSettingsStore.get("autoUpdateDownload") as boolean,
+    silentUpdateInstall: appSettingsStore.get("silentUpdateInstall") as boolean,
+    historyRetentionDays: appSettingsStore.get("historyRetentionDays") as number,
+  };
+}
+
+function truncateDiagnosticText(value: string, maxLength: number): string {
+  const normalized = value.trim();
+  if (!normalized) {
+    return "";
+  }
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+  return `${normalized.slice(0, Math.max(0, maxLength - 3))}...`;
+}
+
+async function probeRelayHealthForDiagnostics(): Promise<{
+  checkedAt: string;
+  url: string;
+  ok: boolean;
+  status: number | null;
+  responseText: string | null;
+  reportedVersion: string | null;
+  serverHeader: string | null;
+  error: string | null;
+} | null> {
+  const serverUrl = loadConfig().serverUrl?.trim() ?? "";
+  if (!serverUrl) {
+    return null;
+  }
+
+  const url = `${toHttpBaseUrl(serverUrl)}/health`;
+  const checkedAt = new Date().toISOString();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), RELAY_DIAGNOSTIC_HEALTH_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: buildRelayApiHeaders(),
+      signal: controller.signal,
+    });
+    const responseText = truncateDiagnosticText((await response.text()).trim(), 120) || null;
+    return {
+      checkedAt,
+      url,
+      ok: response.ok,
+      status: response.status,
+      responseText,
+      reportedVersion: response.headers.get("x-agentflow-server-version")
+        || response.headers.get("x-relay-version")
+        || response.headers.get("x-agentflow-api-version"),
+      serverHeader: response.headers.get("server"),
+      error: null,
+    };
+  } catch (error) {
+    return {
+      checkedAt,
+      url,
+      ok: false,
+      status: null,
+      responseText: null,
+      reportedVersion: null,
+      serverHeader: null,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function exportDesktopDiagnosticsBundle(): Promise<{
+  success: boolean;
+  error?: string;
+  bundlePath?: string;
+  manifestPath?: string;
+  logPath?: string | null;
+}> {
+  try {
+    const generatedAt = new Date();
+    const [providerRuntime, relayHealth] = await Promise.all([
+      loadCliProviderRuntimeStatuses({ force: false }),
+      probeRelayHealthForDiagnostics(),
+    ]);
+
+    let desktopLogFileName: string | null = null;
+    let desktopLogContent: string | null = null;
+    try {
+      const payload = await buildDesktopLogUploadPayload();
+      desktopLogFileName = payload.fileName;
+      desktopLogContent = payload.content;
+    } catch (error) {
+      appLogger.warn("diagnostics", "Skipped desktop log payload while exporting diagnostics bundle.", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    const localProjects = projectStore.getAll()
+      .map((project) => ({
+        project,
+        snapshot: runtimeManager.getSnapshot(project.id),
+      }));
+    const remoteProjects = (remoteSessionStore?.getProjects() ?? [])
+      .map((project) => ({
+        project,
+        snapshot: remoteSessionStore?.getSnapshot(project.id) ?? null,
+      }))
+      .filter((entry): entry is { project: RemoteProjectRecord; snapshot: ProjectSessionSnapshot } => Boolean(entry.snapshot));
+
+    const artifacts = buildDiagnosticBundleArtifacts({
+      generatedAt: generatedAt.toISOString(),
+      appVersion: app.getVersion(),
+      host: {
+        hostname: os.hostname(),
+        platform: process.platform,
+        release: os.release(),
+        arch: process.arch,
+      },
+      config: buildDiagnosticConfigSummary(),
+      settings: buildDiagnosticAppSettingsSummary(),
+      connection: buildConnectionStatusSnapshot(),
+      relayApi: {
+        requestedVersion: RELAY_API_VERSION,
+        clientVersion: getRelayApiClientVersion(),
+        health: relayHealth,
+      },
+      localData: buildLocalDataMetrics(),
+      providerRuntime,
+      localProjects,
+      remoteProjects,
+      desktopLogFileName,
+      desktopLogContent,
+    });
+
+    const outputRoot = path.join(getPersistedLocalDataRoot(), DESKTOP_DIAGNOSTIC_EXPORT_DIRECTORY);
+    const written = await writeDiagnosticBundle(outputRoot, artifacts, generatedAt);
+    appLogger.info("diagnostics", "Exported desktop diagnostics bundle.", {
+      bundleDirectory: written.bundleDirectory,
+      localProjectCount: artifacts.manifest.summary.localProjectCount,
+      remoteProjectCount: artifacts.manifest.summary.remoteProjectCount,
+      runningProjectCount: artifacts.manifest.summary.runningProjectCount,
+    });
+
+    return {
+      success: true,
+      bundlePath: written.bundleDirectory,
+      manifestPath: written.manifestPath,
+      logPath: written.logPath,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
 
 async function buildDesktopLogUploadPayload(): Promise<{
@@ -5095,6 +5280,10 @@ ipcMain.handle("open-local-data-root", async (_event, rawPath?: string | null) =
 
 ipcMain.handle("upload-desktop-logs", async () => {
   return uploadDesktopLogs();
+});
+
+ipcMain.handle("export-desktop-diagnostics-bundle", async () => {
+  return exportDesktopDiagnosticsBundle();
 });
 
 ipcMain.handle("change-local-data-root", async (_event, rawPath?: string | null) => {

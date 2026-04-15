@@ -503,6 +503,7 @@
 
 ## Progress Update 2026-04-15
 
+- [x] Desktop settings now export a local diagnostics bundle under `local-data/diagnostics/`, combining trimmed desktop logs, relay health probe output, current provider runtime status, local-data metrics, connection snapshots, and per-project recent activity windows into a structured manifest for faster issue triage.
 - [x] Desktop remote-access grants now support project-level scope selection in Settings, and relay-side project lists, status broadcasts, and project message authorization all respect the granted project subset instead of treating every shared desktop as full-agent access.
 - [x] Desktop workspace project syncing no longer preloads every missing project session during catalog refresh, so opening the workspace or refreshing the sidebar stops fanning out background \`get-project-session\` reads across all remote projects.
 - [x] Project-session loading now accepts an explicit \`forceRemoteSync\` flag, and only the actively opened project requests a forced remote session sync; background catalog refresh paths reuse cached empty/known session state instead of waking every remote agent.

@@ -1506,6 +1506,7 @@
               <button class="btn-secondary" id="pickLocalDataRootBtn">Choose Folder</button>
               <button class="btn-secondary" id="openLocalDataRootBtn">Open Folder</button>
               <button class="btn-secondary" id="uploadDesktopLogsBtn">Upload Latest Logs</button>
+              <button class="btn-secondary" id="exportDesktopDiagnosticsBtn">Export Diagnostics Bundle</button>
               <button class="btn-secondary" id="resetLocalDataRootBtn">Use Default</button>
               <button class="btn-primary" id="applyLocalDataRootBtn">Apply and Restart</button>
             </div>
@@ -3357,6 +3358,7 @@
       document.getElementById("pickLocalDataRootBtn").textContent = inlineText("Choose Folder", "选择目录");
       document.getElementById("openLocalDataRootBtn").textContent = inlineText("Open Folder", "打开目录");
       document.getElementById("uploadDesktopLogsBtn").textContent = inlineText("Upload Latest Logs", "上传最近日志");
+      document.getElementById("exportDesktopDiagnosticsBtn").textContent = inlineText("Export Diagnostics Bundle", "导出诊断包");
       document.getElementById("resetLocalDataRootBtn").textContent = inlineText("Use Default", "恢复默认");
       document.getElementById("applyLocalDataRootBtn").textContent = inlineText("Apply and Restart", "应用并重启");
       document.getElementById("saveLogsLabel").textContent = inlineText("Save local logs", "保存本地日志");
@@ -5578,6 +5580,33 @@
           inlineText(
             "Desktop logs uploaded for analysis. Log ID: " + (result.logId || "-"),
             "桌面日志已上传，可在分析页查看。日志 ID: " + (result.logId || "-")
+          ),
+          false
+        );
+      } catch (error) {
+        showStatus(getErrorMessage(error), true);
+      } finally {
+        button.disabled = false;
+        button.textContent = originalLabel;
+      }
+    });
+
+    document.getElementById("exportDesktopDiagnosticsBtn").addEventListener("click", async () => {
+      const button = document.getElementById("exportDesktopDiagnosticsBtn");
+      const originalLabel = button.textContent;
+      button.disabled = true;
+      button.textContent = inlineText("Exporting...", "导出中...");
+      try {
+        const result = await api.exportDesktopDiagnosticsBundle();
+        if (!result?.success) {
+          showStatus(result?.error || inlineText("Failed to export diagnostics bundle.", "导出诊断包失败。"), true);
+          return;
+        }
+        flashSaved();
+        showStatus(
+          inlineText(
+            "Diagnostics bundle exported: " + (result.bundlePath || "-"),
+            "诊断包已导出: " + (result.bundlePath || "-")
           ),
           false
         );
