@@ -30,7 +30,9 @@ local-agent/tmp-extracted/
 local-agent/renderer/*.js
 !local-agent/renderer/settings-provider-runtime.js
 !local-agent/renderer/settings-pane-loaders.js
+!local-agent/renderer/project-runtime-rules.js
 local-agent/renderer/*.js.map
+!local-agent/renderer/project-runtime-rules.js.map
 
 # === Android (android-app) ===
 android-app/.gradle/

@@ -836,31 +836,22 @@ function formatRelativeTime(timestamp: number): string {
 }
 
 function getProjectLatestPreview(projectId: string): string {
+  const project = state.projects.find((entry) => entry.id === projectId) ?? null;
   const session = state.sessionsByProjectId.get(projectId) ?? null;
-  if (!session) {
-    return getProjectStatusMeta(projectId).detail;
-  }
-
-  if (session.isRunning && session.currentPrompt?.trim()) {
-    return previewText(session.currentPrompt, 96) || getProjectStatusMeta(projectId).detail;
-  }
-
-  const latestMessage = getLatestMessage(session);
-  if (latestMessage?.content?.trim()) {
-    return previewText(latestMessage.content, 96) || getProjectStatusMeta(projectId).detail;
-  }
-
-  const latestActivity = getLatestActivity(session);
-  if (latestActivity?.detail?.trim() || latestActivity?.title?.trim()) {
-    return previewText(latestActivity.detail || latestActivity.title, 96) || getProjectStatusMeta(projectId).detail;
-  }
-
-  const nextQueuedItem = session.queue[0];
-  if (nextQueuedItem?.prompt?.trim()) {
-    return previewText(nextQueuedItem.prompt, 96) || getProjectStatusMeta(projectId).detail;
-  }
-
-  return getProjectStatusMeta(projectId).detail;
+  return projectRuntimeRules.buildProjectLatestPreview({
+    project,
+    session,
+    inlineText,
+    msg,
+    providerLabel,
+    modelLabel,
+    translateSource,
+    translateKind,
+    translateCliStream,
+    translateActivityStatus,
+    previewText,
+    maxLength: 96,
+  });
 }
 
 function getWorkgroupLatestPreview(workgroupId: string): string {
@@ -1771,29 +1762,15 @@ function shouldStickToBottom(container: HTMLElement | null): boolean {
 }
 
 function getLatestActivity(session: SessionSnapshot | null): SessionActivity | null {
-  const activities = session?.activities.filter((entry) => isPrivateProjectActivity(entry)) ?? [];
-  if (activities.length === 0) {
-    return null;
-  }
-
-  return activities[activities.length - 1] ?? null;
+  return projectRuntimeRules.getLatestActivity(session);
 }
 
 function getLatestCliEntry(session: SessionSnapshot | null): CliTraceEntry | null {
-  if (!session || session.cliTrace.length === 0) {
-    return null;
-  }
-
-  return session.cliTrace[session.cliTrace.length - 1] ?? null;
+  return projectRuntimeRules.getLatestCliEntry(session);
 }
 
 function getLatestMessage(session: SessionSnapshot | null): SessionMessage | null {
-  const messages = getVisibleSessionMessages(session);
-  if (messages.length === 0) {
-    return null;
-  }
-
-  return messages[messages.length - 1] ?? null;
+  return projectRuntimeRules.getLatestMessage(session);
 }
 
 function getConfiguredProvider(project: ProjectState | null, session: SessionSnapshot | null): "claude" | "codex" {
@@ -1810,101 +1787,22 @@ function getConfiguredModel(project: ProjectState | null, session: SessionSnapsh
   return project?.cliModel ?? session?.model ?? null;
 }
 
-function formatProjectSummary(
-  provider: "claude" | "codex",
-  model: string | null | undefined,
-  detail: string,
-): string {
-  return `${providerLabel(provider)} · ${modelLabel(model)} · ${detail}`;
-}
-
 function getProjectStatusMeta(projectId: string): { label: string; tone: string; detail: string } {
   const project = state.projects.find((entry) => entry.id === projectId) ?? null;
   const session = state.sessionsByProjectId.get(projectId) ?? null;
-  const configuredProvider = getConfiguredProvider(project, session);
-  const configuredModel = getConfiguredModel(project, session);
-  if (project?.isRemote && project.online === false) {
-    return {
-      label: inlineText("Offline", "离线"),
-      tone: "idle",
-      detail: formatProjectSummary(
-        configuredProvider,
-        configuredModel,
-        inlineText("Remote desktop is offline", "远程桌面端离线"),
-      ),
-    };
-  }
-  if (!session) {
-    return {
-      label: msg("terminal.project.status.idle", "Idle"),
-      tone: "idle",
-      detail: formatProjectSummary(configuredProvider, configuredModel, msg("terminal.project.summary.empty", "No messages yet")),
-    };
-  }
-
-  const source = session.currentSource === "remote"
-    ? "remote"
-    : (session.currentSource === "workgroup" ? "workgroup" : "desktop");
-  const visibleQueue = session.queue.filter((entry) => entry.source !== "workgroup");
-  const isPrivateRunActive = session.isRunning && session.currentSource !== "workgroup";
-  if (isPrivateRunActive) {
-    return {
-      label: msg("terminal.project.status.running", "Running"),
-      tone: "running",
-      detail: formatProjectSummary(
-        session.provider,
-        session.model,
-        msg("terminal.project.summary.running", "Active via {source}", {
-          source: translateSource(source),
-        }),
-      ),
-    };
-  }
-
-  if (visibleQueue.length > 0) {
-    return {
-      label: msg("terminal.project.status.queued", "Queued"),
-      tone: "queued",
-      detail: formatProjectSummary(
-        configuredProvider,
-        configuredModel,
-        msg("terminal.project.summary.queued", "{count} queued", {
-          count: String(visibleQueue.length),
-        }),
-      ),
-    };
-  }
-
-  const latestActivity = getLatestActivity(session);
-  if (latestActivity?.status === "error") {
-    return {
-      label: msg("terminal.project.status.error", "Error"),
-      tone: "error",
-      detail: formatProjectSummary(
-        configuredProvider,
-        configuredModel,
-        latestActivity.title || latestActivity.detail || msg("terminal.project.summary.error", "Latest run failed"),
-      ),
-    };
-  }
-
-  if (getVisibleSessionMessages(session).length > 0) {
-    return {
-      label: msg("terminal.project.status.ready", "Ready"),
-      tone: "ready",
-      detail: formatProjectSummary(
-        configuredProvider,
-        configuredModel,
-        msg("terminal.project.summary.ready", "Ready for the next prompt"),
-      ),
-    };
-  }
-
-  return {
-    label: msg("terminal.project.status.idle", "Idle"),
-    tone: "idle",
-    detail: formatProjectSummary(configuredProvider, configuredModel, msg("terminal.project.summary.empty", "No messages yet")),
-  };
+  return projectRuntimeRules.buildProjectStatusMeta({
+    project,
+    session,
+    inlineText,
+    msg,
+    providerLabel,
+    modelLabel,
+    translateSource,
+    translateKind,
+    translateCliStream,
+    translateActivityStatus,
+    previewText,
+  });
 }
 
 function setActiveProject(projectId: string | null): void {
@@ -2298,129 +2196,20 @@ function buildOverviewState(
   session: SessionSnapshot | null,
   provider: "claude" | "codex",
 ): OverviewState {
-  if (!project) {
-    return {
-      tone: "idle",
-      kicker: inlineText("Workbench", "\u5de5\u4f5c\u53f0"),
-      title: inlineText("Select a project to start", "\u9009\u62e9\u4e00\u4e2a\u9879\u76ee\u5f00\u59cb"),
-      detail: inlineText(
-        "Conversation stays in front. Activity, CLI, and Queue are organized as secondary views.",
-        "\u5bf9\u8bdd\u4f18\u5148\u5c55\u793a\uff0c\u6d3b\u52a8\u3001CLI \u548c\u961f\u5217\u653e\u5728\u4e0b\u65b9\u5207\u6362\u533a\u3002",
-      ),
-      source: inlineText("Idle", "\u7a7a\u95f2"),
-      signal: inlineText("Waiting", "\u7b49\u5f85"),
-    };
-  }
-
-  if (!session) {
-    return {
-      tone: "idle",
-      kicker: inlineText("Loading", "\u52a0\u8f7d\u4e2d"),
-      title: inlineText("Loading session state", "\u6b63\u5728\u52a0\u8f7d\u4f1a\u8bdd\u72b6\u6001"),
-      detail: inlineText(
-        "Project context is ready. Recent messages and execution state will appear here shortly.",
-        "\u9879\u76ee\u4e0a\u4e0b\u6587\u5df2\u5c31\u7eea\uff0c\u6700\u8fd1\u7684\u6d88\u606f\u4e0e\u6267\u884c\u72b6\u6001\u4f1a\u5f88\u5feb\u51fa\u73b0\u5728\u8fd9\u91cc\u3002",
-      ),
-      source: inlineText("Idle", "\u7a7a\u95f2"),
-      signal: inlineText("Loading", "\u52a0\u8f7d"),
-    };
-  }
-
-  const latestActivity = getLatestActivity(session);
-  const latestCliEntry = getLatestCliEntry(session);
-  const latestMessage = getLatestMessage(session);
-
-  if (session.isRunning) {
-    return {
-      tone: "running",
-      kicker: provider === "codex"
-        ? inlineText("Executing now", "\u6b63\u5728\u6267\u884c")
-        : inlineText("Working now", "\u6b63\u5728\u5904\u7406"),
-      title: previewText(session.currentPrompt, 144) || inlineText("Current run in progress", "\u5f53\u524d\u4efb\u52a1\u6267\u884c\u4e2d"),
-      detail: previewText(latestActivity?.detail || latestActivity?.title || latestCliEntry?.text, 180) || inlineText(
-        "Live execution is updating below. Open Activity or CLI for full detail.",
-        "\u4e0b\u65b9\u4f1a\u6301\u7eed\u66f4\u65b0\u6267\u884c\u7ec6\u8282\uff0c\u9700\u8981\u65f6\u53ef\u4ee5\u5207\u5230\u6d3b\u52a8\u6216 CLI \u67e5\u770b\u3002",
-      ),
-      source: translateSource(session.currentSource ?? "desktop"),
-      signal: latestActivity
-        ? translateKind(latestActivity.kind)
-        : translateCliStream(latestCliEntry?.stream ?? "system"),
-    };
-  }
-
-  if (latestActivity?.status === "error") {
-    return {
-      tone: "error",
-      kicker: inlineText("Needs attention", "\u9700\u8981\u5173\u6ce8"),
-      title: previewText(latestActivity.title || latestActivity.detail, 144) || inlineText(
-        "The last run ended with an error",
-        "\u4e0a\u6b21\u8fd0\u884c\u4ee5\u9519\u8bef\u7ed3\u675f",
-      ),
-      detail: previewText(latestActivity.detail, 180) || inlineText(
-        "Open Activity or CLI to inspect the failure details.",
-        "\u53ef\u4ee5\u6253\u5f00\u6d3b\u52a8\u6216 CLI \u67e5\u770b\u5931\u8d25\u539f\u56e0\u3002",
-      ),
-      source: providerLabel(provider),
-      signal: translateActivityStatus("error"),
-    };
-  }
-
-  if (session.queue.length > 0) {
-    const nextItem = session.queue[0];
-    return {
-      tone: "queued",
-      kicker: inlineText("Queued next", "\u4e0b\u4e00\u4e2a\u961f\u5217\u4efb\u52a1"),
-      title: previewText(nextItem?.prompt, 144) || inlineText("Queued prompt", "\u5df2\u6392\u961f\u7684\u63d0\u793a"),
-      detail: session.queuedCount > 1
-        ? inlineText(
-          `${session.queuedCount} prompts are waiting to run.`,
-          `\u5171\u6709 ${session.queuedCount} \u6761\u63d0\u793a\u5728\u7b49\u5f85\u6267\u884c\u3002`,
-        )
-        : inlineText(
-          "The next prompt is ready and waiting.",
-          "\u4e0b\u4e00\u6761\u63d0\u793a\u5df2\u5728\u961f\u5217\u4e2d\u7b49\u5f85\u6267\u884c\u3002",
-        ),
-      source: translateSource(nextItem?.source ?? "desktop"),
-      signal: msg("terminal.project.status.queued", "Queued"),
-    };
-  }
-
-  if (latestMessage) {
-    const latestSource = latestMessage.role === "user"
-      ? translateSource(latestMessage.source)
-      : providerLabel(latestMessage.provider ?? provider);
-    return {
-      tone: latestMessage.status === "streaming" ? "running" : "ready",
-      kicker: latestMessage.role === "assistant"
-        ? inlineText("Latest reply", "\u6700\u65b0\u56de\u590d")
-        : inlineText("Latest message", "\u6700\u65b0\u6d88\u606f"),
-      title: previewText(latestMessage.content, 144) || inlineText("Message ready", "\u6d88\u606f\u5df2\u5c31\u7eea"),
-      detail: latestMessage.role === "user"
-        ? inlineText("Awaiting the next assistant step.", "\u6b63\u5728\u7b49\u5f85\u4e0b\u4e00\u6b65\u56de\u5e94\u3002")
-        : inlineText("Ready for the next prompt.", "\u5df2\u5c31\u7eea\uff0c\u53ef\u4ee5\u7ee7\u7eed\u53d1\u9001\u4e0b\u4e00\u6761\u63d0\u793a\u3002"),
-      source: latestSource,
-      signal: latestMessage.status === "streaming"
-        ? msg("terminal.state.running", "Running")
-        : msg("terminal.project.status.ready", "Ready"),
-    };
-  }
-
-  return {
-    tone: "ready",
-    kicker: inlineText("Ready", "\u5c31\u7eea"),
-    title: inlineText("Start the next prompt", "\u53ef\u4ee5\u5f00\u59cb\u4e0b\u4e00\u6761\u63d0\u793a"),
-    detail: provider === "codex"
-      ? inlineText(
-        "Execution details remain close by in CLI and Activity when you need them.",
-        "CLI \u4e0e\u6d3b\u52a8\u8be6\u60c5\u4ecd\u7136\u5728\u4e0b\u65b9\uff0c\u9700\u8981\u65f6\u53ef\u4ee5\u968f\u65f6\u5207\u6362\u3002",
-      )
-      : inlineText(
-        "Stay in the conversation by default, then open CLI only when you need deeper execution detail.",
-        "\u9ed8\u8ba4\u4ee5\u5bf9\u8bdd\u4e3a\u4e3b\uff0c\u9700\u8981\u66f4\u6df1\u6267\u884c\u7ec6\u8282\u65f6\u518d\u6253\u5f00 CLI\u3002",
-      ),
-    source: inlineText("Desktop", "\u684c\u9762\u7aef"),
-    signal: msg("terminal.project.status.ready", "Ready"),
-  };
+  return projectRuntimeRules.buildOverviewState({
+    project,
+    session,
+    provider,
+    inlineText,
+    msg,
+    providerLabel,
+    modelLabel,
+    translateSource,
+    translateKind,
+    translateCliStream,
+    translateActivityStatus,
+    previewText,
+  });
 }
 
 function renderSessionOverview(): void {
