@@ -108,6 +108,8 @@ import com.claudecode.remote.data.model.MessageAttachment
 import com.claudecode.remote.data.model.MessageRole
 import com.claudecode.remote.data.model.MessageType
 import com.claudecode.remote.domain.TransferCenterItem
+import com.claudecode.remote.ui.common.ClientCapabilities
+import com.claudecode.remote.ui.common.ProviderUi
 import com.claudecode.remote.ui.common.animateScrollToItemBottom
 import com.claudecode.remote.ui.common.rememberEventCoroutineScope
 import com.claudecode.remote.ui.common.scrollToItemBottom
@@ -818,8 +820,7 @@ private fun queueSourceLabel(source: String): String =
         else -> source.ifBlank { stringResource(R.string.chat_queue_source_unknown) }
     }
 
-private fun providerLabel(provider: String): String =
-    if (provider == "codex") "OpenAI Codex" else "Claude Code"
+private fun providerLabel(provider: String): String = ProviderUi.label(provider)
 
 private fun modelLabel(model: String?): String =
     model?.trim().takeUnless { it.isNullOrEmpty() } ?: "Auto"
@@ -1564,6 +1565,7 @@ private fun InputBar(
             Row(
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                if (ClientCapabilities.supportsMessageAttachments) {
                   Surface(
                       shape = RoundedCornerShape(16.dp),
                       color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.36f)
@@ -1579,6 +1581,7 @@ private fun InputBar(
                             tint = MaterialTheme.colorScheme.onSurface
                         )
                     }
+                }
                 }
                 Spacer(modifier = Modifier.width(8.dp))
                 OutlinedTextField(

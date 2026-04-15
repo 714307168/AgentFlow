@@ -1784,10 +1784,14 @@
     <div class="status" id="status"></div>
   </div>
 
+  <script src="./provider-ui.js"></script>
+  <script src="./client-capabilities.js"></script>
   <script src="./settings-provider-runtime.js"></script>
   <script src="./settings-pane-loaders.js"></script>
   <script>
     const api = window.claudeAgent;
+    const providerUi = window.ProviderUi;
+    const clientCapabilitiesApi = window.ClientCapabilities;
     const providerRuntimeApi = window.SettingsProviderRuntime;
     const settingsPaneLoaders = window.SettingsPaneLoaders;
     let currentLang = "en";
@@ -1802,6 +1806,7 @@
     let latestLocalDataMetrics = null;
     let latestRelayTransfers = [];
     let latestRelayDevices = [];
+    let latestLocalCommands = [];
     let latestProjectCatalog = [];
     let latestScheduledTasks = [];
     let scheduledTaskFilter = "all";
@@ -1916,7 +1921,44 @@
     }
 
     function providerLabel(provider) {
-      return providerRuntimeApi?.getProviderLabel(provider) || (provider === "codex" ? "OpenAI Codex" : "Claude Code");
+      return providerUi?.getProviderLabel?.(provider) || providerRuntimeApi?.getProviderLabel(provider) || (provider === "codex" ? "OpenAI Codex" : "Claude Code");
+    }
+
+    function supportsDesktopCapability(key) {
+      return clientCapabilitiesApi?.supportsDesktopCapability?.(key) !== false;
+    }
+
+    function hasLocalCommand(commandId) {
+      return latestLocalCommands.some((entry) => entry?.id === commandId);
+    }
+
+    async function loadLocalCommands() {
+      if (!api.listLocalCommands) {
+        latestLocalCommands = [];
+        return latestLocalCommands;
+      }
+      try {
+        const commands = await api.listLocalCommands();
+        latestLocalCommands = Array.isArray(commands) ? commands : [];
+      } catch {
+        latestLocalCommands = [];
+      }
+      return latestLocalCommands;
+    }
+
+    async function invokeLocalCommand(commandId, payload, fallback) {
+      if (api.runLocalCommand && (!latestLocalCommands.length || hasLocalCommand(commandId))) {
+        const result = await api.runLocalCommand({ commandId, payload });
+        if (!result?.success) {
+          return { success: false, error: result?.error || inlineText("Local command failed.", "本地命令执行失败。") };
+        }
+        return { success: true, data: result.data };
+      }
+      if (typeof fallback === "function") {
+        const data = await fallback();
+        return { success: true, data };
+      }
+      return { success: false, error: inlineText("Local command is unavailable.", "本地命令当前不可用。") };
     }
 
     function providerAvailability(provider) {
@@ -2209,36 +2251,10 @@
         return;
       }
       const statusMap = latestCliProviderRuntimeStatus || {};
-      const providers = providerRuntimeApi?.PROVIDERS || [
+      const providers = providerUi?.listProviders?.() || providerRuntimeApi?.PROVIDERS || [
         { id: "claude", label: "Claude Code" },
         { id: "codex", label: "OpenAI Codex" },
       ];
-      const getCapabilityLabel = (providerId, key) => {
-        switch (key) {
-          case "promptExecution":
-            return inlineText("Prompt Runs", "执行任务");
-          case "resumeConversation":
-            return inlineText("Resume", "续接会话");
-          case "webSearch":
-            return inlineText("Web Search", "联网搜索");
-          case "reviewCommand":
-            return inlineText("Review", "代码评审");
-          case "featuresCommand":
-            return inlineText("Features", "特性列表");
-          case "mcpCommand":
-            return inlineText("MCP", "MCP");
-          case "completionCommand":
-            return inlineText("Completion", "补全脚本");
-          case "versionCommand":
-            return inlineText("Version", "版本查询");
-          case "nativeTools":
-            return providerId === "codex"
-              ? inlineText("Built-in Tools", "内置工具")
-              : inlineText("Native Tools", "原生工具");
-          default:
-            return key;
-        }
-      };
       container.innerHTML = providers.map(({ id, label }) => {
         const status = statusMap[id] || null;
         const runtimeMode = providerRuntimeApi?.getProviderRuntimeMode
@@ -2298,7 +2314,7 @@
             <div class="runtime-status-chip-row">
               ${capabilityEntries.map((entry) => `
                 <div class="runtime-status-chip ${entry.available ? "ok" : "error"}">
-                  ${escapeHtml(getCapabilityLabel(id, entry.key))}
+                  ${escapeHtml(providerRuntimeApi?.getProviderCapabilityLabel?.(id, entry.key, currentLang) || entry.key)}
                 </div>
               `).join("")}
             </div>
@@ -5384,6 +5400,7 @@
         api.getAppSettings(),
         api.getUpdateState(),
         api.getCliProviderRuntimeStatus(),
+        loadLocalCommands(),
       ]);
       latestConfig = config || null;
       latestAppSettings = appSettings || null;
@@ -5558,7 +5575,11 @@
     document.getElementById("openLocalDataRootBtn").addEventListener("click", async () => {
       try {
         const currentPath = document.getElementById("localDataRoot").value.trim();
-        const result = await api.openLocalDataRoot(currentPath || null);
+        const result = await invokeLocalCommand(
+          "storage.openLocalDataRoot",
+          currentPath || null,
+          () => api.openLocalDataRoot ? api.openLocalDataRoot(currentPath || null) : Promise.resolve({ success: false, error: inlineText("Failed to open the data folder.", "打开数据目录失败。") })
+        );
         if (!result?.success) {
           showStatus(result?.error || inlineText("Failed to open the data folder.", "打开数据目录失败。"), true);
         }
@@ -5573,18 +5594,23 @@
       button.disabled = true;
       button.textContent = inlineText("Uploading...", "上传中...");
       try {
-        const result = await api.uploadDesktopLogs();
+        const result = await invokeLocalCommand(
+          "diagnostics.uploadLogs",
+          undefined,
+          () => api.uploadDesktopLogs ? api.uploadDesktopLogs() : Promise.resolve({ success: false, error: inlineText("Failed to upload desktop logs.", "上传桌面日志失败。") })
+        );
         if (!result?.success) {
           showStatus(result?.error || inlineText("Failed to upload desktop logs.", "上传桌面日志失败。"), true);
           return;
         }
+        const payload = result.data || {};
         flashSaved();
         paneLoadState.localDataDirty = true;
         await refreshLocalDataMetrics({ force: true });
         showStatus(
           inlineText(
-            "Desktop logs uploaded for analysis. Log ID: " + (result.logId || "-"),
-            "桌面日志已上传，可在分析页查看。日志 ID: " + (result.logId || "-")
+            "Desktop logs uploaded for analysis. Log ID: " + (payload.logId || "-"),
+            "桌面日志已上传，可在分析页查看。日志 ID: " + (payload.logId || "-")
           ),
           false
         );
@@ -5602,16 +5628,21 @@
       button.disabled = true;
       button.textContent = inlineText("Exporting...", "导出中...");
       try {
-        const result = await api.exportDesktopDiagnosticsBundle();
+        const result = await invokeLocalCommand(
+          "diagnostics.exportBundle",
+          undefined,
+          () => api.exportDesktopDiagnosticsBundle ? api.exportDesktopDiagnosticsBundle() : Promise.resolve({ success: false, error: inlineText("Failed to export diagnostics bundle.", "导出诊断包失败。") })
+        );
         if (!result?.success) {
           showStatus(result?.error || inlineText("Failed to export diagnostics bundle.", "导出诊断包失败。"), true);
           return;
         }
+        const payload = result.data || {};
         flashSaved();
         showStatus(
           inlineText(
-            "Diagnostics bundle exported: " + (result.bundlePath || "-"),
-            "诊断包已导出: " + (result.bundlePath || "-")
+            "Diagnostics bundle exported: " + (payload.bundlePath || "-"),
+            "诊断包已导出: " + (payload.bundlePath || "-")
           ),
           false
         );
@@ -5791,7 +5822,15 @@
     document.getElementById("reconnectBtn").addEventListener("click", async () => {
       try {
         await saveConnectionConfig();
-        await api.reconnectRelay();
+        const reconnectResult = await invokeLocalCommand(
+          "relay.reconnect",
+          undefined,
+          () => api.reconnectRelay ? api.reconnectRelay() : Promise.resolve(false)
+        );
+        if (!reconnectResult?.success) {
+          showStatus(reconnectResult?.error || inlineText("Failed to reconnect.", "重新连接失败。"), true);
+          return;
+        }
         showStatus(msg("settings.saved", "Reconnecting..."), false);
         setTimeout(async () => {
           const e2e = await api.getE2EStatus();
@@ -5857,8 +5896,16 @@
 
     document.getElementById("checkUpdatesBtn").addEventListener("click", async () => {
       try {
-        const state = await api.checkForUpdates();
-        renderUpdateState(state);
+        const result = await invokeLocalCommand(
+          "updates.check",
+          undefined,
+          () => api.checkForUpdates ? api.checkForUpdates() : Promise.resolve(null)
+        );
+        if (!result?.success) {
+          showStatus(result?.error || inlineText("Failed to check for updates.", "检查更新失败。"), true);
+          return;
+        }
+        renderUpdateState(result.data || null);
       } catch (error) {
         showStatus(getErrorMessage(error), true);
       }
@@ -5866,8 +5913,16 @@
 
     document.getElementById("downloadUpdateBtn").addEventListener("click", async () => {
       try {
-        const state = await api.downloadAvailableUpdate();
-        renderUpdateState(state);
+        const result = await invokeLocalCommand(
+          "updates.download",
+          undefined,
+          () => api.downloadAvailableUpdate ? api.downloadAvailableUpdate() : Promise.resolve(null)
+        );
+        if (!result?.success) {
+          showStatus(result?.error || inlineText("Failed to download the update.", "下载更新失败。"), true);
+          return;
+        }
+        renderUpdateState(result.data || null);
       } catch (error) {
         showStatus(getErrorMessage(error), true);
       }
@@ -5875,7 +5930,16 @@
 
     document.getElementById("installUpdateBtn").addEventListener("click", async () => {
       try {
-        const success = await api.installDownloadedUpdate();
+        const result = await invokeLocalCommand(
+          "updates.install",
+          undefined,
+          () => api.installDownloadedUpdate ? api.installDownloadedUpdate() : Promise.resolve(false)
+        );
+        if (!result?.success) {
+          showStatus(result?.error || inlineText("Failed to launch the installer.", "启动安装程序失败。"), true);
+          return;
+        }
+        const success = result.data === true;
         if (success) {
           showStatus(inlineText("Installer launched.", "安装程序已启动。"), false);
         }
@@ -6184,6 +6248,9 @@
     document.getElementById("closeBtn").addEventListener("click", () => api.closeWindow());
 
     async function initialize() {
+      if (supportsDesktopCapability("localCommandGateway")) {
+        await loadLocalCommands();
+      }
       await loadSettings();
       setActiveSettingsPane(activeSettingsPane);
     }

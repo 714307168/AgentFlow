@@ -1,49 +1,51 @@
 (function initSettingsProviderRuntime(root, factory) {
-  const api = factory();
+  const api = factory(root);
   if (typeof module === "object" && module.exports) {
     module.exports = api;
   }
   if (root) {
     root.SettingsProviderRuntime = api;
   }
-})(typeof globalThis !== "undefined" ? globalThis : this, function createSettingsProviderRuntime() {
-  const PROVIDERS = [
-    {
-      id: "claude",
-      label: "Claude Code",
-      apiKeyField: "anthropicApiKey",
-      capabilityKeys: [
-        "promptExecution",
-        "resumeConversation",
-        "versionCommand",
-        "nativeTools",
-      ],
-    },
-    {
-      id: "codex",
-      label: "OpenAI Codex",
-      apiKeyField: "openaiApiKey",
-      capabilityKeys: [
-        "promptExecution",
-        "resumeConversation",
-        "webSearch",
-        "reviewCommand",
-        "featuresCommand",
-        "mcpCommand",
-        "completionCommand",
-        "versionCommand",
-        "nativeTools",
-      ],
-    },
-  ];
+})(typeof globalThis !== "undefined" ? globalThis : this, function createSettingsProviderRuntime(root) {
+  const providerUi = root?.ProviderUi || null;
+  const PROVIDERS = providerUi?.listProviders
+    ? providerUi.listProviders()
+    : [
+      {
+        id: "claude",
+        label: "Claude Code",
+        apiKeyField: "anthropicApiKey",
+        capabilityKeys: [
+          "promptExecution",
+          "resumeConversation",
+          "versionCommand",
+          "nativeTools",
+        ],
+      },
+      {
+        id: "codex",
+        label: "OpenAI Codex",
+        apiKeyField: "openaiApiKey",
+        capabilityKeys: [
+          "promptExecution",
+          "resumeConversation",
+          "webSearch",
+          "reviewCommand",
+          "featuresCommand",
+          "mcpCommand",
+          "completionCommand",
+          "versionCommand",
+          "nativeTools",
+        ],
+      },
+    ];
 
   function normalizeProviderId(provider) {
     return provider === "codex" ? "codex" : "claude";
   }
 
   function getProviderLabel(provider) {
-    const normalized = normalizeProviderId(provider);
-    return PROVIDERS.find((entry) => entry.id === normalized)?.label || "Claude Code";
+    return providerUi?.getProviderLabel?.(provider) || getProviderEntry(provider).label;
   }
 
   function getProviderEntry(provider) {
@@ -143,6 +145,10 @@
     }));
   }
 
+  function getProviderCapabilityLabel(provider, key, lang) {
+    return providerUi?.getProviderCapabilityLabel?.(provider, key, lang === "zh" ? "zh" : "en") || key;
+  }
+
   return {
     PROVIDERS,
     normalizeProviderId,
@@ -154,5 +160,6 @@
     getProviderRuntimeMode,
     getInstallMethodLabel,
     getProviderCapabilityEntries,
+    getProviderCapabilityLabel,
   };
 });

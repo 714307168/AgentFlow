@@ -64,6 +64,7 @@ import androidx.lifecycle.LifecycleOwner
 import com.claudecode.remote.R
 import com.claudecode.remote.data.model.Session
 import com.claudecode.remote.data.remote.RelayWebSocket
+import com.claudecode.remote.ui.common.ProviderUi
 import com.claudecode.remote.update.AppUpdateState
 import com.claudecode.remote.update.AppUpdateStatus
 
@@ -597,8 +598,7 @@ private fun HeaderActionButton(
     }
 }
 
-private fun providerLabel(provider: String): String =
-    if (provider == "codex") "OpenAI Codex" else "Claude Code"
+private fun providerLabel(provider: String): String = ProviderUi.label(provider)
 
 private fun modelLabel(model: String?): String =
     model?.trim().takeUnless { it.isNullOrEmpty() } ?: "Auto"

@@ -3,6 +3,12 @@ type WorkspaceView = "messages" | "activity" | "cli" | "queue";
 type SidebarListMode = "messages" | "contacts";
 type AttachmentKind = "image" | "file";
 const MAX_ACTIVITY_PANEL_ITEMS = 30;
+type ProviderUiApi = {
+  getProviderLabel?: (provider: string) => string;
+};
+type ClientCapabilitiesApi = {
+  supportsDesktopCapability?: (key: string) => boolean;
+};
 
 interface LangPayload {
   lang: Lang;
@@ -606,8 +612,36 @@ function getLocale(): string {
   return state.lang === "zh" ? "zh-CN" : "en-US";
 }
 
+function getProviderUiApi(): ProviderUiApi | null {
+  const root = globalThis as unknown as { ProviderUi?: ProviderUiApi };
+  return root.ProviderUi ?? null;
+}
+
+function getClientCapabilitiesApi(): ClientCapabilitiesApi | null {
+  const root = globalThis as unknown as { ClientCapabilities?: ClientCapabilitiesApi };
+  return root.ClientCapabilities ?? null;
+}
+
 function providerLabel(provider: "claude" | "codex"): string {
-  return provider === "codex" ? "OpenAI Codex" : "Claude Code";
+  return getProviderUiApi()?.getProviderLabel?.(provider) || (provider === "codex" ? "OpenAI Codex" : "Claude Code");
+}
+
+function supportsDesktopCapability(key: string): boolean {
+  return getClientCapabilitiesApi()?.supportsDesktopCapability?.(key) !== false;
+}
+
+function syncAttachmentButtons(): void {
+  const imageSupported = supportsDesktopCapability("messageAttachmentImages");
+  const fileSupported = supportsDesktopCapability("messageAttachmentFiles");
+
+  if (elements.attachImageBtn) {
+    elements.attachImageBtn.hidden = !imageSupported;
+    elements.attachImageBtn.disabled = !state.projectId || !imageSupported;
+  }
+  if (elements.attachFileBtn) {
+    elements.attachFileBtn.hidden = !fileSupported;
+    elements.attachFileBtn.disabled = !state.projectId || !fileSupported;
+  }
 }
 
 function modelLabel(model: string | null | undefined): string {
@@ -2044,7 +2078,7 @@ function closeAttachmentPreview(): void {
 }
 
 async function saveClipboardImageAttachment(): Promise<void> {
-  if (!state.projectId || !api.saveClipboardProjectImage) {
+  if (!supportsDesktopCapability("clipboardImagePaste") || !state.projectId || !api.saveClipboardProjectImage) {
     return;
   }
 
@@ -3237,12 +3271,7 @@ function renderHeader(): void {
     if (elements.stopBtn) {
       elements.stopBtn.disabled = true;
     }
-    if (elements.attachImageBtn) {
-      elements.attachImageBtn.disabled = true;
-    }
-    if (elements.attachFileBtn) {
-      elements.attachFileBtn.disabled = true;
-    }
+    syncAttachmentButtons();
     if (elements.activityTab) {
       elements.activityTab.disabled = true;
     }
@@ -3346,12 +3375,7 @@ function renderHeader(): void {
   if (elements.stopBtn) {
     elements.stopBtn.disabled = !session?.isRunning;
   }
-  if (elements.attachImageBtn) {
-    elements.attachImageBtn.disabled = !state.projectId;
-  }
-  if (elements.attachFileBtn) {
-    elements.attachFileBtn.disabled = !state.projectId;
-  }
+  syncAttachmentButtons();
   if (elements.activityTab) {
     elements.activityTab.disabled = !state.projectId;
   }
@@ -3908,6 +3932,10 @@ async function loadOlderHistory(kind: "messages" | "activities" | "cli"): Promis
 }
 
 async function pickAttachments(kind: AttachmentKind): Promise<void> {
+  if ((kind === "image" && !supportsDesktopCapability("messageAttachmentImages"))
+    || (kind === "file" && !supportsDesktopCapability("messageAttachmentFiles"))) {
+    return;
+  }
   if (!state.projectId || !api.pickProjectAttachments) {
     return;
   }
@@ -4390,6 +4418,9 @@ elements.composerInput?.addEventListener("blur", () => {
 });
 
 elements.composerInput?.addEventListener("paste", (event) => {
+  if (!supportsDesktopCapability("clipboardImagePaste")) {
+    return;
+  }
   const items = Array.from(event.clipboardData?.items ?? []);
   if (!items.some((item) => item.type.startsWith("image/"))) {
     return;
