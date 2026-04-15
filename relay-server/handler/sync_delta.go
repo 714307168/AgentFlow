@@ -18,8 +18,9 @@ type syncKnownProject struct {
 }
 
 type syncDeltaRequest struct {
-	SinceRevision string             `json:"since_revision"`
-	KnownProjects []syncKnownProject `json:"known_projects"`
+	SinceRevision   string             `json:"since_revision"`
+	KnownProjects   []syncKnownProject `json:"known_projects"`
+	KnownProjectIDs []string           `json:"known_project_ids"`
 }
 
 type syncDeltaResponse struct {
@@ -63,7 +64,19 @@ func SyncDeltaHandler(h *hub.Hub, cfg *config.Config, st *store.Store) http.Hand
 		agentID, _ := st.GetDeviceAgentID(claims.DeviceID)
 		projects := h.GetAccessibleProjectsByDevice(claims.DeviceID)
 		revision := buildSyncRevision(agentID, projects)
-		upserts, removes := buildSyncProjectDelta(projects, req.KnownProjects)
+		if strings.TrimSpace(req.SinceRevision) != "" && strings.TrimSpace(req.SinceRevision) == revision {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(syncDeltaResponse{
+				AgentID:        agentID,
+				Revision:       revision,
+				ProjectCount:   len(projects),
+				Changed:        false,
+				ProjectUpserts: []model.ProjectListItem{},
+				ProjectRemoves: []string{},
+			})
+			return
+		}
+		upserts, removes := buildSyncProjectDelta(projects, req.KnownProjects, req.KnownProjectIDs)
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(syncDeltaResponse{
@@ -77,14 +90,23 @@ func SyncDeltaHandler(h *hub.Hub, cfg *config.Config, st *store.Store) http.Hand
 	}
 }
 
-func buildSyncProjectDelta(projects []model.ProjectListItem, knownProjects []syncKnownProject) ([]model.ProjectListItem, []string) {
+func buildSyncProjectDelta(projects []model.ProjectListItem, knownProjects []syncKnownProject, knownProjectIDs []string) ([]model.ProjectListItem, []string) {
 	knownByProjectID := make(map[string]string, len(knownProjects))
+	knownIDSet := make(map[string]struct{}, len(knownProjects)+len(knownProjectIDs))
 	for _, item := range knownProjects {
 		projectID := strings.TrimSpace(item.ProjectID)
 		if projectID == "" {
 			continue
 		}
 		knownByProjectID[projectID] = strings.TrimSpace(item.Signature)
+		knownIDSet[projectID] = struct{}{}
+	}
+	for _, projectID := range knownProjectIDs {
+		normalizedProjectID := strings.TrimSpace(projectID)
+		if normalizedProjectID == "" {
+			continue
+		}
+		knownIDSet[normalizedProjectID] = struct{}{}
 	}
 
 	currentByProjectID := make(map[string]model.ProjectListItem, len(projects))
@@ -95,13 +117,15 @@ func buildSyncProjectDelta(projects []model.ProjectListItem, knownProjects []syn
 			continue
 		}
 		currentByProjectID[projectID] = project
-		if knownSignature, ok := knownByProjectID[projectID]; !ok || knownSignature != buildProjectSyncSignature(project) {
+		knownSignature, hasKnownSignature := knownByProjectID[projectID]
+		_, knownToClient := knownIDSet[projectID]
+		if (hasKnownSignature && knownSignature != buildProjectSyncSignature(project)) || (!hasKnownSignature && !knownToClient) {
 			upserts = append(upserts, project)
 		}
 	}
 
 	removes := make([]string, 0)
-	for projectID := range knownByProjectID {
+	for projectID := range knownIDSet {
 		if _, ok := currentByProjectID[projectID]; !ok {
 			removes = append(removes, projectID)
 		}

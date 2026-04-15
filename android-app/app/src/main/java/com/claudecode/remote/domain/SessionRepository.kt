@@ -446,7 +446,8 @@ class SessionRepository(
                 auth = "Bearer $token",
                 request = SyncDeltaRequest(
                     sinceRevision = previousRevision,
-                    knownProjects = buildKnownProjectsForDelta(cachedSessions)
+                    knownProjects = buildKnownProjectsForDelta(cachedSessions),
+                    knownProjectIds = buildKnownProjectIdsForDelta(cachedSessions)
                 )
             )
         }.onSuccess {

@@ -202,7 +202,8 @@ data class SyncKnownProject(
 @Serializable
 data class SyncDeltaRequest(
     @SerialName("since_revision") val sinceRevision: String? = null,
-    @SerialName("known_projects") val knownProjects: List<SyncKnownProject> = emptyList()
+    @SerialName("known_projects") val knownProjects: List<SyncKnownProject> = emptyList(),
+    @SerialName("known_project_ids") val knownProjectIds: List<String> = emptyList()
 )
 
 @Serializable

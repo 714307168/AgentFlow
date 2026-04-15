@@ -5,12 +5,28 @@ import com.claudecode.remote.data.remote.ProjectInfo
 import com.claudecode.remote.data.remote.SyncKnownProject
 import java.security.MessageDigest
 
-internal fun buildKnownProjectsForDelta(sessions: Collection<SessionEntity>): List<SyncKnownProject> =
+internal fun buildKnownProjectsForDelta(
+    sessions: Collection<SessionEntity>,
+    nowMs: Long = System.currentTimeMillis()
+): List<SyncKnownProject> =
     sessions
         .asSequence()
         .mapNotNull { session ->
             val projectId = session.projectId.trim()
             if (projectId.isEmpty()) {
+                return@mapNotNull null
+            }
+            val syncBucket = resolveSessionSyncBucket(
+                explicitBucket = session.syncBucket,
+                isRunning = session.isRunning,
+                queuedCount = session.queuedCount,
+                lastActiveAt = session.lastActiveAt,
+                createdAt = session.createdAt,
+                hasProjectSignature = !session.projectSignature.isNullOrBlank(),
+                hasSnapshotRevision = !session.snapshotRevision.isNullOrBlank(),
+                nowMs = nowMs
+            )
+            if (!shouldSendProjectSignatureForDelta(syncBucket)) {
                 return@mapNotNull null
             }
             SyncKnownProject(
@@ -20,6 +36,15 @@ internal fun buildKnownProjectsForDelta(sessions: Collection<SessionEntity>): Li
         }
         .distinctBy { it.projectId }
         .sortedBy { it.projectId }
+        .toList()
+
+internal fun buildKnownProjectIdsForDelta(sessions: Collection<SessionEntity>): List<String> =
+    sessions
+        .asSequence()
+        .map { session -> session.projectId.trim() }
+        .filter { it.isNotEmpty() }
+        .distinct()
+        .sorted()
         .toList()
 
 internal fun mergeSessionEntityFromProject(

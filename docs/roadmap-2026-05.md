@@ -513,6 +513,8 @@
 - [x] Android session persistence now stores \`projectSignature\`, and the session-shell sync planner skips signed dormant projects when enough active targets are available, trimming another slice of redundant foreground/reconnect shell-sync requests without starving hotter projects.
 - [x] Local runtime snapshots now compute and publish an explicit \`sync_bucket\` (\`hot / warm / cold / dormant\`) alongside \`project_signature\`, keeping the cold-project classification in one place instead of forcing each client to infer it independently.
 - [x] Android session persistence now stores \`syncBucket\` and prefers the runtime-provided bucket during shell-sync planning, while still falling back to local activity timestamps for sessions that predate the new payload field.
+- [x] Android device-delta requests now send all cached \`known_project_ids\` but only include full project signatures for \`hot / warm\` sessions, cutting repeated cold-project signature uploads without losing remove detection for dormant projects.
+- [x] Relay \`/api/device/sync/delta\` now short-circuits on matching \`since_revision\` and understands partial known-signature requests, so unchanged revisions return immediately and omitted cold-project signatures no longer force false-positive upserts.
 
 ## Next Optimization Queue 2026-04-15
 
