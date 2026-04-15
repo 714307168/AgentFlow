@@ -38,6 +38,7 @@ import WorkgroupCollaborationService, {
   WorkgroupCollaborationSummary,
 } from "./workgroup-collaboration-service";
 import { buildSessionSyncPayload } from "./session-sync-payload";
+import { shouldUseSummaryOnlyProjectSync, type RemoteProjectSyncDetailMode } from "./remote-project-sync-priority";
 import {
   type SessionSyncKnownItemDigest,
 } from "./session-sync-hash";
@@ -2185,7 +2186,7 @@ function broadcastProjectsChanged(): void {
     activeWorkspaceProjectId = projects[0]?.id ?? null;
     activeWorkgroupCollaborationId = null;
     if (activeWorkspaceProjectId && isRemoteProject(activeWorkspaceProjectId)) {
-      requestRemoteProjectSync(activeWorkspaceProjectId, "fallback-active-project", true);
+      requestRemoteProjectSync(activeWorkspaceProjectId, "fallback-active-project", true, "full");
     }
     updateWindowTitles();
   }
@@ -3494,7 +3495,12 @@ function getRemoteProjectSyncRecency(projectId: string): number {
   );
 }
 
-function requestRemoteProjectSync(projectId: string, reason: string, force: boolean = false): boolean {
+function requestRemoteProjectSync(
+  projectId: string,
+  reason: string,
+  force: boolean = false,
+  detailMode: RemoteProjectSyncDetailMode = "auto",
+): boolean {
   const normalizedProjectId = projectId.trim();
   if (!normalizedProjectId || !remoteSessionStore || !isRemoteProject(normalizedProjectId)) {
     return false;
@@ -3508,12 +3514,22 @@ function requestRemoteProjectSync(projectId: string, reason: string, force: bool
   if (!remoteProjectSyncGate.tryStart(normalizedProjectId, { force })) {
     return false;
   }
-  remoteSessionStore.requestSessionSync(normalizedProjectId, { limit: 30 });
+  const summaryOnly = shouldUseSummaryOnlyProjectSync({
+    projectId: normalizedProjectId,
+    activeProjectId: activeWorkspaceProjectId,
+    detailMode,
+  });
+  remoteSessionStore.requestSessionSync(normalizedProjectId, {
+    limit: 30,
+    summaryOnly,
+  });
   appLogger.info("relay", "Requested remote project sync.", {
     reason,
     force,
     projectId: normalizedProjectId,
     isActiveProject: normalizedProjectId === (activeWorkspaceProjectId?.trim() ?? ""),
+    detailMode,
+    summaryOnly,
   });
   return true;
 }
@@ -3691,7 +3707,7 @@ function requestActiveRemoteProjectSync(reason: string, force: boolean = false):
     return;
   }
 
-  if (!requestRemoteProjectSync(projectId, reason, force)) {
+  if (!requestRemoteProjectSync(projectId, reason, force, "full")) {
     return;
   }
 
@@ -4152,7 +4168,7 @@ function showWorkspaceWindow(projectId?: string): void {
     if (normalizedProjectId) {
       activeWorkgroupCollaborationId = null;
       if (isRemoteProject(normalizedProjectId)) {
-        requestRemoteProjectSync(normalizedProjectId, "workspace-window-open", true);
+        requestRemoteProjectSync(normalizedProjectId, "workspace-window-open", true, "full");
       }
     }
   }
@@ -5370,7 +5386,7 @@ ipcMain.on("set-active-project", (_event, projectId: string | null) => {
   if (activeWorkspaceProjectId) {
     activeWorkgroupCollaborationId = null;
     if (isRemoteProject(activeWorkspaceProjectId)) {
-      requestRemoteProjectSync(activeWorkspaceProjectId, "workspace-project-activated", true);
+      requestRemoteProjectSync(activeWorkspaceProjectId, "workspace-project-activated", true, "full");
     }
   }
   updateWindowTitles();
@@ -5399,7 +5415,7 @@ ipcMain.handle("get-project-session", (_event, payload: string | { projectId: st
   }
 
   if (isRemoteProject(projectId) && forceRemoteSync) {
-    requestRemoteProjectSync(projectId, "open-remote-project-session", true);
+    requestRemoteProjectSync(projectId, "open-remote-project-session", true, "full");
   }
 
   return {
@@ -5423,7 +5439,7 @@ ipcMain.handle("get-project-history-page", async (_event, data: {
 
   if (isRemoteProject(data.projectId)) {
     if (!data.beforeId) {
-      requestRemoteProjectSync(data.projectId, "open-remote-project-history-page");
+      requestRemoteProjectSync(data.projectId, "open-remote-project-history-page", false, "full");
     }
     const page = await remoteSessionStore?.loadHistoryPage(data.projectId, data.kind, {
       beforeId: data.beforeId,
@@ -5877,7 +5893,7 @@ ipcMain.handle("search-project-messages", (_event, data: {
   }
 
   if (isRemoteProject(data.projectId)) {
-    requestRemoteProjectSync(data.projectId, "search-remote-project-messages");
+    requestRemoteProjectSync(data.projectId, "search-remote-project-messages", false, "full");
     return {
       success: true,
       items: remoteSessionStore?.searchMessages(data.projectId, {

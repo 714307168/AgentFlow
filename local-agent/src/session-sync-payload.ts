@@ -241,6 +241,7 @@ export function buildSessionSyncPayload(
     knownItems?: SessionSyncKnownItemDigest[];
     fullItemId?: string | null;
     knownSnapshotRevision?: string | null;
+    summaryOnly?: boolean;
   } = {},
 ): SessionSyncPayload {
   const afterSeq = Number(request.afterSeq) > 0 ? Number(request.afterSeq) : 0;
@@ -253,6 +254,8 @@ export function buildSessionSyncPayload(
     || createProjectSyncBucket(snapshot);
   const knownSnapshotRevision = request.knownSnapshotRevision?.trim() || "";
   const runtimeUnchanged = knownSnapshotRevision !== "" && knownSnapshotRevision === snapshotRevision;
+  const summaryOnly = request.summaryOnly === true;
+  const shouldOmitSyncItems = summaryOnly && !request.fullItemId;
   let payload: SessionSyncPayload = {
     sync_version: 2,
     snapshot_revision: snapshotRevision,
@@ -276,7 +279,7 @@ export function buildSessionSyncPayload(
       limit,
       latest_seq: delta.latestSeq,
       truncated: delta.truncated,
-      items: normalizeItems(delta, {
+      items: shouldOmitSyncItems ? [] : normalizeItems(delta, {
         knownItems: request.knownItems,
         fullItemId: request.fullItemId,
       }),

@@ -519,6 +519,8 @@
 - [x] Relay \`/api/device/sync/delta\` now short-circuits on matching \`since_revision\` and understands partial known-signature requests, so unchanged revisions return immediately and omitted cold-project signatures no longer force false-positive upserts.
 - [x] Desktop runtime/session summary rules now live in an independent \`renderer/project-runtime-rules\` layer, so project-list status pills, latest-preview selection, and overview-card tone/signal decisions no longer duplicate the same running/queued/error/ready priority logic inside \`terminal.ts\`.
 - [x] Added dedicated desktop runtime-rule tests covering private-run priority, workgroup noise filtering, latest-preview fallback, and overview-card queue/reply derivation, giving the \`R-runtime-rules\` release node a stable verification baseline before the next traffic-control pass.
+- [x] Desktop remote project sync now explicitly distinguishes active-detail and inactive-summary refreshes: active/open/search/history paths still request full session deltas, while follow-up/background syncs mark non-active projects as \`summary_only\` so relay replies can skip recent message/activity/CLI item payloads and retain only runtime/conversation shell state.
+- [x] Added focused tests for remote project sync priority decisions, summary-only session payload construction, and remote session request flags, so the new active-vs-background sync split has direct coverage before the ACK/backpressure work starts.
 
 ## Next Optimization Queue 2026-04-15
 
@@ -527,7 +529,7 @@
 ### P0: runtime state and traffic control
 
 1. [x] 抽离桌面端会话状态规则层，把运行中、输出中、完成、空闲、失败的切换从 UI 刷新逻辑中继续下沉到独立 runtime 模块。
-2. 把当前打开中的聊天页或项目页继续提升为高优先级实时流，列表页和非活跃项目只保留摘要、未读数、更新时间和运行状态。
+2. [x] 把当前打开中的聊天页或项目页继续提升为高优先级实时流，列表页和非活跃项目只保留摘要、未读数、更新时间和运行状态。
 3. 为消息流、活动流和 CLI 输出补 ACK / 背压窗口，避免网络抖动时持续堆积完整输出，并给非活跃会话进一步降频。
 4. 补问题诊断导出包，至少包含桌面端运行日志、最近同步摘要、最近活动窗口、provider runtime 状态和 relay API 版本信息。
 

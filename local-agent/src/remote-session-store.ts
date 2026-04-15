@@ -529,6 +529,7 @@ export default class RemoteSessionStore extends EventEmitter {
     afterSeq?: number;
     beforeSeq?: number;
     limit?: number;
+    summaryOnly?: boolean;
     action?: string;
     conversationId?: string | null;
     itemId?: string | null;
@@ -550,6 +551,7 @@ export default class RemoteSessionStore extends EventEmitter {
         after_seq: options.afterSeq ?? 0,
         before_seq: options.beforeSeq,
         limit: options.limit,
+        summary_only: options.summaryOnly === true || undefined,
         action: options.action,
         snapshot_revision: this.states.get(projectId)?.snapshotRevision ?? undefined,
         conversation_id: options.conversationId ?? undefined,
@@ -562,7 +564,7 @@ export default class RemoteSessionStore extends EventEmitter {
           codex_web_search: options.projectUpdates.codexWebSearchEnabled ?? undefined,
           project_prompt: options.projectUpdates.projectPrompt ?? undefined,
         } : undefined,
-        known_items: this.buildKnownSyncItems(projectId, options),
+        known_items: options.summaryOnly === true ? undefined : this.buildKnownSyncItems(projectId, options),
       },
     });
   }

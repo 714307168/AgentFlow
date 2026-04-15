@@ -114,3 +114,26 @@ test("remote session store does not emit run-completed for idle-to-idle sync upd
 
   assert.equal(completedCount, 0);
 });
+
+test("remote session store marks summary-only sync requests and skips known item digests", () => {
+  const sentEvents = [];
+  const relayClient = {
+    send(event) {
+      sentEvents.push(event);
+    },
+  };
+  const store = new RemoteSessionStore(relayClient, {
+    localAgentId: () => "local-agent",
+  });
+
+  listRemoteProject(store);
+  store.requestSessionSync("remote-project-1", {
+    limit: 30,
+    summaryOnly: true,
+  });
+
+  assert.equal(sentEvents.length, 1);
+  assert.equal(sentEvents[0].event, Events.SESSION_SYNC_REQUEST);
+  assert.equal(sentEvents[0].payload.summary_only, true);
+  assert.equal(sentEvents[0].payload.known_items, undefined);
+});

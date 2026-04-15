@@ -718,6 +718,7 @@ class MessageRouter {
         codex_web_search?: boolean;
         project_prompt?: string | null;
       };
+      summary_only?: boolean;
       known_items?: Array<{
         id?: string;
         content_md5?: string;
@@ -738,6 +739,7 @@ class MessageRouter {
     const requestedSnapshotRevision = typeof payloadObject?.snapshot_revision === "string"
       ? payloadObject.snapshot_revision.trim()
       : "";
+    const summaryOnly = payloadObject?.summary_only === true;
     if (action === SessionSyncActions.NEW_CONVERSATION) {
       this.options.runtimeManager.createConversation(projectId);
     } else if (action === SessionSyncActions.SWITCH_CONVERSATION && requestedConversationId) {
@@ -780,6 +782,7 @@ class MessageRouter {
       limit,
       fullItemId: action === SessionSyncActions.FETCH_ITEM_DETAIL ? requestedItemId : undefined,
       knownSnapshotRevision: requestedSnapshotRevision || undefined,
+      summaryOnly,
       knownItems: Array.isArray(payloadObject?.known_items)
         ? payloadObject.known_items
             .map((item) => ({
