@@ -798,7 +798,10 @@ class MessageRouter {
       event: Events.SESSION_SYNC,
       project_id: projectId,
       ts: Date.now(),
-      payload,
+      payload: {
+        request_id: env.id,
+        ...payload,
+      },
     });
   }
 

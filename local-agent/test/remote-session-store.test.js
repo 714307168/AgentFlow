@@ -137,3 +137,86 @@ test("remote session store marks summary-only sync requests and skips known item
   assert.equal(sentEvents[0].payload.summary_only, true);
   assert.equal(sentEvents[0].payload.known_items, undefined);
 });
+
+test("remote session store queues eligible session sync refreshes until the prior request is acknowledged", () => {
+  const sentEvents = [];
+  const relayClient = {
+    send(event) {
+      sentEvents.push(event);
+    },
+  };
+  const store = new RemoteSessionStore(relayClient, {
+    localAgentId: () => "local-agent",
+  });
+
+  listRemoteProject(store);
+  store.requestSessionSync("remote-project-1", {
+    afterSeq: 24,
+    limit: 20,
+    summaryOnly: true,
+  });
+  store.requestSessionSync("remote-project-1", {
+    afterSeq: 12,
+    limit: 40,
+    summaryOnly: false,
+    conversationId: "conv-1",
+  });
+
+  assert.equal(sentEvents.length, 1);
+  assert.equal(sentEvents[0].event, Events.SESSION_SYNC_REQUEST);
+  assert.equal(sentEvents[0].payload.after_seq, 24);
+  assert.equal(sentEvents[0].payload.summary_only, true);
+
+  store.handleEnvelope({
+    id: "env-sync-ack",
+    event: Events.SESSION_SYNC,
+    project_id: "remote-project-1",
+    ts: Date.now(),
+    payload: {
+      request_id: sentEvents[0].id,
+      snapshot_revision: "rev-1",
+      provider: "claude",
+      is_running: false,
+      queued_count: 0,
+      sync: {
+        items: [],
+        latest_seq: 24,
+      },
+    },
+  });
+
+  assert.equal(sentEvents.length, 2);
+  assert.equal(sentEvents[1].event, Events.SESSION_SYNC_REQUEST);
+  assert.equal(sentEvents[1].payload.after_seq, 12);
+  assert.equal(sentEvents[1].payload.limit, 40);
+  assert.equal(sentEvents[1].payload.summary_only, undefined);
+  assert.equal(sentEvents[1].payload.conversation_id, "conv-1");
+});
+
+test("remote session store bypasses session sync backpressure for detail and action requests", () => {
+  const sentEvents = [];
+  const relayClient = {
+    send(event) {
+      sentEvents.push(event);
+    },
+  };
+  const store = new RemoteSessionStore(relayClient, {
+    localAgentId: () => "local-agent",
+  });
+
+  listRemoteProject(store);
+  store.requestSessionSync("remote-project-1", {
+    limit: 30,
+    summaryOnly: true,
+  });
+  store.requestSessionSync("remote-project-1", {
+    action: "fetch_item_detail",
+    itemId: "msg-1",
+  });
+
+  assert.equal(sentEvents.length, 2);
+  assert.equal(sentEvents[0].event, Events.SESSION_SYNC_REQUEST);
+  assert.equal(sentEvents[1].event, Events.SESSION_SYNC_REQUEST);
+  assert.equal(sentEvents[1].payload.action, "fetch_item_detail");
+  assert.equal(sentEvents[1].payload.item_id, "msg-1");
+});

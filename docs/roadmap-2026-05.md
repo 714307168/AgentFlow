@@ -522,6 +522,11 @@
 - [x] Desktop remote project sync now explicitly distinguishes active-detail and inactive-summary refreshes: active/open/search/history paths still request full session deltas, while follow-up/background syncs mark non-active projects as \`summary_only\` so relay replies can skip recent message/activity/CLI item payloads and retain only runtime/conversation shell state.
 - [x] Added focused tests for remote project sync priority decisions, summary-only session payload construction, and remote session request flags, so the new active-vs-background sync split has direct coverage before the ACK/backpressure work starts.
 
+- [x] Desktop remote session sync now applies a per-project ACK/backpressure window for plain incremental refreshes: while one eligible request is in flight, later background refreshes are merged and held until the matching `SESSION_SYNC.request_id` is acknowledged or times out, while detail/history/config mutation requests still bypass the window immediately.
+- [x] Added dedicated Node tests for session-sync backpressure eligibility, queued-request merge behavior, and ACK-triggered flushes so the traffic-control guardrail is verified instead of relying on manual relay checks.
+- [x] The diagnostics bundle deliverable is now treated as closed in the P0 queue because the desktop export already captures runtime status, relay health, local-data metrics, connection snapshots, and bounded recent project activity for issue triage.
+- [x] `P0` in the 2026-04-15 optimization queue is now fully implemented; the remaining work for `R-traffic-control` is release verification rather than feature completion.
+
 ## Next Optimization Queue 2026-04-15
 
 这部分基于 \`golutra/golutra\` 的结构复盘结果整理，目标不是照搬产品形态，而是优先吸收对当前桌面端 + Android + relay-server 架构最有价值的运行时和同步模式。
@@ -530,8 +535,8 @@
 
 1. [x] 抽离桌面端会话状态规则层，把运行中、输出中、完成、空闲、失败的切换从 UI 刷新逻辑中继续下沉到独立 runtime 模块。
 2. [x] 把当前打开中的聊天页或项目页继续提升为高优先级实时流，列表页和非活跃项目只保留摘要、未读数、更新时间和运行状态。
-3. 为消息流、活动流和 CLI 输出补 ACK / 背压窗口，避免网络抖动时持续堆积完整输出，并给非活跃会话进一步降频。
-4. 补问题诊断导出包，至少包含桌面端运行日志、最近同步摘要、最近活动窗口、provider runtime 状态和 relay API 版本信息。
+3. [x] 为消息流、活动流和 CLI 输出补 ACK / 背压窗口，避免网络抖动时持续堆积完整输出，并给非活跃会话进一步降频。
+4. [x] 补问题诊断导出包，至少包含桌面端运行日志、最近同步摘要、最近活动窗口、provider runtime 状态和 relay API 版本信息。
 
 发版节点:
 - \`R-runtime-rules\`: 会话状态规则收口并完成桌面端验证后发一个内部补丁版。

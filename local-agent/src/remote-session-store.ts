@@ -20,6 +20,11 @@ import type {
 } from "./runtime-types";
 import type RelayClient from "./relay-client";
 import { SessionSyncActions } from "./session-sync-actions";
+import {
+  isSessionSyncBackpressureEligible,
+  mergeSessionSyncRequestOptions,
+  type SessionSyncRequestOptions,
+} from "./session-sync-flight-control";
 import { Envelope, Events } from "./types";
 
 export interface RemoteProjectInfo {
@@ -125,6 +130,11 @@ interface RemoteRunObserver {
   onError?: (error: string) => void;
 }
 
+interface InFlightSessionSyncRequest {
+  requestId: string;
+  timeout: NodeJS.Timeout;
+}
+
 const DEFAULT_PAGE_SIZE = 30;
 const MAX_REMOTE_ITEMS = 1200;
 const MAX_REMOTE_ACTIVITY_ITEMS = 30;
@@ -136,6 +146,7 @@ const REMOTE_RUN_START_TIMEOUT_MS = 20_000;
 const REMOTE_RUN_IDLE_TIMEOUT_MS = 120_000;
 const REMOTE_RUN_MAX_LIFETIME_MS = 10 * 60_000;
 const FULL_ITEM_REQUEST_DEDUPE_MS = 5_000;
+const SESSION_SYNC_ACK_TIMEOUT_MS = 12_000;
 
 function cloneAttachments(attachments?: RunAttachment[]): RunAttachment[] | undefined {
   if (!attachments || attachments.length === 0) {
@@ -279,6 +290,8 @@ export default class RemoteSessionStore extends EventEmitter {
   private readonly pendingUploadAcks = new Map<string, PendingUploadAck>();
   private readonly runObservers = new Map<string, RemoteRunObserver>();
   private readonly pendingFullItemRequests = new Map<string, number>();
+  private readonly inFlightSessionSyncRequests = new Map<string, InFlightSessionSyncRequest>();
+  private readonly queuedSessionSyncRequests = new Map<string, SessionSyncRequestOptions>();
 
   constructor(relayClient: RelayClient, options: { localAgentId: () => string }) {
     super();
@@ -525,25 +538,33 @@ export default class RemoteSessionStore extends EventEmitter {
     });
   }
 
-  requestSessionSync(projectId: string, options: {
-    afterSeq?: number;
-    beforeSeq?: number;
-    limit?: number;
-    summaryOnly?: boolean;
-    action?: string;
-    conversationId?: string | null;
-    itemId?: string | null;
-    runId?: string | null;
-    projectUpdates?: {
-      groupName?: string | null;
-      cliProvider?: CliProvider;
-      cliModel?: string | null;
-      codexWebSearchEnabled?: boolean;
-      projectPrompt?: string | null;
-    } | null;
-  } = {}): void {
+  requestSessionSync(projectId: string, options: SessionSyncRequestOptions = {}): void {
+    const normalizedProjectId = projectId.trim();
+    if (!normalizedProjectId) {
+      return;
+    }
+
+    if (!isSessionSyncBackpressureEligible(options)) {
+      this.dispatchSessionSyncRequest(normalizedProjectId, options);
+      return;
+    }
+
+    const inFlight = this.inFlightSessionSyncRequests.get(normalizedProjectId);
+    if (inFlight) {
+      const queued = this.queuedSessionSyncRequests.get(normalizedProjectId);
+      this.queuedSessionSyncRequests.set(
+        normalizedProjectId,
+        queued ? mergeSessionSyncRequestOptions(queued, options) : { ...options },
+      );
+      return;
+    }
+
+    this.dispatchBackpressuredSessionSyncRequest(normalizedProjectId, options);
+  }
+
+  private dispatchSessionSyncRequest(projectId: string, options: SessionSyncRequestOptions, requestId = uuidv4()): void {
     this.relayClient.send({
-      id: uuidv4(),
+      id: requestId,
       event: Events.SESSION_SYNC_REQUEST,
       project_id: projectId,
       ts: Date.now(),
@@ -567,6 +588,52 @@ export default class RemoteSessionStore extends EventEmitter {
         known_items: options.summaryOnly === true ? undefined : this.buildKnownSyncItems(projectId, options),
       },
     });
+  }
+
+  private dispatchBackpressuredSessionSyncRequest(projectId: string, options: SessionSyncRequestOptions): void {
+    const requestId = uuidv4();
+    const timeout = setTimeout(() => {
+      const current = this.inFlightSessionSyncRequests.get(projectId);
+      if (!current || current.requestId !== requestId) {
+        return;
+      }
+      this.inFlightSessionSyncRequests.delete(projectId);
+      this.flushQueuedSessionSyncRequest(projectId);
+    }, SESSION_SYNC_ACK_TIMEOUT_MS);
+
+    this.inFlightSessionSyncRequests.set(projectId, {
+      requestId,
+      timeout,
+    });
+    this.dispatchSessionSyncRequest(projectId, options, requestId);
+  }
+
+  private acknowledgeSessionSyncRequest(projectId: string, requestId: string): void {
+    const current = this.inFlightSessionSyncRequests.get(projectId);
+    if (!current || current.requestId !== requestId) {
+      return;
+    }
+    clearTimeout(current.timeout);
+    this.inFlightSessionSyncRequests.delete(projectId);
+    this.flushQueuedSessionSyncRequest(projectId);
+  }
+
+  private flushQueuedSessionSyncRequest(projectId: string): void {
+    const queued = this.queuedSessionSyncRequests.get(projectId);
+    if (!queued) {
+      return;
+    }
+    this.queuedSessionSyncRequests.delete(projectId);
+    this.dispatchBackpressuredSessionSyncRequest(projectId, queued);
+  }
+
+  private clearSessionSyncRequests(projectId: string): void {
+    const inFlight = this.inFlightSessionSyncRequests.get(projectId);
+    if (inFlight) {
+      clearTimeout(inFlight.timeout);
+      this.inFlightSessionSyncRequests.delete(projectId);
+    }
+    this.queuedSessionSyncRequests.delete(projectId);
   }
 
   updateProjectConfig(projectId: string, updates: {
@@ -840,6 +907,7 @@ export default class RemoteSessionStore extends EventEmitter {
       if (state.project.agentId === agentID && !nextIDs.has(projectId)) {
         this.failProjectRunObservers(projectId, "Remote project is no longer available.");
         this.pendingHistoryRequests.delete(projectId);
+        this.clearSessionSyncRequests(projectId);
         this.states.delete(projectId);
       }
     }
@@ -860,6 +928,10 @@ export default class RemoteSessionStore extends EventEmitter {
     }
 
     const payload = (env.payload ?? {}) as LooseRecord;
+    const acknowledgedRequestId = readString(payload.request_id ?? payload.requestId).trim();
+    if (acknowledgedRequestId) {
+      this.acknowledgeSessionSyncRequest(projectId, acknowledgedRequestId);
+    }
     const runtimeUnchanged = Boolean(payload.runtime_unchanged);
     const runtimeChanged = runtimeUnchanged
       ? false
@@ -986,6 +1058,7 @@ export default class RemoteSessionStore extends EventEmitter {
     state.project.online = Boolean(payload?.online);
     if (state.project.online === false) {
       this.failProjectRunObservers(projectId, "Remote project went offline.");
+      this.clearSessionSyncRequests(projectId);
     }
     this.emit("projects-changed", this.getProjects());
     this.emitSnapshot(projectId);
