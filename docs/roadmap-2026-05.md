@@ -581,4 +581,5 @@
 - [x] WS 专项 `P0` 第一批已落地：桌面端连接快照和诊断导出补齐最近连接事件、最近一次 `close code / close reason`、最近一次重连计划，先把掉线排障的数据基础补齐。
 - [x] Android `RelayWebSocket` 已补最近连接事件时间线、close/error/reconnect 摘要和日志上传 connection note，对齐了桌面端第一阶段的掉线诊断口径。
 - [x] relay-server close-code 聚合与代理超时核查清单。
+- [x] Android 前台/网络切换恢复状态机已抽成独立 domain helper，并接入 `onResume` + network-available 恢复调度；同时补了对应 JVM 测试用例。
 

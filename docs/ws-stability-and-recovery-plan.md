@@ -67,14 +67,14 @@
 - [x] relay-server admin overview now aggregates WebSocket close signals by client/source/close-code, keeping count, unexpected count, last reason, and last-seen time in one place for server-side triage.
 - [x] relay-server deployment guidance now carries a concrete proxy timeout checklist for `/ws`, including `proxy_read_timeout`, `proxy_send_timeout`, `proxy_connect_timeout`, `proxy_buffering off`, and upgrade-header verification.
 - [x] relay-server close-code aggregation and proxy timeout checklist.
-- [ ] foreground/network-switch recovery state machine extraction and tests.
+- [x] foreground/network-switch recovery state machine extraction and tests.
 
 - [x] 新建 WS 稳定性与恢复专项文档，并补发版节点。
 - [x] 桌面端 RelayClient 连接快照现在记录最近连接事件环形日志、最近一次 close code / close reason、最近一次重连计划。
 - [x] 桌面端诊断导出自动带出上述连接事件，后续排查掉线不再只剩粗粒度状态。
-- [ ] Android 端补同口径连接事件时间线。
-- [ ] relay-server 补 close-code 聚合与代理层超时核查清单。
-- [ ] foreground/network-switch 恢复状态机拆成独立阶段并补测试。
+- [x] Android 端补同口径连接事件时间线。
+- [x] relay-server 补 close-code 聚合与代理层超时核查清单。
+- [x] foreground/network-switch 恢复状态机拆成独立阶段并补测试。
 
 ## 5. 下一步建议
 
@@ -83,3 +83,4 @@
 1. 先把 Android 恢复日志和桌面端口径对齐。
 2. 再把恢复状态机从 UI / Service 逻辑里进一步拆出来。
 3. 最后再做服务端超时、边缘代理和 close-code 聚合。
+
