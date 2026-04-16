@@ -208,7 +208,7 @@ function formatMemberMentionList(members: Pick<WorkgroupMember, "name">[]): stri
 
 interface ResolvedTargetSelection {
   targets: WorkgroupMember[];
-  mode: "broadcast" | "explicit";
+  mode: "passive" | "explicit";
   unmatchedMentions?: string[];
 }
 
@@ -421,19 +421,6 @@ export default class WorkgroupCollaborationService extends EventEmitter {
 
     const members = this.listCollaborativeMembers(workgroup.id);
     const selection = this.resolveTargets(workgroup, members, trimmedContent);
-    if (selection.targets.length === 0 && selection.mode !== "explicit") {
-      this.logWorkgroupEvent(
-        "warn",
-        "Rejected workgroup user message because no bound members were available.",
-        this.buildWorkgroupLogMeta(workgroup, {
-          clientMessageId: normalizedClientMessageId || null,
-          routeMode: selection.mode,
-          contentPreview: summarizeMessageContent(trimmedContent),
-        }),
-      );
-      return { success: false, error: "No bound workgroup members available for this message" };
-    }
-
     const userMessage = workgroupCollaborationStore.appendMessage(workgroup.id, {
       id: normalizedClientMessageId || undefined,
       senderType: "user",
@@ -455,6 +442,25 @@ export default class WorkgroupCollaborationService extends EventEmitter {
         contentPreview: summarizeMessageContent(trimmedContent),
       }),
     );
+
+    if (selection.mode === "passive") {
+      this.logWorkgroupEvent(
+        "info",
+        "Workgroup user message was kept in collaboration chat without dispatch.",
+        this.buildWorkgroupLogMeta(workgroup, {
+          traceId: userMessage.id,
+          clientMessageId: normalizedClientMessageId || null,
+          contentPreview: summarizeMessageContent(trimmedContent),
+        }),
+      );
+      this.emitSnapshot(workgroup.id);
+      this.emitSummaries();
+      const session = this.getSession(workgroup.id);
+      return {
+        success: true,
+        session: session ?? undefined,
+      };
+    }
 
     if (selection.targets.length === 0) {
       this.appendMentionRoutingFailure(workgroup.id, userMessage.id, selection);
@@ -724,7 +730,7 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       const unmatchedMentions = extractMentionTokens(content);
       return {
         targets: [],
-        mode: unmatchedMentions.length > 0 || options.requireExplicitMention ? "explicit" : "broadcast",
+        mode: unmatchedMentions.length > 0 || options.requireExplicitMention ? "explicit" : "passive",
         unmatchedMentions,
       };
     }
@@ -763,8 +769,8 @@ export default class WorkgroupCollaborationService extends EventEmitter {
     }
 
     return {
-      targets: boundMembers,
-      mode: "broadcast",
+      targets: [],
+      mode: "passive",
       unmatchedMentions: [],
     };
   }
@@ -783,11 +789,7 @@ export default class WorkgroupCollaborationService extends EventEmitter {
     const unmatchedSummary = unmatchedMentions.length > 0
       ? ` Unmatched: ${formatMentionList(unmatchedMentions)}.`
       : "";
-    const content = (selection.mode === "explicit"
-      ? `Routing queued for ${memberMentions}`
-      : selection.targets.length === 1
-        ? `Queued for ${memberMentions}`
-        : `Broadcast queued for ${memberMentions}`) + unmatchedSummary;
+    const content = `Routing queued for ${memberMentions}${unmatchedSummary}`;
 
     workgroupCollaborationStore.appendMessage(workgroupId, {
       senderType: "system",

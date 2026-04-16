@@ -138,3 +138,77 @@ test("workgroup collaboration service does not recurse when remote streaming con
     workgroupCollaborationStore.removeSession(workgroupId);
   }
 });
+
+test("workgroup collaboration service keeps plain chat messages inside the workgroup when nobody is mentioned", async () => {
+  const workgroupId = "workgroup-passive-chat";
+  const workgroup = {
+    id: workgroupId,
+    name: "Passive chat",
+    description: null,
+    allowDirectMemberMessages: true,
+    groupNumber: null,
+    planWorkspacePath: null,
+    registryUpdatedAt: null,
+    createdAt: 1,
+    updatedAt: 1,
+  };
+  const originalGetWorkgroupById = workgroupStore.getWorkgroupById.bind(workgroupStore);
+  workgroupStore.getWorkgroupById = (id) => (id === workgroupId ? workgroup : undefined);
+  const member = workgroupStore.saveMember({
+    workgroupId,
+    name: "Desktop member",
+    role: "member",
+    kind: "project",
+    projectId: "local-project-1",
+    projectName: "Local project",
+    projectPath: "D:/repo/local-project-1",
+    projectKind: "local",
+    allowedPaths: [],
+  });
+  workgroupCollaborationStore.removeSession(workgroupId);
+  const enqueued = [];
+
+  try {
+    const service = new WorkgroupCollaborationService({
+      runtimeManager: {
+        enqueueMessage(options) {
+          enqueued.push(options);
+        },
+        getSnapshot() {
+          return null;
+        },
+      },
+      getBoundProject(projectId) {
+        if (projectId !== "local-project-1") {
+          return null;
+        }
+        return {
+          id: projectId,
+          name: "Local project",
+          path: "D:/repo/local-project-1",
+          kind: "local",
+          online: true,
+        };
+      },
+      getProjectSessionSnapshot() {
+        return null;
+      },
+      getRemoteSessionStore() {
+        return null;
+      },
+    });
+
+    const result = await service.sendUserMessage(workgroupId, "大家先看下这个问题");
+
+    assert.equal(result.success, true);
+    assert.equal(enqueued.length, 0);
+    assert.ok(result.session);
+    assert.equal(result.session.messages.length, 1);
+    assert.equal(result.session.messages[0].senderType, "user");
+    assert.equal(result.session.messages[0].content, "大家先看下这个问题");
+  } finally {
+    workgroupStore.getWorkgroupById = originalGetWorkgroupById;
+    workgroupStore.removeMember(member.id);
+    workgroupCollaborationStore.removeSession(workgroupId);
+  }
+});
