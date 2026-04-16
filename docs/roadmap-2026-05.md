@@ -558,6 +558,7 @@
 - [x] The current sync stack already keeps list/detail traffic incremental through revision/meta checks, project signature buckets, active-detail versus background-summary refreshes, and request-gate suppression, so message/activity/detail views no longer depend on repeated full payload reloads during normal refreshes.
 - [x] `P1` in the current optimization queue is functionally complete in code; the remaining work for `R-provider-registry` and `R-runtime-gateway` is release verification rather than additional feature work.
 - [x] `P2` first-phase message transfer, capability-layer, and incremental sync goals are now implemented in the current desktop + Android codebase; the remaining work for `R-message-transfer` and `R-multi-end-capability` is release verification and follow-up client onboarding.
+- [x] `R-provider-registry` and `R-runtime-gateway`: desktop `1.1.135` was published on `2026-04-16`, closing the provider registry plus local runtime gateway release-verification pass. Update center release id: `216`. GitHub Release: `v1.1.135`.
 
 发版节点:
 - \`R-provider-registry\`: provider registry 和 CLI/API fallback 结构升级完成后发桌面端结构补丁版。
@@ -572,6 +573,7 @@
 发版节点:
 - `R-message-transfer`: 文件传输并入消息时间线后发 Android + desktop 联动版。
 - `R-multi-end-capability`: 多端统一 capability layer 第一阶段完成后，补一次 roadmap 节点和版本登记。
+- [x] `R-message-transfer` and `R-multi-end-capability`: desktop `1.1.135`, Android `1.2.20 (build 104)`, and relay-server `2026.4.16 build 1` were published on `2026-04-16`, covering the first integrated message-timeline attachment flow, capability-layer alignment, and current websocket diagnostics bundle. Update center release ids: desktop `216`, Android `217`. GitHub Release: `v1.1.135`.
 
 ## Next Optimization Queue 2026-04-16
 
