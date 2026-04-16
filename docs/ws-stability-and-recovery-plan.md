@@ -59,6 +59,14 @@
 
 ### Progress Update 2026-04-16
 
+### Progress Update 2026-04-16 Android Follow-up
+
+- [x] Android `RelayWebSocket` now records a bounded recent connection-event timeline with aligned event types for connect-attempt, auth-sent, authenticated, forced recovery, socket-close, socket-error, and reconnect scheduling.
+- [x] Android connection diagnostics now retain the latest close code, close reason, error text, and reconnect metadata in a snapshot structure instead of relying on scattered log lines only.
+- [x] Android settings log uploads now attach the current relay connection diagnostics note so server-side triage can see recent connection state without manually reconstructing it from the full log first.
+- [ ] relay-server close-code aggregation and proxy timeout checklist.
+- [ ] foreground/network-switch recovery state machine extraction and tests.
+
 - [x] 新建 WS 稳定性与恢复专项文档，并补发版节点。
 - [x] 桌面端 RelayClient 连接快照现在记录最近连接事件环形日志、最近一次 close code / close reason、最近一次重连计划。
 - [x] 桌面端诊断导出自动带出上述连接事件，后续排查掉线不再只剩粗粒度状态。

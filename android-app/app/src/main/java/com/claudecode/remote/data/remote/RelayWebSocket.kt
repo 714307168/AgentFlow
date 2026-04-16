@@ -76,6 +76,7 @@ class RelayWebSocket(
     private val pendingOutgoingEnvelopes = mutableListOf<QueuedOutgoingEnvelope>()
     private val connectionMutex = Mutex()
     private var connectionGeneration: Long = 0
+    private val connectionDiagnostics = RelayConnectionDiagnostics()
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
@@ -114,6 +115,19 @@ class RelayWebSocket(
         _errorMessage.value = null
     }
 
+    fun getConnectionSnapshot(): RelayConnectionSnapshot =
+        connectionDiagnostics.snapshot(
+            state = connectionStateName(),
+            isAuthenticated = isAuthenticated,
+            lastInboundAtMs = lastInboundAtMs,
+            lastSocketOpenAttemptAtMs = lastSocketOpenAttemptAtMs,
+            reconnectAttemptCount = reconnectAttempts,
+            pendingQueueSize = pendingOutgoingQueueSize()
+        )
+
+    fun buildConnectionDiagnosticsNote(prefix: String? = null): String =
+        buildRelayConnectionDiagnosticsNote(getConnectionSnapshot(), prefix)
+
     suspend fun ensureHealthyConnection(
         reason: String = "health-check",
         staleTimeoutMs: Long = STALE_CONNECTION_TIMEOUT_MS
@@ -123,13 +137,13 @@ class RelayWebSocket(
             val deviceId = tokenStore.getDeviceId()
             if (token.isNullOrEmpty() || deviceId.isNullOrEmpty()) {
                 _errorMessage.value = "璇峰厛鍦ㄨ缃腑閰嶇疆 Token 鍜?Device ID"
-                _connectionState.value = ConnectionState.DISCONNECTED
+                setConnectionState(ConnectionState.DISCONNECTED)
                 return
             }
 
             when (_connectionState.value) {
                 ConnectionState.DISCONNECTED -> {
-                    _connectionState.value = ConnectionState.CONNECTING
+                    setConnectionState(ConnectionState.CONNECTING)
                     _errorMessage.value = null
                     reconnectAttempts = 0
                     openWebSocketLocked()
@@ -162,12 +176,16 @@ class RelayWebSocket(
                         tag,
                         "Recovering stalled WebSocket state=${_connectionState.value} reason=$reason staleForMs=$staleForMs reconnectActive=$reconnectActive queued=${pendingOutgoingQueueSize()}"
                     )
+                    recordConnectionEvent(
+                        type = "health-check-reconnect",
+                        detail = "reason=$reason state=${connectionStateName()} staleForMs=$staleForMs reconnectActive=$reconnectActive"
+                    )
                     reconnectJob?.cancel()
                     reconnectJob = null
                     stopPing()
                     webSocket?.cancel()
                     webSocket = null
-                    _connectionState.value = ConnectionState.CONNECTING
+                    setConnectionState(ConnectionState.CONNECTING)
                     _errorMessage.value = null
                     reconnectAttempts = 0
                     openWebSocketLocked()
@@ -192,12 +210,16 @@ class RelayWebSocket(
                         tag,
                         "Forcing WebSocket reconnect reason=$reason staleForMs=$staleForMs queued=${pendingOutgoingQueueSize()}"
                     )
+                    recordConnectionEvent(
+                        type = "health-check-reconnect",
+                        detail = "reason=$reason state=${connectionStateName()} staleForMs=$staleForMs"
+                    )
                     reconnectJob?.cancel()
                     reconnectJob = null
                     stopPing()
                     webSocket?.cancel()
                     webSocket = null
-                    _connectionState.value = ConnectionState.CONNECTING
+                    setConnectionState(ConnectionState.CONNECTING)
                     _errorMessage.value = null
                     reconnectAttempts = 0
                     openWebSocketLocked()
@@ -219,11 +241,11 @@ class RelayWebSocket(
             val deviceId = tokenStore.getDeviceId()
             if (token.isNullOrEmpty() || deviceId.isNullOrEmpty()) {
                 _errorMessage.value = "请先在设置中配置 Token 和 Device ID"
-                _connectionState.value = ConnectionState.DISCONNECTED
+                setConnectionState(ConnectionState.DISCONNECTED)
                 return
             }
 
-            _connectionState.value = ConnectionState.CONNECTING
+            setConnectionState(ConnectionState.CONNECTING)
             _errorMessage.value = null
             reconnectAttempts = 0
             openWebSocketLocked()
@@ -236,7 +258,7 @@ class RelayWebSocket(
             val deviceId = tokenStore.getDeviceId()
             if (token.isNullOrEmpty() || deviceId.isNullOrEmpty()) {
                 _errorMessage.value = "璇峰厛鍦ㄨ缃腑閰嶇疆 Token 鍜?Device ID"
-                _connectionState.value = ConnectionState.DISCONNECTED
+                setConnectionState(ConnectionState.DISCONNECTED)
                 return
             }
 
@@ -245,6 +267,10 @@ class RelayWebSocket(
                 tag,
                 "Force reconnecting WebSocket reason=$reason queued=${pendingOutgoingQueueSize()}"
             )
+            recordConnectionEvent(
+                type = "health-check-reconnect",
+                detail = "reason=$reason state=${connectionStateName()} staleForMs=forced"
+            )
             reconnectJob?.cancel()
             reconnectJob = null
             stopPing()
@@ -252,7 +278,7 @@ class RelayWebSocket(
             lastSocketOpenAttemptAtMs = System.currentTimeMillis()
             webSocket?.cancel()
             webSocket = null
-            _connectionState.value = ConnectionState.CONNECTING
+            setConnectionState(ConnectionState.CONNECTING)
             _errorMessage.value = null
             reconnectAttempts = 0
             openWebSocketLocked()
@@ -270,9 +296,13 @@ class RelayWebSocket(
                 pendingOutgoingEnvelopes.clear()
                 isAuthenticated = false
                 connectionGeneration += 1
+                recordConnectionEvent(
+                    type = "manual-disconnect",
+                    detail = "state=${connectionStateName()}"
+                )
                 webSocket?.close(1000, "User disconnected")
                 webSocket = null
-                _connectionState.value = ConnectionState.DISCONNECTED
+                setConnectionState(ConnectionState.DISCONNECTED)
                 Log.d(tag, "WebSocket disconnected by user")
             }
         }
@@ -285,6 +315,10 @@ class RelayWebSocket(
         lastSocketOpenAttemptAtMs = System.currentTimeMillis()
         webSocket?.cancel()
         Log.d(tag, "Opening WebSocket: $wsUrl generation=$generation")
+        recordConnectionEvent(
+            type = "connect-attempt",
+            detail = "generation=$generation queued=${pendingOutgoingQueueSize()}"
+        )
         val request = Request.Builder()
             .url(wsUrl)
             .applyRelayApiHeaders()
@@ -302,8 +336,12 @@ class RelayWebSocket(
             lastInboundAtMs = System.currentTimeMillis()
             isAuthenticated = false
             _errorMessage.value = null
-            _connectionState.value = ConnectionState.CONNECTED
+            setConnectionState(ConnectionState.CONNECTED)
             reconnectAttempts = 0
+            recordConnectionEvent(
+                type = "socket-open",
+                detail = "generation=$generation"
+            )
             authenticate()
             startPing()
         }
@@ -321,7 +359,13 @@ class RelayWebSocket(
                     isAuthenticated = false
                     lastSeq = 0
                     _errorMessage.value = "认证失败，请检查 Token 是否正确"
-                    _connectionState.value = ConnectionState.DISCONNECTED
+                    setConnectionState(ConnectionState.DISCONNECTED)
+                    val authErrorMessage = extractPayloadMessage(envelope.payload) ?: "auth-error"
+                    connectionDiagnostics.onError(authErrorMessage)
+                    recordConnectionEvent(
+                        type = "auth-error",
+                        detail = authErrorMessage
+                    )
                     scope.launch {
                         _authFailures.emit("auth-error")
                     }
@@ -336,6 +380,10 @@ class RelayWebSocket(
                     CrashLogger.logInfo(
                         tag,
                         "Relay authentication succeeded generation=$generation lastSeq=$lastSeq queued=${pendingOutgoingQueueSize()}"
+                    )
+                    recordConnectionEvent(
+                        type = "authenticated",
+                        detail = "device"
                     )
                     extractAgentId(envelope)?.let(::ensureRoomKey)
                     flushPendingOutgoingEnvelopes()
@@ -369,7 +417,12 @@ class RelayWebSocket(
             )
             isAuthenticated = false
             _errorMessage.value = buildDisplayableFailureMessage(t, response)
-            _connectionState.value = ConnectionState.RECONNECTING
+            connectionDiagnostics.onError(_errorMessage.value ?: t.message)
+            recordConnectionEvent(
+                type = "socket-error",
+                detail = "response=${response?.code ?: 0} message=${t.message.orEmpty()}"
+            )
+            setConnectionState(ConnectionState.RECONNECTING)
             stopPing()
             scheduleReconnect(generation)
         }
@@ -384,6 +437,13 @@ class RelayWebSocket(
                 "WebSocket closed generation=$generation code=$code reason=${reason.ifBlank { "none" }} queued=${pendingOutgoingQueueSize()}"
             )
             isAuthenticated = false
+            connectionDiagnostics.onClose(code, reason)
+            recordConnectionEvent(
+                type = "socket-close",
+                detail = "generation=$generation",
+                closeCode = code,
+                closeReason = reason
+            )
             if (code != 1000) {
                 val normalizedReason = reason.trim()
                 _errorMessage.value = if (normalizedReason.isBlank()) {
@@ -393,7 +453,7 @@ class RelayWebSocket(
                 }
             }
             if (_connectionState.value != ConnectionState.DISCONNECTED) {
-                _connectionState.value = ConnectionState.RECONNECTING
+                setConnectionState(ConnectionState.RECONNECTING)
                 scheduleReconnect(generation)
             }
             stopPing()
@@ -421,6 +481,10 @@ class RelayWebSocket(
                 payload = payload,
                 ts = System.currentTimeMillis()
             )
+        )
+        recordConnectionEvent(
+            type = "auth-sent",
+            detail = if (event == Events.AUTH_RESUME) "resume lastSeq=$lastSeq" else "login"
         )
     }
 
@@ -487,16 +551,57 @@ class RelayWebSocket(
         reconnectJob = scope.launch {
             val backoffSeconds = minOf(30L, 1L shl reconnectAttempts)
             Log.d(tag, "Reconnecting in ${backoffSeconds}s generation=$generation attempt=${reconnectAttempts + 1}")
+            recordConnectionEvent(
+                type = "reconnect-scheduled",
+                detail = "generation=$generation",
+                reconnectDelayMs = backoffSeconds * 1000,
+                reconnectAttemptCount = reconnectAttempts + 1
+            )
             delay(backoffSeconds * 1000)
             connectionMutex.withLock {
                 if (_connectionState.value == ConnectionState.DISCONNECTED || generation != connectionGeneration) {
                     return@withLock
                 }
                 reconnectAttempts++
-                _connectionState.value = ConnectionState.RECONNECTING
+                setConnectionState(ConnectionState.RECONNECTING)
                 openWebSocketLocked()
             }
         }
+    }
+
+    private fun connectionStateName(state: ConnectionState = _connectionState.value): String =
+        state.name.lowercase()
+
+    private fun setConnectionState(nextState: ConnectionState) {
+        if (_connectionState.value == nextState) {
+            return
+        }
+        _connectionState.value = nextState
+        connectionDiagnostics.onStateChanged()
+    }
+
+    private fun recordConnectionEvent(
+        type: String,
+        detail: String? = null,
+        closeCode: Int? = null,
+        closeReason: String? = null,
+        reconnectDelayMs: Long? = null,
+        reconnectAttemptCount: Int? = null
+    ) {
+        connectionDiagnostics.recordEvent(
+            type = type,
+            state = connectionStateName(),
+            detail = detail,
+            closeCode = closeCode,
+            closeReason = closeReason,
+            reconnectDelayMs = reconnectDelayMs,
+            reconnectAttemptCount = reconnectAttemptCount
+        )
+    }
+
+    private fun extractPayloadMessage(payload: JsonElement?): String? {
+        val payloadObject = payload as? JsonObject ?: return null
+        return payloadObject["message"]?.jsonPrimitive?.contentOrNull?.trim()?.takeIf { it.isNotEmpty() }
     }
 
     private fun toWsUrl(rawUrl: String): String {

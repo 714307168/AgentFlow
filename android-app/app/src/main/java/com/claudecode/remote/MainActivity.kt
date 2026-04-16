@@ -458,7 +458,9 @@ class MainActivity : ComponentActivity() {
                                     appContainer.mobileLogRepository.uploadLog(
                                         fileName = fileName,
                                         content = content,
-                                        connectionNote = "Uploaded from Android settings diagnostics."
+                                        connectionNote = appContainer.relayWebSocket.buildConnectionDiagnosticsNote(
+                                            "Uploaded from Android settings diagnostics."
+                                        )
                                     ).map { response ->
                                         val uploadId = response.logId?.trim().orEmpty()
                                         val uploadedAt = response.uploadedAt?.trim().orEmpty()
