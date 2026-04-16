@@ -28,6 +28,7 @@ import {
 import { createProviderNativeCliCapabilities, getProviderLabel as getRegisteredProviderLabel } from "./provider-registry";
 import { executeProviderSdkRun, type ProviderSdkConfig } from "./provider-sdk";
 import { type ProviderRuntimeSelection } from "./provider-runtime";
+import { terminateProcessHandle } from "./process-cleanup";
 import SessionHistoryStore, {
   ChatHistoryRepairSummary,
   PersistedProjectState,
@@ -264,7 +265,7 @@ class RuntimeManager extends EventEmitter {
     }
     this.appendCliTrace(state, "system", `Interrupt requested: ${reason}`);
     state.pendingStop = { reason, notifyAsError };
-    state.process.kill();
+    terminateProcessHandle(state.process);
     return true;
   }
 
@@ -484,7 +485,7 @@ class RuntimeManager extends EventEmitter {
     this.lastSnapshotEmitAt.clear();
     for (const state of this.states.values()) {
       if (state.process && !state.process.killed) {
-        state.process.kill();
+        terminateProcessHandle(state.process);
       }
       state.process = null;
     }
@@ -498,7 +499,7 @@ class RuntimeManager extends EventEmitter {
   clearProject(projectId: string): void {
     const state = this.states.get(projectId);
     if (state?.process && !state.process.killed) {
-      state.process.kill();
+      terminateProcessHandle(state.process);
     }
     this.clearScheduledSnapshot(projectId);
     this.states.delete(projectId);
@@ -1088,7 +1089,7 @@ class RuntimeManager extends EventEmitter {
               return;
             }
             this.appendCliTrace(state, "system", "Codex process lingered after turn.completed; terminating it.");
-            child.kill();
+            terminateProcessHandle(child);
           }, 1500);
           return;
         }
