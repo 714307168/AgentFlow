@@ -48,12 +48,23 @@ function normalizeProjectKind(value: string | null | undefined): WorkgroupCollab
   return null;
 }
 
+function normalizeMemberRole(value: WorkgroupRole | string | null | undefined): WorkgroupRole | null {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+  if (normalized === "project_manager" || normalized === "pm") {
+    return "project_manager";
+  }
+  return "member";
+}
+
 function normalizeMessage(message: WorkgroupCollaborationMessage): WorkgroupCollaborationMessage {
   return {
     ...message,
     senderName: String(message.senderName ?? "").trim() || "Unknown",
     memberId: normalizeNullableText(message.memberId),
-    memberRole: message.memberRole ?? null,
+    memberRole: normalizeMemberRole(message.memberRole),
     projectId: normalizeNullableText(message.projectId),
     projectKind: normalizeProjectKind(message.projectKind),
     dispatchRunId: normalizeNullableText(message.dispatchRunId),

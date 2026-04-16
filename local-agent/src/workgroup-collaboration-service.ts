@@ -95,13 +95,6 @@ const PROJECT_MANAGER_MENTION_ALIASES = [
   "\u9879\u76ee\u7ecf\u7406",
 ];
 
-const ROLE_MENTION_ALIASES = new Map<WorkgroupRole, string[]>([
-  ["developer", ["developer", "dev", "\u5f00\u53d1"]],
-  ["qa", ["qa", "test", "deploy", "\u6d4b\u8bd5", "\u90e8\u7f72"]],
-  ["project_manager", PROJECT_MANAGER_MENTION_ALIASES],
-  ["custom", []],
-]);
-
 const EVERYONE_MENTION_ALIASES = ["all", "\u5168\u90e8"];
 
 function isMentionPrefixBoundary(value: string | undefined): boolean {
@@ -179,16 +172,12 @@ function buildMemberMentionTokens(member: WorkgroupMember): string[] {
     tokens.add(normalizeRoleMention(name));
   }
 
-  if (member.role === "project_manager") {
-    PROJECT_MANAGER_MENTION_ALIASES.forEach((token) => tokens.add(normalizeRoleMention(token)));
-  }
-
   return Array.from(tokens).filter(Boolean);
 }
 
 function buildMessageLabel(message: WorkgroupCollaborationMessage): string {
   if (message.senderType === "member") {
-    const role = message.memberRole ? ` (${message.memberRole})` : "";
+    const role = message.memberRole === "project_manager" ? " (PM)" : "";
     return `${message.senderName}${role}`;
   }
   if (message.senderType === "error") {
@@ -573,7 +562,7 @@ export default class WorkgroupCollaborationService extends EventEmitter {
         return {
           id: member.id,
           name: member.name,
-          role: member.role,
+          role: (member.kind === "pm" ? "project_manager" : "member") as WorkgroupRole,
           projectId: normalizeText(member.projectId),
           projectName: project?.name ?? normalizeText(member.projectName),
           projectKind: project?.kind ?? (member.projectKind ?? null),
@@ -588,7 +577,7 @@ export default class WorkgroupCollaborationService extends EventEmitter {
   private listCollaborativeMembers(workgroupId: string): WorkgroupMember[] {
     return workgroupStore
       .listMembers(workgroupId)
-      .filter((member) => member.kind !== "pm" && member.role !== "project_manager");
+      .filter((member) => member.kind !== "pm");
   }
 
   private computeWorkgroupRunningState(workgroupId: string): boolean {
@@ -756,24 +745,6 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       }
     }
 
-    for (const [role, aliases] of ROLE_MENTION_ALIASES.entries()) {
-      const roleMatched = aliases.some((alias) => {
-        const ranges = findMentionRanges(normalizedContent, normalizeRoleMention(alias));
-        if (ranges.length > 0) {
-          matchedRanges.push(...ranges);
-          return true;
-        }
-        return false;
-      });
-      if (roleMatched) {
-        for (const member of boundMembers) {
-          if (member.role === role) {
-            matchedMembers.set(member.id, member);
-          }
-        }
-      }
-    }
-
     const unmatchedMentions = extractMentionTokens(content, matchedRanges);
     if (matchedMembers.size > 0) {
       return {
@@ -897,13 +868,6 @@ export default class WorkgroupCollaborationService extends EventEmitter {
     userMessage: WorkgroupCollaborationMessage,
   ): string {
     const project = member.projectId ? this.options.getBoundProject(member.projectId) : null;
-    const roleInstruction = member.role === "developer"
-      ? "You are one member in a shared multi-agent group. Make code and local repo changes only inside your bound project."
-      : member.role === "qa"
-        ? "You are one member in a shared multi-agent group. Focus on testing, verification, deployment checks, logs, and evidence inside your bound project."
-        : member.role === "project_manager"
-          ? "You are one member in a shared multi-agent group. Keep the discussion aligned with the latest shared context."
-          : "Follow your custom member instructions while staying scoped to your bound project.";
     const allowedPaths = Array.isArray(member.allowedPaths) && member.allowedPaths.length > 0
       ? member.allowedPaths.map((entry) => `- ${entry}`).join("\n")
       : "- No extra path restriction configured.";
@@ -923,12 +887,11 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       `Workgroup: ${workgroup.name}`,
       `Group announcement: ${workgroup.description?.trim() || "None"}`,
       `You are: ${member.name}`,
-      `Role: ${member.role}`,
       `Bound project: ${project?.name ?? member.projectName ?? member.projectId ?? "unknown"}`,
       "",
       "Operating rules",
-      roleInstruction,
-      "Reply only as your own role. Do not fabricate work from other members.",
+      "You are one member in a shared multi-agent group. Complete only the work you actually perform inside your bound project.",
+      "Reply only for your own completed work. Do not fabricate work from other members.",
       workgroup.allowDirectMemberMessages
         ? "You may @mention other members when coordination helps, but only report work you actually completed."
         : "Do not simulate other members. Report only your own work and blockers.",
@@ -943,7 +906,7 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       userMessage.content.trim(),
       "",
       "Response requirements",
-      "Reply in first person as your member role, keep it concise, and include what you completed, what you validated, blockers, and any needed follow-up.",
+      "Reply in first person as yourself, keep it concise, and include what you completed, what you validated, blockers, and any needed follow-up.",
     ]
       .filter((entry, index, source) => !(entry === "" && source[index - 1] === ""))
       .join("\n");
@@ -1193,7 +1156,7 @@ export default class WorkgroupCollaborationService extends EventEmitter {
     sender: WorkgroupMember,
     sourceMessage: WorkgroupCollaborationMessage,
   ): Promise<void> {
-    const senderCanHandoff = workgroup.allowDirectMemberMessages || sender.role === "project_manager";
+    const senderCanHandoff = workgroup.allowDirectMemberMessages;
     if (!senderCanHandoff) {
       return;
     }

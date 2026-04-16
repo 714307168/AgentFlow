@@ -672,22 +672,6 @@ class WorkgroupChatViewModel(
                     kind = "all"
                 )
             )
-            add(
-                WorkgroupMentionSuggestion(
-                    token = "developer",
-                    label = "@developer",
-                    meta = text(R.string.workgroups_mention_developer),
-                    kind = "role"
-                )
-            )
-            add(
-                WorkgroupMentionSuggestion(
-                    token = "qa",
-                    label = "@qa",
-                    meta = text(R.string.workgroups_mention_qa),
-                    kind = "role"
-                )
-            )
             members
                 .filter { it.name.isNotBlank() }
                 .sortedBy { it.name.lowercase() }
@@ -716,8 +700,6 @@ class WorkgroupChatViewModel(
 
     private fun translateMemberRole(role: String): String {
         return when (role.trim().lowercase()) {
-            "developer" -> text(R.string.workgroups_mention_developer)
-            "qa" -> text(R.string.workgroups_mention_qa)
             "project_manager", "pm" -> text(R.string.workgroups_mention_pm)
             else -> text(R.string.workgroups_mention_member)
         }

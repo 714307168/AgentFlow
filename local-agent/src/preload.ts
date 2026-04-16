@@ -94,7 +94,7 @@ contextBridge.exposeInMainWorld('claudeAgent', {
     id?: string;
     workgroupId: string;
     name: string;
-    role: 'developer' | 'qa' | 'project_manager' | 'custom';
+    role: 'member' | 'project_manager';
     projectId?: string | null;
     allowedPaths?: string[] | null;
     systemPrompt?: string | null;

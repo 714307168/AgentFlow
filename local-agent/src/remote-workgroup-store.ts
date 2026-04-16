@@ -57,10 +57,10 @@ function normalizeNullableText(value: unknown): string | null {
 
 function normalizeRole(value: unknown): WorkgroupCollaborationMemberSnapshot["role"] {
   const normalized = normalizeText(value);
-  if (normalized === "developer" || normalized === "qa" || normalized === "project_manager" || normalized === "custom") {
-    return normalized;
+  if (normalized === "project_manager" || normalized === "pm") {
+    return "project_manager";
   }
-  return "custom";
+  return "member";
 }
 
 function normalizeNullableRole(value: unknown): WorkgroupCollaborationMessage["memberRole"] {

@@ -824,13 +824,19 @@ private fun WorkgroupInputBar(
 }
 
 private fun roleSuffix(member: WorkgroupMember): String =
-    member.role.trim().takeIf { it.isNotEmpty() }?.let { " / $it" } ?: ""
+    member.role.trim()
+        .takeIf { it.equals("project_manager", ignoreCase = true) || it.equals("pm", ignoreCase = true) }
+        ?.let { " / PM" } ?: ""
 
 private fun buildSenderLabel(message: WorkgroupMessage): String =
-    listOfNotNull(
-        message.senderName.takeIf { it.isNotBlank() },
-        message.memberRole?.takeIf { it.isNotBlank() }
-    ).joinToString(separator = " / ")
+    if (
+        message.memberRole?.equals("project_manager", ignoreCase = true) == true
+        || message.memberRole?.equals("pm", ignoreCase = true) == true
+    ) {
+        listOfNotNull(message.senderName.takeIf { it.isNotBlank() }, "PM").joinToString(separator = " / ")
+    } else {
+        message.senderName
+    }
 
 private fun formatTimestamp(timestamp: Long): String {
     if (timestamp <= 0L) {

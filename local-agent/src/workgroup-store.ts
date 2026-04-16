@@ -6,7 +6,7 @@ import {
   ScheduledTaskScheduleType,
 } from "./scheduled-task-store";
 
-export type WorkgroupRole = "developer" | "qa" | "project_manager" | "custom";
+export type WorkgroupRole = "member" | "project_manager";
 export type WorkgroupTaskPriority = "low" | "normal" | "high";
 export type WorkgroupTaskStatus = "todo" | "assigned" | "running" | "blocked" | "done" | "error";
 export type WorkgroupMemberKind = "project" | "pm";
@@ -122,6 +122,17 @@ function normalizeMemberKind(value: string | null | undefined): WorkgroupMemberK
   return value === "pm" ? "pm" : "project";
 }
 
+function normalizeWorkgroupRole(
+  value: string | null | undefined,
+  kind: WorkgroupMemberKind,
+): WorkgroupRole {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (kind === "pm" || normalized === "project_manager" || normalized === "pm") {
+    return "project_manager";
+  }
+  return "member";
+}
+
 class WorkgroupStore {
   private readonly store = new Store<WorkgroupStoreSchema>({
     name: "workgroups",
@@ -184,16 +195,20 @@ class WorkgroupStore {
   }
 
   listMembers(workgroupId?: string | null): WorkgroupMember[] {
-    const members = this.store.get("members", []).map((member) => ({
-      ...member,
-      kind: normalizeMemberKind(member.kind),
-      projectId: normalizeNullableText(member.projectId),
-      projectName: normalizeNullableText(member.projectName),
-      projectPath: normalizeNullableText(member.projectPath),
-      projectKind: normalizeProjectKind(member.projectKind),
-      systemPrompt: normalizeNullableText(member.systemPrompt),
-      allowedPaths: normalizeAllowedPaths(member.allowedPaths),
-    }));
+    const members = this.store.get("members", []).map((member) => {
+      const kind = normalizeMemberKind(member.kind);
+      return {
+        ...member,
+        role: normalizeWorkgroupRole((member as Partial<WorkgroupMember>).role, kind),
+        kind,
+        projectId: normalizeNullableText(member.projectId),
+        projectName: normalizeNullableText(member.projectName),
+        projectPath: normalizeNullableText(member.projectPath),
+        projectKind: normalizeProjectKind(member.projectKind),
+        systemPrompt: normalizeNullableText(member.systemPrompt),
+        allowedPaths: normalizeAllowedPaths(member.allowedPaths),
+      };
+    });
     if (!workgroupId) {
       return members;
     }
@@ -209,12 +224,13 @@ class WorkgroupStore {
     const now = Date.now();
     const existingIndex = input.id ? members.findIndex((entry) => entry.id === input.id) : -1;
     const existing = existingIndex >= 0 ? members[existingIndex] : null;
+    const kind = normalizeMemberKind(input.kind ?? existing?.kind);
     const next: WorkgroupMember = {
       id: existing?.id || input.id?.trim() || uuidv4(),
       workgroupId: input.workgroupId,
       name: input.name.trim(),
-      role: input.role,
-      kind: normalizeMemberKind(input.kind ?? existing?.kind),
+      role: normalizeWorkgroupRole(input.role ?? existing?.role, kind),
+      kind,
       projectId: normalizeNullableText(input.projectId),
       projectName: normalizeNullableText(input.projectName),
       projectPath: normalizeNullableText(input.projectPath),

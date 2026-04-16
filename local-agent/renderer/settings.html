@@ -1153,15 +1153,12 @@
                 <div style="display:none;">
                 <div class="field">
                   <label id="memberNameLabel">Member Name</label>
-                  <input type="text" id="workgroupMemberName" placeholder="Desktop Developer">
+                  <input type="text" id="workgroupMemberName" placeholder="Desktop Member">
                 </div>
                 <div class="field">
-                  <label id="memberRoleLabel">Role</label>
+                  <label id="memberRoleLabel">Member Type</label>
                   <select id="workgroupMemberRole">
-                    <option value="developer">Developer</option>
-                    <option value="qa">QA / Deploy</option>
-                    <option value="project_manager">Project Manager</option>
-                    <option value="custom">Custom</option>
+                    <option value="member">Member</option>
                   </select>
                 </div>
                 <div class="field">
@@ -1173,8 +1170,8 @@
                   <textarea id="workgroupMemberAllowedPaths" rows="4" placeholder="One path per line"></textarea>
                 </div>
                 <div class="field">
-                  <label id="memberPromptLabel">Role Instructions</label>
-                  <textarea id="workgroupMemberPrompt" rows="4" placeholder="Focus on deploy scripts and smoke tests."></textarea>
+                  <label id="memberPromptLabel">Member Instructions</label>
+                  <textarea id="workgroupMemberPrompt" rows="4" placeholder="Keep changes scoped to this project and report concrete progress."></textarea>
                 </div>
                 <div class="btn-row">
                   <button class="btn-primary btn-small" id="saveWorkgroupMemberBtn">Save Member</button>
@@ -3228,19 +3225,16 @@
       document.getElementById("cancelWorkgroupBtn").textContent = inlineText("Reset", "重置");
       document.getElementById("workgroupMemberTitle").textContent = inlineText("Agents", "成员 Agent");
       document.getElementById("memberNameLabel").textContent = inlineText("Member Name", "成员名称");
-      document.getElementById("workgroupMemberName").placeholder = inlineText("Desktop Developer", "桌面开发");
-      document.getElementById("memberRoleLabel").textContent = inlineText("Role", "角色");
-      document.getElementById("workgroupMemberRole").options[0].text = inlineText("Developer", "开发");
-      document.getElementById("workgroupMemberRole").options[1].text = inlineText("QA / Deploy", "测试 / 部署");
-      document.getElementById("workgroupMemberRole").options[2].text = inlineText("Project Manager", "项目经理");
-      document.getElementById("workgroupMemberRole").options[3].text = inlineText("Custom", "自定义");
+      document.getElementById("workgroupMemberName").placeholder = inlineText("Desktop Member", "桌面成员");
+      document.getElementById("memberRoleLabel").textContent = inlineText("Member Type", "成员类型");
+      document.getElementById("workgroupMemberRole").options[0].text = inlineText("Member", "成员");
       document.getElementById("memberProjectLabel").textContent = inlineText("Bound Project", "绑定项目");
       document.getElementById("memberPathsLabel").textContent = inlineText("Allowed Paths", "允许路径");
       document.getElementById("workgroupMemberAllowedPaths").placeholder = inlineText("One path per line", "每行一个路径");
-      document.getElementById("memberPromptLabel").textContent = inlineText("Role Instructions", "角色提示词");
+      document.getElementById("memberPromptLabel").textContent = inlineText("Member Instructions", "成员提示词");
       document.getElementById("workgroupMemberPrompt").placeholder = inlineText(
-        "Focus on deploy scripts and smoke tests.",
-        "例如：重点处理部署脚本和冒烟测试。"
+        "Keep changes scoped to this project and report concrete progress.",
+        "例如：仅在当前项目范围内执行，并汇报明确进展。"
       );
       document.getElementById("saveWorkgroupMemberBtn").textContent = inlineText("Save Member", "保存成员");
       document.getElementById("cancelWorkgroupMemberBtn").textContent = inlineText("Reset", "重置");
@@ -4461,16 +4455,9 @@
     }
 
     function getRoleLabel(role) {
-      switch (role) {
-        case "qa":
-          return inlineText("QA / Deploy", "测试 / 部署");
-        case "project_manager":
-          return inlineText("Project Manager", "项目经理");
-        case "custom":
-          return inlineText("Custom", "自定义");
-        default:
-          return inlineText("Developer", "开发");
-      }
+      return role === "project_manager"
+        ? inlineText("Project Manager", "项目经理")
+        : inlineText("Member", "成员");
     }
 
     function getTaskStatusLabel(status) {
@@ -4582,7 +4569,7 @@
       ];
       (workgroup?.members || []).forEach((member) => {
         options.push(
-          `<option value="${escapeHtml(member.id)}"${member.id === selectedMemberId ? " selected" : ""}>${escapeHtml(`${member.name} · ${getRoleLabel(member.role)}`)}</option>`
+          `<option value="${escapeHtml(member.id)}"${member.id === selectedMemberId ? " selected" : ""}>${escapeHtml(member.name)}</option>`
         );
       });
       if (selectedMemberId && !(workgroup?.members || []).some((member) => member.id === selectedMemberId)) {
@@ -4609,7 +4596,7 @@
       const workgroup = getCurrentWorkgroup();
       editingMemberId = member?.id || null;
       document.getElementById("workgroupMemberName").value = member?.name || "";
-      document.getElementById("workgroupMemberRole").value = member?.role || "developer";
+      document.getElementById("workgroupMemberRole").value = member?.role || "member";
       document.getElementById("workgroupMemberAllowedPaths").value = Array.isArray(member?.allowedPaths) ? member.allowedPaths.join("\n") : "";
       document.getElementById("workgroupMemberPrompt").value = member?.systemPrompt || "";
       renderWorkgroupProjectOptions(
@@ -4681,7 +4668,7 @@
         return;
       }
       const visibleMembers = Array.isArray(workgroup.members)
-        ? workgroup.members.filter((member) => member.kind !== "pm" && member.role !== "project_manager")
+        ? workgroup.members.filter((member) => member.kind !== "pm")
         : [];
       if (visibleMembers.length === 0) {
         const registryState = latestWorkgroupRegistryMembersById.get(workgroup.id) || null;

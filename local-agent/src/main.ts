@@ -2753,7 +2753,7 @@ function ensurePmMember(workgroup: Workgroup): WorkgroupMember {
       id: manualPmMember.id,
       workgroupId: workgroup.id,
       name: manualPmMember.name,
-      role: "custom",
+      role: "member",
       kind: "project",
       projectId: manualPmMember.projectId ?? null,
       projectName: manualPmMember.projectName ?? null,
@@ -2762,7 +2762,7 @@ function ensurePmMember(workgroup: Workgroup): WorkgroupMember {
       allowedPaths: manualPmMember.allowedPaths,
       systemPrompt: manualPmMember.systemPrompt ?? null,
     });
-    appLogger.warn("workgroup", "Converted manual project_manager member to custom role to preserve PM uniqueness.", {
+    appLogger.warn("workgroup", "Converted legacy project_manager member to member to preserve the virtual PM slot.", {
       workgroupId: workgroup.id,
       memberId: manualPmMember.id,
       memberName: manualPmMember.name,
@@ -2842,7 +2842,7 @@ function syncWorkgroupMembersFromSelection(workgroup: Workgroup, selectedProject
       id: existing?.id,
       workgroupId: workgroup.id,
       name: existing?.name?.trim() || binding.projectName || projectId,
-      role: existing?.role || (binding.projectKind === "remote" ? "qa" : "developer"),
+      role: existing?.kind === "pm" ? "member" : (existing?.role || "member"),
       kind: "project",
       projectId: binding.projectId,
       projectName: binding.projectName,
@@ -2930,13 +2930,9 @@ function buildWorkgroupDispatchPrompt(
   const collaborationRule = workgroup.allowDirectMemberMessages
     ? "You may reference other members for handoff notes, but do not fabricate completed work from them."
     : "Do not simulate direct conversations with other members. Complete only your assigned portion and leave handoff notes when needed.";
-  const roleRule = member.role === "qa"
-    ? "Focus on testing, verification, deployment checks, and evidence. Avoid broad code refactors unless the task explicitly requires it."
-    : (member.role === "project_manager"
-      ? "Act as a coordinator. Break work down, summarize status, and assign follow-ups. Do not make code changes unless the task explicitly asks for it."
-      : (member.role === "developer"
-        ? "Focus on implementation inside the assigned project. Keep changes scoped and practical."
-        : "Follow the custom role instructions below while staying within the assigned scope."));
+  const memberRule = member.kind === "pm" || member.role === "project_manager"
+    ? "Act as the virtual PM. Coordinate, summarize status, and assign clear follow-ups. Do not fabricate implementation."
+    : "Act as one collaboration member. Execute the assigned work inside the bound project and keep changes scoped.";
   const allowedPaths = member.allowedPaths.length > 0
     ? member.allowedPaths.map((entry) => `- ${entry}`).join("\n")
     : "- No extra path restriction was configured. Stay within the assigned project.";
@@ -2950,11 +2946,10 @@ function buildWorkgroupDispatchPrompt(
     "Workgroup execution context",
     `Workgroup: ${workgroup.name}`,
     `Member: ${member.name}`,
-    `Role: ${member.role}`,
     `Bound project: ${member.projectName || member.projectId || "unbound"}`,
     "",
     "Operating rules",
-    roleRule,
+    memberRule,
     collaborationRule,
     "Only operate inside the bound project and the allowed paths below.",
     allowedPaths,
@@ -6286,7 +6281,7 @@ ipcMain.handle("save-workgroup-member", (_event, data: {
     id: typeof data?.id === "string" ? data.id.trim() : undefined,
     workgroupId: workgroup.id,
     name,
-    role: data.role,
+    role: "member",
     projectId,
     projectName: binding.projectName,
     projectPath: binding.projectPath,

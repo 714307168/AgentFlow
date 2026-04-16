@@ -226,7 +226,7 @@ interface WorkgroupMessage {
   senderType: "user" | "member" | "system" | "error";
   senderName: string;
   memberId?: string | null;
-  memberRole?: "developer" | "qa" | "project_manager" | "custom" | null;
+  memberRole?: "member" | "project_manager" | null;
   projectId?: string | null;
   projectKind?: "local" | "remote" | null;
   dispatchRunId?: string | null;
@@ -240,7 +240,7 @@ interface WorkgroupMessage {
 interface WorkgroupMemberState {
   id: string;
   name: string;
-  role: "developer" | "qa" | "project_manager" | "custom";
+  role: "member" | "project_manager";
   projectId?: string | null;
   projectName?: string | null;
   projectKind?: "local" | "remote" | null;
@@ -266,7 +266,7 @@ interface MentionSuggestionItem {
   token: string;
   label: string;
   role: WorkgroupMemberState["role"] | null;
-  kind: "special" | "role" | "member";
+  kind: "special" | "member";
   searchText: string;
 }
 
@@ -2956,7 +2956,7 @@ function renderMessages(): void {
         const cardRole = message.senderType === "member"
           ? "assistant"
           : (message.senderType === "user" ? "user" : "error");
-        const senderBadge = message.senderType === "member" && message.memberRole
+        const senderBadge = message.senderType === "member" && message.memberRole === "project_manager"
           ? `${message.senderName} · ${translateWorkgroupRole(message.memberRole)}`
           : message.senderName;
         const sourceBadge = message.senderType === "member"
@@ -4087,16 +4087,10 @@ async function removeQueuedRun(runId: string): Promise<void> {
 }
 
 function translateWorkgroupRole(role: WorkgroupMemberState["role"]): string {
-  if (role === "developer") {
-    return inlineText("Developer", "开发");
-  }
-  if (role === "qa") {
-    return inlineText("QA", "测试");
-  }
   if (role === "project_manager") {
     return inlineText("PM", "项目经理");
   }
-  return inlineText("Custom", "自定义");
+  return inlineText("Member", "成员");
 }
 
 function hideMentionSuggestions(): void {
@@ -4122,7 +4116,7 @@ function getMentionableMembers(): MentionSuggestionItem[] {
       label: member.name.trim(),
       role: member.role,
       kind: "member" as const,
-      searchText: `${member.name.trim().toLowerCase()} ${member.role.toLowerCase()}`,
+      searchText: member.name.trim().toLowerCase(),
     }))
     .sort((left, right) => left.label.localeCompare(right.label, getLocale(), { sensitivity: "base" })) ?? [];
 
@@ -4134,30 +4128,6 @@ function getMentionableMembers(): MentionSuggestionItem[] {
       role: null,
       kind: "special",
       searchText: "all everyone broadcast",
-    },
-    {
-      key: "role:developer",
-      token: "developer",
-      label: "developer",
-      role: "developer",
-      kind: "role",
-      searchText: "developer dev",
-    },
-    {
-      key: "role:qa",
-      token: "qa",
-      label: "qa",
-      role: "qa",
-      kind: "role",
-      searchText: "qa test deploy",
-    },
-    {
-      key: "role:project_manager",
-      token: "pm",
-      label: "pm",
-      role: "project_manager",
-      kind: "role",
-      searchText: "pm project manager manager",
     },
     ...members,
   ];
@@ -4172,12 +4142,10 @@ function renderMentionSuggestions(): void {
   const markup = mentionState.items.map((item, index) => {
     const meta = item.kind === "member"
       ? (item.role ? translateWorkgroupRole(item.role) : inlineText("Member", "成员"))
-      : (item.kind === "role"
-        ? (item.role ? translateWorkgroupRole(item.role) : inlineText("Role", "角色"))
-        : inlineText("Everyone in the collaboration", "协作组内全部成员"));
+      : inlineText("Everyone in the collaboration", "协作组内全部成员");
     const tag = item.kind === "member"
       ? inlineText("Member", "成员")
-      : (item.kind === "role" ? inlineText("Role", "角色") : inlineText("All", "全部"));
+      : inlineText("All", "全部");
     return [
       `<button class="mention-suggestion-item${index === mentionState.activeIndex ? " active" : ""}" type="button" data-mention-index="${index}">`,
       '<div class="mention-suggestion-main">',
