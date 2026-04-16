@@ -4,6 +4,10 @@ import { v4 as uuidv4 } from "uuid";
 import { ClientType, Envelope, Events } from "./types";
 import E2ECrypto, { EncryptedPayload } from "./crypto";
 import { buildRelayApiHeaders } from "./api-version";
+import {
+  decideRelayHealthCheckRecovery,
+  type RelaySocketState,
+} from "./relay-connection-recovery";
 
 interface RelayClientOptions {
   clientType?: ClientType;
@@ -185,50 +189,26 @@ class RelayClient extends EventEmitter {
       return;
     }
 
-    const now = Date.now();
-    const socket = this.ws;
-    if (!socket) {
-      this.connect();
+    const decision = decideRelayHealthCheckRecovery({
+      now: Date.now(),
+      reason,
+      staleTimeoutMs,
+      connectionState: this.connectionState,
+      socketState: this.getSocketState(),
+      isAuthenticated: this.isAuthenticated,
+      lastInboundAt: this.lastInboundAt,
+      lastSocketOpenAttemptAt: this.lastSocketOpenAttemptAt,
+      lastAuthenticatedAt: this.lastAuthenticatedAt,
+      reconnectScheduled: this.reconnectTimer !== null,
+    });
+    if (decision.action === "none") {
       return;
     }
-
-    if (socket.readyState === WebSocket.CONNECTING) {
-      const staleForMs = this.lastSocketOpenAttemptAt > 0 ? now - this.lastSocketOpenAttemptAt : Number.MAX_SAFE_INTEGER;
-      if (staleForMs > staleTimeoutMs) {
-        console.warn(`[RelayClient] Reconnecting stalled socket during ${reason}; state=connecting staleForMs=${staleForMs}`);
-        this.recordConnectionEvent("health-check-reconnect", {
-          detail: "reason=" + reason + "; state=connecting; staleForMs=" + String(staleForMs),
-        });
-        this.connect();
-      }
-      return;
-    }
-
-    if (socket.readyState !== WebSocket.OPEN) {
-      this.recordConnectionEvent("health-check-reconnect", {
-        detail: "reason=" + reason + "; state=not-open; readyState=" + String(socket.readyState),
-      });
-      this.connect();
-      return;
-    }
-
-    if (!this.isAuthenticated) {
-      console.warn(`[RelayClient] Reconnecting unauthenticated socket during ${reason}`);
-      this.recordConnectionEvent("health-check-reconnect", {
-        detail: "reason=" + reason + "; state=unauthenticated",
-      });
-      this.connect();
-      return;
-    }
-
-    const staleForMs = this.lastInboundAt > 0 ? now - this.lastInboundAt : now - this.lastSocketOpenAttemptAt;
-    if (staleForMs > staleTimeoutMs) {
-      console.warn(`[RelayClient] Reconnecting stale socket during ${reason}; staleForMs=${staleForMs}`);
-      this.recordConnectionEvent("health-check-reconnect", {
-        detail: "reason=" + reason + "; state=open; staleForMs=" + String(staleForMs),
-      });
-      this.connect();
-    }
+    console.warn(`[RelayClient] ${decision.action === "connect" ? "Connecting" : "Reconnecting"} relay socket during ${reason}; ${decision.detail}`);
+    this.recordConnectionEvent("health-check-reconnect", {
+      detail: decision.detail,
+    });
+    this.connect();
   }
 
   connect(): void {
@@ -823,6 +803,23 @@ class RelayClient extends EventEmitter {
 
   private isCurrentSocket(generation: number, socket: WebSocket): boolean {
     return this.connectionGeneration === generation && this.ws === socket;
+  }
+
+  private getSocketState(): RelaySocketState {
+    if (!this.ws) {
+      return "missing";
+    }
+    switch (this.ws.readyState) {
+      case WebSocket.CONNECTING:
+        return "connecting";
+      case WebSocket.OPEN:
+        return "open";
+      case WebSocket.CLOSING:
+        return "closing";
+      case WebSocket.CLOSED:
+      default:
+        return "closed";
+    }
   }
 
   private disposeSocket(socket: WebSocket): void {

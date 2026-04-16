@@ -68,6 +68,7 @@
 - [x] relay-server deployment guidance now carries a concrete proxy timeout checklist for `/ws`, including `proxy_read_timeout`, `proxy_send_timeout`, `proxy_connect_timeout`, `proxy_buffering off`, and upgrade-header verification.
 - [x] relay-server close-code aggregation and proxy timeout checklist.
 - [x] foreground/network-switch recovery state machine extraction and tests.
+- [x] Desktop `RelayClient` health-check recovery rules now live in a dedicated decision helper that distinguishes connect/auth/catch-up/stable phases, respects scheduled reconnect cooldowns, gives freshly opened sockets an auth grace window, and is covered by focused Node tests.
 
 - [x] 新建 WS 稳定性与恢复专项文档，并补发版节点。
 - [x] 桌面端 RelayClient 连接快照现在记录最近连接事件环形日志、最近一次 close code / close reason、最近一次重连计划。
@@ -80,7 +81,6 @@
 
 优先顺序保持：
 
-1. 先把 Android 恢复日志和桌面端口径对齐。
-2. 再把恢复状态机从 UI / Service 逻辑里进一步拆出来。
-3. 最后再做服务端超时、边缘代理和 close-code 聚合。
-
+1. 继续把桌面端和 Android 端的恢复状态机从 UI / Service 逻辑里下沉到独立 helper，减少多入口直接抢占重连。
+2. 补“认证成功后 follow-up catch-up / delta 校验”这一层显式阶段，让恢复后先轻量校验再补增量。
+3. 最后再继续做服务端超时、边缘代理和 close-code 聚合后的联动验证。
