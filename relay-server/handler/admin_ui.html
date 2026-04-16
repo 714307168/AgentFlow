@@ -458,6 +458,19 @@
               <tbody id="trafficBody"></tbody>
             </table>
           </div>
+
+          <div class="table-shell">
+            <div class="section-head">
+              <div class="section-title">
+                <h2 data-i18n="closeSignals.heading">WebSocket Close Signals</h2>
+                <p data-i18n="closeSignals.subheading">Aggregated close codes and transport errors observed by relay-server.</p>
+              </div>
+            </div>
+            <table>
+              <thead id="closeSignalsHead"></thead>
+              <tbody id="closeSignalsBody"></tbody>
+            </table>
+          </div>
         </section>
 
         <section class="panel" id="agentsPanel">
@@ -654,7 +667,8 @@
     const emptyOverview = () => ({
       summary: { users: 0, agents: 0, devices: 0, online_agents: 0, online_devices: 0 },
       connections: [],
-      traffic: []
+      traffic: [],
+      close_signals: []
     });
 
     const state = {
@@ -716,6 +730,22 @@
         "traffic.table.inboundBytes": "Inbound Bytes",
         "traffic.table.outboundCount": "Outbound",
         "traffic.table.outboundBytes": "Outbound Bytes",
+        "closeSignals.heading": "WebSocket Close Signals",
+        "closeSignals.subheading": "Aggregated close codes and transport errors observed by relay-server.",
+        "closeSignals.empty": "No WebSocket close signals recorded yet.",
+        "closeSignals.table.client": "Client",
+        "closeSignals.table.source": "Source",
+        "closeSignals.table.code": "Close Code",
+        "closeSignals.table.count": "Count",
+        "closeSignals.table.unexpected": "Unexpected",
+        "closeSignals.table.reason": "Last Reason",
+        "closeSignals.table.lastAt": "Last Seen",
+        "closeSignals.source.auth_read": "Auth Read",
+        "closeSignals.source.read": "Read",
+        "closeSignals.source.write": "Write",
+        "closeSignals.source.ping": "Ping",
+        "closeSignals.source.unknown": "Unknown",
+        "closeSignals.client.unknown": "Unknown",
         "agents.heading": "Agents",
         "agents.subheading": "Desktop clients.",
         "agents.id.placeholder": "Agent ID",
@@ -899,6 +929,22 @@
         "traffic.table.inboundBytes": "入站流量",
         "traffic.table.outboundCount": "出站次数",
         "traffic.table.outboundBytes": "出站流量",
+        "closeSignals.heading": "WebSocket 断线信号",
+        "closeSignals.subheading": "relay-server 侧聚合的 close code 与传输错误统计。",
+        "closeSignals.empty": "暂无 WebSocket 断线信号。",
+        "closeSignals.table.client": "客户端",
+        "closeSignals.table.source": "来源",
+        "closeSignals.table.code": "关闭码",
+        "closeSignals.table.count": "次数",
+        "closeSignals.table.unexpected": "异常次数",
+        "closeSignals.table.reason": "最近原因",
+        "closeSignals.table.lastAt": "最近时间",
+        "closeSignals.source.auth_read": "鉴权读取",
+        "closeSignals.source.read": "读链路",
+        "closeSignals.source.write": "写链路",
+        "closeSignals.source.ping": "Ping",
+        "closeSignals.source.unknown": "未知",
+        "closeSignals.client.unknown": "未知",
         "agents.heading": "桌面端",
         "agents.subheading": "桌面客户端。",
         "agents.id.placeholder": "桌面端 ID",
@@ -1167,6 +1213,19 @@
       return '<span class="type-pill ' + esc(kind) + '">' + esc(kind === "agent" ? t("type.agent") : t("type.device")) + "</span>";
     }
 
+    function renderCloseSignalClientType(kind) {
+      if (kind === "agent" || kind === "device") {
+        return renderType(kind);
+      }
+      return '<span class="type-pill unknown">' + esc(t("closeSignals.client.unknown")) + "</span>";
+    }
+
+    function renderCloseSignalSource(source) {
+      const key = "closeSignals.source." + String(source || "unknown");
+      const translated = t(key);
+      return translated === key ? String(source || "unknown") : translated;
+    }
+
     function currentOwnerOptions() {
       if (!state.currentUser) return [];
       if (!state.currentUser.is_admin) return [{ id: state.currentUser.id, username: state.currentUser.username }];
@@ -1275,9 +1334,21 @@
       });
       if (!trafficRows.length) {
         $("trafficBody").innerHTML = '<tr><td colspan="5" class="empty">' + esc(t("traffic.empty")) + "</td></tr>";
+      } else {
+        $("trafficBody").innerHTML = trafficRows.map((row) => "<tr><td class=\"mono\">" + esc(row.event || "-") + '</td><td class="mono">' + esc(row.inbound_count ?? 0) + '</td><td class="mono">' + esc(formatBytes(row.inbound_bytes)) + '</td><td class="mono">' + esc(row.outbound_count ?? 0) + '</td><td class="mono">' + esc(formatBytes(row.outbound_bytes)) + "</td></tr>").join("");
+      }
+
+      $("closeSignalsHead").innerHTML = "<tr><th>" + esc(t("closeSignals.table.client")) + "</th><th>" + esc(t("closeSignals.table.source")) + "</th><th>" + esc(t("closeSignals.table.code")) + "</th><th>" + esc(t("closeSignals.table.count")) + "</th><th>" + esc(t("closeSignals.table.unexpected")) + "</th><th>" + esc(t("closeSignals.table.reason")) + "</th><th>" + esc(t("closeSignals.table.lastAt")) + "</th></tr>";
+      const closeSignalRows = [...(state.overview.close_signals || [])];
+      if (!closeSignalRows.length) {
+        $("closeSignalsBody").innerHTML = '<tr><td colspan="7" class="empty">' + esc(t("closeSignals.empty")) + "</td></tr>";
         return;
       }
-      $("trafficBody").innerHTML = trafficRows.map((row) => "<tr><td class=\"mono\">" + esc(row.event || "-") + '</td><td class="mono">' + esc(row.inbound_count ?? 0) + '</td><td class="mono">' + esc(formatBytes(row.inbound_bytes)) + '</td><td class="mono">' + esc(row.outbound_count ?? 0) + '</td><td class="mono">' + esc(formatBytes(row.outbound_bytes)) + "</td></tr>").join("");
+      $("closeSignalsBody").innerHTML = closeSignalRows.map((row) => {
+        const codeText = row.close_code_text ? " (" + row.close_code_text + ")" : "";
+        const reason = row.last_reason || row.last_error || "-";
+        return "<tr><td>" + renderCloseSignalClientType(row.client_type) + '</td><td>' + esc(renderCloseSignalSource(row.source)) + '</td><td class="mono">' + esc(String(row.close_code ?? 0) + codeText) + '</td><td class="mono">' + esc(row.count ?? 0) + '</td><td class="mono">' + esc(row.unexpected_count ?? 0) + '</td><td class="muted">' + esc(reason) + '</td><td class="mono">' + esc(fmtDate(row.last_at)) + "</td></tr>";
+      }).join("");
     }
 
     function renderAgents() {

@@ -40,6 +40,8 @@ type Hub struct {
 	pendingAgentOffline sync.Map // agentID -> *time.Timer
 	trafficMu           sync.RWMutex
 	trafficByEvent      map[string]*EventTrafficCounter
+	closeSignalMu       sync.RWMutex
+	closeSignals        map[string]*wsCloseSignalCounter
 	cfg                 *config.Config
 	store               *store.Store
 	seq                 int64 // atomic sequence counter
@@ -83,6 +85,7 @@ func NewHub(cfg *config.Config, st *store.Store) *Hub {
 		cfg:            cfg,
 		store:          st,
 		trafficByEvent: make(map[string]*EventTrafficCounter),
+		closeSignals:   make(map[string]*wsCloseSignalCounter),
 	}
 }
 

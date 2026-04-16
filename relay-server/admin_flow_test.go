@@ -16,6 +16,7 @@ import (
 	"github.com/claudecode/relay-server/handler"
 	"github.com/claudecode/relay-server/hub"
 	"github.com/claudecode/relay-server/store"
+	"github.com/gorilla/websocket"
 )
 
 type adminLoginResponse struct {
@@ -63,6 +64,14 @@ type adminOverviewResponse struct {
 		OutboundCount int64  `json:"outbound_count"`
 		OutboundBytes int64  `json:"outbound_bytes"`
 	} `json:"traffic"`
+	CloseSignals []struct {
+		ClientType      string `json:"client_type"`
+		Source          string `json:"source"`
+		CloseCode       int    `json:"close_code"`
+		Count           int64  `json:"count"`
+		UnexpectedCount int64  `json:"unexpected_count"`
+		LastReason      string `json:"last_reason"`
+	} `json:"close_signals"`
 }
 
 type userLoginResponse struct {
@@ -206,12 +215,19 @@ func TestAdminFlow(t *testing.T) {
 	}
 
 	var overview adminOverviewResponse
+	h.RecordWSCloseSignal("device", "read", &websocket.CloseError{Code: websocket.CloseAbnormalClosure, Text: "proxy idle timeout"}, true)
 	doJSON(t, client, http.MethodGet, server.URL+"/admin/api/overview", nil, http.StatusOK, &overview)
 	if overview.Summary.Users < 2 || overview.Summary.Agents < 1 || overview.Summary.Devices < 1 {
 		t.Fatalf("unexpected overview summary: %+v", overview.Summary)
 	}
 	if overview.Traffic == nil {
 		t.Fatal("expected overview traffic field")
+	}
+	if len(overview.CloseSignals) == 0 {
+		t.Fatal("expected overview close_signals field to include recorded websocket diagnostics")
+	}
+	if overview.CloseSignals[0].CloseCode != websocket.CloseAbnormalClosure || overview.CloseSignals[0].Count < 1 {
+		t.Fatalf("unexpected overview close signal: %+v", overview.CloseSignals[0])
 	}
 
 	doJSON(t, client, http.MethodPost, server.URL+"/admin/api/account/password", map[string]any{

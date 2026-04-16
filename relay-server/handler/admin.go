@@ -185,10 +185,23 @@ type adminEventTrafficItem struct {
 	OutboundBytes int64  `json:"outbound_bytes"`
 }
 
+type adminWSCloseSignalItem struct {
+	ClientType      string    `json:"client_type,omitempty"`
+	Source          string    `json:"source"`
+	CloseCode       int       `json:"close_code"`
+	CloseCodeText   string    `json:"close_code_text,omitempty"`
+	Count           int64     `json:"count"`
+	UnexpectedCount int64     `json:"unexpected_count"`
+	LastReason      string    `json:"last_reason,omitempty"`
+	LastError       string    `json:"last_error,omitempty"`
+	LastAt          time.Time `json:"last_at,omitempty"`
+}
+
 type adminOverviewResponse struct {
-	Summary     adminOverviewSummary    `json:"summary"`
-	Connections []adminLiveConnection   `json:"connections"`
-	Traffic     []adminEventTrafficItem `json:"traffic"`
+	Summary      adminOverviewSummary     `json:"summary"`
+	Connections  []adminLiveConnection    `json:"connections"`
+	Traffic      []adminEventTrafficItem  `json:"traffic"`
+	CloseSignals []adminWSCloseSignalItem `json:"close_signals"`
 }
 
 func resolveScopedUserID(session adminSession, requestedUserID int, database *db.DB) (int, error) {
@@ -567,12 +580,28 @@ func AdminOverviewHandler(cfg *config.Config, database *db.DB, h *hub.Hub) http.
 				OutboundBytes: item.OutboundBytes,
 			})
 		}
+		closeSignalSnapshot := h.WSCloseSignalSnapshot()
+		closeSignals := make([]adminWSCloseSignalItem, 0, len(closeSignalSnapshot))
+		for _, item := range closeSignalSnapshot {
+			closeSignals = append(closeSignals, adminWSCloseSignalItem{
+				ClientType:      item.ClientType,
+				Source:          item.Source,
+				CloseCode:       item.CloseCode,
+				CloseCodeText:   item.CloseCodeText,
+				Count:           item.Count,
+				UnexpectedCount: item.UnexpectedCount,
+				LastReason:      item.LastReason,
+				LastError:       item.LastError,
+				LastAt:          item.LastAt,
+			})
+		}
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(adminOverviewResponse{
-			Summary:     summary,
-			Connections: connections,
-			Traffic:     traffic,
+			Summary:      summary,
+			Connections:  connections,
+			Traffic:      traffic,
+			CloseSignals: closeSignals,
 		})
 	})
 }
