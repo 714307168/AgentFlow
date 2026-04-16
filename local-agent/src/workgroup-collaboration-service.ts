@@ -636,22 +636,20 @@ export default class WorkgroupCollaborationService extends EventEmitter {
         if (remoteResolution.status === "done") {
           this.clearActiveDispatch(workgroup.id, dispatchRunId);
         }
-        workgroupCollaborationStore.updateMessage(workgroup.id, message.id, {
+        changed = this.updateMessageIfChanged(workgroup.id, message, {
           senderType: "member",
           status: remoteResolution.status === "streaming" ? "streaming" : "done",
           content: remoteResolution.content ?? message.content,
-        });
-        changed = true;
+        }) || changed;
         continue;
       }
       if (remoteResolution.status === "error") {
         this.clearActiveDispatch(workgroup.id, dispatchRunId);
-        workgroupCollaborationStore.updateMessage(workgroup.id, message.id, {
+        changed = this.updateMessageIfChanged(workgroup.id, message, {
           senderType: "error",
           status: "done",
           content: remoteResolution.content?.trim() || `${message.senderName} failed to respond.`,
-        });
-        changed = true;
+        }) || changed;
         continue;
       }
       if (dispatchRunId && this.hasActiveDispatch(workgroup.id, dispatchRunId)) {
@@ -674,8 +672,27 @@ export default class WorkgroupCollaborationService extends EventEmitter {
     }
 
     if (changed) {
-      this.emit("snapshot", workgroup.id, this.getSession(workgroup.id));
+      this.emitSnapshot(workgroup.id);
     }
+  }
+
+  private updateMessageIfChanged(
+    workgroupId: string,
+    current: WorkgroupCollaborationMessage,
+    patch: Partial<Pick<WorkgroupCollaborationMessage, "senderType" | "status" | "content">>,
+  ): boolean {
+    const nextSenderType = patch.senderType ?? current.senderType;
+    const nextStatus = patch.status ?? current.status;
+    const nextContent = patch.content ?? current.content;
+    if (
+      nextSenderType === current.senderType
+      && nextStatus === current.status
+      && nextContent === current.content
+    ) {
+      return false;
+    }
+    workgroupCollaborationStore.updateMessage(workgroupId, current.id, patch);
+    return true;
   }
 
   private resolveTargets(
@@ -1116,6 +1133,7 @@ export default class WorkgroupCollaborationService extends EventEmitter {
 
       const result = await remoteSessionStore.sendPrompt(project.id, prompt, undefined, {
         runId,
+        source: "workgroup",
         onTextDelta: handleText,
         onDone: handleDone,
         onError: handleError,

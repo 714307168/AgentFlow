@@ -190,7 +190,12 @@ class MessageRouter {
   private handleMessageSend(env: Envelope): void {
     console.log("[MessageRouter] Received message.send:", JSON.stringify(env));
     const projectId = env.project_id;
-    const payload = env.payload as { content?: string; attachments?: unknown[]; client_message_id?: string } | undefined;
+    const payload = env.payload as {
+      content?: string;
+      attachments?: unknown[];
+      client_message_id?: string;
+      source?: string;
+    } | undefined;
     const clientMessageId = typeof payload?.client_message_id === "string" && payload.client_message_id.trim()
       ? payload.client_message_id.trim()
       : env.id;
@@ -234,6 +239,7 @@ class MessageRouter {
     this.options.revealProjectWindow?.(projectId, project.name);
     const content = payload?.content ?? "";
     const attachments = this.normalizeIncomingAttachments(payload?.attachments);
+    const messageSource = payload?.source === "workgroup" ? "workgroup" : "remote";
     this.streamSeq.set(streamId, 0);
     if (!this.options.runtimeManager) {
       this.logMessageTrace("error", "Rejected project message.send because runtime manager was unavailable.", {
@@ -298,7 +304,7 @@ class MessageRouter {
       cwd: project.path,
       prompt: content,
       attachments,
-      source: "remote",
+      source: messageSource,
       queuedAt: env.ts,
       runId: clientMessageId,
       responseMessageId: streamId,

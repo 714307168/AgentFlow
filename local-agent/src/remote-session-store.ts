@@ -14,6 +14,7 @@ import type {
   ProjectSessionSnapshot,
   ProjectSyncBucket,
   QueuedRunSnapshot,
+  RunSource,
   RunAttachment,
   SessionActivity,
   SessionMessage,
@@ -704,6 +705,7 @@ export default class RemoteSessionStore extends EventEmitter {
     attachments?: RunAttachment[],
     options: {
       runId?: string;
+      source?: RunSource;
       onTextDelta?: (chunk: string) => void;
       onDone?: () => void;
       onError?: (error: string) => void;
@@ -743,12 +745,13 @@ export default class RemoteSessionStore extends EventEmitter {
     const runId = options.runId?.trim() || uuidv4();
     const streamId = `${runId}:assistant`;
     const timestamp = Date.now();
+    const source = options.source === "workgroup" ? "workgroup" : "desktop";
     state.messages.push({
       id: runId,
       role: "user",
       content: trimmedPrompt,
       attachments: cloneAttachments(uploadedAttachments),
-      source: "desktop",
+      source,
       createdAt: timestamp,
       updatedAt: timestamp,
       status: "done",
@@ -766,6 +769,7 @@ export default class RemoteSessionStore extends EventEmitter {
       payload: {
         content: trimmedPrompt,
         attachments: cloneAttachments(uploadedAttachments),
+        source: options.source === "workgroup" ? "workgroup" : undefined,
       },
     });
     if (options.onTextDelta || options.onDone || options.onError) {

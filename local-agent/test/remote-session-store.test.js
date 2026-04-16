@@ -220,3 +220,36 @@ test("remote session store bypasses session sync backpressure for detail and act
   assert.equal(sentEvents[1].payload.action, "fetch_item_detail");
   assert.equal(sentEvents[1].payload.item_id, "msg-1");
 });
+
+test("remote session store keeps workgroup-dispatched prompts out of private project snapshots", async () => {
+  const sentEvents = [];
+  const relayClient = {
+    isConnected() {
+      return true;
+    },
+    send(event) {
+      sentEvents.push(event);
+    },
+  };
+  const store = new RemoteSessionStore(relayClient, {
+    localAgentId: () => "local-agent",
+  });
+
+  listRemoteProject(store);
+  const result = await store.sendPrompt(
+    "remote-project-1",
+    "hidden workgroup dispatch",
+    undefined,
+    { source: "workgroup" },
+  );
+
+  assert.equal(result.success, true);
+  assert.equal(sentEvents.length, 1);
+  assert.equal(sentEvents[0].event, Events.MESSAGE_SEND);
+  assert.equal(sentEvents[0].payload.source, "workgroup");
+
+  const snapshot = store.getSnapshot("remote-project-1");
+  assert.ok(snapshot);
+  assert.equal(snapshot.messageTotal, 0);
+  assert.deepEqual(snapshot.messages, []);
+});
