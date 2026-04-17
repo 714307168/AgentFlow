@@ -119,6 +119,8 @@
 
 首期建议补 5 类接口。
 
+字段级 schema 细化见：`docs/project-scope-access-api-schema.md`
+
 ### 6.1 查询授权列表
 
 `GET /api/access/grants?desktop_device_id=...`

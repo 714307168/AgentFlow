@@ -199,3 +199,9 @@
 - 补服务端接口返回 schema
 - 补桌面端授权 UI 草图
 - 补 Android scope 收缩与缓存清理时序图
+
+当前进度：
+
+- [x] 服务端接口返回 schema
+- [ ] 桌面端授权 UI 草图
+- [ ] Android scope 收缩与缓存清理时序图
