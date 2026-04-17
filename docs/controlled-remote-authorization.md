@@ -287,6 +287,7 @@
 - 项目列表按 scope 裁切
 - 会话详情与文件下载按 capability bundle 限制
 - 支持撤销授权和过期授权
+- 实施细化见：`docs/project-scope-access-mvp.md`
 
 发版节点：
 

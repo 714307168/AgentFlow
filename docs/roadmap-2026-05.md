@@ -589,4 +589,6 @@
 - [x] Desktop controller relay post-auth refreshes now use a shared `catalog / catch-up / stabilize` pass plan, folding the old immediate catalog refresh plus extra delayed calls into one explicit schedule and giving the post-auth delta validation path dedicated Node tests.
 - [x] 新增独立设计文档 `docs/controlled-remote-authorization.md`，把 README 中的“受控授权远程协作”定位下沉成可执行的授权模型，明确了项目级授权、能力包、过期授权和高风险动作审计的落地方向。
 - [ ] 下一轮文档/实现入口转到“项目级授权 MVP”：授权账号时同时勾选项目范围，不再默认把一个桌面节点下的全部项目都暴露给被授权人。
+- [x] 新增 `docs/project-scope-access-mvp.md`，把“项目级授权 MVP”从 roadmap 待办拆成实施文档，明确了数据模型、`effective-scope` 接口、桌面端授权 UI、Android scope 裁切和文件/诊断统一校验。
+- [ ] 下一轮代码实现入口维持为 `R-project-scope-access`：先补 relay-server 授权模型与 `effective-scope`，再接桌面端项目多选授权 UI，最后让移动端按 scope 裁切列表、详情和文件入口。
 
