@@ -9,6 +9,7 @@ In plain terms, it is built for this kind of setup:
 - your real coding agent runs on your computer
 - when you leave the desk, you still want to check project status, read messages, send follow-up instructions, and receive files on your phone
 - you do not want to hand that data to a third-party relay, so you host the sync service yourself
+- you want to treat an office PC, server-room machine, or on-site workstation as a controlled remote collaboration node for debugging, deployment follow-up, incident handling, or remote work
 
 It is not just a chat app, and it is not a normal remote desktop tool.
 It is closer to a combination of a desktop AI workspace, a mobile companion, and a self-hosted relay.
@@ -30,6 +31,7 @@ If you already run Claude Code CLI or Codex CLI on your computer, `AgentFlow` le
 
 - developers who mainly run AI coding CLI tools on a Windows desktop
 - teams or individuals who need a “computer executes, phone follows up” workflow
+- users who need controlled remote authorization for an office machine, on-site workstation, or operations node
 - users who want to self-host relay, account, and update infrastructure
 - users who want long-lived project history instead of disposable chat sessions
 
@@ -53,6 +55,7 @@ Current core capabilities include:
 - viewing desktop-side project lists, conversations, and runtime status from the phone
 - sending follow-up instructions from Android to a specific desktop project
 - syncing messages, activities, attachments, and execution state back to mobile
+- serving as a controlled remote collaboration entry point for on-site debugging, deployment follow-up, issue investigation, and remote work
 - self-hosting the relay layer instead of depending on a public cloud relay
 - checking and distributing desktop and Android releases through the built-in update center
 - managing users, devices, releases, and traffic statistics from the admin side
@@ -70,10 +73,16 @@ You can think of the product flow like this:
 6. You send a new instruction from the phone, and the desktop side continues execution.
 7. Results, activities, and files sync back to the phone.
 
+For field debugging, deployment work, or remote-office scenarios, you can also think of it as a controlled remote authorization flow:
+1. Connect an office PC, server-room machine, or on-site workstation to `local-agent`.
+2. Use your self-hosted `relay-server` to manage accounts, devices, and access relationships.
+3. Let authorized people collaborate through project messages, state, files, and execution results instead of exposing the whole desktop.
+
 ## How It Differs From Chat Apps And Remote Desktop
 
 - It is not a generic chat tool. The center of the design is project-based AI workflow.
 - It is not remote desktop streaming. It syncs structured project data, messages, activities, and state instead of streaming the full screen.
+- It is better suited to controlled remote collaboration. On-site debugging, deployment follow-up, and remote work happen around project state and execution results, not around opening full machine access.
 - It is not a hosted SaaS product. You can deploy the relay server and update center yourself.
 - It is not built around one-off chats. History is persisted per project for long-running work.
 
