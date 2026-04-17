@@ -583,4 +583,5 @@
 - [x] relay-server close-code 聚合与代理超时核查清单。
 - [x] Android 前台/网络切换恢复状态机已抽成独立 domain helper，并接入 `onResume` + network-available 恢复调度；同时补了对应 JVM 测试用例。
 - [x] Desktop `RelayClient` health-check recovery rules have been extracted into a shared decision helper with focused Node coverage for scheduled-reconnect suppression, auth grace, catch-up grace, and stale inbound reconnect triggers, moving the WS专项 P1 desktop path out of ad-hoc inline conditionals.
+- [x] Desktop controller relay post-auth refreshes now use a shared `catalog / catch-up / stabilize` pass plan, folding the old immediate catalog refresh plus extra delayed calls into one explicit schedule and giving the post-auth delta validation path dedicated Node tests.
 

@@ -69,6 +69,7 @@
 - [x] relay-server close-code aggregation and proxy timeout checklist.
 - [x] foreground/network-switch recovery state machine extraction and tests.
 - [x] Desktop `RelayClient` health-check recovery rules now live in a dedicated decision helper that distinguishes connect/auth/catch-up/stable phases, respects scheduled reconnect cooldowns, gives freshly opened sockets an auth grace window, and is covered by focused Node tests.
+- [x] Desktop controller relay authentication follow-up refreshes now run through an explicit pass plan with `catalog -> catch-up -> stabilize` stages, replacing the previous scattered immediate + delayed refresh entrypoints and giving the post-auth delta validation path dedicated coverage.
 
 - [x] 新建 WS 稳定性与恢复专项文档，并补发版节点。
 - [x] 桌面端 RelayClient 连接快照现在记录最近连接事件环形日志、最近一次 close code / close reason、最近一次重连计划。
@@ -81,6 +82,6 @@
 
 优先顺序保持：
 
-1. 继续把桌面端和 Android 端的恢复状态机从 UI / Service 逻辑里下沉到独立 helper，减少多入口直接抢占重连。
-2. 补“认证成功后 follow-up catch-up / delta 校验”这一层显式阶段，让恢复后先轻量校验再补增量。
-3. 最后再继续做服务端超时、边缘代理和 close-code 聚合后的联动验证。
+1. 继续把剩余桌面端 / Android 恢复入口统一接到同一套 helper 和阶段命名，减少手写 reason 漂移。
+2. 开始做服务端超时、边缘代理配置和 close-code 聚合后的联动验证，确认恢复计划和服务端观测信号能对得上。
+3. 再补一轮真实掉线场景回放，验证 catalog、delta、workgroup catch-up 在 300ms / 1500ms / 5000ms 三段补拉里是否足够稳定。

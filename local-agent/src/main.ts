@@ -80,6 +80,10 @@ import {
 import { createLocalCommandGateway, defineLocalCommand, type LocalCommandDescriptor } from "./local-command-gateway";
 import { buildGitHubCommandEnvironment } from "./github-command-env";
 import {
+  buildRelayFollowUpRefreshPasses,
+  type RelayFollowUpRefreshPass,
+} from "./relay-follow-up-refresh-plan";
+import {
   createWorkgroupRegistryMembersCacheKey,
   normalizeWorkgroupRegistrySearchQuery,
   parseWorkgroupRegistryMembersCacheKey,
@@ -3689,8 +3693,17 @@ function requestActiveRemoteProjectSync(reason: string, force: boolean = false):
 }
 
 async function runRelayFollowUpRefresh(reason: string): Promise<void> {
+  const [pass] = buildRelayFollowUpRefreshPasses(reason, [0], {
+    includeImmediateCatalogPass: true,
+  });
+  await runRelayFollowUpRefreshPass(pass);
+}
+
+async function runRelayFollowUpRefreshPass(pass: RelayFollowUpRefreshPass): Promise<void> {
   appLogger.info("relay", "Running relay follow-up refresh.", {
-    reason,
+    reason: pass.reason,
+    stage: pass.stage,
+    delayMs: pass.delayMs,
   });
   ensureRemoteRelayReady(loadConfig());
 
@@ -3701,12 +3714,22 @@ async function runRelayFollowUpRefresh(reason: string): Promise<void> {
   lastRemoteProjectCatalogRefreshAt = 0;
   lastRemoteWorkgroupCatalogRefreshAt = 0;
 
-  requestRemoteProjectCatalogRefresh(`follow-up:${reason}`);
-  await refreshRemoteWorkgroupCatalog(true, `follow-up:${reason}`);
-  const requestedProjectSyncCount = requestPrioritizedRemoteProjectSyncs(`follow-up:${reason}`, true);
-  const requestedWorkgroupSyncCount = requestPrioritizedRemoteWorkgroupSessionSyncs(`follow-up:${reason}`, true);
+  if (pass.refreshProjectCatalog) {
+    requestRemoteProjectCatalogRefresh(`follow-up:${pass.reason}`);
+  }
+  if (pass.refreshWorkgroupCatalog) {
+    await refreshRemoteWorkgroupCatalog(true, `follow-up:${pass.reason}`);
+  }
+  const requestedProjectSyncCount = pass.syncProjects
+    ? requestPrioritizedRemoteProjectSyncs(`follow-up:${pass.reason}`, true)
+    : 0;
+  const requestedWorkgroupSyncCount = pass.syncWorkgroups
+    ? requestPrioritizedRemoteWorkgroupSessionSyncs(`follow-up:${pass.reason}`, true)
+    : 0;
   appLogger.info("relay", "Completed relay follow-up refresh.", {
-    reason,
+    reason: pass.reason,
+    stage: pass.stage,
+    delayMs: pass.delayMs,
     requestedProjectSyncCount,
     requestedWorkgroupSyncCount,
     requestedActiveProjectSync: Boolean(activeWorkspaceProjectId?.trim() && isRemoteProject(activeWorkspaceProjectId)),
@@ -3714,17 +3737,32 @@ async function runRelayFollowUpRefresh(reason: string): Promise<void> {
   });
 }
 
-function scheduleRelayFollowUpRefreshes(reason: string): void {
+function scheduleRelayFollowUpRefreshes(
+  reason: string,
+  options: {
+    includeImmediateCatalogPass?: boolean;
+  } = {},
+): void {
   clearRelayFollowUpRefreshTimers();
+  const passes = buildRelayFollowUpRefreshPasses(
+    reason,
+    RELAY_FOLLOW_UP_REFRESH_DELAYS_MS,
+    options,
+  );
   appLogger.info("relay", "Scheduled relay follow-up refreshes.", {
     reason,
-    delaysMs: RELAY_FOLLOW_UP_REFRESH_DELAYS_MS.join(","),
+    delaysMs: passes.map((pass) => pass.delayMs).join(","),
+    stages: passes.map((pass) => `${pass.stage}@${pass.delayMs}`).join(","),
   });
-  for (const delayMs of RELAY_FOLLOW_UP_REFRESH_DELAYS_MS) {
+  for (const pass of passes) {
+    if (pass.delayMs <= 0) {
+      void runRelayFollowUpRefreshPass(pass);
+      continue;
+    }
     const timer = setTimeout(() => {
       relayFollowUpRefreshTimers.delete(timer);
-      void runRelayFollowUpRefresh(`${reason}:${delayMs}`);
-    }, delayMs);
+      void runRelayFollowUpRefreshPass(pass);
+    }, pass.delayMs);
     relayFollowUpRefreshTimers.add(timer);
   }
 }
@@ -4373,11 +4411,9 @@ function initRemoteRelay(config: AgentConfig): void {
     scheduleControllerTokenRefresh();
   });
   controllerRelayClient.on("authenticated", () => {
-    requestRemoteProjectCatalogRefresh("controller-authenticated");
-    scheduleRemoteProjectCatalogRefresh(1_500, "controller-authenticated:1500");
-    scheduleRemoteProjectCatalogRefresh(5_000, "controller-authenticated:5000");
-    void refreshRemoteWorkgroupCatalog(true, "controller-authenticated");
-    scheduleRelayFollowUpRefreshes("controller-authenticated");
+    scheduleRelayFollowUpRefreshes("controller-authenticated", {
+      includeImmediateCatalogPass: true,
+    });
   });
   controllerRelayClient.on("disconnected", () => {
     updateTrayTooltip();
