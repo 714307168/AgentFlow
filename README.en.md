@@ -2,28 +2,80 @@
 
 [中文](./README.md)
 
-`AgentFlow` is a self-hosted remote workflow for controlling the desktop agent and local CLI workflows from an Android app.
+`AgentFlow` is a self-hosted workflow that lets you watch, continue, and manage desktop AI coding sessions from your phone.
+
+In plain terms, it is built for this kind of setup:
+
+- your real coding agent runs on your computer
+- when you leave the desk, you still want to check project status, read messages, send follow-up instructions, and receive files on your phone
+- you do not want to hand that data to a third-party relay, so you host the sync service yourself
+
+It is not just a chat app, and it is not a normal remote desktop tool.
+It is closer to a combination of a desktop AI workspace, a mobile companion, and a self-hosted relay.
 
 ```text
-Android App  <-->  Relay Server  <-->  Local Agent  <-->  Claude Code CLI
+Android App  <-->  Relay Server  <-->  Local Agent  <-->  Claude Code CLI / Codex CLI
 ```
 
-The project contains three main parts:
+## One-Line Summary
 
-- `android-app/`: Android client for project list, chat, attachments, and updates
-- `local-agent/`: desktop agent that connects to the relay, runs Claude Code CLI, and stores local history
-- `relay-server/`: self-hosted relay service for auth, sync, device coordination, admin UI, and update center
+If you already run Claude Code CLI or Codex CLI on your computer, `AgentFlow` lets you:
 
-## Features
+- view desktop projects, chats, and runtime status on Android
+- continue a project from your phone and let the local agent keep working on the computer
+- receive synced messages, activities, attachments, and files from the desktop side
+- control sync, devices, and updates through your own relay server
 
-- Mobile access to project list, chat history, and runtime status
-- Desktop execution through Claude Code CLI with sync back to mobile
-- Self-hosted relay architecture
-- Desktop and Android update checks
-- Admin UI for users, devices, release publishing, and traffic-by-event visibility
-- Per-project local history with incremental sync
-- Android chat opens from a persisted local snapshot first, then patches in relay deltas
-- Mobile prompt sending preserves per-project order even when attachments are being uploaded
+## Who It Is For
+
+- developers who mainly run AI coding CLI tools on a Windows desktop
+- teams or individuals who need a “computer executes, phone follows up” workflow
+- users who want to self-host relay, account, and update infrastructure
+- users who want long-lived project history instead of disposable chat sessions
+
+If you only need remote desktop control or a standard IM app, this project is not designed for that.
+
+## What Is Included
+
+The repository has three main parts:
+
+- `android-app/`
+  Android client for project list, chat, file receiving, sync status, and app updates
+- `local-agent/`
+  Desktop agent that connects to the relay, manages local projects, runs Claude Code CLI or Codex CLI, and persists local history
+- `relay-server/`
+  Self-hosted relay service for auth, sync, device coordination, admin UI, and update center
+
+## What It Actually Does
+
+Current core capabilities include:
+
+- viewing desktop-side project lists, conversations, and runtime status from the phone
+- sending follow-up instructions from Android to a specific desktop project
+- syncing messages, activities, attachments, and execution state back to mobile
+- self-hosting the relay layer instead of depending on a public cloud relay
+- checking and distributing desktop and Android releases through the built-in update center
+- managing users, devices, releases, and traffic statistics from the admin side
+- keeping per-project local history and reducing traffic through incremental sync
+
+## A Typical Workflow
+
+You can think of the product flow like this:
+
+1. Install and run `local-agent` on your computer.
+2. The local agent connects to Claude Code CLI or Codex CLI on that machine.
+3. Deploy your own `relay-server` so both desktop and mobile connect to it.
+4. Sign in with the same account on the Android app.
+5. The phone can now see the projects, messages, and runtime state from the computer.
+6. You send a new instruction from the phone, and the desktop side continues execution.
+7. Results, activities, and files sync back to the phone.
+
+## How It Differs From Chat Apps And Remote Desktop
+
+- It is not a generic chat tool. The center of the design is project-based AI workflow.
+- It is not remote desktop streaming. It syncs structured project data, messages, activities, and state instead of streaming the full screen.
+- It is not a hosted SaaS product. You can deploy the relay server and update center yourself.
+- It is not built around one-off chats. History is persisted per project for long-running work.
 
 ## Repository Layout
 
@@ -38,14 +90,13 @@ The project contains three main parts:
 
 ## How It Works
 
-The desktop agent is the source of truth.
+The desktop `local-agent` is the source of truth for project data.
 
-- Each project persists its own history
-- Messages and activities carry monotonic sync sequence numbers
-- Android pulls incremental data with `after_seq`
-- Android keeps the active conversation cache and latest visible chat window locally for instant reopen
-- Large histories no longer rely on full-history sync
-- The relay server also serves as the update center
+- each project keeps its own local history
+- messages and activities use monotonic sync sequence numbers
+- Android pulls incremental data with `after_seq` instead of requesting the whole history every time
+- large histories rely on local cache first and then patch in deltas
+- the relay server also acts as the update center for release distribution
 
 ## Quick Start
 
@@ -126,7 +177,7 @@ Supported behaviors:
 - Android update check
 - optional automatic check
 - optional automatic download
-- install still requires user confirmation
+- installation still requires user confirmation
 
 The admin overview also exposes:
 
@@ -153,7 +204,7 @@ Example endpoints:
 
 ## Open Source Notes
 
-- Do not commit real production domains, server IPs, database files, release scripts, or credentials
-- Keep deployment and publishing helpers local-only and ignored by Git
-- Ship installers and APKs through the update center or GitHub Release attachments, not through the source repository
-- Use placeholders in public docs for domains, accounts, passwords, and server addresses
+- do not commit real production domains, server IPs, database files, release scripts, or credentials
+- keep deployment and publishing helpers local-only and ignored by Git
+- ship installers and APKs through the update center or GitHub Release attachments, not through the source repository
+- use placeholders in public docs for domains, accounts, passwords, and server addresses
