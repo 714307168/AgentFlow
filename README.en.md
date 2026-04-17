@@ -205,6 +205,7 @@ Example endpoints:
 
 - [Chinese README](./README.md)
 - [Relay Server Deployment](./docs/relay-server-deployment.md)
+- [Controlled Remote Authorization Design (Chinese)](./docs/controlled-remote-authorization.md)
 - [Release and Update Center](./docs/release-and-update-center.md)
 - [Release Upload Runbook](./docs/release-upload-runbook.md)
 - [GitHub Releases Publishing](./docs/github-releases.md)

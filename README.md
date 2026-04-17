@@ -205,6 +205,7 @@ Android 端使用 Room 和 Preferences 保存：
 
 - [English README](./README.en.md)
 - [Relay Server Deployment](./docs/relay-server-deployment.md)
+- [受控授权远程协作设计](./docs/controlled-remote-authorization.md)
 - [更新中心与发布说明](./docs/release-and-update-center.md)
 - [发布上传 Runbook](./docs/release-upload-runbook.md)
 - [GitHub Releases 发布](./docs/github-releases.md)

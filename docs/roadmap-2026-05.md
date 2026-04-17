@@ -301,6 +301,9 @@
 - 哪些设备能收文件
 - 哪些项目能发文件
 - 协作组是否允许共享文�?- 是否允许小程序下载敏感附�?
+
+这里后续不建议只做“账号级全开”授权，而是要收口到“桌面节点 + 项目范围 + 能力包”的轻量模型。
+专项设计见：`docs/controlled-remote-authorization.md`
 ## 8. 分阶段开发建�?
 ### 阶段 A：多端底座收�?
 目标�?
@@ -584,4 +587,6 @@
 - [x] Android 前台/网络切换恢复状态机已抽成独立 domain helper，并接入 `onResume` + network-available 恢复调度；同时补了对应 JVM 测试用例。
 - [x] Desktop `RelayClient` health-check recovery rules have been extracted into a shared decision helper with focused Node coverage for scheduled-reconnect suppression, auth grace, catch-up grace, and stale inbound reconnect triggers, moving the WS专项 P1 desktop path out of ad-hoc inline conditionals.
 - [x] Desktop controller relay post-auth refreshes now use a shared `catalog / catch-up / stabilize` pass plan, folding the old immediate catalog refresh plus extra delayed calls into one explicit schedule and giving the post-auth delta validation path dedicated Node tests.
+- [x] 新增独立设计文档 `docs/controlled-remote-authorization.md`，把 README 中的“受控授权远程协作”定位下沉成可执行的授权模型，明确了项目级授权、能力包、过期授权和高风险动作审计的落地方向。
+- [ ] 下一轮文档/实现入口转到“项目级授权 MVP”：授权账号时同时勾选项目范围，不再默认把一个桌面节点下的全部项目都暴露给被授权人。
 
