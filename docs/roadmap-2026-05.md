@@ -591,4 +591,6 @@
 - [ ] 下一轮文档/实现入口转到“项目级授权 MVP”：授权账号时同时勾选项目范围，不再默认把一个桌面节点下的全部项目都暴露给被授权人。
 - [x] 新增 `docs/project-scope-access-mvp.md`，把“项目级授权 MVP”从 roadmap 待办拆成实施文档，明确了数据模型、`effective-scope` 接口、桌面端授权 UI、Android scope 裁切和文件/诊断统一校验。
 - [ ] 下一轮代码实现入口维持为 `R-project-scope-access`：先补 relay-server 授权模型与 `effective-scope`，再接桌面端项目多选授权 UI，最后让移动端按 scope 裁切列表、详情和文件入口。
+- [x] 新增 `docs/project-scope-access-checklist.md`，把 `R-project-scope-access` 继续拆成 relay-server / desktop / Android 三端实施清单和发版检查表，后续可以直接按模块分工、联调和验收。
+- [ ] 如果继续走文档细化，下一轮入口转到 `R-project-scope-access` 的配套材料：服务端接口 schema、桌面端授权 UI 草图、Android scope 收缩与缓存清理时序图。
 

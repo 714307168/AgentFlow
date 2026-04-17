@@ -332,6 +332,7 @@
 
 - `R-project-scope-access-doc`: 项目级授权 MVP 实施文档完成并挂回 roadmap
 - `R-project-scope-access`: 首个项目级授权 MVP 联动版
+- 三端实施与发版检查表见：`docs/project-scope-access-checklist.md`
 
 ## 14. 当前建议
 

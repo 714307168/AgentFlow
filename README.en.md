@@ -207,6 +207,7 @@ Example endpoints:
 - [Relay Server Deployment](./docs/relay-server-deployment.md)
 - [Controlled Remote Authorization Design (Chinese)](./docs/controlled-remote-authorization.md)
 - [Project-Scoped Access MVP Plan (Chinese)](./docs/project-scope-access-mvp.md)
+- [Project-Scoped Access Checklist (Chinese)](./docs/project-scope-access-checklist.md)
 - [Release and Update Center](./docs/release-and-update-center.md)
 - [Release Upload Runbook](./docs/release-upload-runbook.md)
 - [GitHub Releases Publishing](./docs/github-releases.md)
