@@ -27,6 +27,22 @@ type accessOverviewPayload struct {
 	} `json:"incoming_grants"`
 }
 
+type effectiveScopePayload struct {
+	AccountID   int    `json:"account_id"`
+	Username    string `json:"username"`
+	ClientType  string `json:"client_type"`
+	AgentID     string `json:"agent_id"`
+	DeviceID    string `json:"device_id"`
+	AgentScopes []struct {
+		AgentID       string   `json:"agent_id"`
+		OwnerUserID   int      `json:"owner_user_id"`
+		OwnerUsername string   `json:"owner_username"`
+		IsOwned       bool     `json:"is_owned"`
+		ScopeType     string   `json:"scope_type"`
+		ProjectIDs    []string `json:"project_ids"`
+	} `json:"agent_scopes"`
+}
+
 func TestAccessGrantsHandlerListsOwnedAndGrantedAgents(t *testing.T) {
 	dataDir := t.TempDir()
 	database, err := db.Open(dataDir)
@@ -65,6 +81,7 @@ func TestAccessGrantsHandlerListsOwnedAndGrantedAgents(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/auth/login", handler.LoginHandler(database, cfg))
 	mux.HandleFunc("/api/access/grants", handler.AccessGrantsHandler(cfg, database))
+	mux.HandleFunc("/api/access/effective-scope", handler.EffectiveScopeHandler(cfg, database))
 
 	server := httptest.NewServer(mux)
 	defer server.Close()
@@ -142,6 +159,7 @@ func TestAccessGrantRejectsBlankProjectScope(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/auth/login", handler.LoginHandler(database, cfg))
 	mux.HandleFunc("/api/access/grants", handler.AccessGrantsHandler(cfg, database))
+	mux.HandleFunc("/api/access/effective-scope", handler.EffectiveScopeHandler(cfg, database))
 
 	server := httptest.NewServer(mux)
 	defer server.Close()
@@ -150,9 +168,9 @@ func TestAccessGrantRejectsBlankProjectScope(t *testing.T) {
 
 	reqBody := map[string]any{
 		"controller_username": "viewer",
-		"target_agent_id":      "owner-agent",
-		"project_ids":          []string{" ", "\t", ""},
-		"note":                 "blank scope should fail",
+		"target_agent_id":     "owner-agent",
+		"project_ids":         []string{" ", "\t", ""},
+		"note":                "blank scope should fail",
 	}
 
 	req, err := json.Marshal(reqBody)
@@ -227,6 +245,146 @@ func TestWorkgroupLeaveRevokesGrantedAccess(t *testing.T) {
 	assertControllableAgent(t, server.URL, memberToken, "owner-agent", false)
 }
 
+func TestEffectiveScopeListsOwnedAndGrantedAgentScopesForDevice(t *testing.T) {
+	dataDir := t.TempDir()
+	database, err := db.Open(dataDir)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer database.Close()
+
+	owner, err := database.CreateUser("owner", "Owner12345A", false)
+	if err != nil {
+		t.Fatalf("create owner: %v", err)
+	}
+	viewer, err := database.CreateUser("viewer", "Viewer12345A", false)
+	if err != nil {
+		t.Fatalf("create viewer: %v", err)
+	}
+	if err := database.RegisterAgent("owner-agent", owner.ID, "Owner desktop"); err != nil {
+		t.Fatalf("register owner agent: %v", err)
+	}
+	if err := database.RegisterAgent("viewer-agent", viewer.ID, "Viewer desktop"); err != nil {
+		t.Fatalf("register viewer agent: %v", err)
+	}
+	if err := database.CreateAgentAccessGrant(viewer.ID, "owner-agent", owner.ID, "scoped", []string{"project-alpha", "project-beta"}); err != nil {
+		t.Fatalf("create access grant: %v", err)
+	}
+
+	cfg := &config.Config{
+		JWTSecret:    "relay-test-secret-20260324",
+		PingInterval: 30,
+		QueueSize:    100,
+		CORSOrigins:  "*",
+		DataDir:      dataDir,
+		DatabasePath: dataDir,
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/auth/login", handler.LoginHandler(database, cfg))
+	mux.HandleFunc("/api/access/effective-scope", handler.EffectiveScopeHandler(cfg, database))
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	deviceToken := mustLoginClientToken(t, server.URL, "viewer", "Viewer12345A", "device", "viewer-device")
+
+	var payload effectiveScopePayload
+	doBearerJSON(t, server.URL+"/api/access/effective-scope", deviceToken, http.StatusOK, &payload)
+
+	if payload.AccountID != viewer.ID || payload.Username != "viewer" {
+		t.Fatalf("unexpected account payload: %+v", payload)
+	}
+	if payload.ClientType != "device" || payload.DeviceID != "viewer-device" || payload.AgentID != "viewer-agent" {
+		t.Fatalf("unexpected client scope payload: %+v", payload)
+	}
+	if len(payload.AgentScopes) != 2 {
+		t.Fatalf("expected 2 agent scopes, got %+v", payload.AgentScopes)
+	}
+
+	var foundOwned bool
+	var foundGranted bool
+	for _, item := range payload.AgentScopes {
+		switch item.AgentID {
+		case "viewer-agent":
+			foundOwned = true
+			if !item.IsOwned || item.ScopeType != "all_projects" || len(item.ProjectIDs) != 0 {
+				t.Fatalf("unexpected owned scope: %+v", item)
+			}
+		case "owner-agent":
+			foundGranted = true
+			if item.IsOwned || item.ScopeType != "selected_projects" {
+				t.Fatalf("unexpected granted scope flags: %+v", item)
+			}
+			if len(item.ProjectIDs) != 2 || item.ProjectIDs[0] != "project-alpha" || item.ProjectIDs[1] != "project-beta" {
+				t.Fatalf("unexpected granted project scope: %+v", item.ProjectIDs)
+			}
+		}
+	}
+	if !foundOwned || !foundGranted {
+		t.Fatalf("missing expected agent scopes: %+v", payload.AgentScopes)
+	}
+}
+
+func TestEffectiveScopeTreatsLegacyGrantWithoutProjectRowsAsAllProjects(t *testing.T) {
+	dataDir := t.TempDir()
+	database, err := db.Open(dataDir)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer database.Close()
+
+	owner, err := database.CreateUser("owner", "Owner12345A", false)
+	if err != nil {
+		t.Fatalf("create owner: %v", err)
+	}
+	viewer, err := database.CreateUser("viewer", "Viewer12345A", false)
+	if err != nil {
+		t.Fatalf("create viewer: %v", err)
+	}
+	if err := database.RegisterAgent("owner-agent", owner.ID, "Owner desktop"); err != nil {
+		t.Fatalf("register owner agent: %v", err)
+	}
+	if err := database.RegisterAgent("viewer-agent", viewer.ID, "Viewer desktop"); err != nil {
+		t.Fatalf("register viewer agent: %v", err)
+	}
+	if err := database.CreateAgentAccessGrant(viewer.ID, "owner-agent", owner.ID, "legacy full access", nil); err != nil {
+		t.Fatalf("create access grant: %v", err)
+	}
+
+	cfg := &config.Config{
+		JWTSecret:    "relay-test-secret-20260324",
+		PingInterval: 30,
+		QueueSize:    100,
+		CORSOrigins:  "*",
+		DataDir:      dataDir,
+		DatabasePath: dataDir,
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/auth/login", handler.LoginHandler(database, cfg))
+	mux.HandleFunc("/api/access/effective-scope", handler.EffectiveScopeHandler(cfg, database))
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	deviceToken := mustLoginClientToken(t, server.URL, "viewer", "Viewer12345A", "device", "viewer-device")
+
+	var payload effectiveScopePayload
+	doBearerJSON(t, server.URL+"/api/access/effective-scope", deviceToken, http.StatusOK, &payload)
+
+	for _, item := range payload.AgentScopes {
+		if item.AgentID != "owner-agent" {
+			continue
+		}
+		if item.ScopeType != "all_projects" || len(item.ProjectIDs) != 0 {
+			t.Fatalf("expected legacy grant to expand to all_projects, got %+v", item)
+		}
+		return
+	}
+	t.Fatalf("expected owner-agent in effective scope: %+v", payload.AgentScopes)
+}
+
 func TestWorkgroupKickRevokesGrantedAccess(t *testing.T) {
 	dataDir := t.TempDir()
 	database, err := db.Open(dataDir)
@@ -286,6 +444,7 @@ func newAccessAndWorkgroupTestServer(t *testing.T, database *db.DB, dataDir stri
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/auth/login", handler.LoginHandler(database, cfg))
 	mux.HandleFunc("/api/access/grants", handler.AccessGrantsHandler(cfg, database))
+	mux.HandleFunc("/api/access/effective-scope", handler.EffectiveScopeHandler(cfg, database))
 	mux.HandleFunc("/api/workgroups/registry/publish", handler.WorkgroupRegistryHandler(cfg, database))
 	mux.HandleFunc("/api/workgroups/registry/join", handler.WorkgroupRegistryHandler(cfg, database))
 	mux.HandleFunc("/api/workgroups/registry/leave", handler.WorkgroupRegistryHandler(cfg, database))

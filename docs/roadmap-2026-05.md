@@ -597,4 +597,6 @@
 - [x] 修复 relay-server 授权边界 bug：当 `project_ids` 请求体只包含空白值时，服务端现在会直接拒绝，而不是把空白项目范围误降级成“全部项目”授权；对应 Go 回归测试已补齐。
 - [x] 已补 `docs/project-scope-access-desktop-ui-sketch.md`，把桌面端授权入口、列表、表单、多选项目和状态/异常交互收成可实现草图。
 - [x] 已补 `docs/project-scope-access-android-scope-sequence.md`，把 Android scope 收缩、本地缓存裁切、详情守卫和后续 sync 过滤整理成统一时序说明。
+- [x] `R-project-scope-access` 第一批服务端实现已开始：新增 `/api/access/effective-scope`，把当前登录账号可访问的桌面 agent 与项目范围显式汇总给客户端，兼容 legacy 全量授权和已带项目范围的授权记录。
+- [x] 已补 `effective-scope` 服务端回归测试，覆盖设备端当前 scope 汇总以及 legacy 无项目行授权自动视为 `all_projects` 的兼容行为。
 

@@ -32,6 +32,15 @@ type AgentAccessGrant struct {
 	CreatedAt          time.Time `json:"created_at"`
 }
 
+type EffectiveAgentScope struct {
+	AgentID       string   `json:"agent_id"`
+	OwnerUserID   int      `json:"owner_user_id"`
+	OwnerUsername string   `json:"owner_username"`
+	IsOwned       bool     `json:"is_owned"`
+	ScopeType     string   `json:"scope_type"`
+	ProjectIDs    []string `json:"project_ids"`
+}
+
 func normalizeAccessGrantProjectIDs(projectIDs []string) []string {
 	if len(projectIDs) == 0 {
 		return nil
@@ -437,6 +446,32 @@ func (db *DB) listGrantProjectIDsForOwner(ownerUserID int) (map[string][]string,
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("failed to read incoming access grant project scopes: %w", err)
+	}
+	return scopes, nil
+}
+
+func (db *DB) ListEffectiveAgentScopesForUser(userID int) ([]EffectiveAgentScope, error) {
+	agents, err := db.ListAccessibleAgentsForUser(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	scopes := make([]EffectiveAgentScope, 0, len(agents))
+	for _, agent := range agents {
+		projectIDs := append([]string{}, agent.GrantedProjectIDs...)
+		scopeType := "selected_projects"
+		if agent.IsOwned || len(projectIDs) == 0 {
+			scopeType = "all_projects"
+			projectIDs = []string{}
+		}
+		scopes = append(scopes, EffectiveAgentScope{
+			AgentID:       agent.AgentID,
+			OwnerUserID:   agent.OwnerUserID,
+			OwnerUsername: agent.OwnerUsername,
+			IsOwned:       agent.IsOwned,
+			ScopeType:     scopeType,
+			ProjectIDs:    projectIDs,
+		})
 	}
 	return scopes, nil
 }

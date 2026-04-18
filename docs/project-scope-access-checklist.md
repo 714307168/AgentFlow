@@ -42,7 +42,7 @@
 - [ ] `POST /api/access/grants`
 - [ ] `PATCH /api/access/grants/:id`
 - [ ] `POST /api/access/grants/:id/revoke`
-- [ ] `GET /api/access/effective-scope`
+- [x] `GET /api/access/effective-scope`
 
 ### 3.3 授权计算
 
@@ -62,7 +62,7 @@
 ### 3.5 服务端测试
 
 - [ ] 授权创建/编辑/撤销测试
-- [ ] `effective-scope` 汇总测试
+- [x] `effective-scope` 汇总测试
 - [ ] 过期授权测试
 - [ ] 文件下载越权测试
 - [ ] 诊断接口越权测试

@@ -15,6 +15,15 @@ type accessOverviewResponse struct {
 	IncomingGrants     []db.AgentAccessGrant `json:"incoming_grants"`
 }
 
+type effectiveScopeResponse struct {
+	AccountID   int                      `json:"account_id"`
+	Username    string                   `json:"username"`
+	ClientType  string                   `json:"client_type"`
+	AgentID     string                   `json:"agent_id,omitempty"`
+	DeviceID    string                   `json:"device_id,omitempty"`
+	AgentScopes []db.EffectiveAgentScope `json:"agent_scopes"`
+}
+
 // AccessGrantsHandler manages one-way desktop control grants for signed-in app clients.
 func AccessGrantsHandler(cfg *config.Config, database *db.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -124,5 +133,37 @@ func AccessGrantsHandler(cfg *config.Config, database *db.DB) http.HandlerFunc {
 		default:
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
+	}
+}
+
+// EffectiveScopeHandler returns the current signed-in client's accessible desktop-agent scope.
+func EffectiveScopeHandler(cfg *config.Config, database *db.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		session, err := currentClientSession(r, cfg, database)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusUnauthorized)
+			return
+		}
+
+		scopes, err := database.ListEffectiveAgentScopesForUser(session.User.ID)
+		if err != nil {
+			http.Error(w, "failed to load effective scope", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(effectiveScopeResponse{
+			AccountID:   session.User.ID,
+			Username:    session.User.Username,
+			ClientType:  string(session.Claims.Type),
+			AgentID:     strings.TrimSpace(session.Claims.AgentID),
+			DeviceID:    strings.TrimSpace(session.Claims.DeviceID),
+			AgentScopes: scopes,
+		})
 	}
 }
