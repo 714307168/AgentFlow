@@ -16,6 +16,7 @@ export interface CliUpgradePlan {
   command: CliUpgradeCommand | null;
   commandPreview: string | null;
   reason: string | null;
+  latestVersion: string | null;
 }
 
 const CLI_UPGRADE_TIMEOUT_MS = 10 * 60 * 1000;

@@ -32,6 +32,7 @@ function createCliStatus(overrides = {}) {
       command: null,
       commandPreview: null,
       reason: null,
+      latestVersion: null,
       ...(overrides.upgrade || {}),
     },
     ...overrides,

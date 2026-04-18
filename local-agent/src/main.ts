@@ -536,6 +536,16 @@ async function getCliProviderRuntimeStatus(
   return await maybeAutoUpgradeCliProvider(status);
 }
 
+async function getCliProviderRuntimeStatusSnapshot(
+  options: { force?: boolean; allowAutoUpgrade?: boolean } = {},
+): Promise<Record<CliProvider, CliProviderRuntimeStatus>> {
+  const providers: CliProvider[] = ["claude", "codex"];
+  const entries = await Promise.all(providers.map(async (provider) => {
+    return [provider, await getCliProviderRuntimeStatus(provider, options)] as const;
+  }));
+  return Object.fromEntries(entries) as Record<CliProvider, CliProviderRuntimeStatus>;
+}
+
 async function resolveProviderRuntime(projectId: string, provider: CliProvider): Promise<ProviderRuntimeSelection> {
   const cliStatus = await getCliProviderRuntimeStatus(provider, { allowAutoUpgrade: true });
   const sdkConfig = getProviderSdkConfig(provider);
@@ -5151,7 +5161,10 @@ ipcMain.handle("get-app-settings", () => {
 });
 
 ipcMain.handle("get-cli-provider-runtime-status", async (_event, options?: { force?: boolean } | null) => {
-  return await loadCliProviderRuntimeStatuses({ force: options?.force === true });
+  return await getCliProviderRuntimeStatusSnapshot({
+    force: options?.force === true,
+    allowAutoUpgrade: true,
+  });
 });
 
 ipcMain.handle("get-local-data-metrics", () => {

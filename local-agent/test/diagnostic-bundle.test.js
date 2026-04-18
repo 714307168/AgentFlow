@@ -195,6 +195,7 @@ test("buildDiagnosticBundleArtifacts groups local and remote projects and preser
           command: null,
           commandPreview: null,
           reason: null,
+          latestVersion: null,
         },
       },
     },

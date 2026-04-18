@@ -2322,6 +2322,9 @@
             <div class="runtime-status-upgrade">
               <strong>${escapeHtml(inlineText("Upgrade Recommended", "建议升级"))}</strong><br>
               ${escapeHtml(status.upgrade.reason || inlineText("A newer CLI is recommended.", "建议升级到较新的 CLI。"))}
+              ${status.upgrade.latestVersion
+                ? `<br>${escapeHtml(inlineText("Latest version: ", "最新版本：") + status.upgrade.latestVersion)}`
+                : ""}
               ${status.upgrade.commandPreview
                 ? `<br>${escapeHtml(inlineText("Suggested command: ", "建议命令：") + status.upgrade.commandPreview)}`
                 : ""}

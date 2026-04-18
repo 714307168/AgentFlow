@@ -1,5 +1,7 @@
 import { execFile } from "child_process";
+import { detectCliProviderLatestVersion } from "./cli-latest-version";
 import { buildCliUpgradeCommand, detectCliInstallMethod, formatCliUpgradeCommandPreview, type CliInstallMethod, type CliUpgradePlan } from "./cli-updater";
+import { compareSemanticVersions, extractSemanticVersion, normalizeCliVersionOutput, shouldRecommendVersionUpgrade } from "./cli-version";
 import {
   EMPTY_PROVIDER_CAPABILITIES,
   getCliProviderCommand,
@@ -11,6 +13,10 @@ import type { CliProvider } from "./runtime-types";
 export {
   getCliProviderCommand,
 } from "./provider-registry";
+export {
+  extractSemanticVersion,
+  normalizeCliVersionOutput,
+} from "./cli-version";
 export type { ProviderRuntimeCapabilities } from "./provider-registry";
 
 export interface CliProviderRuntimeStatus {
@@ -36,20 +42,6 @@ interface RunCommandResult {
 const CLI_COMMAND_TIMEOUT_MS = 3_000;
 const CLI_COMMAND_MAX_BUFFER = 64 * 1024;
 
-export function normalizeCliVersionOutput(stdout: string, stderr = ""): string | null {
-  const merged = `${stdout}\n${stderr}`
-    .replace(/\r\n/g, "\n")
-    .split("\n")
-    .map((line) => line.trim())
-    .find((line) => Boolean(line));
-  return merged || null;
-}
-
-export function extractSemanticVersion(rawVersion: string | null | undefined): string | null {
-  const match = String(rawVersion ?? "").match(/(\d+\.\d+\.\d+)/u);
-  return match ? match[1] : null;
-}
-
 export async function probeCliProviderRuntime(provider: CliProvider): Promise<CliProviderRuntimeStatus> {
   const command = getCliProviderCommand(provider);
   const checkedAt = Date.now();
@@ -62,9 +54,11 @@ export async function probeCliProviderRuntime(provider: CliProvider): Promise<Cl
     const version = normalizeCliVersionOutput(versionResult.stdout, versionResult.stderr);
     const installMethod = detectCliInstallMethod(resolvedPath);
     const capabilities = await probeProviderCapabilities(provider, command);
+    const latestVersion = await detectCliProviderLatestVersion(provider, installMethod);
     const upgrade = buildCliUpgradePlan({
       provider,
       version,
+      latestVersion,
       installMethod,
       capabilities,
     });
@@ -103,6 +97,7 @@ export async function probeCliProviderRuntime(provider: CliProvider): Promise<Cl
         command: null,
         commandPreview: null,
         reason: null,
+        latestVersion: null,
       },
     };
   }
@@ -123,10 +118,16 @@ export async function getCliProviderRuntimeStatuses(): Promise<Record<CliProvide
 export function buildCliUpgradePlan(options: {
   provider: CliProvider;
   version: string | null;
+  latestVersion: string | null;
   installMethod: CliInstallMethod | null;
   capabilities: ProviderRuntimeCapabilities;
 }): CliUpgradePlan {
-  const reason = buildUpgradeReason(options.provider, options.capabilities);
+  const reason = buildUpgradeReason(
+    options.provider,
+    options.version,
+    options.latestVersion,
+    options.capabilities,
+  );
   const command = reason ? buildCliUpgradeCommand(options.provider, options.installMethod) : null;
   return {
     available: Boolean(reason && command),
@@ -135,6 +136,7 @@ export function buildCliUpgradePlan(options: {
     command,
     commandPreview: formatCliUpgradeCommandPreview(command),
     reason,
+    latestVersion: options.latestVersion,
   };
 }
 
@@ -174,12 +176,48 @@ async function probeProviderCapabilities(provider: CliProvider, command: string)
   };
 }
 
-function buildUpgradeReason(provider: CliProvider, capabilities: ProviderRuntimeCapabilities): string | null {
+function buildUpgradeReason(
+  provider: CliProvider,
+  version: string | null,
+  latestVersion: string | null,
+  capabilities: ProviderRuntimeCapabilities,
+): string | null {
+  const reasons: string[] = [];
+  const versionReason = buildVersionUpgradeReason(version, latestVersion);
+  if (versionReason) {
+    reasons.push(versionReason);
+  }
+
   const missingCapabilities = getProviderUpgradeMissingCapabilityLabels(provider, capabilities);
-  if (missingCapabilities.length === 0) {
+  if (missingCapabilities.length > 0) {
+    reasons.push(`Missing ${missingCapabilities.join(", ")} support.`);
+  }
+
+  if (reasons.length === 0) {
     return null;
   }
-  return `Upgrade recommended: missing ${missingCapabilities.join(", ")} support.`;
+  return reasons.join(" ");
+}
+
+function buildVersionUpgradeReason(version: string | null, latestVersion: string | null): string | null {
+  if (!shouldRecommendVersionUpgrade(version, latestVersion)) {
+    return null;
+  }
+
+  const latestSemanticVersion = extractSemanticVersion(latestVersion) ?? latestVersion;
+  const currentSemanticVersion = extractSemanticVersion(version);
+  if (currentSemanticVersion && latestSemanticVersion) {
+    const comparison = compareSemanticVersions(currentSemanticVersion, latestSemanticVersion);
+    if (comparison !== null && comparison < 0) {
+      return `Upgrade available: ${currentSemanticVersion} -> ${latestSemanticVersion}.`;
+    }
+  }
+
+  if (latestSemanticVersion) {
+    return `Upgrade available: latest version ${latestSemanticVersion} was detected.`;
+  }
+
+  return "Upgrade available: a newer CLI version was detected.";
 }
 
 function createFailedCommandResult(): RunCommandResult {
