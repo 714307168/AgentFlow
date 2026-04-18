@@ -215,6 +215,9 @@ func (db *DB) CreateAgentAccessGrant(controllerUserID int, targetAgentID string,
 	}
 
 	normalizedProjectIDs := normalizeAccessGrantProjectIDs(projectIDs)
+	if len(projectIDs) > 0 && len(normalizedProjectIDs) == 0 {
+		return fmt.Errorf("at least one valid project id is required")
+	}
 
 	tx, err := db.Begin()
 	if err != nil {

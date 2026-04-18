@@ -594,5 +594,6 @@
 - [x] 新增 `docs/project-scope-access-checklist.md`，把 `R-project-scope-access` 继续拆成 relay-server / desktop / Android 三端实施清单和发版检查表，后续可以直接按模块分工、联调和验收。
 - [ ] 如果继续走文档细化，下一轮入口转到 `R-project-scope-access` 的配套材料：服务端接口 schema、桌面端授权 UI 草图、Android scope 收缩与缓存清理时序图。
 - [x] 已补 `docs/project-scope-access-api-schema.md`，把 `R-project-scope-access` 的服务端接口请求/响应、错误码和越权行为收成统一 schema。
+- [x] 修复 relay-server 授权边界 bug：当 `project_ids` 请求体只包含空白值时，服务端现在会直接拒绝，而不是把空白项目范围误降级成“全部项目”授权；对应 Go 回归测试已补齐。
 - [ ] 文档细化还剩两份配套材料：桌面端授权 UI 草图、Android scope 收缩与缓存清理时序图。
 

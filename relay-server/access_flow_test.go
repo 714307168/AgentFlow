@@ -107,6 +107,83 @@ func TestAccessGrantsHandlerListsOwnedAndGrantedAgents(t *testing.T) {
 	t.Fatalf("expected owner-agent in controller overview: %+v", controllerOverview.ControllableAgents)
 }
 
+func TestAccessGrantRejectsBlankProjectScope(t *testing.T) {
+	dataDir := t.TempDir()
+	database, err := db.Open(dataDir)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer database.Close()
+
+	owner, err := database.CreateUser("owner", "Owner12345A", false)
+	if err != nil {
+		t.Fatalf("create owner: %v", err)
+	}
+	viewer, err := database.CreateUser("viewer", "Viewer12345A", false)
+	if err != nil {
+		t.Fatalf("create viewer: %v", err)
+	}
+	if err := database.RegisterAgent("owner-agent", owner.ID, "Owner desktop"); err != nil {
+		t.Fatalf("register owner agent: %v", err)
+	}
+	if err := database.RegisterAgent("viewer-agent", viewer.ID, "Viewer desktop"); err != nil {
+		t.Fatalf("register viewer agent: %v", err)
+	}
+
+	cfg := &config.Config{
+		JWTSecret:    "relay-test-secret-20260324",
+		PingInterval: 30,
+		QueueSize:    100,
+		CORSOrigins:  "*",
+		DataDir:      dataDir,
+		DatabasePath: dataDir,
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/auth/login", handler.LoginHandler(database, cfg))
+	mux.HandleFunc("/api/access/grants", handler.AccessGrantsHandler(cfg, database))
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	ownerToken := mustLoginClientToken(t, server.URL, "owner", "Owner12345A", "agent", "owner-agent")
+
+	reqBody := map[string]any{
+		"controller_username": "viewer",
+		"target_agent_id":      "owner-agent",
+		"project_ids":          []string{" ", "\t", ""},
+		"note":                 "blank scope should fail",
+	}
+
+	req, err := json.Marshal(reqBody)
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+
+	httpReq, err := http.NewRequest(http.MethodPost, server.URL+"/api/access/grants", bytes.NewReader(req))
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+ownerToken)
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		t.Fatalf("do request: %v", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 for blank scoped project ids, got %d: %s", resp.StatusCode, string(body))
+	}
+
+	var ownerOverview accessOverviewPayload
+	doBearerJSON(t, server.URL+"/api/access/grants", ownerToken, http.StatusOK, &ownerOverview)
+	if len(ownerOverview.IncomingGrants) != 0 {
+		t.Fatalf("expected no stored incoming grants after rejected request, got %+v", ownerOverview.IncomingGrants)
+	}
+}
+
 func TestWorkgroupLeaveRevokesGrantedAccess(t *testing.T) {
 	dataDir := t.TempDir()
 	database, err := db.Open(dataDir)
