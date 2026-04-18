@@ -117,6 +117,201 @@ func TestSyncMetaHandlerReturnsChangedFlag(t *testing.T) {
 	}
 }
 
+func TestSyncHandlerFiltersProjectsByGrantScope(t *testing.T) {
+	dataDir := t.TempDir()
+	database, err := db.Open(dataDir)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer database.Close()
+
+	owner, err := database.CreateUser("owner", "Owner12345A", false)
+	if err != nil {
+		t.Fatalf("create owner: %v", err)
+	}
+	controller, err := database.CreateUser("controller", "Controller12345A", false)
+	if err != nil {
+		t.Fatalf("create controller: %v", err)
+	}
+	if err := database.RegisterAgent("owner-agent", owner.ID, "Owner desktop"); err != nil {
+		t.Fatalf("register owner agent: %v", err)
+	}
+	if err := database.RegisterDevice("controller-device", controller.ID, "", "Controller phone"); err != nil {
+		t.Fatalf("register controller device: %v", err)
+	}
+	if err := database.CreateAgentAccessGrant(controller.ID, "owner-agent", owner.ID, "scoped grant", []string{"project-1"}); err != nil {
+		t.Fatalf("create access grant: %v", err)
+	}
+
+	cfg := &config.Config{
+		JWTSecret:    "relay-test-secret-20260408",
+		PingInterval: 30,
+		QueueSize:    100,
+		CORSOrigins:  "*",
+		DataDir:      dataDir,
+		DatabasePath: dataDir,
+	}
+
+	st := store.NewStore(database)
+	h := hub.NewHub(cfg, st)
+	h.ReplaceAgentProjects("owner-agent", []model.ProjectListItem{
+		{
+			ID:          "project-1",
+			AgentID:     "owner-agent",
+			Name:        "Project One",
+			Path:        "D:/project-one",
+			CLIProvider: "claude",
+			Online:      true,
+		},
+		{
+			ID:          "project-2",
+			AgentID:     "owner-agent",
+			Name:        "Project Two",
+			Path:        "D:/project-two",
+			CLIProvider: "claude",
+			Online:      true,
+		},
+	})
+
+	token, signErr := issueSessionToken(cfg, st, sessionRequest{
+		Type:     model.ClientTypeDevice,
+		DeviceID: "controller-device",
+	})
+	if signErr != nil {
+		t.Fatalf("issue session token: %v", signErr)
+	}
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/device/sync", nil)
+	request.Header.Set("Authorization", "Bearer "+token.Token)
+
+	SyncHandler(h, cfg, st).ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", recorder.Code)
+	}
+
+	var payload syncResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload.ProjectCount != 1 {
+		t.Fatalf("expected exactly one scoped project, got %d", payload.ProjectCount)
+	}
+	if len(payload.Projects) != 1 || payload.Projects[0].ID != "project-1" {
+		t.Fatalf("expected only project-1 in scoped sync payload, got %+v", payload.Projects)
+	}
+}
+
+func TestSyncDeltaHandlerRemovesProjectsThatFallOutsideGrantScope(t *testing.T) {
+	dataDir := t.TempDir()
+	database, err := db.Open(dataDir)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer database.Close()
+
+	owner, err := database.CreateUser("owner", "Owner12345A", false)
+	if err != nil {
+		t.Fatalf("create owner: %v", err)
+	}
+	controller, err := database.CreateUser("controller", "Controller12345A", false)
+	if err != nil {
+		t.Fatalf("create controller: %v", err)
+	}
+	if err := database.RegisterAgent("owner-agent", owner.ID, "Owner desktop"); err != nil {
+		t.Fatalf("register owner agent: %v", err)
+	}
+	if err := database.RegisterDevice("controller-device", controller.ID, "", "Controller phone"); err != nil {
+		t.Fatalf("register controller device: %v", err)
+	}
+	if err := database.CreateAgentAccessGrant(controller.ID, "owner-agent", owner.ID, "scoped grant", []string{"project-1"}); err != nil {
+		t.Fatalf("create access grant: %v", err)
+	}
+
+	cfg := &config.Config{
+		JWTSecret:    "relay-test-secret-20260408",
+		PingInterval: 30,
+		QueueSize:    100,
+		CORSOrigins:  "*",
+		DataDir:      dataDir,
+		DatabasePath: dataDir,
+	}
+
+	st := store.NewStore(database)
+	h := hub.NewHub(cfg, st)
+	h.ReplaceAgentProjects("owner-agent", []model.ProjectListItem{
+		{
+			ID:          "project-1",
+			AgentID:     "owner-agent",
+			Name:        "Project One",
+			Path:        "D:/project-one",
+			CLIProvider: "claude",
+			Online:      true,
+		},
+		{
+			ID:          "project-2",
+			AgentID:     "owner-agent",
+			Name:        "Project Two",
+			Path:        "D:/project-two",
+			CLIProvider: "claude",
+			Online:      true,
+		},
+	})
+	visibleProjects := h.GetAccessibleProjectsByDevice("controller-device")
+	if len(visibleProjects) != 1 || visibleProjects[0].ID != "project-1" {
+		t.Fatalf("expected scoped project visibility before delta, got %+v", visibleProjects)
+	}
+	visibleProject := visibleProjects[0]
+
+	token, signErr := issueSessionToken(cfg, st, sessionRequest{
+		Type:     model.ClientTypeDevice,
+		DeviceID: "controller-device",
+	})
+	if signErr != nil {
+		t.Fatalf("issue session token: %v", signErr)
+	}
+
+	requestBody, err := json.Marshal(syncDeltaRequest{
+		SinceRevision: "stale-revision",
+		KnownProjects: []syncKnownProject{
+			{
+				ProjectID: "project-1",
+				Signature: buildProjectSyncSignature(visibleProject),
+			},
+		},
+		KnownProjectIDs: []string{"project-1", "project-2"},
+	})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/device/sync/delta", bytes.NewReader(requestBody))
+	request.Header.Set("Authorization", "Bearer "+token.Token)
+	request.Header.Set("Content-Type", "application/json")
+
+	SyncDeltaHandler(h, cfg, st).ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", recorder.Code)
+	}
+
+	var payload syncDeltaResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !payload.Changed {
+		t.Fatalf("expected scoped delta cleanup to be marked changed")
+	}
+	if len(payload.ProjectUpserts) != 0 {
+		t.Fatalf("expected no upserts for unchanged scoped project, got %+v", payload.ProjectUpserts)
+	}
+	if len(payload.ProjectRemoves) != 1 || payload.ProjectRemoves[0] != "project-2" {
+		t.Fatalf("expected project-2 to be removed from scoped delta, got %+v", payload.ProjectRemoves)
+	}
+}
+
 func TestBuildSyncProjectDeltaReturnsUpsertsAndRemoves(t *testing.T) {
 	projects := []model.ProjectListItem{
 		{

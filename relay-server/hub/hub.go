@@ -1037,11 +1037,15 @@ func (h *Hub) GetAccessibleProjectsByDevice(deviceID string) []model.ProjectList
 	if h.store == nil || deviceID == "" {
 		return nil
 	}
+	userID, ok := h.store.GetDeviceUserID(deviceID)
+	if !ok || userID <= 0 {
+		return nil
+	}
 
 	agentIDs := h.store.ListAccessibleAgentIDsForDevice(deviceID)
 	projects := make([]model.ProjectListItem, 0)
 	for _, agentID := range agentIDs {
-		projects = append(projects, h.getAgentProjectListItems(agentID)...)
+		projects = append(projects, h.getScopedProjectListItemsForUser(userID, agentID)...)
 	}
 	return projects
 }
@@ -1173,10 +1177,20 @@ func (h *Hub) getClientProjectListItems(client *Client, agentID string) []model.
 	if client == nil || client.Type != model.ClientTypeDevice || h.store == nil || client.UserID <= 0 {
 		return projects
 	}
+	return h.filterProjectListItemsForUser(client.UserID, agentID, projects)
+}
 
+func (h *Hub) getScopedProjectListItemsForUser(userID int, agentID string) []model.ProjectListItem {
+	return h.filterProjectListItemsForUser(userID, agentID, h.getAgentProjectListItems(agentID))
+}
+
+func (h *Hub) filterProjectListItemsForUser(userID int, agentID string, projects []model.ProjectListItem) []model.ProjectListItem {
+	if h.store == nil || userID <= 0 {
+		return projects
+	}
 	filtered := make([]model.ProjectListItem, 0, len(projects))
 	for _, item := range projects {
-		if item.ID == "" || h.store.UserCanAccessProject(client.UserID, agentID, item.ID) {
+		if item.ID == "" || h.store.UserCanAccessProject(userID, agentID, item.ID) {
 			filtered = append(filtered, item)
 		}
 	}
