@@ -440,6 +440,15 @@
       gap: 12px;
       margin-top: 12px;
     }
+    .empty-state {
+      display: block;
+      padding: 24px;
+      text-align: center;
+      border: 1px dashed var(--border);
+      border-radius: 12px;
+      color: var(--muted);
+      background: var(--panel-2);
+    }
     .project-list:empty::before {
       content: attr(data-empty-message);
       display: block;
@@ -703,6 +712,27 @@
       width: 16px;
       height: 16px;
       accent-color: var(--accent);
+    }
+    .picker-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+    .picker-toolbar input[type="text"] {
+      flex: 1 1 260px;
+      min-width: 220px;
+    }
+    .picker-toolbar-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .project-picker-list {
+      max-height: 280px;
+      overflow-y: auto;
+      padding-right: 4px;
+      align-content: start;
     }
     .add-project-form {
       display: none;
@@ -1021,8 +1051,19 @@
               <input type="text" id="shareAccessUser" placeholder="friend-account">
             </div>
             <div class="field">
-              <label id="shareAccessProjectsLabel">Authorized Projects</label>
-              <div class="project-list" id="shareAccessProjectPicker" data-empty-message="No local projects available yet."></div>
+              <div class="setting-label-row">
+                <label id="shareAccessProjectsLabel">Authorized Projects</label>
+                <span class="setting-scope" id="shareAccessProjectSummary">0 / 0 selected</span>
+              </div>
+              <div class="picker-toolbar">
+                <input type="text" id="shareAccessProjectSearch" placeholder="Search local projects">
+                <div class="picker-toolbar-actions">
+                  <button class="btn-secondary btn-small" id="shareAccessSelectAllBtn" type="button">Select All</button>
+                  <button class="btn-secondary btn-small" id="shareAccessClearBtn" type="button">Clear</button>
+                </div>
+              </div>
+              <div class="project-list project-picker-list" id="shareAccessProjectPicker" data-empty-message="No local projects available yet."></div>
+              <div class="field-help" id="shareAccessProjectsHelp">Only selected local projects will be visible to this user.</div>
             </div>
             <div class="field">
               <label id="shareAccessNoteLabel">Note</label>
@@ -1785,12 +1826,14 @@
   <script src="./provider-ui.js"></script>
   <script src="./client-capabilities.js"></script>
   <script src="./settings-provider-runtime.js"></script>
+  <script src="./settings-access-grants.js"></script>
   <script src="./settings-pane-loaders.js"></script>
   <script>
     const api = window.claudeAgent;
     const providerUi = window.ProviderUi;
     const clientCapabilitiesApi = window.ClientCapabilities;
     const providerRuntimeApi = window.SettingsProviderRuntime;
+    const settingsAccessGrants = window.SettingsAccessGrants;
     const settingsPaneLoaders = window.SettingsPaneLoaders;
     let currentLang = "en";
     let msgs = {};
@@ -1838,6 +1881,10 @@
     let connectionStatusTimer = null;
     let connectionStatusInFlight = false;
     let projectPaneRefreshTimer = null;
+    const accessGrantProjectPickerState = {
+      filterText: "",
+      selectedProjectIds: new Set(),
+    };
     const paneLoadState = {
       accessLoaded: false,
       accessDirty: true,
@@ -2424,44 +2471,55 @@
     }
 
     function getSelectedAccessGrantProjectIds() {
-      return Array.from(document.querySelectorAll('#shareAccessProjectPicker input[type="checkbox"]:checked'))
-        .map((input) => input.value)
-        .filter(Boolean);
+      return Array.from(accessGrantProjectPickerState.selectedProjectIds);
+    }
+
+    function getAccessGrantProjectProviderLabel(project) {
+      return project?.cliProvider === "codex" ? "OpenAI Codex" : "Claude Code";
+    }
+
+    function syncAccessGrantProjectSummary(projects = getLocalProjectsForAccessGrants()) {
+      const summaryEl = document.getElementById("shareAccessProjectSummary");
+      if (!summaryEl) {
+        return;
+      }
+      summaryEl.textContent = settingsAccessGrants.formatProjectSelectionSummary({
+        projects,
+        selectedProjectIds: getSelectedAccessGrantProjectIds(),
+        formatter: (selectedCount, totalCount) => inlineText(
+          totalCount > 0 ? `${selectedCount} / ${totalCount} selected` : "0 / 0 selected",
+          totalCount > 0 ? `已选 ${selectedCount} / ${totalCount}` : "已选 0 / 0",
+        ),
+      });
+    }
+
+    function setAccessGrantProjectSelection(projectIds) {
+      accessGrantProjectPickerState.selectedProjectIds = new Set(settingsAccessGrants.normalizeProjectIds(projectIds));
+    }
+
+    function pruneAccessGrantProjectSelection(projects = getLocalProjectsForAccessGrants()) {
+      const availableProjectIds = new Set(projects.map((project) => settingsAccessGrants.normalizeProjectId(project?.id)).filter(Boolean));
+      setAccessGrantProjectSelection(getSelectedAccessGrantProjectIds().filter((projectId) => availableProjectIds.has(projectId)));
     }
 
     function renderAccessGrantProjectPicker(selectedProjectIds = null) {
       const listEl = document.getElementById("shareAccessProjectPicker");
-      const currentSelected = selectedProjectIds === null
-        ? getSelectedAccessGrantProjectIds()
-        : selectedProjectIds;
-      const selected = new Set((currentSelected || []).map((entry) => String(entry || "")));
       const projects = getLocalProjectsForAccessGrants();
-      if (!projects.length) {
-        const markup = `<div class="empty-state">${escapeHtml(listEl.dataset.emptyMessage || inlineText("No local projects available yet.", "暂时还没有本地项目可授权。"))}</div>`;
-        if (renderSignatures.accessGrantProjectPicker !== markup) {
-          renderSignatures.accessGrantProjectPicker = markup;
-          listEl.innerHTML = markup;
-        }
-        return;
+      if (selectedProjectIds !== null) {
+        setAccessGrantProjectSelection(selectedProjectIds);
+      } else {
+        pruneAccessGrantProjectSelection(projects);
       }
-
-      const effectiveSelected = selected.size > 0
-        ? selected
-        : new Set(projects.map((project) => project.id));
-      const markup = projects.map((project) => {
-        const checked = effectiveSelected.has(project.id);
-        const providerLabel = project?.cliProvider === "codex" ? "OpenAI Codex" : "Claude Code";
-        return `
-          <label class="workgroup-agent-picker-item">
-            <input type="checkbox" value="${escapeHtml(project.id)}" ${checked ? "checked" : ""}>
-            <div class="project-info">
-              <div class="project-name">${escapeHtml(project.name)}</div>
-              <div class="project-path">${escapeHtml(providerLabel)}</div>
-              <div class="project-path">${escapeHtml(project.path || "")}</div>
-            </div>
-          </label>
-        `;
-      }).join("");
+      syncAccessGrantProjectSummary(projects);
+      const markup = settingsAccessGrants.buildProjectPickerMarkup({
+        projects,
+        selectedProjectIds: getSelectedAccessGrantProjectIds(),
+        filterText: accessGrantProjectPickerState.filterText,
+        emptyMessage: escapeHtml(listEl.dataset.emptyMessage || inlineText("No local projects available yet.", "暂时还没有本地项目可授权。")),
+        noResultsMessage: escapeHtml(inlineText("No matching local projects.", "没有匹配的本地项目。")),
+        resolveProviderLabel: getAccessGrantProjectProviderLabel,
+        escapeHtml,
+      });
       if (renderSignatures.accessGrantProjectPicker !== markup) {
         renderSignatures.accessGrantProjectPicker = markup;
         listEl.innerHTML = markup;
@@ -3538,7 +3596,12 @@
       document.getElementById("shareAccessUserScope").textContent = inlineText("Current Device", "当前设备");
       document.getElementById("shareAccessUser").placeholder = inlineText("friend-account", "朋友账号");
       document.getElementById("shareAccessProjectsLabel").textContent = inlineText("Authorized Projects", "授权项目");
+      document.getElementById("shareAccessProjectSearch").placeholder = inlineText("Search local projects", "搜索本地项目");
+      document.getElementById("shareAccessSelectAllBtn").textContent = inlineText("Select All", "全选");
+      document.getElementById("shareAccessClearBtn").textContent = inlineText("Clear", "清空");
+      document.getElementById("shareAccessProjectsHelp").textContent = inlineText("Only selected local projects will be visible to this user.", "只有勾选的本地项目会对该用户可见。");
       document.getElementById("shareAccessProjectPicker").setAttribute("data-empty-message", inlineText("No local projects available yet.", "暂时还没有本地项目可授权。"));
+      syncAccessGrantProjectSummary();
       document.getElementById("shareAccessNoteLabel").textContent = inlineText("Note", "备注");
       document.getElementById("shareAccessNote").placeholder = inlineText("Optional note", "可选备注");
       document.getElementById("shareAccessBtn").textContent = inlineText("Grant Access", "授权访问");
@@ -5887,7 +5950,9 @@
         }
         document.getElementById("shareAccessUser").value = "";
         document.getElementById("shareAccessNote").value = "";
-        renderAccessGrantProjectPicker(getLocalProjectsForAccessGrants().map((project) => project.id));
+        accessGrantProjectPickerState.filterText = "";
+        document.getElementById("shareAccessProjectSearch").value = "";
+        renderAccessGrantProjectPicker([]);
         paneLoadState.accessDirty = true;
         await loadAccessGrants({ force: true });
         flashSaved();
@@ -5900,6 +5965,37 @@
       paneLoadState.accessDirty = true;
       await loadAccessGrants({ force: true });
       flashSaved();
+    });
+
+    document.getElementById("shareAccessProjectSearch").addEventListener("input", (event) => {
+      accessGrantProjectPickerState.filterText = event.target.value || "";
+      renderAccessGrantProjectPicker();
+    });
+
+    document.getElementById("shareAccessSelectAllBtn").addEventListener("click", () => {
+      setAccessGrantProjectSelection(getLocalProjectsForAccessGrants().map((project) => project.id));
+      renderAccessGrantProjectPicker();
+    });
+
+    document.getElementById("shareAccessClearBtn").addEventListener("click", () => {
+      setAccessGrantProjectSelection([]);
+      renderAccessGrantProjectPicker();
+    });
+
+    document.getElementById("shareAccessProjectPicker").addEventListener("change", (event) => {
+      const target = event.target instanceof HTMLInputElement ? event.target : null;
+      const projectId = target?.dataset.accessGrantProjectId || "";
+      if (!target || target.type !== "checkbox" || !projectId) {
+        return;
+      }
+      const nextSelection = new Set(getSelectedAccessGrantProjectIds());
+      if (target.checked) {
+        nextSelection.add(projectId);
+      } else {
+        nextSelection.delete(projectId);
+      }
+      accessGrantProjectPickerState.selectedProjectIds = nextSelection;
+      syncAccessGrantProjectSummary();
     });
 
     document.getElementById("checkUpdatesBtn").addEventListener("click", async () => {

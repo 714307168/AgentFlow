@@ -588,7 +588,7 @@
 - [x] Desktop `RelayClient` health-check recovery rules have been extracted into a shared decision helper with focused Node coverage for scheduled-reconnect suppression, auth grace, catch-up grace, and stale inbound reconnect triggers, moving the WS专项 P1 desktop path out of ad-hoc inline conditionals.
 - [x] Desktop controller relay post-auth refreshes now use a shared `catalog / catch-up / stabilize` pass plan, folding the old immediate catalog refresh plus extra delayed calls into one explicit schedule and giving the post-auth delta validation path dedicated Node tests.
 - [x] 新增独立设计文档 `docs/controlled-remote-authorization.md`，把 README 中的“受控授权远程协作”定位下沉成可执行的授权模型，明确了项目级授权、能力包、过期授权和高风险动作审计的落地方向。
-- [ ] 下一轮文档/实现入口转到“项目级授权 MVP”：授权账号时同时勾选项目范围，不再默认把一个桌面节点下的全部项目都暴露给被授权人。
+- [x] 项目级授权 MVP 已进入代码落地阶段：relay-server `effective-scope` 已补齐，桌面端授权项目选择器也已改成显式勾选，不再默认把一个桌面节点下的全部项目都暴露给被授权人。
 - [x] 新增 `docs/project-scope-access-mvp.md`，把“项目级授权 MVP”从 roadmap 待办拆成实施文档，明确了数据模型、`effective-scope` 接口、桌面端授权 UI、Android scope 裁切和文件/诊断统一校验。
 - [ ] 下一轮代码实现入口维持为 `R-project-scope-access`：先补 relay-server 授权模型与 `effective-scope`，再接桌面端项目多选授权 UI，最后让移动端按 scope 裁切列表、详情和文件入口。
 - [x] 新增 `docs/project-scope-access-checklist.md`，把 `R-project-scope-access` 继续拆成 relay-server / desktop / Android 三端实施清单和发版检查表，后续可以直接按模块分工、联调和验收。
@@ -599,4 +599,5 @@
 - [x] 已补 `docs/project-scope-access-android-scope-sequence.md`，把 Android scope 收缩、本地缓存裁切、详情守卫和后续 sync 过滤整理成统一时序说明。
 - [x] `R-project-scope-access` 第一批服务端实现已开始：新增 `/api/access/effective-scope`，把当前登录账号可访问的桌面 agent 与项目范围显式汇总给客户端，兼容 legacy 全量授权和已带项目范围的授权记录。
 - [x] 已补 `effective-scope` 服务端回归测试，覆盖设备端当前 scope 汇总以及 legacy 无项目行授权自动视为 `all_projects` 的兼容行为。
+- [x] Desktop owner-side access grant picker no longer defaults to "all local projects": it now keeps explicit project selection state, supports local search plus select-all/clear actions, and has dedicated Node coverage so the `R-project-scope-access` desktop path matches the scoped-authorization intent before Android scope clipping lands.
 
