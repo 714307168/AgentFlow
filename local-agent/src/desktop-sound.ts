@@ -8,26 +8,42 @@ export interface SystemSoundCommand {
   args: string[];
 }
 
-const WINDOWS_NOTIFICATION_SOUND_SCRIPT = [
-  "$soundPath = Join-Path $env:WINDIR 'Media\\Windows Notify System Generic.wav'",
-  "try {",
-  "  if (Test-Path $soundPath) {",
-  "    $player = New-Object System.Media.SoundPlayer $soundPath",
-  "    $player.PlaySync()",
-  "  } else {",
-  "    [Console]::Beep(880, 220)",
-  "  }",
-  "} catch {",
-  "  try {",
-  "    [Console]::Beep(880, 220)",
-  "  } catch {",
-  "    [System.Media.SystemSounds]::Asterisk.Play()",
-  "    Start-Sleep -Milliseconds 250",
-  "  }",
-  "}",
-].join(" ");
+export interface SystemSoundCommandOptions {
+  bundledSoundPath?: string | null;
+}
 
-export function getSystemSoundCommand(platform: NodeJS.Platform = process.platform): SystemSoundCommand | null {
+function toPowerShellSingleQuotedPath(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
+}
+
+function buildWindowsNotificationSoundScript(bundledSoundPath?: string | null): string {
+  const resolvedSoundPath = bundledSoundPath?.trim()
+    ? toPowerShellSingleQuotedPath(bundledSoundPath.trim())
+    : "Join-Path $env:WINDIR 'Media\\Windows Notify System Generic.wav'";
+  return [
+    `$soundPath = ${resolvedSoundPath}`,
+    "try {",
+    "  if (Test-Path $soundPath) {",
+    "    $player = New-Object System.Media.SoundPlayer $soundPath",
+    "    $player.PlaySync()",
+    "  } else {",
+    "    [Console]::Beep(880, 220)",
+    "  }",
+    "} catch {",
+    "  try {",
+    "    [Console]::Beep(880, 220)",
+    "  } catch {",
+    "    [System.Media.SystemSounds]::Asterisk.Play()",
+    "    Start-Sleep -Milliseconds 250",
+    "  }",
+    "}",
+  ].join(" ");
+}
+
+export function getSystemSoundCommand(
+  platform: NodeJS.Platform = process.platform,
+  options: SystemSoundCommandOptions = {},
+): SystemSoundCommand | null {
   switch (platform) {
     case "win32":
       return {
@@ -38,7 +54,7 @@ export function getSystemSoundCommand(platform: NodeJS.Platform = process.platfo
           "-ExecutionPolicy",
           "Bypass",
           "-Command",
-          WINDOWS_NOTIFICATION_SOUND_SCRIPT,
+          buildWindowsNotificationSoundScript(options.bundledSoundPath),
         ],
       };
     case "darwin":
@@ -56,8 +72,11 @@ export function getSystemSoundCommand(platform: NodeJS.Platform = process.platfo
   }
 }
 
-export async function playSystemNotificationSound(platform: NodeJS.Platform = process.platform): Promise<boolean> {
-  const command = getSystemSoundCommand(platform);
+export async function playSystemNotificationSound(
+  platform: NodeJS.Platform = process.platform,
+  options: SystemSoundCommandOptions = {},
+): Promise<boolean> {
+  const command = getSystemSoundCommand(platform, options);
   if (!command) {
     return false;
   }

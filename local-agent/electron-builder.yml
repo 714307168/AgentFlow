@@ -19,6 +19,8 @@ directories:
 extraResources:
   - from: node_modules/node-pty
     to: node_modules/node-pty
+  - from: assets/sounds
+    to: sounds
 
 win:
   icon: app-icon.ico

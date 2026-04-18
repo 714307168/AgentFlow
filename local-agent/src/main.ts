@@ -2139,7 +2139,9 @@ function playCompletionSound(): void {
     return;
   }
 
-  void playSystemNotificationSound().then((played) => {
+  void playSystemNotificationSound(process.platform, {
+    bundledSoundPath: resolveBundledCompletionSoundPath(),
+  }).then((played) => {
     if (played) {
       return;
     }
@@ -2152,6 +2154,13 @@ function playCompletionSound(): void {
       });
     }
   });
+}
+
+function resolveBundledCompletionSoundPath(): string {
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, "sounds", "Ring01.wav");
+  }
+  return path.resolve(__dirname, "..", "..", "assets", "sounds", "Ring01.wav");
 }
 
 runtimeManager.on("snapshot", (_projectId: string, snapshot: ProjectSessionSnapshot) => {
