@@ -4,6 +4,7 @@ import retrofit2.HttpException
 
 const val RELAY_FEATURE_DEVICE_SYNC_META = "device_sync_meta"
 const val RELAY_FEATURE_DEVICE_SYNC_DELTA = "device_sync_delta"
+const val RELAY_FEATURE_EFFECTIVE_SCOPE = "effective_scope"
 
 fun Throwable.isLegacyRelayMissingFeature(): Boolean {
     val httpError = this as? HttpException ?: return false

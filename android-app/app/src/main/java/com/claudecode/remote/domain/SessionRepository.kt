@@ -9,9 +9,11 @@ import com.claudecode.remote.data.model.Envelope
 import com.claudecode.remote.data.model.Events
 import com.claudecode.remote.data.model.Session
 import com.claudecode.remote.data.remote.AuthSessionManager
+import com.claudecode.remote.data.remote.EffectiveScopeResponse
 import com.claudecode.remote.data.remote.ProjectInfo
 import com.claudecode.remote.data.remote.RelayApi
 import com.claudecode.remote.data.remote.RELAY_FEATURE_DEVICE_SYNC_DELTA
+import com.claudecode.remote.data.remote.RELAY_FEATURE_EFFECTIVE_SCOPE
 import com.claudecode.remote.data.remote.RELAY_FEATURE_DEVICE_SYNC_META
 import com.claudecode.remote.data.remote.SyncDeltaRequest
 import com.claudecode.remote.data.remote.isLegacyRelayMissingFeature
@@ -51,11 +53,17 @@ class SessionRepository(
     private var inFlightSync = CompletableDeferred<Result<Unit>>()
     private var hasInFlightSync = false
     private var lastSuccessfulSyncAt = 0L
+    private var currentProjectAccessScope: ProjectAccessScope? =
+        ProjectAccessScopeCodec.decode(tokenStore.getEffectiveScopeJson())?.let(ProjectAccessScope::fromResponse)
 
     companion object {
         private const val OFFLINE_STATUS_DEBOUNCE_MS = 8_000L
         private const val MIN_SYNC_INTERVAL_MS = 3_000L
     }
+
+    private data class EffectiveScopeRefreshResult(
+        val changed: Boolean
+    )
 
     val sessions: Flow<List<Session>> = sessionDao.getInboxSessions().map { entities ->
         entities.map { it.toSession() }
@@ -128,10 +136,19 @@ class SessionRepository(
                 return Result.failure(error)
             }
 
-            val cachedSessions = sessionDao.getAllSessionsSnapshot()
+            val scopeRefresh = refreshEffectiveScope(token)
+            val cachedSessions = pruneProjectsOutsideScope(sessionDao.getAllSessionsSnapshot())
+            var previousRevision = tokenStore.getDeviceSyncRevision()?.trim().orEmpty().ifEmpty { null }
+            if (scopeRefresh.changed && previousRevision != null) {
+                tokenStore.saveDeviceSyncRevision("")
+                previousRevision = null
+                CrashLogger.logInfo(
+                    "SessionRepository",
+                    "Effective scope changed; cleared cached device sync revision before sync"
+                )
+            }
             var shouldSkipFullSync = false
             if (!force && cachedSessions.isNotEmpty()) {
-                val previousRevision = tokenStore.getDeviceSyncRevision()?.trim().orEmpty().ifEmpty { null }
                 val meta = resolveSyncMetaOrNull(token, previousRevision)
                 if (meta != null) {
                     if (!meta.changed && previousRevision != null && meta.revision == previousRevision) {
@@ -196,9 +213,11 @@ class SessionRepository(
                     CrashLogger.logInfo("SessionRepository", "Project $index: id=${project.id}, name=${project.name}, path=${project.path}")
                 }
 
-                replaceSessionsFromDesktop(response.agentId, response.projects, fullReplace = true)
+                val scopedProjects = currentProjectAccessScope?.filterProjects(response.agentId, response.projects)
+                    ?: response.projects
+                replaceSessionsFromDesktop(response.agentId, scopedProjects, fullReplace = true)
                 val resolvedRevision = response.revision?.trim().orEmpty()
-                if (response.projects.isNotEmpty() || cachedSessions.isEmpty()) {
+                if (scopedProjects.isNotEmpty() || cachedSessions.isEmpty()) {
                     tokenStore.saveDeviceSyncRevision(resolvedRevision)
                 }
 
@@ -258,7 +277,8 @@ class SessionRepository(
                     )
                 } ?: emptyList()
 
-                replaceSessionsFromDesktop(agentId, projects, fullReplace = false)
+                val scopedProjects = currentProjectAccessScope?.filterProjects(agentId, projects) ?: projects
+                replaceSessionsFromDesktop(agentId, scopedProjects, fullReplace = false)
             }
             Events.AGENT_STATUS -> {
                 val payloadObj = envelope.payload?.jsonObject ?: return
@@ -318,7 +338,8 @@ class SessionRepository(
     ) {
         val now = System.currentTimeMillis()
         val existingByProjectId = sessionDao.getAllSessionsSnapshot().associateBy { it.projectId }
-        val normalizedUpserts = projectUpserts
+        val allowedProjects = currentProjectAccessScope?.filterProjects(agentId, projectUpserts) ?: projectUpserts
+        val normalizedUpserts = allowedProjects
             .mapNotNull { project ->
                 val projectId = project.id.trim()
                 if (projectId.isEmpty()) {
@@ -359,6 +380,76 @@ class SessionRepository(
 
     private fun cancelPendingOffline(projectId: String) {
         pendingOfflineJobs.remove(projectId)?.cancel()
+    }
+
+    private suspend fun refreshEffectiveScope(token: String): EffectiveScopeRefreshResult =
+        when (tokenStore.getRelayFeatureSupport(normalizeServerUrlForFeatureCache(), RELAY_FEATURE_EFFECTIVE_SCOPE)) {
+            false -> {
+                val hadStoredScope = !tokenStore.getEffectiveScopeJson().isNullOrBlank()
+                currentProjectAccessScope = null
+                tokenStore.saveEffectiveScopeJson(null)
+                EffectiveScopeRefreshResult(changed = hadStoredScope)
+            }
+            else -> runCatching {
+                relayApiProvider().getEffectiveScope("Bearer ${token}")
+            }.onSuccess {
+                tokenStore.saveRelayFeatureSupport(
+                    normalizeServerUrlForFeatureCache(),
+                    RELAY_FEATURE_EFFECTIVE_SCOPE,
+                    true
+                )
+            }.map { response ->
+                persistEffectiveScope(response)
+            }.getOrElse { error ->
+                if (error.isLegacyRelayMissingFeature()) {
+                    tokenStore.saveRelayFeatureSupport(
+                        normalizeServerUrlForFeatureCache(),
+                        RELAY_FEATURE_EFFECTIVE_SCOPE,
+                        false
+                    )
+                    val hadStoredScope = !tokenStore.getEffectiveScopeJson().isNullOrBlank()
+                    currentProjectAccessScope = null
+                    tokenStore.saveEffectiveScopeJson(null)
+                    CrashLogger.logInfo(
+                        "SessionRepository",
+                        "Effective scope is unavailable on current relay version; falling back to legacy unscoped access"
+                    )
+                    EffectiveScopeRefreshResult(changed = hadStoredScope)
+                } else {
+                    throw error
+                }
+            }
+        }
+
+    private fun persistEffectiveScope(response: EffectiveScopeResponse): EffectiveScopeRefreshResult {
+        val nextRawJson = ProjectAccessScopeCodec.encode(response)
+        val previousRawJson = tokenStore.getEffectiveScopeJson()?.trim().orEmpty()
+        tokenStore.saveEffectiveScopeJson(nextRawJson)
+        currentProjectAccessScope = ProjectAccessScope.fromResponse(response)
+        return EffectiveScopeRefreshResult(changed = previousRawJson != nextRawJson)
+    }
+
+    private suspend fun pruneProjectsOutsideScope(cachedSessions: List<SessionEntity>): List<SessionEntity> {
+        val accessScope = currentProjectAccessScope ?: return cachedSessions
+        val removedProjectIds = accessScope.findOutOfScopeProjectIds(cachedSessions)
+        if (removedProjectIds.isEmpty()) {
+            return cachedSessions
+        }
+
+        db.withTransaction {
+            removedProjectIds.forEach { projectId ->
+                cancelPendingOffline(projectId)
+                sessionDao.deleteSessionByProjectId(projectId)
+                messageDao.deleteMessagesByProject(projectId)
+                tokenStore.clearDraft(projectId)
+                tokenStore.clearProjectChatSnapshot(projectId)
+            }
+        }
+        CrashLogger.logInfo(
+            "SessionRepository",
+            "Pruned ${removedProjectIds.size} cached project(s) that are outside the current effective scope"
+        )
+        return cachedSessions.filterNot { session -> session.projectId.trim() in removedProjectIds }
     }
 
     private suspend fun purgeLegacyWorkgroupMessages() {

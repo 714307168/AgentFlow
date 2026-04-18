@@ -171,6 +171,17 @@ class TokenStore(context: Context) {
 
     fun getDeviceSyncRevision(): String? = prefs.getString(KEY_DEVICE_SYNC_REVISION, null)
 
+    fun saveEffectiveScopeJson(rawJson: String?) {
+        val normalized = rawJson?.trim().orEmpty()
+        if (normalized.isEmpty()) {
+            prefs.edit().remove(KEY_EFFECTIVE_SCOPE_JSON).apply()
+        } else {
+            prefs.edit().putString(KEY_EFFECTIVE_SCOPE_JSON, normalized).apply()
+        }
+    }
+
+    fun getEffectiveScopeJson(): String? = prefs.getString(KEY_EFFECTIVE_SCOPE_JSON, null)
+
     fun saveRelayFeatureSupport(serverUrl: String?, featureKey: String, supported: Boolean) {
         val key = relayFeatureSupportKey(serverUrl, featureKey)
         prefs.edit().putBoolean(key, supported).apply()
@@ -206,6 +217,7 @@ class TokenStore(context: Context) {
         private const val KEY_COLLAPSED_AGENT_GROUPS = "collapsed_agent_groups"
         private const val KEY_JOINED_WORKGROUP_AGENT_IDS = "joined_workgroup_agent_ids"
         private const val KEY_DEVICE_SYNC_REVISION = "device_sync_revision"
+        private const val KEY_EFFECTIVE_SCOPE_JSON = "effective_scope_json"
 
         private fun projectDraftKey(projectId: String): String = "draft_$projectId"
         private fun projectChatSnapshotKey(projectId: String): String = "chat_snapshot_$projectId"

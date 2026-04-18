@@ -600,4 +600,5 @@
 - [x] `R-project-scope-access` 第一批服务端实现已开始：新增 `/api/access/effective-scope`，把当前登录账号可访问的桌面 agent 与项目范围显式汇总给客户端，兼容 legacy 全量授权和已带项目范围的授权记录。
 - [x] 已补 `effective-scope` 服务端回归测试，覆盖设备端当前 scope 汇总以及 legacy 无项目行授权自动视为 `all_projects` 的兼容行为。
 - [x] Desktop owner-side access grant picker no longer defaults to "all local projects": it now keeps explicit project selection state, supports local search plus select-all/clear actions, and has dedicated Node coverage so the `R-project-scope-access` desktop path matches the scoped-authorization intent before Android scope clipping lands.
+- [x] Android now refreshes `effective-scope` through the shared session sync path, stores it separately from project cache, prunes out-of-scope project/message/chat-snapshot data on refresh, and filters full-sync/delta/websocket project catalogs through a shared scope helper with dedicated JVM coverage.
 

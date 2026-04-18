@@ -38,6 +38,11 @@ interface RelayApi {
         @Header("Authorization") auth: String
     ): SyncResponse
 
+    @GET("api/access/effective-scope")
+    suspend fun getEffectiveScope(
+        @Header("Authorization") auth: String
+    ): EffectiveScopeResponse
+
     @GET("api/device/sync/meta")
     suspend fun syncDeviceMeta(
         @Header("Authorization") auth: String,
@@ -183,6 +188,26 @@ data class SyncResponse(
     val revision: String? = null,
     @SerialName("project_count") val projectCount: Int? = null,
     val projects: List<ProjectInfo>
+)
+
+@Serializable
+data class EffectiveScopeResponse(
+    @SerialName("account_id") val accountId: Int = 0,
+    val username: String = "",
+    @SerialName("client_type") val clientType: String = "",
+    @SerialName("agent_id") val agentId: String? = null,
+    @SerialName("device_id") val deviceId: String? = null,
+    @SerialName("agent_scopes") val agentScopes: List<EffectiveAgentScopeResponse> = emptyList()
+)
+
+@Serializable
+data class EffectiveAgentScopeResponse(
+    @SerialName("agent_id") val agentId: String = "",
+    @SerialName("owner_user_id") val ownerUserId: Int = 0,
+    @SerialName("owner_username") val ownerUsername: String = "",
+    @SerialName("is_owned") val isOwned: Boolean = false,
+    @SerialName("scope_type") val scopeType: String = "selected_projects",
+    @SerialName("project_ids") val projectIds: List<String> = emptyList()
 )
 
 @Serializable

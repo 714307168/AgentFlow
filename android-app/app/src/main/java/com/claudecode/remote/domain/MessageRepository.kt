@@ -157,7 +157,12 @@ class MessageRepository(
     private fun getProjectSendMutex(projectId: String): Mutex =
         projectSendMutexes.getOrPut(projectId.trim()) { Mutex() }
 
+    private suspend fun requireAccessibleSession(projectId: String) =
+        sessionDao.getSessionByProjectId(projectId.trim())
+            ?: throw IllegalStateException("You no longer have access to this project")
+
     private suspend fun ensureSendReady(projectId: String, agentId: String?, reason: String) {
+        requireAccessibleSession(projectId)
         webSocket.ensureHealthyConnection(
             reason = "$reason:$projectId",
             staleTimeoutMs = SEND_STALE_CONNECTION_TIMEOUT_MS
@@ -193,13 +198,17 @@ class MessageRepository(
         shouldWakeAgent: Boolean = true,
         bypassDedupe: Boolean = false
     ) {
+        val normalizedProjectId = projectId.trim()
+        if (normalizedProjectId.isEmpty()) {
+            return
+        }
+        val session = requireAccessibleSession(normalizedProjectId)
         if (shouldWakeAgent) {
             wakeupAgent(agentId)
         }
-        val session = sessionDao.getSessionByProjectId(projectId)
         val effectiveConversationId = conversationId?.trim()?.takeIf { it.isNotEmpty() }
-            ?: session?.activeConversationId?.trim()?.takeIf { it.isNotEmpty() }
-        val conversationSyncBounds = messageDao.getConversationSyncBounds(projectId, effectiveConversationId)
+            ?: session.activeConversationId?.trim()?.takeIf { it.isNotEmpty() }
+        val conversationSyncBounds = messageDao.getConversationSyncBounds(normalizedProjectId, effectiveConversationId)
         val storedAfterSeq = conversationSyncBounds?.latestSyncSeq ?: 0L
         var afterSeq = afterSeqOverride ?: storedAfterSeq
         if (beforeSeq == null && afterSeqOverride == null && afterSeq > 0L && recentOverlapCount > 0) {
@@ -221,7 +230,7 @@ class MessageRepository(
         }
 
         val requestKey = buildProjectSyncRequestKey(
-            projectId = projectId,
+            projectId = normalizedProjectId,
             agentId = agentId,
             afterSeq = afterSeq,
             beforeSeq = beforeSeq,
@@ -229,7 +238,7 @@ class MessageRepository(
             action = action,
             conversationId = effectiveConversationId,
             itemId = itemId,
-            snapshotRevision = session?.snapshotRevision
+            snapshotRevision = session.snapshotRevision
         )
         val now = System.currentTimeMillis()
         if (!bypassDedupe) {
@@ -250,7 +259,7 @@ class MessageRepository(
                 Envelope(
                     id = UUID.randomUUID().toString(),
                     event = Events.SESSION_SYNC_REQUEST,
-                    projectId = projectId,
+                    projectId = normalizedProjectId,
                     payload = buildJsonObject {
                         put("after_seq", JsonPrimitive(afterSeq))
                         beforeSeq?.takeIf { it > 0L }?.let {
@@ -268,11 +277,11 @@ class MessageRepository(
                         itemId?.trim()?.takeIf { it.isNotEmpty() }?.let {
                             put("item_id", JsonPrimitive(it))
                         }
-                        session?.snapshotRevision?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                        session.snapshotRevision?.trim()?.takeIf { it.isNotEmpty() }?.let {
                             put("snapshot_revision", JsonPrimitive(it))
                         }
                         val knownItems = buildKnownSyncItemPayloads(
-                            projectId = projectId,
+                            projectId = normalizedProjectId,
                             conversationId = effectiveConversationId,
                             afterSeq = afterSeq,
                             beforeSeq = beforeSeq,
