@@ -687,7 +687,9 @@ class RuntimeManager extends EventEmitter {
 
     try {
       let completionDetail = `${this.getProviderLabel(state.provider)} finished successfully.`;
+      let handledLocally = false;
       const prepared = await this.prepareRun(state, next, context);
+      handledLocally = prepared.handledLocally;
       const providerRuntime = prepared.handledLocally
         ? null
         : await this.resolveProviderRuntime(state.projectId, state.provider);
@@ -743,13 +745,22 @@ class RuntimeManager extends EventEmitter {
         runId: next.runId,
         provider: state.provider,
         source: next.source,
-        handledLocally: prepared.handledLocally,
+        handledLocally,
+        finalStatus: "completed",
       });
       next.onDone?.();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (error instanceof StopRunError) {
         this.finalizeRun(state, context, "completed", message);
+        this.emit("run-completed", {
+          projectId: state.projectId,
+          runId: next.runId,
+          provider: state.provider,
+          source: next.source,
+          handledLocally: false,
+          finalStatus: "completed",
+        });
         if (error.notifyAsError) {
           next.onError?.(message);
         } else {
@@ -757,6 +768,14 @@ class RuntimeManager extends EventEmitter {
         }
       } else {
         this.finalizeRun(state, context, "error", message);
+        this.emit("run-completed", {
+          projectId: state.projectId,
+          runId: next.runId,
+          provider: state.provider,
+          source: next.source,
+          handledLocally: false,
+          finalStatus: "error",
+        });
         this.addMessage(state, {
           id: uuidv4(),
           role: "error",

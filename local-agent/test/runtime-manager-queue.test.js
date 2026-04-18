@@ -98,3 +98,32 @@ test("RuntimeManager keeps already queued runs ahead of a newer interrupting run
 
   runtimeManager.dispose();
 });
+
+test("RuntimeManager emits run-completed when a run ends with an error", async () => {
+  const runtimeManager = createRuntimeManager();
+  const completions = [];
+  runtimeManager.on("run-completed", (payload) => {
+    completions.push(payload);
+  });
+  runtimeManager.prepareRun = async () => {
+    throw new Error("synthetic failure");
+  };
+
+  await new Promise((resolve) => {
+    runtimeManager.enqueueMessage({
+      projectId: "project-run-error",
+      cwd: process.cwd(),
+      prompt: "trigger failure",
+      source: "desktop",
+      runId: "failed-run",
+      onError: () => resolve(),
+    });
+  });
+
+  assert.equal(completions.length, 1);
+  assert.equal(completions[0].projectId, "project-run-error");
+  assert.equal(completions[0].runId, "failed-run");
+  assert.equal(completions[0].finalStatus, "error");
+
+  runtimeManager.dispose();
+});
