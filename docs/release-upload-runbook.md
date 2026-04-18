@@ -140,14 +140,15 @@ cd "$RepoRoot\android-app"
 
 Expected output:
 
-- `android-app/app/build/outputs/apk/release/app-release.apk`
+- `D:\agentflow-android-build\AgentFlow\app\outputs\apk\release\app-release.apk`
+- `android-app/app/build/outputs/apk/release/app-release.apk` when the external ASCII build root is disabled
 
 ### Optional: Copy Stable Release Files To `artifacts/`
 
 ```powershell
 cd $RepoRoot
 Copy-Item .\local-agent\release\AgentFlow-*-setup.exe .\artifacts\ -Force
-Copy-Item .\android-app\app\build\outputs\apk\release\app-release.apk ".\artifacts\AgentFlow-<version>-release.apk" -Force
+Copy-Item D:\agentflow-android-build\AgentFlow\app\outputs\apk\release\app-release.apk ".\artifacts\AgentFlow-<version>-release.apk" -Force
 ```
 
 ### Optional: Record SHA256

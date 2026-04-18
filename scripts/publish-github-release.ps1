@@ -114,6 +114,31 @@ function Get-AndroidVersion {
     return $match.Groups[1].Value
 }
 
+function Get-AndroidBuildRoot {
+    param([string]$RepoRoot)
+
+    if (-not [string]::IsNullOrWhiteSpace($env:AGENTFLOW_ANDROID_BUILD_DIR)) {
+        return (Join-Path $env:AGENTFLOW_ANDROID_BUILD_DIR "AgentFlow")
+    }
+
+    $androidDir = Join-Path $RepoRoot "android-app"
+    $driveRoot = [System.IO.Path]::GetPathRoot((Resolve-Path $androidDir).Path)
+    return (Join-Path $driveRoot "agentflow-android-build\AgentFlow")
+}
+
+function Get-AndroidAssetCandidates {
+    param(
+        [string]$RepoRoot,
+        [string]$Version
+    )
+
+    return @(
+        (Join-Path $RepoRoot ("artifacts\AgentFlow-{0}-release.apk" -f $Version)),
+        (Join-Path (Get-AndroidBuildRoot -RepoRoot $RepoRoot) "app\outputs\apk\release\app-release.apk"),
+        (Join-Path $RepoRoot "android-app\app\build\outputs\apk\release\app-release.apk")
+    )
+}
+
 function Resolve-AssetPath {
     param(
         [string]$PathValue,
@@ -307,10 +332,7 @@ $resolvedAndroidAsset = if ($SkipAndroidAsset) {
 } elseif ($AndroidAsset) {
     Resolve-AssetPath -PathValue $AndroidAsset -RepoRoot $repoRoot
 } else {
-    $candidatePaths = @(
-        (Join-Path $repoRoot "artifacts\AgentFlow-$androidVersion-release.apk"),
-        (Join-Path $repoRoot "android-app\app\build\outputs\apk\release\app-release.apk")
-    )
+    $candidatePaths = Get-AndroidAssetCandidates -RepoRoot $repoRoot -Version $androidVersion
     $match = $candidatePaths | Where-Object { Test-Path $_ } | Select-Object -First 1
     if ($match) { (Resolve-Path $match).Path } else { $null }
 }
