@@ -194,14 +194,14 @@
 
 这份清单的作用不是增加文档数量，而是把 `R-project-scope-access` 变成可以直接排期、分工、测试和发版的执行入口。
 
-下一步如果继续做文档优化，最自然的延伸就是：
+下一步如果继续做文档优化，配套材料已经补齐：
 
-- 补服务端接口返回 schema
-- 补桌面端授权 UI 草图
-- 补 Android scope 收缩与缓存清理时序图
+- 服务端接口返回 schema：[`docs/project-scope-access-api-schema.md`](./project-scope-access-api-schema.md)
+- 桌面端授权 UI 草图：[`docs/project-scope-access-desktop-ui-sketch.md`](./project-scope-access-desktop-ui-sketch.md)
+- Android scope 收缩与缓存清理时序图：[`docs/project-scope-access-android-scope-sequence.md`](./project-scope-access-android-scope-sequence.md)
 
 当前进度：
 
 - [x] 服务端接口返回 schema
-- [ ] 桌面端授权 UI 草图
-- [ ] Android scope 收缩与缓存清理时序图
+- [x] 桌面端授权 UI 草图
+- [x] Android scope 收缩与缓存清理时序图

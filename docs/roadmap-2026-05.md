@@ -592,8 +592,9 @@
 - [x] 新增 `docs/project-scope-access-mvp.md`，把“项目级授权 MVP”从 roadmap 待办拆成实施文档，明确了数据模型、`effective-scope` 接口、桌面端授权 UI、Android scope 裁切和文件/诊断统一校验。
 - [ ] 下一轮代码实现入口维持为 `R-project-scope-access`：先补 relay-server 授权模型与 `effective-scope`，再接桌面端项目多选授权 UI，最后让移动端按 scope 裁切列表、详情和文件入口。
 - [x] 新增 `docs/project-scope-access-checklist.md`，把 `R-project-scope-access` 继续拆成 relay-server / desktop / Android 三端实施清单和发版检查表，后续可以直接按模块分工、联调和验收。
-- [ ] 如果继续走文档细化，下一轮入口转到 `R-project-scope-access` 的配套材料：服务端接口 schema、桌面端授权 UI 草图、Android scope 收缩与缓存清理时序图。
+- [x] `R-project-scope-access` 的配套文档已补齐：服务端接口 schema、桌面端授权 UI 草图、Android scope 收缩与缓存清理时序图，后续入口回到代码实现与联调。
 - [x] 已补 `docs/project-scope-access-api-schema.md`，把 `R-project-scope-access` 的服务端接口请求/响应、错误码和越权行为收成统一 schema。
 - [x] 修复 relay-server 授权边界 bug：当 `project_ids` 请求体只包含空白值时，服务端现在会直接拒绝，而不是把空白项目范围误降级成“全部项目”授权；对应 Go 回归测试已补齐。
-- [ ] 文档细化还剩两份配套材料：桌面端授权 UI 草图、Android scope 收缩与缓存清理时序图。
+- [x] 已补 `docs/project-scope-access-desktop-ui-sketch.md`，把桌面端授权入口、列表、表单、多选项目和状态/异常交互收成可实现草图。
+- [x] 已补 `docs/project-scope-access-android-scope-sequence.md`，把 Android scope 收缩、本地缓存裁切、详情守卫和后续 sync 过滤整理成统一时序说明。
 
