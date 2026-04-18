@@ -94,7 +94,50 @@ class ProjectAccessScopeTest {
             )
         )
 
-        assertEquals(setOf("project-b", "project-c"), removedProjectIds)
+        assertEquals(setOf("project-b"), removedProjectIds)
+    }
+
+    @Test
+    fun emptyScopeFallsBackToAllowingExistingProjects() {
+        val scope = ProjectAccessScope.fromAgentScopes(emptyList())
+
+        assertTrue(scope.canAccessAgent("agent-1"))
+        assertTrue(scope.canAccessProject("agent-1", "project-a"))
+        assertEquals(
+            listOf("project-a", "project-b"),
+            scope.filterProjects(
+                fallbackAgentId = "agent-1",
+                projects = listOf(
+                    ProjectInfo(id = "project-a", name = "Alpha", path = "/tmp/a"),
+                    ProjectInfo(id = "project-b", name = "Bravo", path = "/tmp/b")
+                )
+            ).map { it.id }
+        )
+    }
+
+    @Test
+    fun unknownAgentFallsBackToAllowingProjectsInsteadOfPruningEverything() {
+        val scope = ProjectAccessScope.fromAgentScopes(
+            listOf(
+                EffectiveAgentScopeResponse(
+                    agentId = "agent-1",
+                    scopeType = "selected_projects",
+                    projectIds = listOf("project-a")
+                )
+            )
+        )
+
+        assertTrue(scope.canAccessProject("agent-2", "project-z"))
+        assertEquals(
+            setOf("project-b"),
+            scope.findOutOfScopeProjectIds(
+                listOf(
+                    sessionEntity(agentId = "agent-1", projectId = "project-a"),
+                    sessionEntity(agentId = "agent-1", projectId = "project-b"),
+                    sessionEntity(agentId = "agent-2", projectId = "project-c")
+                )
+            )
+        )
     }
 
     private fun sessionEntity(agentId: String, projectId: String): SessionEntity = SessionEntity(

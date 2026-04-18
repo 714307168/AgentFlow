@@ -20,16 +20,24 @@ internal data class AgentProjectAccessScope(
 internal class ProjectAccessScope private constructor(
     private val scopesByAgentId: Map<String, AgentProjectAccessScope>
 ) {
+    private val hasExplicitAgentScopes = scopesByAgentId.isNotEmpty()
+
     fun canAccessAgent(agentId: String): Boolean =
-        scopesByAgentId.containsKey(agentId.trim())
+        !hasExplicitAgentScopes || scopesByAgentId.containsKey(agentId.trim())
 
     fun canAccessProject(agentId: String, projectId: String): Boolean {
         val normalizedAgentId = agentId.trim()
         val normalizedProjectId = projectId.trim()
-        if (normalizedAgentId.isEmpty() || normalizedProjectId.isEmpty()) {
+        if (normalizedProjectId.isEmpty()) {
             return false
         }
-        val scope = scopesByAgentId[normalizedAgentId] ?: return false
+        if (!hasExplicitAgentScopes) {
+            return true
+        }
+        if (normalizedAgentId.isEmpty()) {
+            return true
+        }
+        val scope = scopesByAgentId[normalizedAgentId] ?: return true
         return scope.scopeType == SCOPE_TYPE_ALL_PROJECTS || normalizedProjectId in scope.projectIds
     }
 
