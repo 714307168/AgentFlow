@@ -12,7 +12,7 @@ test("builds the Windows completion sound command", () => {
       "-ExecutionPolicy",
       "Bypass",
       "-Command",
-      "[System.Media.SystemSounds]::Asterisk.Play()",
+      "$soundPath = Join-Path $env:WINDIR 'Media\\Windows Notify System Generic.wav' try {   if (Test-Path $soundPath) {     $player = New-Object System.Media.SoundPlayer $soundPath     $player.PlaySync()   } else {     [Console]::Beep(880, 220)   } } catch {   try {     [Console]::Beep(880, 220)   } catch {     [System.Media.SystemSounds]::Asterisk.Play()     Start-Sleep -Milliseconds 250   } }",
     ],
   });
 });

@@ -8,6 +8,25 @@ export interface SystemSoundCommand {
   args: string[];
 }
 
+const WINDOWS_NOTIFICATION_SOUND_SCRIPT = [
+  "$soundPath = Join-Path $env:WINDIR 'Media\\Windows Notify System Generic.wav'",
+  "try {",
+  "  if (Test-Path $soundPath) {",
+  "    $player = New-Object System.Media.SoundPlayer $soundPath",
+  "    $player.PlaySync()",
+  "  } else {",
+  "    [Console]::Beep(880, 220)",
+  "  }",
+  "} catch {",
+  "  try {",
+  "    [Console]::Beep(880, 220)",
+  "  } catch {",
+  "    [System.Media.SystemSounds]::Asterisk.Play()",
+  "    Start-Sleep -Milliseconds 250",
+  "  }",
+  "}",
+].join(" ");
+
 export function getSystemSoundCommand(platform: NodeJS.Platform = process.platform): SystemSoundCommand | null {
   switch (platform) {
     case "win32":
@@ -19,7 +38,7 @@ export function getSystemSoundCommand(platform: NodeJS.Platform = process.platfo
           "-ExecutionPolicy",
           "Bypass",
           "-Command",
-          "[System.Media.SystemSounds]::Asterisk.Play()",
+          WINDOWS_NOTIFICATION_SOUND_SCRIPT,
         ],
       };
     case "darwin":
