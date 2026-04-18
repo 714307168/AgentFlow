@@ -9,9 +9,12 @@ import com.claudecode.remote.appContainer
 import com.claudecode.remote.data.model.Envelope
 import com.claudecode.remote.data.model.Events
 import com.claudecode.remote.data.remote.RelayWebSocket
+import com.claudecode.remote.domain.AuthenticatedRelayFollowUpPass
+import com.claudecode.remote.domain.buildAuthenticatedRelayFollowUpPasses
 import com.claudecode.remote.util.CrashLogger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
@@ -21,6 +24,7 @@ import kotlinx.coroutines.launch
 class RelayConnectionService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private lateinit var notificationHelper: RelayNotificationHelper
+    private val authFollowUpJobs = mutableSetOf<Job>()
 
     override fun onCreate() {
         super.onCreate()
@@ -36,7 +40,7 @@ class RelayConnectionService : Service() {
         serviceScope.launch {
             container.relayWebSocket.incomingEnvelopes.collect { envelope ->
                 if (envelope.event == Events.AUTH_OK) {
-                    syncAfterAuthentication(container)
+                    schedulePostAuthFollowUpSyncs(container, "relay-authenticated")
                 }
                 processEnvelope(container, envelope)
             }
@@ -169,6 +173,7 @@ class RelayConnectionService : Service() {
     }
 
     override fun onDestroy() {
+        clearAuthFollowUpJobs()
         applicationContext.appContainer().relayWebSocket.disconnect()
         serviceScope.cancel()
         super.onDestroy()
@@ -205,40 +210,83 @@ class RelayConnectionService : Service() {
         }
     }
 
-    private suspend fun syncAfterAuthentication(container: com.claudecode.remote.AppContainer) {
-        CrashLogger.logInfo("RelayConnectionService", "Starting post-auth session sync")
+    private fun schedulePostAuthFollowUpSyncs(
+        container: com.claudecode.remote.AppContainer,
+        baseReason: String
+    ) {
+        clearAuthFollowUpJobs()
+        val passes = buildAuthenticatedRelayFollowUpPasses(
+            baseReason = baseReason,
+            delaysMs = AUTHENTICATED_FOLLOW_UP_DELAYS_MS
+        )
+        CrashLogger.logInfo(
+            "RelayConnectionService",
+            "Scheduling post-auth follow-up passes reason=$baseReason passCount=${passes.size}"
+        )
+        passes.forEach { pass ->
+            val job = serviceScope.launch {
+                if (pass.delayMs > 0L) {
+                    delay(pass.delayMs)
+                }
+                runPostAuthFollowUpPass(container, pass)
+            }
+            authFollowUpJobs += job
+            job.invokeOnCompletion {
+                authFollowUpJobs.remove(job)
+            }
+        }
+    }
+
+    private fun clearAuthFollowUpJobs() {
+        authFollowUpJobs.forEach { job -> job.cancel() }
+        authFollowUpJobs.clear()
+    }
+
+    private suspend fun runPostAuthFollowUpPass(
+        container: com.claudecode.remote.AppContainer,
+        pass: AuthenticatedRelayFollowUpPass
+    ) {
+        CrashLogger.logInfo(
+            "RelayConnectionService",
+            "Running post-auth follow-up pass reason=${pass.reason} stage=${pass.stage.wireName} forceSessionSync=${pass.forceSessionSync} requestSessionShellSync=${pass.requestSessionShellSync} forceWorkgroupRefresh=${pass.forceWorkgroupRefresh}"
+        )
         runCatching {
-            val syncResult = container.sessionRepository.syncFromServer(force = true)
+            val syncResult = container.sessionRepository.syncFromServer(force = pass.forceSessionSync)
             syncResult.getOrThrow()
             val sessions = container.sessionRepository.getSessions()
             CrashLogger.logInfo(
                 "RelayConnectionService",
-                "Post-auth session catalog refreshed sessionCount=${sessions.size}"
+                "Post-auth session catalog refreshed reason=${pass.reason} sessionCount=${sessions.size}"
             )
-            container.messageRepository.requestSessionShellSyncs(
-                sessions = sessions,
-                bypassDedupe = true
-            )
-            CrashLogger.logInfo(
-                "RelayConnectionService",
-                "Requested session-shell syncs after relay authentication sessionCount=${sessions.size}"
-            )
+            if (pass.requestSessionShellSync) {
+                container.messageRepository.requestSessionShellSyncs(
+                    sessions = sessions,
+                    bypassDedupe = true
+                )
+                CrashLogger.logInfo(
+                    "RelayConnectionService",
+                    "Requested session-shell syncs after relay authentication reason=${pass.reason} sessionCount=${sessions.size}"
+                )
+            }
             val trackedAgentIds = container.workgroupRepository.resolveTrackedAgentIds(
                 sessions.map { it.agentId.trim() }.filter { it.isNotEmpty() }.distinct().sorted()
             )
             if (trackedAgentIds.isEmpty()) {
                 container.workgroupRepository.retainAgentIds(emptyList())
             } else {
-                container.workgroupRepository.refresh(trackedAgentIds, force = true)
+                container.workgroupRepository.refresh(
+                    trackedAgentIds,
+                    force = pass.forceWorkgroupRefresh
+                )
             }
             CrashLogger.logInfo(
                 "RelayConnectionService",
-                "Completed post-auth workgroup refresh trackedAgentCount=${trackedAgentIds.size}"
+                "Completed post-auth workgroup refresh reason=${pass.reason} trackedAgentCount=${trackedAgentIds.size}"
             )
         }.onFailure { error ->
             CrashLogger.logError(
                 "RelayConnectionService",
-                "Failed to sync sessions after relay authentication",
+                "Failed to run post-auth follow-up pass reason=${pass.reason}",
                 error as? Exception ?: Exception(error)
             )
         }
@@ -246,6 +294,7 @@ class RelayConnectionService : Service() {
 
     companion object {
         private const val CONNECTION_HEALTH_CHECK_INTERVAL_MS = 45_000L
+        private val AUTHENTICATED_FOLLOW_UP_DELAYS_MS = longArrayOf(300L, 1_500L, 5_000L)
 
         fun start(context: Context) {
             val intent = Intent(context, RelayConnectionService::class.java)

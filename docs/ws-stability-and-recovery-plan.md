@@ -64,6 +64,7 @@
 - [x] Android `RelayWebSocket` now records a bounded recent connection-event timeline with aligned event types for connect-attempt, auth-sent, authenticated, forced recovery, socket-close, socket-error, and reconnect scheduling.
 - [x] Android connection diagnostics now retain the latest close code, close reason, error text, and reconnect metadata in a snapshot structure instead of relying on scattered log lines only.
 - [x] Android settings log uploads now attach the current relay connection diagnostics note so server-side triage can see recent connection state without manually reconstructing it from the full log first.
+- [x] Android relay post-auth recovery now uses a shared `catalog / catch-up / stabilize` follow-up pass plan with dedicated JVM coverage, and only the immediate catalog pass forces a session sync while later passes reuse revision/meta/delta paths instead of repeatedly doing full refreshes.
 - [x] relay-server admin overview now aggregates WebSocket close signals by client/source/close-code, keeping count, unexpected count, last reason, and last-seen time in one place for server-side triage.
 - [x] relay-server deployment guidance now carries a concrete proxy timeout checklist for `/ws`, including `proxy_read_timeout`, `proxy_send_timeout`, `proxy_connect_timeout`, `proxy_buffering off`, and upgrade-header verification.
 - [x] relay-server close-code aggregation and proxy timeout checklist.
