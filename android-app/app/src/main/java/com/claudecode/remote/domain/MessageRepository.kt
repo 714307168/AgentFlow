@@ -149,6 +149,7 @@ class MessageRepository(
     private val pendingDownloadTransfers = ConcurrentHashMap<String, PendingDownloadTransfer>()
     private val lastProjectSyncRequestedAt = ConcurrentHashMap<String, Long>()
     private val inFlightProjectSyncs = ConcurrentHashMap<String, Long>()
+    private val lastBackgroundSessionShellSyncRequestedAtByProjectId = ConcurrentHashMap<String, Long>()
     private val lastWakeupRequestedAt = ConcurrentHashMap<String, Long>()
     private val lastFullItemRequestAt = ConcurrentHashMap<String, Long>()
     private val projectSendMutexes = ConcurrentHashMap<String, Mutex>()
@@ -324,10 +325,20 @@ class MessageRepository(
         bypassDedupe: Boolean = false,
         maxProjects: Int = SESSION_SHELL_SYNC_MAX_PROJECTS
     ) {
-        selectSessionShellSyncTargets(
+        val nowMs = System.currentTimeMillis()
+        val selectedSessions = selectSessionShellSyncTargets(
             sessions = sessions,
-            maxProjects = maxProjects
-        ).forEach { session ->
+            maxProjects = maxProjects,
+            lastBackgroundSyncRequestedAtByProjectId =
+                if (bypassDedupe) emptyMap() else lastBackgroundSessionShellSyncRequestedAtByProjectId,
+            nowMs = nowMs
+        )
+        if (!bypassDedupe) {
+            selectedSessions.forEach { session ->
+                lastBackgroundSessionShellSyncRequestedAtByProjectId[session.projectId] = nowMs
+            }
+        }
+        selectedSessions.forEach { session ->
             requestProjectSync(
                 projectId = session.projectId,
                 agentId = session.agentId,

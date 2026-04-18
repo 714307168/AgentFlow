@@ -3,6 +3,8 @@ package com.claudecode.remote.domain
 internal const val SESSION_SHELL_SYNC_HOT_AGE_MS = 15L * 60L * 1000L
 internal const val SESSION_SHELL_SYNC_WARM_AGE_MS = 2L * 60L * 60L * 1000L
 internal const val SESSION_SHELL_SYNC_DORMANT_AGE_MS = 24L * 60L * 60L * 1000L
+internal const val SESSION_SHELL_SYNC_COLD_INTERVAL_MS = 30L * 60L * 1000L
+internal const val SESSION_SHELL_SYNC_DORMANT_INTERVAL_MS = 4L * 60L * 60L * 1000L
 
 internal const val SYNC_BUCKET_HOT = "hot"
 internal const val SYNC_BUCKET_WARM = "warm"

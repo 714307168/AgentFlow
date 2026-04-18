@@ -9,6 +9,7 @@ internal const val SESSION_SHELL_SYNC_RECENT_OVERLAP_COUNT = 3
 internal fun selectSessionShellSyncTargets(
     sessions: List<Session>,
     maxProjects: Int = SESSION_SHELL_SYNC_MAX_PROJECTS,
+    lastBackgroundSyncRequestedAtByProjectId: Map<String, Long> = emptyMap(),
     nowMs: Long = System.currentTimeMillis()
 ): List<Session> {
     if (maxProjects <= 0 || sessions.isEmpty()) {
@@ -18,6 +19,13 @@ internal fun selectSessionShellSyncTargets(
     val sorted = sessions
         .asSequence()
         .mapNotNull(::normalizeSyncSession)
+        .filter { session ->
+            shouldScheduleSessionShellBackgroundSync(
+                session = session,
+                lastBackgroundSyncRequestedAtMs = lastBackgroundSyncRequestedAtByProjectId[session.projectId],
+                nowMs = nowMs
+            )
+        }
         .distinctBy { session -> "${session.agentId}::${session.projectId}" }
         .sortedWith(sessionShellSyncComparator(nowMs))
         .toList()
@@ -66,6 +74,23 @@ private fun sessionActivityTimestamp(session: Session): Long =
 
 private fun isDormantShellSyncSession(session: Session, nowMs: Long): Boolean =
     resolveSessionSyncBucket(session, nowMs) == SYNC_BUCKET_DORMANT
+
+private fun shouldScheduleSessionShellBackgroundSync(
+    session: Session,
+    lastBackgroundSyncRequestedAtMs: Long?,
+    nowMs: Long
+): Boolean {
+    val intervalMs = when (resolveSessionSyncBucket(session, nowMs)) {
+        SYNC_BUCKET_COLD -> SESSION_SHELL_SYNC_COLD_INTERVAL_MS
+        SYNC_BUCKET_DORMANT -> SESSION_SHELL_SYNC_DORMANT_INTERVAL_MS
+        else -> return true
+    }
+    val lastRequestedAtMs = lastBackgroundSyncRequestedAtMs ?: return true
+    if (nowMs <= lastRequestedAtMs) {
+        return true
+    }
+    return nowMs - lastRequestedAtMs >= intervalMs
+}
 
 private fun resolveSessionSyncBucket(session: Session, nowMs: Long): String =
     resolveSessionSyncBucket(

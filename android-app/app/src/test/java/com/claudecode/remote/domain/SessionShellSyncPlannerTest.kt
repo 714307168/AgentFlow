@@ -89,6 +89,41 @@ class SessionShellSyncPlannerTest {
         assertEquals(listOf("hot-project", "warm-project", "cold-project"), selected.map { it.projectId })
     }
 
+    @Test
+    fun `selectSessionShellSyncTargets skips cold projects until the background ttl expires`() {
+        val nowMs = 3 * SESSION_SHELL_SYNC_DORMANT_AGE_MS
+        val selected = selectSessionShellSyncTargets(
+            sessions = listOf(
+                session(projectId = "hot-project", isRunning = true, lastActiveAt = nowMs - 100L),
+                session(projectId = "cold-project", syncBucket = "cold", lastActiveAt = nowMs - 5_000L),
+            ),
+            maxProjects = 2,
+            lastBackgroundSyncRequestedAtByProjectId = mapOf(
+                "cold-project" to (nowMs - SESSION_SHELL_SYNC_COLD_INTERVAL_MS + 5_000L)
+            ),
+            nowMs = nowMs
+        )
+
+        assertEquals(listOf("hot-project"), selected.map { it.projectId })
+    }
+
+    @Test
+    fun `selectSessionShellSyncTargets re-enables dormant projects once their ttl expires`() {
+        val nowMs = 3 * SESSION_SHELL_SYNC_DORMANT_AGE_MS
+        val selected = selectSessionShellSyncTargets(
+            sessions = listOf(
+                session(projectId = "dormant-project", syncBucket = "dormant", lastActiveAt = nowMs - 5_000L),
+            ),
+            maxProjects = 1,
+            lastBackgroundSyncRequestedAtByProjectId = mapOf(
+                "dormant-project" to (nowMs - SESSION_SHELL_SYNC_DORMANT_INTERVAL_MS - 1L)
+            ),
+            nowMs = nowMs
+        )
+
+        assertEquals(listOf("dormant-project"), selected.map { it.projectId })
+    }
+
     private fun session(
         projectId: String,
         agentId: String = "agent-1",

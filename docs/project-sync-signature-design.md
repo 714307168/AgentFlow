@@ -2,6 +2,13 @@
 
 更新时间：2026-04-15
 
+## Progress Update
+
+- Android background session-shell sync now applies local TTL gating on top of `hot / warm / cold / dormant`.
+- `cold` projects are sampled at most once every 30 minutes during background shell sync rounds.
+- `dormant` projects are sampled at most once every 4 hours during background shell sync rounds.
+- Forced or manual sync paths still bypass this gate so explicit refresh stays immediate.
+
 ## 1. 背景
 
 当前项目同步已经有这几层优化：
