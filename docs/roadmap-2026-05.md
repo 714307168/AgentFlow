@@ -590,7 +590,7 @@
 - [x] 新增独立设计文档 `docs/controlled-remote-authorization.md`，把 README 中的“受控授权远程协作”定位下沉成可执行的授权模型，明确了项目级授权、能力包、过期授权和高风险动作审计的落地方向。
 - [x] 项目级授权 MVP 已进入代码落地阶段：relay-server `effective-scope` 已补齐，桌面端授权项目选择器也已改成显式勾选，不再默认把一个桌面节点下的全部项目都暴露给被授权人。
 - [x] 新增 `docs/project-scope-access-mvp.md`，把“项目级授权 MVP”从 roadmap 待办拆成实施文档，明确了数据模型、`effective-scope` 接口、桌面端授权 UI、Android scope 裁切和文件/诊断统一校验。
-- [ ] 下一轮代码实现入口维持为 `R-project-scope-access`：先补 relay-server 授权模型与 `effective-scope`，再接桌面端项目多选授权 UI，最后让移动端按 scope 裁切列表、详情和文件入口。
+- [x] `R-project-scope-access` 当前主链已闭环：relay-server 授权模型与 `effective-scope`、桌面端项目多选授权 UI、移动端 scope 裁切列表/缓存/详情入口都已进入代码，并不再作为“下一轮待实现”条目保留。
 - [x] 新增 `docs/project-scope-access-checklist.md`，把 `R-project-scope-access` 继续拆成 relay-server / desktop / Android 三端实施清单和发版检查表，后续可以直接按模块分工、联调和验收。
 - [x] `R-project-scope-access` 的配套文档已补齐：服务端接口 schema、桌面端授权 UI 草图、Android scope 收缩与缓存清理时序图，后续入口回到代码实现与联调。
 - [x] 已补 `docs/project-scope-access-api-schema.md`，把 `R-project-scope-access` 的服务端接口请求/响应、错误码和越权行为收成统一 schema。
@@ -601,4 +601,5 @@
 - [x] 已补 `effective-scope` 服务端回归测试，覆盖设备端当前 scope 汇总以及 legacy 无项目行授权自动视为 `all_projects` 的兼容行为。
 - [x] Desktop owner-side access grant picker no longer defaults to "all local projects": it now keeps explicit project selection state, supports local search plus select-all/clear actions, and has dedicated Node coverage so the `R-project-scope-access` desktop path matches the scoped-authorization intent before Android scope clipping lands.
 - [x] Android now refreshes `effective-scope` through the shared session sync path, stores it separately from project cache, prunes out-of-scope project/message/chat-snapshot data on refresh, and filters full-sync/delta/websocket project catalogs through a shared scope helper with dedicated JVM coverage.
+- [x] Android chat route entry now checks cached `effective-scope` before opening a project conversation, clears stale draft/chat snapshots for revoked projects, and immediately returns to the previous screen so old deep links or restored navigation state cannot briefly expose pruned project content.
 

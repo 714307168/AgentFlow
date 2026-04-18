@@ -7,6 +7,7 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.os.Build
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -46,6 +47,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
+import com.claudecode.remote.domain.isProjectRouteBlockedByCachedScope
 import com.claudecode.remote.domain.ForegroundConnectionRecoveryAction
 import com.claudecode.remote.domain.ForegroundRecoveryPass
 import com.claudecode.remote.domain.buildForegroundRecoveryPasses
@@ -367,6 +369,13 @@ class MainActivity : ComponentActivity() {
                             val agentId = android.net.Uri.decode(
                                 backStackEntry.arguments?.getString("agentId") ?: ""
                             )
+                            val isBlockedByCachedScope = remember(projectId, agentId) {
+                                isProjectRouteBlockedByCachedScope(
+                                    effectiveScopeJson = tokenStore.getEffectiveScopeJson(),
+                                    agentId = agentId,
+                                    projectId = projectId
+                                )
+                            }
 
                             CrashLogger.logInfo(
                                 "MainActivity",
@@ -376,6 +385,24 @@ class MainActivity : ComponentActivity() {
                             if (projectId.isEmpty()) {
                                 CrashLogger.logError("MainActivity", "Empty projectId, navigating back")
                                 LaunchedEffect(Unit) {
+                                    navController.popBackStack()
+                                }
+                                return@composable
+                            }
+
+                            if (isBlockedByCachedScope) {
+                                CrashLogger.logInfo(
+                                    "MainActivity",
+                                    "Blocked out-of-scope chat route: projectId=$projectId agentId=$agentId"
+                                )
+                                LaunchedEffect(projectId, agentId) {
+                                    tokenStore.clearDraft(projectId)
+                                    tokenStore.clearProjectChatSnapshot(projectId)
+                                    Toast.makeText(
+                                        applicationContext,
+                                        getString(R.string.chat_project_access_revoked),
+                                        Toast.LENGTH_SHORT
+                                    ).show()
                                     navController.popBackStack()
                                 }
                                 return@composable

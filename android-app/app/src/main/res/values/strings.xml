@@ -156,6 +156,7 @@
     <string name="chat_history_hint">Swipe up to load earlier messages</string>
     <string name="chat_no_activity">No activity yet.</string>
     <string name="chat_no_queue">No queued messages right now.</string>
+    <string name="chat_project_access_revoked">You no longer have access to this project.</string>
     <string name="chat_queue_source_remote">Mobile</string>
     <string name="chat_queue_source_desktop">Desktop</string>
     <string name="chat_queue_source_unknown">Queue</string>

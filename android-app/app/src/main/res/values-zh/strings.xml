@@ -101,6 +101,7 @@
     <string name="chat_history_hint">上滑可以加载更早的消息</string>
     <string name="chat_no_activity">暂时没有活动日志。</string>
     <string name="chat_no_queue">当前没有排队内容。</string>
+    <string name="chat_project_access_revoked">你已经无权访问这个项目。</string>
     <string name="chat_queue_source_remote">手机端</string>
     <string name="chat_queue_source_desktop">桌面端</string>
     <string name="chat_queue_source_unknown">队列</string>
