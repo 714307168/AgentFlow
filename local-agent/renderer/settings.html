@@ -339,6 +339,7 @@
       width: 44px;
       height: 24px;
       flex: 0 0 auto;
+      cursor: pointer;
     }
     .toggle input { opacity: 0; width: 0; height: 0; }
     .slider {
@@ -2380,6 +2381,23 @@
       } else if (!nextValue && selectEl.options.length > 0) {
         selectEl.value = selectEl.options[0].value;
       }
+    }
+
+    function bindDirectToggleClickSupport() {
+      document.addEventListener("click", (event) => {
+        const target = event.target instanceof Element ? event.target : null;
+        const toggleEl = target?.closest("div.toggle");
+        if (!toggleEl) {
+          return;
+        }
+        const checkbox = toggleEl.querySelector('input[type="checkbox"]');
+        if (!(checkbox instanceof HTMLInputElement) || checkbox.disabled) {
+          return;
+        }
+        event.preventDefault();
+        checkbox.checked = !checkbox.checked;
+        checkbox.dispatchEvent(new Event("change", { bubbles: true }));
+      });
     }
 
     function resolveRelayDeviceLabel(deviceId) {
@@ -6185,6 +6203,8 @@
     if (typeof api.onLangChanged === "function") {
       api.onLangChanged((payload) => { void syncLanguage(payload.lang, payload.messages); });
     }
+
+    bindDirectToggleClickSupport();
 
     if (typeof api.onProjectsChanged === "function") {
       api.onProjectsChanged(() => {
