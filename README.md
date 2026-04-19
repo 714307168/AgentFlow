@@ -219,6 +219,7 @@ Android 端使用 Room 和 Preferences 保存：
 - [手机消息到桌面执行链路说明](./docs/mobile-to-desktop-execution-chain.md)
 - [消息、同步与更新故障排查清单](./docs/message-sync-update-troubleshooting.md)
 - [日志信号与诊断映射表](./docs/log-signal-diagnostic-mapping.md)
+- [运维视角信号修复模板](./docs/ops-signal-remediation-template.md)
 - [受控授权远程协作设计](./docs/controlled-remote-authorization.md)
 - [项目级授权 MVP 实施方案](./docs/project-scope-access-mvp.md)
 - [项目级授权三端实施与发版检查表](./docs/project-scope-access-checklist.md)

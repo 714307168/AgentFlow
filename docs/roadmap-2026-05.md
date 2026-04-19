@@ -60,6 +60,7 @@
 - [冷项目同步与项目签名验收清单](./cold-project-sync-acceptance.md)
 - [消息、同步与更新故障排查清单](./message-sync-update-troubleshooting.md)
 - [日志信号与诊断映射表](./log-signal-diagnostic-mapping.md)
+- [运维视角信号修复模板](./ops-signal-remediation-template.md)
 
 ## 3. 当前仍在推进的主线
 
@@ -102,6 +103,7 @@
 - [冷项目同步与项目签名验收清单](./cold-project-sync-acceptance.md)
 - [消息、同步与更新故障排查清单](./message-sync-update-troubleshooting.md)
 - [日志信号与诊断映射表](./log-signal-diagnostic-mapping.md)
+- [运维视角信号修复模板](./ops-signal-remediation-template.md)
 
 ### P2：多端扩展
 
@@ -182,6 +184,9 @@
 - 日志信号映射入口本轮继续补齐：
   - 新增 [日志信号与诊断映射表](./log-signal-diagnostic-mapping.md)
   - 现在可以从 foreground/post-auth/follow-up/update 等关键日志直接映射到故障现象与代码入口
+- 运维修复模板本轮继续补齐：
+  - 新增 [运维视角信号修复模板](./ops-signal-remediation-template.md)
+  - 现在可以从 signal code 直接落到用户现象、运维动作和是否需要补丁发版
 
 ## 5. 文档拆分入口
 
@@ -193,6 +198,7 @@
 - 冷项目验收： [冷项目同步与项目签名验收清单](./cold-project-sync-acceptance.md)
 - 综合排查： [消息、同步与更新故障排查清单](./message-sync-update-troubleshooting.md)
 - 日志诊断： [日志信号与诊断映射表](./log-signal-diagnostic-mapping.md)
+- 运维修复： [运维视角信号修复模板](./ops-signal-remediation-template.md)
 - WS 稳定性： [WebSocket 稳定性与恢复专项](./ws-stability-and-recovery-plan.md)
 - WS 联调执行： [WebSocket 加固联调核查模板](./ws-hardening-joint-verification-template.md)
 - 授权和受控远程协作： [受控授权远程协作设计](./controlled-remote-authorization.md)
@@ -208,7 +214,7 @@
 下一轮自动优化继续做三类收口：
 
 1. 继续把大文档里的剩余可拆块迁移成按节点分工的独立文档。
-2. 补一轮“日志分析页信号代码 -> 用户可见故障 -> 修复动作”的运维视角模板，继续压缩排障成本。
+2. 补一轮“信号代码 -> 优先查看接口/日志面板 -> 建议回滚或热修判断”的发布/运维联动模板。
 3. 后续每次真实代码落地或发版时，继续把验收结论和发版节点回写到对应模板与路线图。
 
 ## 7. 当前结论
