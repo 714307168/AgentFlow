@@ -222,6 +222,7 @@ func (db *DB) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_collaboration_group_memberships_user ON collaboration_group_memberships(user_id, created_at);
 	CREATE INDEX IF NOT EXISTS idx_transfers_user_created ON transfers(user_id, created_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_transfers_target ON transfers(user_id, target_type, target_id, created_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_transfers_sender_project_created ON transfers(sender_agent_id, project_id, created_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_transfer_receipts_transfer_created ON transfer_receipts(transfer_id, created_at ASC);
 	`
 

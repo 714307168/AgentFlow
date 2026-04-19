@@ -396,6 +396,117 @@ func TestTransferSharedProjectAccessAllowsGrantedControllerDownloads(t *testing.
 	doJSONWithBearer(t, http.DefaultClient, http.MethodGet, server.URL+"/api/transfers/"+created.ID, outsiderDevice.Token, nil, http.StatusNotFound, nil)
 }
 
+func TestTransferSharedProjectAccessDoesNotLeakSiblingProjects(t *testing.T) {
+	t.Setenv("ADMIN_PASSWORD", "Admin12345A")
+	t.Setenv("ADMIN_USER", "")
+
+	dataDir := t.TempDir()
+	database, err := db.Open(dataDir)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer database.Close()
+
+	if err := database.InitializeDefaultUser(); err != nil {
+		t.Fatalf("init default user: %v", err)
+	}
+
+	cfg := &config.Config{
+		JWTSecret:    "relay-transfer-test-secret-20260419-scope",
+		PingInterval: 30,
+		QueueSize:    100,
+		CORSOrigins:  "*",
+		DataDir:      dataDir,
+		DatabasePath: dataDir,
+	}
+
+	owner, err := database.CreateUser("owner", "Owner12345A", false)
+	if err != nil {
+		t.Fatalf("create owner: %v", err)
+	}
+	if err := database.RegisterAgent("owner-agent", owner.ID, "Owner desktop"); err != nil {
+		t.Fatalf("register owner-agent: %v", err)
+	}
+	if err := database.RegisterDevice("owner-device", owner.ID, "owner-agent", "Owner phone"); err != nil {
+		t.Fatalf("register owner-device: %v", err)
+	}
+
+	viewer, err := database.CreateUser("viewer", "Viewer12345A", false)
+	if err != nil {
+		t.Fatalf("create viewer: %v", err)
+	}
+	if err := database.RegisterAgent("viewer-agent", viewer.ID, "Viewer desktop"); err != nil {
+		t.Fatalf("register viewer-agent: %v", err)
+	}
+	if err := database.RegisterDevice("viewer-device", viewer.ID, "viewer-agent", "Viewer phone"); err != nil {
+		t.Fatalf("register viewer-device: %v", err)
+	}
+	if err := database.CreateAgentAccessGrant(viewer.ID, "owner-agent", owner.ID, "scoped transfer", []string{"project-allowed"}); err != nil {
+		t.Fatalf("create access grant: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/auth/login", handler.LoginHandler(database, cfg))
+	mux.HandleFunc("/api/transfers", handler.TransfersHandler(cfg, database))
+	mux.HandleFunc("/api/transfers/", handler.TransfersHandler(cfg, database))
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	var ownerAgent deviceLoginResponse
+	doJSON(t, http.DefaultClient, http.MethodPost, server.URL+"/api/auth/login", map[string]any{
+		"username":    "owner",
+		"password":    "Owner12345A",
+		"client_type": "agent",
+		"client_id":   "owner-agent",
+	}, http.StatusOK, &ownerAgent)
+
+	var viewerDevice deviceLoginResponse
+	doJSON(t, http.DefaultClient, http.MethodPost, server.URL+"/api/auth/login", map[string]any{
+		"username":    "viewer",
+		"password":    "Viewer12345A",
+		"client_type": "device",
+		"client_id":   "viewer-device",
+	}, http.StatusOK, &viewerDevice)
+
+	var allowed transferTestResponse
+	doMultipartWithBearer(t, http.DefaultClient, http.MethodPost, server.URL+"/api/transfers", ownerAgent.Token, map[string]string{
+		"target_type": "device",
+		"target_id":   "owner-device",
+		"project_id":  "project-allowed",
+	}, "file", "allowed.txt", "text/plain", []byte("allowed payload"), http.StatusCreated, &allowed)
+
+	var blocked transferTestResponse
+	doMultipartWithBearer(t, http.DefaultClient, http.MethodPost, server.URL+"/api/transfers", ownerAgent.Token, map[string]string{
+		"target_type": "device",
+		"target_id":   "owner-device",
+		"project_id":  "project-blocked",
+	}, "file", "blocked.txt", "text/plain", []byte("blocked payload"), http.StatusCreated, &blocked)
+
+	var listed []transferTestResponse
+	doJSONWithBearer(t, http.DefaultClient, http.MethodGet, server.URL+"/api/transfers?limit=10", viewerDevice.Token, nil, http.StatusOK, &listed)
+	if len(listed) != 1 || listed[0].ID != allowed.ID {
+		t.Fatalf("expected viewer to see only allowed project transfer, got %+v", listed)
+	}
+
+	doJSONWithBearer(t, http.DefaultClient, http.MethodGet, server.URL+"/api/transfers/"+allowed.ID, viewerDevice.Token, nil, http.StatusOK, nil)
+	doJSONWithBearer(t, http.DefaultClient, http.MethodGet, server.URL+"/api/transfers/"+blocked.ID, viewerDevice.Token, nil, http.StatusNotFound, nil)
+
+	req, err := http.NewRequest(http.MethodGet, server.URL+"/api/transfers/"+blocked.ID+"/download", nil)
+	if err != nil {
+		t.Fatalf("new blocked download request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+viewerDevice.Token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("blocked download request: %v", err)
+	}
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected blocked project download to stay hidden, got status=%d body=%s", resp.StatusCode, string(bodyBytes))
+	}
+}
+
 func doMultipartWithBearer(t *testing.T, client *http.Client, method, url, token string, fields map[string]string, fileField, fileName, fileContentType string, fileContent []byte, wantStatus int, out any) {
 	t.Helper()
 

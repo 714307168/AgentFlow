@@ -3,6 +3,12 @@
 更新时间：2026-04-17
 关联方案：[`docs/project-scope-access-mvp.md`](./project-scope-access-mvp.md)
 
+## Progress Update
+
+- relay-server now filters device sync responses by project scope instead of stopping at agent-level grants.
+- relay transfer access now allows authorized controllers to list, view, and download files under granted projects.
+- sibling projects on the same shared agent remain hidden, and regression coverage now includes scoped full-sync, scoped delta cleanup, shared-project transfer access, and same-agent cross-project transfer denial.
+
 ## 1. 用途
 
 这一份文档不再解释为什么做，而是把 `R-project-scope-access` 直接拆成：
