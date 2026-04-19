@@ -53,6 +53,9 @@
 - [Project Sync Signature 设计](./project-sync-signature-design.md)
 - [受控授权远程协作设计](./controlled-remote-authorization.md)
 - [项目级授权 MVP 实施方案](./project-scope-access-mvp.md)
+- [跨端文件传输协议与回执验收清单](./transfer-protocol-and-receipt-checklist.md)
+- [WebSocket 加固联调核查模板](./ws-hardening-joint-verification-template.md)
+- [版本回滚与撤回操作模板](./release-rollback-and-retract-template.md)
 
 ## 3. 当前仍在推进的主线
 
@@ -90,6 +93,8 @@
 详细设计：
 
 - [Project Sync Signature 设计](./project-sync-signature-design.md)
+- [WebSocket 加固联调核查模板](./ws-hardening-joint-verification-template.md)
+- [版本回滚与撤回操作模板](./release-rollback-and-retract-template.md)
 
 ### P2：多端扩展
 
@@ -114,6 +119,7 @@
 详细设计：
 
 - [多端扩展计划](./platform-expansion-plan.md)
+- [跨端文件传输协议与回执验收清单](./transfer-protocol-and-receipt-checklist.md)
 
 ## 4. 最近进度与发版记录
 
@@ -153,6 +159,11 @@
   - 新增 [iOS Safe Track 规划](./ios-safe-track-plan.md)
   - 新增 [微信小程序 Lite 边界说明](./mini-program-lite-boundary.md)
   - 多端扩展入口继续从总览拆向按平台边界执行
+- 统一传输、WS 加固和回滚模板本轮补齐：
+  - 新增 [跨端文件传输协议与回执验收清单](./transfer-protocol-and-receipt-checklist.md)
+  - 新增 [WebSocket 加固联调核查模板](./ws-hardening-joint-verification-template.md)
+  - 新增 [版本回滚与撤回操作模板](./release-rollback-and-retract-template.md)
+  - 路线图剩余文档缺口从“缺执行模板”进一步收口到“继续拆大文档和按版本回写”
 
 ## 5. 文档拆分入口
 
@@ -162,19 +173,20 @@
 
 - 同步和省流量： [Project Sync Signature 设计](./project-sync-signature-design.md)
 - WS 稳定性： [WebSocket 稳定性与恢复专项](./ws-stability-and-recovery-plan.md)
+- WS 联调执行： [WebSocket 加固联调核查模板](./ws-hardening-joint-verification-template.md)
 - 授权和受控远程协作： [受控授权远程协作设计](./controlled-remote-authorization.md)
 - 项目级授权实施： [项目级授权 MVP 实施方案](./project-scope-access-mvp.md)
 - 多端扩展： [多端扩展计划](./platform-expansion-plan.md)
+- 跨端传输： [跨端文件传输协议与回执验收清单](./transfer-protocol-and-receipt-checklist.md)
 - 发布和更新中心： [更新中心与发布说明](./release-and-update-center.md)
+- 发布止损： [版本回滚与撤回操作模板](./release-rollback-and-retract-template.md)
 
 ## 6. 下一轮文档迭代计划
 
-下一轮自动优化优先补这些文档缺口：
+下一轮自动优化不再优先补“缺模板”的空白项，改为继续做两类收口：
 
-1. 为统一文件传输底座补一份跨端协议与回执验收清单。
-2. 为 `R-ws-hardening` 补一份边缘代理 / 服务端 / 客户端联调核查模板。
-3. 为 `R-release-consistency` 补一份版本回滚与撤回操作模板。
-4. 继续把大文档里的剩余可拆块迁移成按节点分工的独立文档。
+1. 继续把大文档里的剩余可拆块迁移成按节点分工的独立文档。
+2. 后续每次真实代码落地或发版时，继续把验收结论和发版节点回写到对应模板与路线图。
 
 ## 7. 当前结论
 
