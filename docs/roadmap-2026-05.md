@@ -56,6 +56,8 @@
 - [跨端文件传输协议与回执验收清单](./transfer-protocol-and-receipt-checklist.md)
 - [WebSocket 加固联调核查模板](./ws-hardening-joint-verification-template.md)
 - [版本回滚与撤回操作模板](./release-rollback-and-retract-template.md)
+- [手机消息到桌面执行链路说明](./mobile-to-desktop-execution-chain.md)
+- [冷项目同步与项目签名验收清单](./cold-project-sync-acceptance.md)
 
 ## 3. 当前仍在推进的主线
 
@@ -95,6 +97,7 @@
 - [Project Sync Signature 设计](./project-sync-signature-design.md)
 - [WebSocket 加固联调核查模板](./ws-hardening-joint-verification-template.md)
 - [版本回滚与撤回操作模板](./release-rollback-and-retract-template.md)
+- [冷项目同步与项目签名验收清单](./cold-project-sync-acceptance.md)
 
 ### P2：多端扩展
 
@@ -120,6 +123,7 @@
 
 - [多端扩展计划](./platform-expansion-plan.md)
 - [跨端文件传输协议与回执验收清单](./transfer-protocol-and-receipt-checklist.md)
+- [手机消息到桌面执行链路说明](./mobile-to-desktop-execution-chain.md)
 
 ## 4. 最近进度与发版记录
 
@@ -164,6 +168,10 @@
   - 新增 [WebSocket 加固联调核查模板](./ws-hardening-joint-verification-template.md)
   - 新增 [版本回滚与撤回操作模板](./release-rollback-and-retract-template.md)
   - 路线图剩余文档缺口从“缺执行模板”进一步收口到“继续拆大文档和按版本回写”
+- 链路说明与省流量验收入口本轮继续补齐：
+  - 新增 [手机消息到桌面执行链路说明](./mobile-to-desktop-execution-chain.md)
+  - 新增 [冷项目同步与项目签名验收清单](./cold-project-sync-acceptance.md)
+  - 后续查消息链路和查同步流量时不再只回头翻总览或大设计文档
 
 ## 5. 文档拆分入口
 
@@ -172,10 +180,12 @@
 当前建议直接从这里分流：
 
 - 同步和省流量： [Project Sync Signature 设计](./project-sync-signature-design.md)
+- 冷项目验收： [冷项目同步与项目签名验收清单](./cold-project-sync-acceptance.md)
 - WS 稳定性： [WebSocket 稳定性与恢复专项](./ws-stability-and-recovery-plan.md)
 - WS 联调执行： [WebSocket 加固联调核查模板](./ws-hardening-joint-verification-template.md)
 - 授权和受控远程协作： [受控授权远程协作设计](./controlled-remote-authorization.md)
 - 项目级授权实施： [项目级授权 MVP 实施方案](./project-scope-access-mvp.md)
+- 执行链路： [手机消息到桌面执行链路说明](./mobile-to-desktop-execution-chain.md)
 - 多端扩展： [多端扩展计划](./platform-expansion-plan.md)
 - 跨端传输： [跨端文件传输协议与回执验收清单](./transfer-protocol-and-receipt-checklist.md)
 - 发布和更新中心： [更新中心与发布说明](./release-and-update-center.md)
@@ -183,10 +193,11 @@
 
 ## 6. 下一轮文档迭代计划
 
-下一轮自动优化不再优先补“缺模板”的空白项，改为继续做两类收口：
+下一轮自动优化继续做三类收口：
 
 1. 继续把大文档里的剩余可拆块迁移成按节点分工的独立文档。
-2. 后续每次真实代码落地或发版时，继续把验收结论和发版节点回写到对应模板与路线图。
+2. 补一轮“消息 / 同步 / 更新”相关真实链路的故障排查清单，减少线上靠翻代码定位。
+3. 后续每次真实代码落地或发版时，继续把验收结论和发版节点回写到对应模板与路线图。
 
 ## 7. 当前结论
 
