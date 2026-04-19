@@ -58,6 +58,7 @@
 - [版本回滚与撤回操作模板](./release-rollback-and-retract-template.md)
 - [手机消息到桌面执行链路说明](./mobile-to-desktop-execution-chain.md)
 - [冷项目同步与项目签名验收清单](./cold-project-sync-acceptance.md)
+- [消息、同步与更新故障排查清单](./message-sync-update-troubleshooting.md)
 
 ## 3. 当前仍在推进的主线
 
@@ -98,6 +99,7 @@
 - [WebSocket 加固联调核查模板](./ws-hardening-joint-verification-template.md)
 - [版本回滚与撤回操作模板](./release-rollback-and-retract-template.md)
 - [冷项目同步与项目签名验收清单](./cold-project-sync-acceptance.md)
+- [消息、同步与更新故障排查清单](./message-sync-update-troubleshooting.md)
 
 ### P2：多端扩展
 
@@ -172,6 +174,9 @@
   - 新增 [手机消息到桌面执行链路说明](./mobile-to-desktop-execution-chain.md)
   - 新增 [冷项目同步与项目签名验收清单](./cold-project-sync-acceptance.md)
   - 后续查消息链路和查同步流量时不再只回头翻总览或大设计文档
+- 故障排查入口本轮继续补齐：
+  - 新增 [消息、同步与更新故障排查清单](./message-sync-update-troubleshooting.md)
+  - 常见线上问题现在可以先按症状定位，再进入对应专项文档或代码文件
 
 ## 5. 文档拆分入口
 
@@ -181,6 +186,7 @@
 
 - 同步和省流量： [Project Sync Signature 设计](./project-sync-signature-design.md)
 - 冷项目验收： [冷项目同步与项目签名验收清单](./cold-project-sync-acceptance.md)
+- 综合排查： [消息、同步与更新故障排查清单](./message-sync-update-troubleshooting.md)
 - WS 稳定性： [WebSocket 稳定性与恢复专项](./ws-stability-and-recovery-plan.md)
 - WS 联调执行： [WebSocket 加固联调核查模板](./ws-hardening-joint-verification-template.md)
 - 授权和受控远程协作： [受控授权远程协作设计](./controlled-remote-authorization.md)
@@ -196,7 +202,7 @@
 下一轮自动优化继续做三类收口：
 
 1. 继续把大文档里的剩余可拆块迁移成按节点分工的独立文档。
-2. 补一轮“消息 / 同步 / 更新”相关真实链路的故障排查清单，减少线上靠翻代码定位。
+2. 补一轮“日志信号 -> 故障现象 -> 对应代码入口”的诊断映射表，进一步缩短线上定位路径。
 3. 后续每次真实代码落地或发版时，继续把验收结论和发版节点回写到对应模板与路线图。
 
 ## 7. 当前结论
