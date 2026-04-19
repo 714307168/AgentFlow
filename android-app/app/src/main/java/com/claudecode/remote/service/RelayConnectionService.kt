@@ -4,6 +4,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.os.IBinder
+import android.util.Log
 import androidx.core.content.ContextCompat
 import com.claudecode.remote.appContainer
 import com.claudecode.remote.data.model.Envelope
@@ -293,17 +294,26 @@ class RelayConnectionService : Service() {
     }
 
     companion object {
+        private const val TAG = "RelayConnectionService"
         private const val CONNECTION_HEALTH_CHECK_INTERVAL_MS = 45_000L
         private val AUTHENTICATED_FOLLOW_UP_DELAYS_MS = longArrayOf(300L, 1_500L, 5_000L)
 
         fun start(context: Context) {
             val intent = Intent(context, RelayConnectionService::class.java)
-            ContextCompat.startForegroundService(context, intent)
+            runCatching {
+                ContextCompat.startForegroundService(context, intent)
+            }.onFailure { error ->
+                Log.e(TAG, "Failed to start relay foreground service", error)
+            }
         }
 
         fun stop(context: Context) {
             val intent = Intent(context, RelayConnectionService::class.java)
-            context.stopService(intent)
+            runCatching {
+                context.stopService(intent)
+            }.onFailure { error ->
+                Log.e(TAG, "Failed to stop relay foreground service", error)
+            }
         }
     }
 }

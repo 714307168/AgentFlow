@@ -1,18 +1,19 @@
 package com.claudecode.remote.data.local
 
 import android.content.Context
+import android.content.SharedPreferences
+import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import java.io.File
+import java.security.KeyStore
 import java.security.MessageDigest
 
 class TokenStore(context: Context) {
-    private val prefs = EncryptedSharedPreferences.create(
-        context,
-        "claude_secure_prefs",
-        MasterKey.Builder(context).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build(),
-        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-    )
+    private val appContext = context.applicationContext
+    private val prefs: SharedPreferences by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        openPreferences(appContext)
+    }
 
     fun saveToken(token: String) {
         prefs.edit().putString(KEY_TOKEN, token).apply()
@@ -200,6 +201,11 @@ class TokenStore(context: Context) {
     }
 
     companion object {
+        private const val TAG = "TokenStore"
+        private const val PREFS_FILE_NAME = "claude_secure_prefs"
+        private const val FALLBACK_PREFS_FILE_NAME = "claude_secure_prefs_fallback"
+        private const val ENCRYPTED_KEYSET_PREFS = "__androidx_security_crypto_encrypted_prefs_key_keyset__"
+        private const val ENCRYPTED_VALUE_KEYSET_PREFS = "__androidx_security_crypto_encrypted_prefs_value_keyset__"
         private const val KEY_TOKEN = "jwt_token"
         private const val KEY_TOKEN_EXPIRES_AT = "jwt_token_expires_at"
         private const val KEY_DEVICE_ID = "device_id"
@@ -228,6 +234,65 @@ class TokenStore(context: Context) {
                 .digest("$normalizedServerUrl|$normalizedFeatureKey".toByteArray())
                 .joinToString(separator = "") { byte -> "%02x".format(byte) }
             return "relay_feature_$digest"
+        }
+
+        private fun openPreferences(context: Context): SharedPreferences {
+            createEncryptedPreferences(context)?.let { return it }
+
+            Log.w(TAG, "Falling back to unencrypted preference storage after encrypted preference recovery failed")
+            return context.getSharedPreferences(FALLBACK_PREFS_FILE_NAME, Context.MODE_PRIVATE)
+        }
+
+        private fun createEncryptedPreferences(context: Context): SharedPreferences? {
+            runCatching { return createEncryptedPreferencesOrThrow(context) }
+                .onFailure { error ->
+                    Log.e(TAG, "Failed to open encrypted preferences; attempting recovery", error)
+                }
+
+            clearEncryptedPreferenceState(context)
+
+            return runCatching { createEncryptedPreferencesOrThrow(context) }
+                .onFailure { error ->
+                    Log.e(TAG, "Encrypted preference recovery failed", error)
+                }
+                .getOrNull()
+        }
+
+        private fun createEncryptedPreferencesOrThrow(context: Context): SharedPreferences =
+            EncryptedSharedPreferences.create(
+                context,
+                PREFS_FILE_NAME,
+                MasterKey.Builder(context)
+                    .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                    .build(),
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            )
+
+        private fun clearEncryptedPreferenceState(context: Context) {
+            listOf(
+                PREFS_FILE_NAME,
+                ENCRYPTED_KEYSET_PREFS,
+                ENCRYPTED_VALUE_KEYSET_PREFS
+            ).forEach { name ->
+                runCatching {
+                    context.deleteSharedPreferences(name)
+                    File(File(context.applicationInfo.dataDir, "shared_prefs"), "$name.xml")
+                        .takeIf { it.exists() }
+                        ?.delete()
+                }.onFailure { error ->
+                    Log.w(TAG, "Failed to delete shared preferences during encrypted storage recovery: $name", error)
+                }
+            }
+
+            runCatching {
+                val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+                if (keyStore.containsAlias(MasterKey.DEFAULT_MASTER_KEY_ALIAS)) {
+                    keyStore.deleteEntry(MasterKey.DEFAULT_MASTER_KEY_ALIAS)
+                }
+            }.onFailure { error ->
+                Log.w(TAG, "Failed to clear Android Keystore master key during encrypted storage recovery", error)
+            }
         }
     }
 }
