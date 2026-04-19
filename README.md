@@ -204,7 +204,11 @@ Android 端使用 Room 和 Preferences 保存：
 ## 文档导航
 
 - [English README](./README.en.md)
+- [2026-05 路线图总览](./docs/roadmap-2026-05.md)
+- [多端扩展计划](./docs/platform-expansion-plan.md)
 - [Relay Server Deployment](./docs/relay-server-deployment.md)
+- [WebSocket 稳定性与恢复专项](./docs/ws-stability-and-recovery-plan.md)
+- [Project Sync Signature 设计](./docs/project-sync-signature-design.md)
 - [受控授权远程协作设计](./docs/controlled-remote-authorization.md)
 - [项目级授权 MVP 实施方案](./docs/project-scope-access-mvp.md)
 - [项目级授权三端实施与发版检查表](./docs/project-scope-access-checklist.md)
