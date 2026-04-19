@@ -7,6 +7,38 @@ import (
 	"time"
 )
 
+const transferSharedProjectAccessSQL = `
+	OR (
+		t.project_id <> '' AND t.sender_agent_id <> '' AND EXISTS (
+			SELECT 1
+			FROM agents a
+			WHERE a.id = t.sender_agent_id AND (
+				a.user_id = ?
+				OR EXISTS (
+					SELECT 1
+					FROM agent_access_grants g
+					WHERE g.controller_user_id = ?
+						AND g.target_agent_id = t.sender_agent_id
+						AND (
+							NOT EXISTS (
+								SELECT 1
+								FROM agent_access_grant_projects gp
+								WHERE gp.controller_user_id = g.controller_user_id
+									AND gp.target_agent_id = g.target_agent_id
+							)
+							OR EXISTS (
+								SELECT 1
+								FROM agent_access_grant_projects gp
+								WHERE gp.controller_user_id = g.controller_user_id
+									AND gp.target_agent_id = g.target_agent_id
+									AND gp.project_id = t.project_id
+							)
+						)
+				)
+			)
+		)
+	)`
+
 type Transfer struct {
 	ID             string
 	UserID         int
@@ -148,9 +180,12 @@ func (db *DB) GetTransferByIDForUser(transferID string, userID int) (*Transfer, 
 			status,
 			created_at,
 			expires_at
-		FROM transfers
-		WHERE id = ? AND user_id = ?
-	`, strings.TrimSpace(transferID), userID)
+		FROM transfers t
+		WHERE t.id = ? AND (
+			t.user_id = ?
+			`+transferSharedProjectAccessSQL+`
+		)
+	`, strings.TrimSpace(transferID), userID, userID, userID)
 	return scanTransfer(row)
 }
 
@@ -179,11 +214,14 @@ func (db *DB) ListTransfersForUser(userID, limit int, filter TransferListFilter)
 			status,
 			created_at,
 			expires_at
-		FROM transfers
-		WHERE user_id = ?
+		FROM transfers t
+		WHERE (
+			t.user_id = ?
+			` + transferSharedProjectAccessSQL + `
+		)
 	`)
 
-	args := []interface{}{userID}
+	args := []interface{}{userID, userID, userID}
 	if value := strings.TrimSpace(filter.TargetType); value != "" {
 		query.WriteString(" AND target_type = ?")
 		args = append(args, value)

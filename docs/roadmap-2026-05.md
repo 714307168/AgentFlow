@@ -26,6 +26,7 @@
 - 首屏速度更稳，减少进入页面后的列表乱跳�?- 后台回前台时优先走缓存和轻量校验，不再频繁整包覆盖�?- 文本 JSON 流量明显下降，尤其是列表接口和日志上传�?- 继续保留现有增量同步和去重逻辑，不引入大范围协议破坏�?
 ### 0.5 当前进度
 
+- `R-project-scope-access` 文件入口本轮继续收口：relay transfer 查询现在允许“项目拥有者”以及“对该项目有授权 scope 的控制端用户”都可见同一项目下的 transfer 记录，授权控制端已可按 scope 查看详情并下载文件；同时补了 shared-project transfer flow test。
 - `R-project-scope-access` 服务端本轮补齐了一处真实缺口：`/api/device/sync`、`/api/device/sync/meta`、`/api/device/sync/delta` 现在都会按项目级授权 scope 过滤返回项目，scope 外项目不会再混进移动端同步结果；同时补了 scoped full-sync 和 delta cleanup 测试。
 - `P1` 本轮继续收口：Android 后台 session-shell sync 已按项目热度增加本地 TTL 节流，`cold` 项目 30 分钟最多采样一次，`dormant` 项目 4 小时最多采样一次，手动/强制刷新不受影响。
 
