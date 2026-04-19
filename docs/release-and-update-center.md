@@ -5,6 +5,7 @@ This document describes the current release workflow and self-hosted update cent
 For the step-by-step production upload flow, see:
 
 - `docs/release-upload-runbook.md`
+- `docs/release-consistency-checklist.md`
 
 ## Goal
 
@@ -162,9 +163,13 @@ cd android-app
 ./gradlew.bat :app:assembleRelease
 ```
 
-Output:
+Output candidates:
 
 - `android-app/app/build/outputs/apk/release/app-release.apk`
+- `D:\agentflow-android-build\AgentFlow\app\outputs\apk\release\app-release.apk`
+
+Do not assume the local `app/build` path is always the package actually used for publishing.
+The current local release scripts resolve the first available artifact from the configured Android build root and then copy that APK into `artifacts/` before upload.
 
 ## Relay Deployment
 
@@ -218,6 +223,7 @@ Project guidance is prepended as persistent repository context before each local
 3. open `/admin/releases`
 4. upload the packages and fill in version metadata
 5. verify `/admin` overview and release list are healthy
+6. verify local version files, update-center metadata, and GitHub Release assets against `docs/release-consistency-checklist.md`
 6. verify `/api/update/check`
 7. verify `/api/update/download/{id}`
 

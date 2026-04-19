@@ -214,6 +214,7 @@ Android 端使用 Room 和 Preferences 保存：
 - [项目级授权三端实施与发版检查表](./docs/project-scope-access-checklist.md)
 - [项目级授权接口 Schema](./docs/project-scope-access-api-schema.md)
 - [更新中心与发布说明](./docs/release-and-update-center.md)
+- [发布一致性检查模板](./docs/release-consistency-checklist.md)
 - [发布上传 Runbook](./docs/release-upload-runbook.md)
 - [GitHub Releases 发布](./docs/github-releases.md)
 - [桌面端说明](./local-agent/README.md)
