@@ -1,6 +1,6 @@
 # 2026-05 路线图总览
 
-更新时间：2026-04-19
+更新时间：2026-04-20
 
 这份文档只保留当前真正还需要持续推进的主线、最近已经完成的节点，以及后续该看哪份细化文档。
 
@@ -61,6 +61,7 @@
 - [消息、同步与更新故障排查清单](./message-sync-update-troubleshooting.md)
 - [日志信号与诊断映射表](./log-signal-diagnostic-mapping.md)
 - [运维视角信号修复模板](./ops-signal-remediation-template.md)
+- [信号到回滚与热修判断模板](./release-ops-signal-decision-template.md)
 
 ## 3. 当前仍在推进的主线
 
@@ -104,6 +105,7 @@
 - [消息、同步与更新故障排查清单](./message-sync-update-troubleshooting.md)
 - [日志信号与诊断映射表](./log-signal-diagnostic-mapping.md)
 - [运维视角信号修复模板](./ops-signal-remediation-template.md)
+- [信号到回滚与热修判断模板](./release-ops-signal-decision-template.md)
 
 ### P2：多端扩展
 
@@ -187,6 +189,9 @@
 - 运维修复模板本轮继续补齐：
   - 新增 [运维视角信号修复模板](./ops-signal-remediation-template.md)
   - 现在可以从 signal code 直接落到用户现象、运维动作和是否需要补丁发版
+- 发布与运维联动模板本轮继续补齐：
+  - 新增 [信号到回滚与热修判断模板](./release-ops-signal-decision-template.md)
+  - 现在可以从 signal code 继续落到优先查看接口/面板，以及该观察、撤更新、回滚服务端还是补热修
 
 ## 5. 文档拆分入口
 
@@ -199,6 +204,7 @@
 - 综合排查： [消息、同步与更新故障排查清单](./message-sync-update-troubleshooting.md)
 - 日志诊断： [日志信号与诊断映射表](./log-signal-diagnostic-mapping.md)
 - 运维修复： [运维视角信号修复模板](./ops-signal-remediation-template.md)
+- 发版判断： [信号到回滚与热修判断模板](./release-ops-signal-decision-template.md)
 - WS 稳定性： [WebSocket 稳定性与恢复专项](./ws-stability-and-recovery-plan.md)
 - WS 联调执行： [WebSocket 加固联调核查模板](./ws-hardening-joint-verification-template.md)
 - 授权和受控远程协作： [受控授权远程协作设计](./controlled-remote-authorization.md)
@@ -214,7 +220,7 @@
 下一轮自动优化继续做三类收口：
 
 1. 继续把大文档里的剩余可拆块迁移成按节点分工的独立文档。
-2. 补一轮“信号代码 -> 优先查看接口/日志面板 -> 建议回滚或热修判断”的发布/运维联动模板。
+2. 补一轮“更新中心字段 / GitHub Release / 客户端版本号 / 回滚记录”之间的事故回写模板。
 3. 后续每次真实代码落地或发版时，继续把验收结论和发版节点回写到对应模板与路线图。
 
 ## 7. 当前结论
