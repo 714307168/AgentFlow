@@ -208,6 +208,8 @@ Android 端使用 Room 和 Preferences 保存：
 - [多端扩展计划](./docs/platform-expansion-plan.md)
 - [mac 首发发布检查清单](./docs/mac-first-release-checklist.md)
 - [多端首发验收模板](./docs/multi-end-launch-acceptance-template.md)
+- [iOS Safe Track 规划](./docs/ios-safe-track-plan.md)
+- [微信小程序 Lite 边界说明](./docs/mini-program-lite-boundary.md)
 - [Relay Server Deployment](./docs/relay-server-deployment.md)
 - [WebSocket 稳定性与恢复专项](./docs/ws-stability-and-recovery-plan.md)
 - [Project Sync Signature 设计](./docs/project-sync-signature-design.md)
