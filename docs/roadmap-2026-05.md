@@ -72,6 +72,7 @@
 - [单端发版摘要模板](./single-end-release-summary-template.md)
 - [单端热修观察结束结论模板](./single-end-hotfix-observation-closure-template.md)
 - [发布节点回写示例](./release-roadmap-writeback-examples.md)
+- [平台专项收口摘要模板](./platform-track-closure-summary-template.md)
 
 ## 3. 当前仍在推进的主线
 
@@ -126,6 +127,7 @@
 - [单端发版摘要模板](./single-end-release-summary-template.md)
 - [单端热修观察结束结论模板](./single-end-hotfix-observation-closure-template.md)
 - [发布节点回写示例](./release-roadmap-writeback-examples.md)
+- [平台专项收口摘要模板](./platform-track-closure-summary-template.md)
 
 ### P2：多端扩展
 
@@ -242,6 +244,9 @@
 - 发布节点回写示例本轮继续补齐：
   - 新增 [发布节点回写示例](./release-roadmap-writeback-examples.md)
   - 现在路线图回写时可以直接套用短样例，不再每次临时组织发布摘要措辞
+- 平台专项收口摘要模板本轮继续补齐：
+  - 新增 [平台专项收口摘要模板](./platform-track-closure-summary-template.md)
+  - 现在 `mac / iOS / 小程序` 这类平台专项节点也可以把阶段结论和下一步动作单独收口
 
 ## 5. 文档拆分入口
 
@@ -265,6 +270,7 @@
 - 单端发版摘要： [单端发版摘要模板](./single-end-release-summary-template.md)
 - 单端热修观察结束： [单端热修观察结束结论模板](./single-end-hotfix-observation-closure-template.md)
 - 路线图回写示例： [发布节点回写示例](./release-roadmap-writeback-examples.md)
+- 平台专项收口： [平台专项收口摘要模板](./platform-track-closure-summary-template.md)
 - WS 稳定性： [WebSocket 稳定性与恢复专项](./ws-stability-and-recovery-plan.md)
 - WS 联调执行： [WebSocket 加固联调核查模板](./ws-hardening-joint-verification-template.md)
 - 授权和受控远程协作： [受控授权远程协作设计](./controlled-remote-authorization.md)
@@ -280,7 +286,7 @@
 下一轮自动优化继续做三类收口：
 
 1. 继续把大文档里的剩余可拆块迁移成按节点分工的独立文档。
-2. 继续把发版相关文档里剩余还偏总览或重复的段落拆成更细的执行模板，后续优先补“平台专项收口摘要”的轻量入口。
+2. 继续把发版相关文档里剩余还偏总览或重复的段落拆成更细的执行模板，后续优先补“平台专项收口后的真实路线图回写示例”和“平台首发后观察摘要”的轻量入口。
 3. 后续每次真实代码落地或发版时，继续把验收结论和发版节点回写到对应模板与路线图。
 
 ## 7. 当前结论
