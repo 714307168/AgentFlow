@@ -65,6 +65,7 @@
 - [发布事故回写模板](./release-incident-writeback-template.md)
 - [发布回写模板](./release-writeback-template.md)
 - [多端联动发版摘要模板](./multi-end-release-summary-template.md)
+- [平台首发摘要模板](./platform-first-release-summary-template.md)
 
 ## 3. 当前仍在推进的主线
 
@@ -112,6 +113,7 @@
 - [发布事故回写模板](./release-incident-writeback-template.md)
 - [发布回写模板](./release-writeback-template.md)
 - [多端联动发版摘要模板](./multi-end-release-summary-template.md)
+- [平台首发摘要模板](./platform-first-release-summary-template.md)
 
 ### P2：多端扩展
 
@@ -207,6 +209,9 @@
 - 多端联动发版摘要模板本轮继续补齐：
   - 新增 [多端联动发版摘要模板](./multi-end-release-summary-template.md)
   - 现在多端联动发布后可以把最终对外结论单独抽成轻量摘要，不再把完整验收内容塞回总览
+- 平台首发摘要模板本轮继续补齐：
+  - 新增 [平台首发摘要模板](./platform-first-release-summary-template.md)
+  - 现在 `mac / iOS / 小程序` 这类首发节点也可以把首发范围、边界和后续动作单独抽成摘要
 
 ## 5. 文档拆分入口
 
@@ -223,6 +228,7 @@
 - 事故回写： [发布事故回写模板](./release-incident-writeback-template.md)
 - 发版回写： [发布回写模板](./release-writeback-template.md)
 - 联动发版摘要： [多端联动发版摘要模板](./multi-end-release-summary-template.md)
+- 平台首发摘要： [平台首发摘要模板](./platform-first-release-summary-template.md)
 - WS 稳定性： [WebSocket 稳定性与恢复专项](./ws-stability-and-recovery-plan.md)
 - WS 联调执行： [WebSocket 加固联调核查模板](./ws-hardening-joint-verification-template.md)
 - 授权和受控远程协作： [受控授权远程协作设计](./controlled-remote-authorization.md)
@@ -238,7 +244,7 @@
 下一轮自动优化继续做三类收口：
 
 1. 继续把大文档里的剩余可拆块迁移成按节点分工的独立文档。
-2. 继续把发版相关文档里剩余还偏总览或重复的段落拆成更细的执行模板，后续优先补“平台首发摘要”和“发版后持续观察记录”的轻量入口。
+2. 继续把发版相关文档里剩余还偏总览或重复的段落拆成更细的执行模板，后续优先补“发版后持续观察记录”的轻量入口。
 3. 后续每次真实代码落地或发版时，继续把验收结论和发版节点回写到对应模板与路线图。
 
 ## 7. 当前结论
