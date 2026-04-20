@@ -70,6 +70,7 @@
 - [热修发布摘要模板](./release-hotfix-summary-template.md)
 - [版本观察结束结论模板](./release-observation-closure-template.md)
 - [单端发版摘要模板](./single-end-release-summary-template.md)
+- [单端热修观察结束结论模板](./single-end-hotfix-observation-closure-template.md)
 
 ## 3. 当前仍在推进的主线
 
@@ -122,6 +123,7 @@
 - [热修发布摘要模板](./release-hotfix-summary-template.md)
 - [版本观察结束结论模板](./release-observation-closure-template.md)
 - [单端发版摘要模板](./single-end-release-summary-template.md)
+- [单端热修观察结束结论模板](./single-end-hotfix-observation-closure-template.md)
 
 ### P2：多端扩展
 
@@ -232,6 +234,9 @@
 - 单端发版摘要模板本轮继续补齐：
   - 新增 [单端发版摘要模板](./single-end-release-summary-template.md)
   - 现在只发 desktop 或只发 Android 时也可以把版本、release id、用户动作和最终结论单独抽成摘要
+- 单端热修观察结束结论模板本轮继续补齐：
+  - 新增 [单端热修观察结束结论模板](./single-end-hotfix-observation-closure-template.md)
+  - 现在单端热修在观察结束时也可以把最终结论、用户动作和团队动作单独抽成轻量记录
 
 ## 5. 文档拆分入口
 
@@ -253,6 +258,7 @@
 - 热修发布摘要： [热修发布摘要模板](./release-hotfix-summary-template.md)
 - 观察结束结论： [版本观察结束结论模板](./release-observation-closure-template.md)
 - 单端发版摘要： [单端发版摘要模板](./single-end-release-summary-template.md)
+- 单端热修观察结束： [单端热修观察结束结论模板](./single-end-hotfix-observation-closure-template.md)
 - WS 稳定性： [WebSocket 稳定性与恢复专项](./ws-stability-and-recovery-plan.md)
 - WS 联调执行： [WebSocket 加固联调核查模板](./ws-hardening-joint-verification-template.md)
 - 授权和受控远程协作： [受控授权远程协作设计](./controlled-remote-authorization.md)
@@ -268,7 +274,7 @@
 下一轮自动优化继续做三类收口：
 
 1. 继续把大文档里的剩余可拆块迁移成按节点分工的独立文档。
-2. 继续把发版相关文档里剩余还偏总览或重复的段落拆成更细的执行模板，后续优先补“单端热修观察结论”的轻量入口。
+2. 继续把发版相关文档里剩余还偏总览或重复的段落拆成更细的执行模板，后续优先补“真实发布节点回写示例”和“平台专项收口摘要”的轻量入口。
 3. 后续每次真实代码落地或发版时，继续把验收结论和发版节点回写到对应模板与路线图。
 
 ## 7. 当前结论
