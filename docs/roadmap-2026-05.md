@@ -63,6 +63,7 @@
 - [运维视角信号修复模板](./ops-signal-remediation-template.md)
 - [信号到回滚与热修判断模板](./release-ops-signal-decision-template.md)
 - [发布事故回写模板](./release-incident-writeback-template.md)
+- [发布回写模板](./release-writeback-template.md)
 
 ## 3. 当前仍在推进的主线
 
@@ -108,6 +109,7 @@
 - [运维视角信号修复模板](./ops-signal-remediation-template.md)
 - [信号到回滚与热修判断模板](./release-ops-signal-decision-template.md)
 - [发布事故回写模板](./release-incident-writeback-template.md)
+- [发布回写模板](./release-writeback-template.md)
 
 ### P2：多端扩展
 
@@ -197,6 +199,9 @@
 - 发布事故回写模板本轮继续补齐：
   - 新增 [发布事故回写模板](./release-incident-writeback-template.md)
   - 现在可以把更新中心字段、GitHub Release、客户端版本号和回滚动作统一回写，不再散落在多个地方
+- 正常发版回写模板本轮继续补齐：
+  - 新增 [发布回写模板](./release-writeback-template.md)
+  - 现在正常发版后的版本号、release id、GitHub tag、测试与验收也有统一回写入口
 
 ## 5. 文档拆分入口
 
@@ -211,6 +216,7 @@
 - 运维修复： [运维视角信号修复模板](./ops-signal-remediation-template.md)
 - 发版判断： [信号到回滚与热修判断模板](./release-ops-signal-decision-template.md)
 - 事故回写： [发布事故回写模板](./release-incident-writeback-template.md)
+- 发版回写： [发布回写模板](./release-writeback-template.md)
 - WS 稳定性： [WebSocket 稳定性与恢复专项](./ws-stability-and-recovery-plan.md)
 - WS 联调执行： [WebSocket 加固联调核查模板](./ws-hardening-joint-verification-template.md)
 - 授权和受控远程协作： [受控授权远程协作设计](./controlled-remote-authorization.md)
@@ -226,7 +232,7 @@
 下一轮自动优化继续做三类收口：
 
 1. 继续把大文档里的剩余可拆块迁移成按节点分工的独立文档。
-2. 继续把发版相关文档里剩余还偏总览或重复的段落拆成更细的执行模板，减少路线图和 README 的说明负担。
+2. 继续把发版相关文档里剩余还偏总览或重复的段落拆成更细的执行模板，优先补“成功发版记录”和“多端联动发版摘要”的轻量入口。
 3. 后续每次真实代码落地或发版时，继续把验收结论和发版节点回写到对应模板与路线图。
 
 ## 7. 当前结论
