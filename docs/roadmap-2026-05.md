@@ -67,6 +67,7 @@
 - [多端联动发版摘要模板](./multi-end-release-summary-template.md)
 - [平台首发摘要模板](./platform-first-release-summary-template.md)
 - [发版后持续观察记录模板](./release-post-release-observation-template.md)
+- [热修发布摘要模板](./release-hotfix-summary-template.md)
 
 ## 3. 当前仍在推进的主线
 
@@ -116,6 +117,7 @@
 - [多端联动发版摘要模板](./multi-end-release-summary-template.md)
 - [平台首发摘要模板](./platform-first-release-summary-template.md)
 - [发版后持续观察记录模板](./release-post-release-observation-template.md)
+- [热修发布摘要模板](./release-hotfix-summary-template.md)
 
 ### P2：多端扩展
 
@@ -217,6 +219,9 @@
 - 发版后持续观察模板本轮继续补齐：
   - 新增 [发版后持续观察记录模板](./release-post-release-observation-template.md)
   - 现在发布后 `30 分钟 / 2 小时 / 24 小时` 的观察结论也有统一记录入口
+- 热修发布摘要模板本轮继续补齐：
+  - 新增 [热修发布摘要模板](./release-hotfix-summary-template.md)
+  - 现在热修版本也可以把替换关系、release id、用户动作和观察状态单独抽成摘要
 
 ## 5. 文档拆分入口
 
@@ -235,6 +240,7 @@
 - 联动发版摘要： [多端联动发版摘要模板](./multi-end-release-summary-template.md)
 - 平台首发摘要： [平台首发摘要模板](./platform-first-release-summary-template.md)
 - 发版后观察： [发版后持续观察记录模板](./release-post-release-observation-template.md)
+- 热修发布摘要： [热修发布摘要模板](./release-hotfix-summary-template.md)
 - WS 稳定性： [WebSocket 稳定性与恢复专项](./ws-stability-and-recovery-plan.md)
 - WS 联调执行： [WebSocket 加固联调核查模板](./ws-hardening-joint-verification-template.md)
 - 授权和受控远程协作： [受控授权远程协作设计](./controlled-remote-authorization.md)
@@ -250,7 +256,7 @@
 下一轮自动优化继续做三类收口：
 
 1. 继续把大文档里的剩余可拆块迁移成按节点分工的独立文档。
-2. 继续把发版相关文档里剩余还偏总览或重复的段落拆成更细的执行模板，后续优先补“热修发布摘要”和“版本观察结束结论”的轻量入口。
+2. 继续把发版相关文档里剩余还偏总览或重复的段落拆成更细的执行模板，后续优先补“版本观察结束结论”的轻量入口。
 3. 后续每次真实代码落地或发版时，继续把验收结论和发版节点回写到对应模板与路线图。
 
 ## 7. 当前结论
