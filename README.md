@@ -232,6 +232,7 @@ Android 端使用 Room 和 Preferences 保存：
 - [单端热修观察结束结论模板](./docs/single-end-hotfix-observation-closure-template.md)
 - [发布节点回写示例](./docs/release-roadmap-writeback-examples.md)
 - [平台专项收口摘要模板](./docs/platform-track-closure-summary-template.md)
+- [平台专项路线图回写示例](./docs/platform-track-roadmap-writeback-examples.md)
 - [受控授权远程协作设计](./docs/controlled-remote-authorization.md)
 - [项目级授权 MVP 实施方案](./docs/project-scope-access-mvp.md)
 - [项目级授权三端实施与发版检查表](./docs/project-scope-access-checklist.md)

@@ -1,6 +1,6 @@
 # 2026-05 路线图总览
 
-更新时间：2026-04-20
+更新时间：2026-04-21
 
 这份文档只保留当前真正还需要持续推进的主线、最近已经完成的节点，以及后续该看哪份细化文档。
 
@@ -73,6 +73,7 @@
 - [单端热修观察结束结论模板](./single-end-hotfix-observation-closure-template.md)
 - [发布节点回写示例](./release-roadmap-writeback-examples.md)
 - [平台专项收口摘要模板](./platform-track-closure-summary-template.md)
+- [平台专项路线图回写示例](./platform-track-roadmap-writeback-examples.md)
 
 ## 3. 当前仍在推进的主线
 
@@ -247,6 +248,9 @@
 - 平台专项收口摘要模板本轮继续补齐：
   - 新增 [平台专项收口摘要模板](./platform-track-closure-summary-template.md)
   - 现在 `mac / iOS / 小程序` 这类平台专项节点也可以把阶段结论和下一步动作单独收口
+- 平台专项路线图回写示例本轮继续补齐：
+  - 新增 [平台专项路线图回写示例](./platform-track-roadmap-writeback-examples.md)
+  - 现在平台专项收口后的路线图回写也有短样例可直接复用，不再只能在总览里临时组织措辞
 
 ## 5. 文档拆分入口
 
@@ -271,6 +275,7 @@
 - 单端热修观察结束： [单端热修观察结束结论模板](./single-end-hotfix-observation-closure-template.md)
 - 路线图回写示例： [发布节点回写示例](./release-roadmap-writeback-examples.md)
 - 平台专项收口： [平台专项收口摘要模板](./platform-track-closure-summary-template.md)
+- 平台专项回写示例： [平台专项路线图回写示例](./platform-track-roadmap-writeback-examples.md)
 - WS 稳定性： [WebSocket 稳定性与恢复专项](./ws-stability-and-recovery-plan.md)
 - WS 联调执行： [WebSocket 加固联调核查模板](./ws-hardening-joint-verification-template.md)
 - 授权和受控远程协作： [受控授权远程协作设计](./controlled-remote-authorization.md)
@@ -286,7 +291,7 @@
 下一轮自动优化继续做三类收口：
 
 1. 继续把大文档里的剩余可拆块迁移成按节点分工的独立文档。
-2. 继续把发版相关文档里剩余还偏总览或重复的段落拆成更细的执行模板，后续优先补“平台专项收口后的真实路线图回写示例”和“平台首发后观察摘要”的轻量入口。
+2. 继续把发版相关文档里剩余还偏总览或重复的段落拆成更细的执行模板，后续优先补“平台首发后观察摘要”的轻量入口，并继续清理还能复用短样例的回写段落。
 3. 后续每次真实代码落地或发版时，继续把验收结论和发版节点回写到对应模板与路线图。
 
 ## 7. 当前结论
