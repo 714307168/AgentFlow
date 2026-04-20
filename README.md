@@ -227,6 +227,7 @@ Android 端使用 Room 和 Preferences 保存：
 - [平台首发摘要模板](./docs/platform-first-release-summary-template.md)
 - [发版后持续观察记录模板](./docs/release-post-release-observation-template.md)
 - [热修发布摘要模板](./docs/release-hotfix-summary-template.md)
+- [版本观察结束结论模板](./docs/release-observation-closure-template.md)
 - [受控授权远程协作设计](./docs/controlled-remote-authorization.md)
 - [项目级授权 MVP 实施方案](./docs/project-scope-access-mvp.md)
 - [项目级授权三端实施与发版检查表](./docs/project-scope-access-checklist.md)
