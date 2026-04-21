@@ -238,6 +238,7 @@ Android 端使用 Room 和 Preferences 保存：
 - [平台专项收口摘要模板](./docs/platform-track-closure-summary-template.md)
 - [平台专项路线图回写示例](./docs/platform-track-roadmap-writeback-examples.md)
 - [平台专项阶段切换回写示例](./docs/platform-track-stage-transition-writeback-examples.md)
+- [平台专项阶段完成短收口示例](./docs/platform-track-stage-closure-writeback-examples.md)
 - [受控授权远程协作设计](./docs/controlled-remote-authorization.md)
 - [项目级授权 MVP 实施方案](./docs/project-scope-access-mvp.md)
 - [项目级授权三端实施与发版检查表](./docs/project-scope-access-checklist.md)

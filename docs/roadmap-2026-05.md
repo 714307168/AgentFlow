@@ -79,6 +79,7 @@
 - [平台专项收口摘要模板](./platform-track-closure-summary-template.md)
 - [平台专项路线图回写示例](./platform-track-roadmap-writeback-examples.md)
 - [平台专项阶段切换回写示例](./platform-track-stage-transition-writeback-examples.md)
+- [平台专项阶段完成短收口示例](./platform-track-stage-closure-writeback-examples.md)
 
 ## 3. 当前仍在推进的主线
 
@@ -139,6 +140,7 @@
 - [发布节点回写示例](./release-roadmap-writeback-examples.md)
 - [平台专项收口摘要模板](./platform-track-closure-summary-template.md)
 - [平台专项阶段切换回写示例](./platform-track-stage-transition-writeback-examples.md)
+- [平台专项阶段完成短收口示例](./platform-track-stage-closure-writeback-examples.md)
 
 ### P2：多端扩展
 
@@ -276,6 +278,9 @@
 - 平台专项阶段切换回写示例本轮继续补齐：
   - 新增 [平台专项阶段切换回写示例](./platform-track-stage-transition-writeback-examples.md)
   - 现在平台专项从规划、收口、验收到首发观察的阶段变化，也能直接复用短样例回写到路线图
+- 平台专项阶段完成短收口示例本轮继续补齐：
+  - 新增 [平台专项阶段完成短收口示例](./platform-track-stage-closure-writeback-examples.md)
+  - 现在平台专项某一阶段完成后的结论、延后范围和下一步动作，也能直接复用短样例回写到路线图
 
 ## 5. 文档拆分入口
 
@@ -306,6 +311,7 @@
 - 平台专项收口： [平台专项收口摘要模板](./platform-track-closure-summary-template.md)
 - 平台专项回写示例： [平台专项路线图回写示例](./platform-track-roadmap-writeback-examples.md)
 - 平台专项阶段切换： [平台专项阶段切换回写示例](./platform-track-stage-transition-writeback-examples.md)
+- 平台专项阶段完成： [平台专项阶段完成短收口示例](./platform-track-stage-closure-writeback-examples.md)
 - WS 稳定性： [WebSocket 稳定性与恢复专项](./ws-stability-and-recovery-plan.md)
 - WS 联调执行： [WebSocket 加固联调核查模板](./ws-hardening-joint-verification-template.md)
 - 授权和受控远程协作： [受控授权远程协作设计](./controlled-remote-authorization.md)
@@ -321,7 +327,7 @@
 下一轮自动优化继续做三类收口：
 
 1. 继续把大文档里的剩余可拆块迁移成按节点分工的独立文档。
-2. 继续把发版相关文档里剩余还偏总览或重复的段落拆成更细的执行模板，后续优先补“平台专项阶段完成后的短收口示例”和“平台专项阶段暂停/延后推进的短回写示例”，并继续清理还能复用短样例的回写段落。
+2. 继续把发版相关文档里剩余还偏总览或重复的段落拆成更细的执行模板，后续优先补“平台专项阶段暂停/延后推进的短回写示例”和“平台专项重新开启后的短回写示例”，并继续清理还能复用短样例的回写段落。
 3. 后续每次真实代码落地或发版时，继续把验收结论和发版节点回写到对应模板与路线图。
 
 ## 7. 当前结论
