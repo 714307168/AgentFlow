@@ -225,6 +225,7 @@ Android 端使用 Room 和 Preferences 保存：
 - [发布回写模板](./docs/release-writeback-template.md)
 - [多端联动发版摘要模板](./docs/multi-end-release-summary-template.md)
 - [平台首发摘要模板](./docs/platform-first-release-summary-template.md)
+- [平台首发后观察摘要模板](./docs/platform-first-post-release-observation-template.md)
 - [发版后持续观察记录模板](./docs/release-post-release-observation-template.md)
 - [热修发布摘要模板](./docs/release-hotfix-summary-template.md)
 - [版本观察结束结论模板](./docs/release-observation-closure-template.md)
