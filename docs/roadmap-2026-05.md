@@ -67,6 +67,7 @@
 - [多端联动发版摘要模板](./multi-end-release-summary-template.md)
 - [平台首发摘要模板](./platform-first-release-summary-template.md)
 - [平台首发后观察摘要模板](./platform-first-post-release-observation-template.md)
+- [平台首发后边界推进回写示例](./platform-first-boundary-writeback-examples.md)
 - [发版后持续观察记录模板](./release-post-release-observation-template.md)
 - [热修发布摘要模板](./release-hotfix-summary-template.md)
 - [版本观察结束结论模板](./release-observation-closure-template.md)
@@ -124,6 +125,7 @@
 - [多端联动发版摘要模板](./multi-end-release-summary-template.md)
 - [平台首发摘要模板](./platform-first-release-summary-template.md)
 - [平台首发后观察摘要模板](./platform-first-post-release-observation-template.md)
+- [平台首发后边界推进回写示例](./platform-first-boundary-writeback-examples.md)
 - [发版后持续观察记录模板](./release-post-release-observation-template.md)
 - [热修发布摘要模板](./release-hotfix-summary-template.md)
 - [版本观察结束结论模板](./release-observation-closure-template.md)
@@ -256,6 +258,9 @@
 - 平台首发后观察摘要模板本轮继续补齐：
   - 新增 [平台首发后观察摘要模板](./platform-first-post-release-observation-template.md)
   - 现在平台首次上线后的观察结论也能先抽成轻量摘要，再决定是否结束观察或继续稳边界
+- 平台首发后边界推进回写示例本轮继续补齐：
+  - 新增 [平台首发后边界推进回写示例](./platform-first-boundary-writeback-examples.md)
+  - 现在平台首发后是继续扩边界还是延后扩边界，也能直接复用短样例回写到路线图
 
 ## 5. 文档拆分入口
 
@@ -274,6 +279,7 @@
 - 联动发版摘要： [多端联动发版摘要模板](./multi-end-release-summary-template.md)
 - 平台首发摘要： [平台首发摘要模板](./platform-first-release-summary-template.md)
 - 平台首发后观察： [平台首发后观察摘要模板](./platform-first-post-release-observation-template.md)
+- 平台首发后边界推进： [平台首发后边界推进回写示例](./platform-first-boundary-writeback-examples.md)
 - 发版后观察： [发版后持续观察记录模板](./release-post-release-observation-template.md)
 - 热修发布摘要： [热修发布摘要模板](./release-hotfix-summary-template.md)
 - 观察结束结论： [版本观察结束结论模板](./release-observation-closure-template.md)
@@ -297,7 +303,7 @@
 下一轮自动优化继续做三类收口：
 
 1. 继续把大文档里的剩余可拆块迁移成按节点分工的独立文档。
-2. 继续把发版相关文档里剩余还偏总览或重复的段落拆成更细的执行模板，后续优先补“平台首发后继续扩边界/延后扩边界”的短回写示例，并继续清理还能复用短样例的回写段落。
+2. 继续把发版相关文档里剩余还偏总览或重复的段落拆成更细的执行模板，后续优先补“平台首发后出现风险、准备热修或收口”的短回写示例，并继续清理还能复用短样例的回写段落。
 3. 后续每次真实代码落地或发版时，继续把验收结论和发版节点回写到对应模板与路线图。
 
 ## 7. 当前结论
