@@ -37,7 +37,7 @@ function buildWindowsNotificationSoundScript(bundledSoundPath?: string | null): 
     "    Start-Sleep -Milliseconds 250",
     "  }",
     "}",
-  ].join(" ");
+  ].join("\n");
 }
 
 export function getSystemSoundCommand(
@@ -84,7 +84,7 @@ export async function playSystemNotificationSound(
   try {
     await execFileAsync(command.command, command.args, {
       windowsHide: true,
-      timeout: 4000,
+      timeout: 10000,
     });
     return true;
   } catch {

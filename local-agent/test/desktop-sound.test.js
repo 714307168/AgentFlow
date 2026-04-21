@@ -3,6 +3,25 @@ const assert = require("node:assert/strict");
 
 const { getSystemSoundCommand } = require("../dist/src/desktop-sound.js");
 
+const expectedWindowsScript = (soundPath) => [
+  `$soundPath = ${soundPath}`,
+  "try {",
+  "  if (Test-Path $soundPath) {",
+  "    $player = New-Object System.Media.SoundPlayer $soundPath",
+  "    $player.PlaySync()",
+  "  } else {",
+  "    [Console]::Beep(880, 220)",
+  "  }",
+  "} catch {",
+  "  try {",
+  "    [Console]::Beep(880, 220)",
+  "  } catch {",
+  "    [System.Media.SystemSounds]::Asterisk.Play()",
+  "    Start-Sleep -Milliseconds 250",
+  "  }",
+  "}",
+].join("\n");
+
 test("builds the Windows completion sound command", () => {
   assert.deepEqual(getSystemSoundCommand("win32"), {
     command: "powershell.exe",
@@ -12,7 +31,7 @@ test("builds the Windows completion sound command", () => {
       "-ExecutionPolicy",
       "Bypass",
       "-Command",
-      "$soundPath = Join-Path $env:WINDIR 'Media\\Windows Notify System Generic.wav' try {   if (Test-Path $soundPath) {     $player = New-Object System.Media.SoundPlayer $soundPath     $player.PlaySync()   } else {     [Console]::Beep(880, 220)   } } catch {   try {     [Console]::Beep(880, 220)   } catch {     [System.Media.SystemSounds]::Asterisk.Play()     Start-Sleep -Milliseconds 250   } }",
+      expectedWindowsScript("Join-Path $env:WINDIR 'Media\\Windows Notify System Generic.wav'"),
     ],
   });
 });
@@ -28,7 +47,7 @@ test("builds the Windows completion sound command with a bundled sound path", ()
       "-ExecutionPolicy",
       "Bypass",
       "-Command",
-      "$soundPath = 'C:\\Program Files\\AgentFlow\\sounds\\Ring01.wav' try {   if (Test-Path $soundPath) {     $player = New-Object System.Media.SoundPlayer $soundPath     $player.PlaySync()   } else {     [Console]::Beep(880, 220)   } } catch {   try {     [Console]::Beep(880, 220)   } catch {     [System.Media.SystemSounds]::Asterisk.Play()     Start-Sleep -Milliseconds 250   } }",
+      expectedWindowsScript("'C:\\Program Files\\AgentFlow\\sounds\\Ring01.wav'"),
     ],
   });
 });
