@@ -83,6 +83,8 @@
 - [平台专项阶段暂停与延后推进回写示例](./platform-track-pause-writeback-examples.md)
 - [平台专项重新开启后的短回写示例](./platform-track-restart-writeback-examples.md)
 - [平台专项并入新一轮计划的短回写示例](./platform-track-next-cycle-writeback-examples.md)
+- [平台专项拆分成子阶段后的短回写示例](./platform-track-substage-writeback-examples.md)
+- [平台专项转入常规维护后的短回写示例](./platform-track-maintenance-writeback-examples.md)
 
 ## 3. 当前仍在推进的主线
 
@@ -147,6 +149,8 @@
 - [平台专项阶段暂停与延后推进回写示例](./platform-track-pause-writeback-examples.md)
 - [平台专项重新开启后的短回写示例](./platform-track-restart-writeback-examples.md)
 - [平台专项并入新一轮计划的短回写示例](./platform-track-next-cycle-writeback-examples.md)
+- [平台专项拆分成子阶段后的短回写示例](./platform-track-substage-writeback-examples.md)
+- [平台专项转入常规维护后的短回写示例](./platform-track-maintenance-writeback-examples.md)
 
 ### P2：多端扩展
 
@@ -296,6 +300,12 @@
 - 平台专项并入新一轮计划的短回写示例本轮继续补齐：
   - 新增 [平台专项并入新一轮计划的短回写示例](./platform-track-next-cycle-writeback-examples.md)
   - 现在平台专项不单独继续展开、而是并入下一轮计划时，也能直接复用短样例回写到路线图
+- 平台专项拆分成子阶段后的短回写示例本轮继续补齐：
+  - 新增 [平台专项拆分成子阶段后的短回写示例](./platform-track-substage-writeback-examples.md)
+  - 现在平台专项拆成“先稳主链路、再补边界、最后做观察或维护”这类子阶段时，也能直接复用短样例回写到路线图
+- 平台专项转入常规维护后的短回写示例本轮继续补齐：
+  - 新增 [平台专项转入常规维护后的短回写示例](./platform-track-maintenance-writeback-examples.md)
+  - 现在平台专项从专项推进态切到常规维护态时，也能直接复用短样例回写到路线图
 
 ## 5. 文档拆分入口
 
@@ -330,6 +340,8 @@
 - 平台专项阶段暂停： [平台专项阶段暂停与延后推进回写示例](./platform-track-pause-writeback-examples.md)
 - 平台专项重新开启： [平台专项重新开启后的短回写示例](./platform-track-restart-writeback-examples.md)
 - 平台专项并入下一轮： [平台专项并入新一轮计划的短回写示例](./platform-track-next-cycle-writeback-examples.md)
+- 平台专项拆分子阶段： [平台专项拆分成子阶段后的短回写示例](./platform-track-substage-writeback-examples.md)
+- 平台专项转常规维护： [平台专项转入常规维护后的短回写示例](./platform-track-maintenance-writeback-examples.md)
 - WS 稳定性： [WebSocket 稳定性与恢复专项](./ws-stability-and-recovery-plan.md)
 - WS 联调执行： [WebSocket 加固联调核查模板](./ws-hardening-joint-verification-template.md)
 - 授权和受控远程协作： [受控授权远程协作设计](./controlled-remote-authorization.md)
@@ -345,7 +357,7 @@
 下一轮自动优化继续做三类收口：
 
 1. 继续把大文档里的剩余可拆块迁移成按节点分工的独立文档。
-2. 继续把发版相关文档里剩余还偏总览或重复的段落拆成更细的执行模板，下一轮优先补“平台专项拆分成子阶段后的短回写示例”和“平台专项转入常规维护后的短回写示例”，并继续清理还能复用短样例的回写段落。
+2. 继续把发版相关文档里剩余还偏总览或重复的段落拆成更细的执行模板，下一轮优先补“平台专项重新收窄边界后的短回写示例”和“平台专项从维护态重新升级为专项后的短回写示例”，并继续清理还能复用短样例的回写段落。
 3. 后续每次真实代码落地或发版时，继续把验收结论和发版节点回写到对应模板与路线图。
 
 ## 7. 当前结论
