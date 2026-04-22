@@ -94,7 +94,7 @@ class ProjectAccessScopeTest {
             )
         )
 
-        assertEquals(setOf("project-b"), removedProjectIds)
+        assertEquals(setOf("project-b", "project-c"), removedProjectIds)
     }
 
     @Test
@@ -116,7 +116,7 @@ class ProjectAccessScopeTest {
     }
 
     @Test
-    fun unknownAgentFallsBackToAllowingProjectsInsteadOfPruningEverything() {
+    fun explicitScopeDeniesProjectsWhenAgentIdIsMissing() {
         val scope = ProjectAccessScope.fromAgentScopes(
             listOf(
                 EffectiveAgentScopeResponse(
@@ -127,9 +127,24 @@ class ProjectAccessScopeTest {
             )
         )
 
-        assertTrue(scope.canAccessProject("agent-2", "project-z"))
+        assertFalse(scope.canAccessProject("", "project-a"))
+    }
+
+    @Test
+    fun unknownAgentProjectsAreDeniedAndPrunedFromCachedSessions() {
+        val scope = ProjectAccessScope.fromAgentScopes(
+            listOf(
+                EffectiveAgentScopeResponse(
+                    agentId = "agent-1",
+                    scopeType = "selected_projects",
+                    projectIds = listOf("project-a")
+                )
+            )
+        )
+
+        assertFalse(scope.canAccessProject("agent-2", "project-z"))
         assertEquals(
-            setOf("project-b"),
+            setOf("project-b", "project-c"),
             scope.findOutOfScopeProjectIds(
                 listOf(
                     sessionEntity(agentId = "agent-1", projectId = "project-a"),

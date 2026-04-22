@@ -35,9 +35,9 @@ internal class ProjectAccessScope private constructor(
             return true
         }
         if (normalizedAgentId.isEmpty()) {
-            return true
+            return false
         }
-        val scope = scopesByAgentId[normalizedAgentId] ?: return true
+        val scope = scopesByAgentId[normalizedAgentId] ?: return false
         return scope.scopeType == SCOPE_TYPE_ALL_PROJECTS || normalizedProjectId in scope.projectIds
     }
 

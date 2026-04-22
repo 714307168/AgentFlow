@@ -81,7 +81,7 @@ class ProjectAccessGuardTest {
     }
 
     @Test
-    fun routeGuardAllowsProjectWhenAgentIsMissingFromCachedScope() {
+    fun routeGuardBlocksProjectWhenAgentIsMissingFromCachedScope() {
         val effectiveScopeJson = ProjectAccessScopeCodec.encode(
             EffectiveScopeResponse(
                 agentScopes = listOf(
@@ -94,11 +94,34 @@ class ProjectAccessGuardTest {
             )
         )
 
-        assertFalse(
+        assertTrue(
             isProjectRouteBlockedByCachedScope(
                 effectiveScopeJson = effectiveScopeJson,
                 agentId = "agent-2",
                 projectId = "project-b"
+            )
+        )
+    }
+
+    @Test
+    fun routeGuardBlocksProjectWhenAgentIdIsBlankUnderExplicitScope() {
+        val effectiveScopeJson = ProjectAccessScopeCodec.encode(
+            EffectiveScopeResponse(
+                agentScopes = listOf(
+                    EffectiveAgentScopeResponse(
+                        agentId = "agent-1",
+                        scopeType = "selected_projects",
+                        projectIds = listOf("project-a")
+                    )
+                )
+            )
+        )
+
+        assertTrue(
+            isProjectRouteBlockedByCachedScope(
+                effectiveScopeJson = effectiveScopeJson,
+                agentId = "",
+                projectId = "project-a"
             )
         )
     }

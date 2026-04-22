@@ -370,6 +370,13 @@
   - 新增项目级授权下 full-sync / delta 一致性回归测试
   - 新增 matching revision + stale known projects 清理回归测试，避免 scope 收缩后残留旧项目
 
+### 2026-04-23
+
+- `R-project-scope-access` Android 本地授权边界继续压实：
+  - 收紧 cached scope 判断，显式项目授权下不再放行 blank / unknown agent 的聊天路由
+  - 补齐旧深链 / 旧缓存页越权打开回归测试
+  - 补齐未知 agent 缓存会话剔除回归测试，避免 scope 收缩后残留陈旧项目
+
 ## 5. 文档拆分入口
 
 后续不要再把所有计划继续堆回这一份总览。

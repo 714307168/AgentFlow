@@ -1,6 +1,6 @@
 # 项目级授权 MVP 三端实施与发版检查表
 
-更新时间：2026-04-22
+更新时间：2026-04-23
 关联方案：[`docs/project-scope-access-mvp.md`](./project-scope-access-mvp.md)
 
 ## Progress Update
@@ -9,6 +9,7 @@
 - relay transfer access now allows authorized controllers to list, view, and download files under granted projects.
 - sibling projects on the same shared agent remain hidden, and regression coverage now includes scoped full-sync, scoped delta cleanup, shared-project transfer access, and same-agent cross-project transfer denial.
 - scoped sync regression coverage now also verifies full-sync and delta stay consistent, and matching revisions no longer skip stale project removals.
+- Android cached scope now treats blank or unknown agent routes as blocked when explicit project scopes exist, and stale cached sessions from inaccessible agents are marked for pruning instead of being kept.
 
 ## 1. 用途
 
@@ -125,8 +126,8 @@
 
 ### 5.3 详情与入口控制
 
-- [ ] 进入项目详情前先校验 scope
-- [ ] scope 外项目不能通过旧深链或旧缓存页打开
+- [x] 进入项目详情前先校验 scope
+- [x] scope 外项目不能通过旧深链或旧缓存页打开
 - [ ] 文件下载入口按能力包隐藏或禁用
 - [ ] 诊断入口按能力包隐藏或禁用
 - [ ] 发消息入口按能力包限制
@@ -137,7 +138,7 @@
 - [ ] 撤销后缓存项目清理/隐藏测试
 - [ ] 文件下载入口限制测试
 - [ ] 诊断入口限制测试
-- [ ] 越权打开旧项目页测试
+- [x] 越权打开旧项目页测试
 
 ## 6. 联调清单
 
