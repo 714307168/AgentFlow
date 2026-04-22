@@ -1,10 +1,9 @@
 import { app } from "electron";
 import * as fs from "fs";
 import * as path from "path";
+import { BOOTSTRAP_SETTINGS_FILE, STABLE_USER_DATA_DIR } from "./local-data-path";
 
-const STABLE_USER_DATA_DIR = "claude-code-agent";
 const LEGACY_DEV_USER_DATA_DIR = "Electron";
-const BOOTSTRAP_SETTINGS_FILE = "bootstrap-settings.json";
 const STORE_FILES = [
   "config.json",
   "app-settings.json",

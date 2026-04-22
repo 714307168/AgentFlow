@@ -221,6 +221,12 @@
 
 ### 2026-04-19
 
+- 桌面端运行时兼容性与环境自检本轮继续压实：
+  - 新增桌面端 legacy Windows / Windows Server 安全启动模式，老环境会自动切到更保守的图形启动参数
+  - 新增 Windows portable 打包入口，服务器环境可先绕开 NSIS 安装器验证主程序可运行性
+  - 新增 provider runtime 自动维护：本地 CLI 有升级则自动升级，没有 CLI 时尝试通过 npm 国内镜像自动补装运行时
+  - 新增 `npm run doctor` 环境自检入口，可直接输出本机运行条件、provider 可用性和自动维护准备状态
+
 - Android 启动闪退修复已落地：
   - 修复点：加密偏好损坏恢复、前台服务启动异常保护
   - Android `1.2.24 (build 108)` 已发布到更新中心

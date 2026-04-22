@@ -5,6 +5,7 @@
   "main": "dist/src/main.js",
   "scripts": {
     "build": "tsc && node -e \"const fs=require('fs');const path=require('path');for (const name of ['terminal.js','terminal.js.map','project-runtime-rules.js','project-runtime-rules.js.map']) { const source=path.join('dist','renderer',name); if (fs.existsSync(source)) { fs.copyFileSync(source,path.join('renderer',name)); } }\"",
+    "doctor": "npm run build && node dist/src/doctor.js",
     "test": "npm run build && node --test test/*.test.js",
     "start": "electron dist/src/main.js",
     "dev": "tsc --watch",

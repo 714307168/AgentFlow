@@ -4,6 +4,7 @@
 
 - `npm start`: run Electron from `dist/src/main.js`
 - `npm run build`: compile TypeScript and refresh renderer assets
+- `npm run doctor`: print a local runtime and environment health report for this desktop host
 - `npm run dist:win`: build the Windows NSIS installer
 - `npm run dist:win:portable`: build a Windows portable package without the NSIS installer
 - `npm run dist`: build the default `electron-builder` targets
@@ -133,6 +134,21 @@ For npm-based provider runtime downloads and upgrades, the desktop automatically
 
 - default registry: `https://registry.npmmirror.com`
 - override with `AGENTFLOW_NPM_REGISTRY` when you want to use another internal or regional mirror
+
+## Environment Doctor
+
+Run this from `local-agent/` when you want to verify whether the current machine is actually ready to host the desktop runtime:
+
+```bash
+npm run doctor
+```
+
+The doctor output checks:
+
+- OS release and whether legacy safe graphics mode will be enabled
+- effective local data root and whether `config.json` is present
+- npm availability and the effective npm mirror
+- Claude Code / Codex CLI detection, current runtime mode, and whether auto-install or auto-upgrade can run
 
 ## Related Docs
 
