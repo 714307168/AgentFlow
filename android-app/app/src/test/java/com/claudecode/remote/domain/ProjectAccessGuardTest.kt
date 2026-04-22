@@ -125,4 +125,52 @@ class ProjectAccessGuardTest {
             )
         )
     }
+
+    @Test
+    fun sessionRevocationStaysFalseWhileAccessibleSessionStillExists() {
+        val effectiveScopeJson = ProjectAccessScopeCodec.encode(
+            EffectiveScopeResponse(
+                agentScopes = listOf(
+                    EffectiveAgentScopeResponse(
+                        agentId = "agent-1",
+                        scopeType = "selected_projects",
+                        projectIds = listOf("project-a")
+                    )
+                )
+            )
+        )
+
+        assertFalse(
+            isProjectSessionRevokedByCachedScope(
+                effectiveScopeJson = effectiveScopeJson,
+                agentId = "agent-1",
+                projectId = "project-a",
+                hasAccessibleSession = true
+            )
+        )
+    }
+
+    @Test
+    fun sessionRevocationTurnsTrueWhenAccessibleSessionDisappearsOutsideScope() {
+        val effectiveScopeJson = ProjectAccessScopeCodec.encode(
+            EffectiveScopeResponse(
+                agentScopes = listOf(
+                    EffectiveAgentScopeResponse(
+                        agentId = "agent-1",
+                        scopeType = "selected_projects",
+                        projectIds = listOf("project-a")
+                    )
+                )
+            )
+        )
+
+        assertTrue(
+            isProjectSessionRevokedByCachedScope(
+                effectiveScopeJson = effectiveScopeJson,
+                agentId = "agent-1",
+                projectId = "project-b",
+                hasAccessibleSession = false
+            )
+        )
+    }
 }

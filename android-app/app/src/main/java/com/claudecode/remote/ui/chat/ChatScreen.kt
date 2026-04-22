@@ -231,6 +231,18 @@ fun ChatScreen(
         isRefreshingTransfers = false
     }
 
+    LaunchedEffect(uiState.projectAccessRevoked) {
+        if (!uiState.projectAccessRevoked) {
+            return@LaunchedEffect
+        }
+        Toast.makeText(
+            context,
+            context.getString(R.string.chat_project_access_revoked),
+            Toast.LENGTH_SHORT
+        ).show()
+        onNavigateBack()
+    }
+
     LaunchedEffect(
         projectId,
         selectedPane,

@@ -380,6 +380,9 @@
   - 统一 full sync / delta sync / scope prune 的项目移除清理逻辑
   - 项目被移除时，同步清理本地 draft 和 chat snapshot，避免会话记录删掉后仍残留旧输入或旧聊天快照
   - 补齐 replacement / delta remove 纯函数回归测试，压实撤销授权后的本地缓存收缩行为
+- `R-project-scope-access` Android 聊天态补齐 scope 收缩收口：
+  - 已打开的项目聊天页在 scope 收缩导致项目失去访问权时，会弹出明确提示并自动返回，避免继续停留在旧会话页
+  - 补齐 revoked 判定纯函数回归测试，压实“路由守卫之外”的已打开页面收口行为
 
 ## 5. 文档拆分入口
 

@@ -9,6 +9,7 @@ import com.claudecode.remote.data.model.Message
 import com.claudecode.remote.data.model.MessageAttachment
 import com.claudecode.remote.data.remote.RelayWebSocket
 import com.claudecode.remote.domain.MessageRepository
+import com.claudecode.remote.domain.isProjectSessionRevokedByCachedScope
 import com.claudecode.remote.util.CrashLogger
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -122,7 +123,8 @@ data class ChatUiState(
     val currentStartedAt: Long? = null,
     val activeConversationId: String? = null,
     val activeConversationTitle: String? = null,
-    val conversations: List<ConversationItem> = emptyList()
+    val conversations: List<ConversationItem> = emptyList(),
+    val projectAccessRevoked: Boolean = false
 )
 
 class ChatViewModel(
@@ -451,6 +453,12 @@ class ChatViewModel(
                     _uiState.update { current ->
                         val queuedCount = session?.queuedCount ?: 0
                         val queuePreview = session?.queuePreview
+                        val projectAccessRevoked = isProjectSessionRevokedByCachedScope(
+                            effectiveScopeJson = tokenStore.getEffectiveScopeJson(),
+                            agentId = current.agentId,
+                            projectId = projectId,
+                            hasAccessibleSession = session != null
+                        )
                         current.copy(
                             projectName = session?.name?.ifBlank { current.projectName } ?: current.projectName,
                             agentId = session?.agentId?.ifBlank { current.agentId } ?: current.agentId,
@@ -473,7 +481,8 @@ class ChatViewModel(
                                 queuedCount = queuedCount,
                                 queuePreview = queuePreview
                             ),
-                            isSwitchingConversation = false
+                            isSwitchingConversation = false,
+                            projectAccessRevoked = projectAccessRevoked
                         )
                     }
                     if ((session?.isRunning == true) || (session?.queuedCount ?: 0) > 0) {

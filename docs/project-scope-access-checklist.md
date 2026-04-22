@@ -11,6 +11,7 @@
 - scoped sync regression coverage now also verifies full-sync and delta stay consistent, and matching revisions no longer skip stale project removals.
 - Android cached scope now treats blank or unknown agent routes as blocked when explicit project scopes exist, and stale cached sessions from inaccessible agents are marked for pruning instead of being kept.
 - Android project removals now clear draft and chat snapshot caches consistently across full sync, delta sync, and scope-prune paths, with regression coverage for replacement and delta removal planning.
+- Android chat pages now auto-exit with a scoped access message when the current project is revoked during scope shrink, so stale open pages no longer linger after access is removed.
 
 ## 1. 用途
 
@@ -170,7 +171,7 @@
 
 ### 7.3 Android
 
-- [ ] scope 收缩时不会残留可点击入口
+- [x] scope 收缩时不会残留可点击入口
 - [ ] 被限制时提示文案不是泛化错误
 - [ ] 本地旧缓存不会继续泄露未授权项目内容
 
