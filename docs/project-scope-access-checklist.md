@@ -1,6 +1,6 @@
 # 项目级授权 MVP 三端实施与发版检查表
 
-更新时间：2026-04-17
+更新时间：2026-04-22
 关联方案：[`docs/project-scope-access-mvp.md`](./project-scope-access-mvp.md)
 
 ## Progress Update
@@ -8,6 +8,7 @@
 - relay-server now filters device sync responses by project scope instead of stopping at agent-level grants.
 - relay transfer access now allows authorized controllers to list, view, and download files under granted projects.
 - sibling projects on the same shared agent remain hidden, and regression coverage now includes scoped full-sync, scoped delta cleanup, shared-project transfer access, and same-agent cross-project transfer denial.
+- scoped sync regression coverage now also verifies full-sync and delta stay consistent, and matching revisions no longer skip stale project removals.
 
 ## 1. 用途
 
@@ -63,7 +64,7 @@
 - [ ] 项目详情接口走 scope 校验
 - [ ] 文件下载接口走 scope + capability 校验
 - [ ] 诊断查看/导出接口走 capability 校验
-- [ ] scope 外项目不进入增量同步回包
+- [x] scope 外项目不进入增量同步回包
 
 ### 3.5 服务端测试
 
@@ -72,7 +73,7 @@
 - [ ] 过期授权测试
 - [ ] 文件下载越权测试
 - [ ] 诊断接口越权测试
-- [ ] scope 外项目不回传测试
+- [x] scope 外项目不回传测试
 
 ## 4. desktop 实施清单
 

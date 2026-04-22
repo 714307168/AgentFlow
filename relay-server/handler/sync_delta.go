@@ -64,7 +64,8 @@ func SyncDeltaHandler(h *hub.Hub, cfg *config.Config, st *store.Store) http.Hand
 		agentID, _ := st.GetDeviceAgentID(claims.DeviceID)
 		projects := h.GetAccessibleProjectsByDevice(claims.DeviceID)
 		revision := buildSyncRevision(agentID, projects)
-		if strings.TrimSpace(req.SinceRevision) != "" && strings.TrimSpace(req.SinceRevision) == revision {
+		hasKnownProjectState := len(req.KnownProjects) > 0 || len(req.KnownProjectIDs) > 0
+		if strings.TrimSpace(req.SinceRevision) != "" && strings.TrimSpace(req.SinceRevision) == revision && !hasKnownProjectState {
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(syncDeltaResponse{
 				AgentID:        agentID,

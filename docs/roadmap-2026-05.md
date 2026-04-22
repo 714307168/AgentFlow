@@ -363,6 +363,13 @@
   - 新增 [平台专项重新进入首发准备后再次收窄边界的短回写示例](./platform-track-reenter-launch-prep-rescope-again-writeback-examples.md)
   - 现在平台专项重回准备后又要二次缩范围时，也能直接复用短样例回写到路线图
 
+### 2026-04-22
+
+- `R-project-scope-access` 服务端回归继续压实：
+  - 修复 `device sync delta` 在 `since_revision` 已匹配时仍可能遗漏客户端陈旧项目移除的问题
+  - 新增项目级授权下 full-sync / delta 一致性回归测试
+  - 新增 matching revision + stale known projects 清理回归测试，避免 scope 收缩后残留旧项目
+
 ## 5. 文档拆分入口
 
 后续不要再把所有计划继续堆回这一份总览。
