@@ -5,6 +5,7 @@
 - `npm start`: run Electron from `dist/src/main.js`
 - `npm run build`: compile TypeScript and refresh renderer assets
 - `npm run dist:win`: build the Windows NSIS installer
+- `npm run dist:win:portable`: build a Windows portable package without the NSIS installer
 - `npm run dist`: build the default `electron-builder` targets
 
 ## User Data Directory
@@ -101,13 +102,25 @@ Build from `local-agent/`:
 npm install
 npm run build
 npm run dist:win
+npm run dist:win:portable
 ```
 
 Expected outputs:
 
 - `release/AgentFlow-<version>-x64-setup.exe`
 - `release/AgentFlow-<version>-x64-setup.exe.blockmap`
+- `release/AgentFlow-<version>-x64-portable.exe`
 - `release/win-unpacked/AgentFlow.exe`
+
+## Legacy Windows / Server Startup
+
+For older Windows environments, especially Windows Server 2016 class machines, the desktop app now supports a safer graphics startup path.
+
+- legacy Windows build `10.0.14393` and older automatically fall back to software-safe startup switches
+- you can also force this path manually with `--safe-mode`
+- you can set `AGENTFLOW_SAFE_MODE=true` before launching the app if you need to keep that behavior outside shortcuts
+
+This mode disables hardware acceleration before Electron finishes bootstrapping and applies conservative Chromium switches that are safer on older remote desktop or server environments.
 
 ## Related Docs
 

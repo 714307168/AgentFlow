@@ -79,6 +79,7 @@ import {
 } from "./provider-registry";
 import { createLocalCommandGateway, defineLocalCommand, type LocalCommandDescriptor } from "./local-command-gateway";
 import { buildGitHubCommandEnvironment } from "./github-command-env";
+import { applyDesktopStartupModePlan, buildDesktopStartupModePlan } from "./desktop-startup-mode";
 import {
   buildRelayFollowUpRefreshPasses,
   type RelayFollowUpRefreshPass,
@@ -339,6 +340,14 @@ function syncLocalDataRootSetting(nextRoot: string = app.getPath("userData")): v
 }
 
 syncLocalDataRootSetting();
+
+const desktopStartupModePlan = buildDesktopStartupModePlan({
+  platform: process.platform,
+  osRelease: os.release(),
+  argv: process.argv,
+  env: process.env,
+});
+applyDesktopStartupModePlan(app, desktopStartupModePlan);
 
 let tray: Tray | null = null;
 let mainWindow: BrowserWindow | null = null;
@@ -6452,6 +6461,13 @@ ipcMain.on("close-window", (event) => {
 });
 
 app.whenReady().then(async () => {
+  if (desktopStartupModePlan.safeGraphics) {
+    appLogger.info("app", "Applied desktop safe startup mode.", {
+      reasons: desktopStartupModePlan.reasons,
+      switches: desktopStartupModePlan.switches.map((entry) => entry.name),
+      osRelease: os.release(),
+    });
+  }
   tray = createTray();
   await refreshAgentToken(false);
   await refreshControllerToken(false);

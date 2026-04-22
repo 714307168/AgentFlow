@@ -1,0 +1,31 @@
+appId: com.claudecode.agent
+productName: "AgentFlow"
+asar: true
+publish:
+  provider: generic
+  url: "https://relay.liuyg.cn/downloads/desktop"
+  channel: stable
+
+files:
+  - "dist/**/*"
+  - "renderer/**/*"
+  - "assets/**/*"
+  - "package.json"
+
+directories:
+  output: release
+  buildResources: assets
+
+extraResources:
+  - from: node_modules/node-pty
+    to: node_modules/node-pty
+  - from: assets/sounds
+    to: sounds
+
+win:
+  icon: app-icon.ico
+  artifactName: "${productName}-${version}-${arch}-portable.${ext}"
+  target:
+    - target: portable
+      arch:
+        - x64
