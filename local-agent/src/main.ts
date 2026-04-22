@@ -66,7 +66,8 @@ import {
 } from "./user-data-bootstrap";
 import { playSystemNotificationSound } from "./desktop-sound";
 import { getCliProviderRuntimeStatuses, probeCliProviderRuntime, type CliProviderRuntimeStatus } from "./cli-runtime-status";
-import { upgradeCliProvider } from "./cli-updater";
+import { installCliProvider, upgradeCliProvider } from "./cli-updater";
+import { resolvePreferredNpmRegistry } from "./npm-network";
 import { selectProviderRuntime, type ProviderRuntimeSelection } from "./provider-runtime";
 import { isProviderSdkConfigured, type ProviderSdkConfig } from "./provider-sdk";
 import {
@@ -435,8 +436,8 @@ let lastActiveRemoteProjectSyncAt = 0;
 let lastAgentRelayRecoveryAt = 0;
 let lastControllerRelayRecoveryAt = 0;
 const relayFollowUpRefreshTimers = new Set<NodeJS.Timeout>();
-const lastCliProviderAutoUpgradeAt = new Map<CliProvider, number>();
-const pendingCliProviderAutoUpgrades = new Map<CliProvider, Promise<CliProviderRuntimeStatus>>();
+const lastCliProviderAutoMaintainAt = new Map<CliProvider, number>();
+const pendingCliProviderAutoMaintains = new Map<CliProvider, Promise<CliProviderRuntimeStatus>>();
 const cliProviderRuntimeStatusCache = createTimedAsyncCache<Record<CliProvider, CliProviderRuntimeStatus>>({
   ttlMs: CLI_PROVIDER_RUNTIME_STATUS_CACHE_TTL_MS,
   load: getCliProviderRuntimeStatuses,
@@ -477,58 +478,75 @@ function canAutoUpgradeCliProvider(status: CliProviderRuntimeStatus | null | und
   );
 }
 
-async function maybeAutoUpgradeCliProvider(status: CliProviderRuntimeStatus): Promise<CliProviderRuntimeStatus> {
-  if (!canAutoUpgradeCliProvider(status)) {
+function canAutoInstallCliProvider(status: CliProviderRuntimeStatus | null | undefined): status is CliProviderRuntimeStatus {
+  return Boolean(status && !status.installed);
+}
+
+async function maybeAutoMaintainCliProvider(status: CliProviderRuntimeStatus): Promise<CliProviderRuntimeStatus> {
+  if (!canAutoUpgradeCliProvider(status) && !canAutoInstallCliProvider(status)) {
     return status;
   }
 
-  const pendingUpgrade = pendingCliProviderAutoUpgrades.get(status.provider);
-  if (pendingUpgrade) {
-    return await pendingUpgrade;
+  const pendingMaintain = pendingCliProviderAutoMaintains.get(status.provider);
+  if (pendingMaintain) {
+    return await pendingMaintain;
   }
 
-  const lastStartedAt = lastCliProviderAutoUpgradeAt.get(status.provider) ?? 0;
+  const lastStartedAt = lastCliProviderAutoMaintainAt.get(status.provider) ?? 0;
   if (Date.now() - lastStartedAt < CLI_PROVIDER_AUTO_UPGRADE_COOLDOWN_MS) {
     return status;
   }
 
-  const upgradePromise = (async () => {
-    lastCliProviderAutoUpgradeAt.set(status.provider, Date.now());
-    appLogger.info("runtime", "Attempting automatic CLI upgrade.", {
-      provider: status.provider,
-      version: status.version,
-      installMethod: status.installMethod,
-      command: status.upgrade.commandPreview,
-      reason: status.upgrade.reason,
+  const maintainPromise = (async () => {
+    const provider = status.provider;
+    const version = status.version;
+    const installMethod = status.installMethod;
+    lastCliProviderAutoMaintainAt.set(provider, Date.now());
+    const shouldUpgrade = canAutoUpgradeCliProvider(status);
+    const action = shouldUpgrade ? "upgrade" : "install";
+    const commandPreview = shouldUpgrade
+      ? status.upgrade.commandPreview
+      : null;
+    appLogger.info("runtime", `Attempting automatic CLI ${action}.`, {
+      provider,
+      version,
+      installMethod,
+      command: commandPreview,
+      reason: shouldUpgrade ? status.upgrade.reason : "CLI is unavailable and the desktop is preparing a managed provider runtime.",
+      npmRegistry: resolvePreferredNpmRegistry(),
     });
 
-    const result = await upgradeCliProvider(status.provider, status.installMethod);
+    const result = shouldUpgrade
+      ? await upgradeCliProvider(provider, installMethod)
+      : await installCliProvider(provider);
     if (!result.success) {
-      appLogger.warn("runtime", "Automatic CLI upgrade failed.", {
-        provider: status.provider,
+      appLogger.warn("runtime", `Automatic CLI ${action} failed.`, {
+        provider,
         command: result.commandPreview,
         error: result.error,
         output: result.output,
+        npmRegistry: resolvePreferredNpmRegistry(),
       });
       return status;
     }
 
-    appLogger.info("runtime", "Automatic CLI upgrade completed.", {
-      provider: status.provider,
+    appLogger.info("runtime", `Automatic CLI ${action} completed.`, {
+      provider,
       command: result.commandPreview,
       output: result.output,
+      npmRegistry: resolvePreferredNpmRegistry(),
     });
 
     clearCliProviderRuntimeStatusCache();
-    return await probeCliProviderRuntime(status.provider);
+    return await probeCliProviderRuntime(provider);
   })();
 
-  pendingCliProviderAutoUpgrades.set(status.provider, upgradePromise);
+  pendingCliProviderAutoMaintains.set(status.provider, maintainPromise);
   try {
-    return await upgradePromise;
+    return await maintainPromise;
   } finally {
-    if (pendingCliProviderAutoUpgrades.get(status.provider) === upgradePromise) {
-      pendingCliProviderAutoUpgrades.delete(status.provider);
+    if (pendingCliProviderAutoMaintains.get(status.provider) === maintainPromise) {
+      pendingCliProviderAutoMaintains.delete(status.provider);
     }
   }
 }
@@ -542,7 +560,7 @@ async function getCliProviderRuntimeStatus(
   if (!options.allowAutoUpgrade) {
     return status;
   }
-  return await maybeAutoUpgradeCliProvider(status);
+  return await maybeAutoMaintainCliProvider(status);
 }
 
 async function getCliProviderRuntimeStatusSnapshot(

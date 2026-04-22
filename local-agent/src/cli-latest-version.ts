@@ -3,6 +3,7 @@ import type { CliInstallMethod } from "./cli-updater";
 import { getProviderInstallTargets } from "./provider-registry";
 import type { CliProvider } from "./runtime-types";
 import { normalizeCliVersionOutput } from "./cli-version";
+import { appendNpmRegistryArgs, buildNpmCommandEnvironment } from "./npm-network";
 
 const CLI_VERSION_QUERY_TIMEOUT_MS = 8_000;
 const CLI_VERSION_QUERY_MAX_BUFFER = 128 * 1024;
@@ -20,7 +21,11 @@ export async function detectCliProviderLatestVersion(
   try {
     if (installMethod === "npm") {
       const packageName = targets.npm.replace(/@latest$/u, "");
-      const result = await runCommand(platform === "win32" ? "npm.cmd" : "npm", ["view", packageName, "version", "--json"]);
+      const result = await runCommand(
+        platform === "win32" ? "npm.cmd" : "npm",
+        appendNpmRegistryArgs(["view", packageName, "version", "--json"]),
+        buildNpmCommandEnvironment(),
+      );
       return parseNpmLatestVersion(result.stdout, result.stderr);
     }
 
@@ -99,7 +104,11 @@ export function parseScoopLatestVersion(stdout: string, stderr: string, packageN
   return match?.[1] || null;
 }
 
-function runCommand(command: string, args: string[]): Promise<{ stdout: string; stderr: string }> {
+function runCommand(
+  command: string,
+  args: string[],
+  env?: NodeJS.ProcessEnv,
+): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     execFile(
       command,
@@ -108,6 +117,7 @@ function runCommand(command: string, args: string[]): Promise<{ stdout: string; 
         timeout: CLI_VERSION_QUERY_TIMEOUT_MS,
         maxBuffer: CLI_VERSION_QUERY_MAX_BUFFER,
         windowsHide: true,
+        env,
       },
       (error, stdout, stderr) => {
         if (error) {

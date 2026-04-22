@@ -1,12 +1,15 @@
 import { execFile } from "child_process";
 import { getProviderInstallTargets } from "./provider-registry";
 import type { CliProvider } from "./runtime-types";
+import { appendNpmRegistryArgs, buildNpmCommandEnvironment } from "./npm-network";
 
 export type CliInstallMethod = "npm" | "brew" | "scoop" | "winget" | "unknown";
+export type CliMaintenanceAction = "install" | "upgrade";
 
 export interface CliUpgradeCommand {
   command: string;
   args: string[];
+  env?: NodeJS.ProcessEnv;
 }
 
 export interface CliUpgradePlan {
@@ -63,6 +66,22 @@ export function buildCliUpgradeCommand(
   installMethod: CliInstallMethod | null,
   platform: NodeJS.Platform = process.platform,
 ): CliUpgradeCommand | null {
+  return buildCliMaintenanceCommand(provider, installMethod, "upgrade", platform);
+}
+
+export function buildCliInstallCommand(
+  provider: CliProvider,
+  platform: NodeJS.Platform = process.platform,
+): CliUpgradeCommand {
+  return buildCliMaintenanceCommand(provider, "npm", "install", platform)!;
+}
+
+export function buildCliMaintenanceCommand(
+  provider: CliProvider,
+  installMethod: CliInstallMethod | null,
+  action: CliMaintenanceAction,
+  platform: NodeJS.Platform = process.platform,
+): CliUpgradeCommand | null {
   if (!installMethod || installMethod === "unknown") {
     return null;
   }
@@ -70,11 +89,18 @@ export function buildCliUpgradeCommand(
   if (installMethod === "npm") {
     return {
       command: platform === "win32" ? "npm.cmd" : "npm",
-      args: ["install", "-g", getCliPackageName(provider)],
+      args: appendNpmRegistryArgs(["install", "-g", getCliPackageName(provider)]),
+      env: buildNpmCommandEnvironment(),
     };
   }
 
   if (installMethod === "brew") {
+    if (action === "install") {
+      return {
+        command: "brew",
+        args: ["install", getBrewFormulaName(provider)],
+      };
+    }
     return {
       command: "brew",
       args: ["upgrade", getBrewFormulaName(provider)],
@@ -82,6 +108,12 @@ export function buildCliUpgradeCommand(
   }
 
   if (installMethod === "scoop") {
+    if (action === "install") {
+      return {
+        command: "scoop",
+        args: ["install", getScoopPackageName(provider)],
+      };
+    }
     return {
       command: "scoop",
       args: ["update", getScoopPackageName(provider)],
@@ -89,6 +121,18 @@ export function buildCliUpgradeCommand(
   }
 
   if (installMethod === "winget") {
+    if (action === "install") {
+      return {
+        command: "winget",
+        args: [
+          "install",
+          "--id",
+          getWingetPackageId(provider),
+          "--accept-source-agreements",
+          "--accept-package-agreements",
+        ],
+      };
+    }
     return {
       command: "winget",
       args: [
@@ -117,14 +161,28 @@ export async function upgradeCliProvider(
   provider: CliProvider,
   installMethod: CliInstallMethod | null,
 ): Promise<{ success: boolean; output: string; commandPreview: string | null; error?: string }> {
-  const command = buildCliUpgradeCommand(provider, installMethod);
+  return await maintainCliProvider(provider, installMethod, "upgrade");
+}
+
+export async function installCliProvider(
+  provider: CliProvider,
+): Promise<{ success: boolean; output: string; commandPreview: string | null; error?: string }> {
+  return await maintainCliProvider(provider, "npm", "install");
+}
+
+export async function maintainCliProvider(
+  provider: CliProvider,
+  installMethod: CliInstallMethod | null,
+  action: CliMaintenanceAction,
+): Promise<{ success: boolean; output: string; commandPreview: string | null; error?: string }> {
+  const command = buildCliMaintenanceCommand(provider, installMethod, action);
   const commandPreview = formatCliUpgradeCommandPreview(command);
   if (!command) {
     return {
       success: false,
       output: "",
       commandPreview,
-      error: "Automatic CLI upgrade is not supported for this installation source.",
+      error: `Automatic CLI ${action} is not supported for this installation source.`,
     };
   }
 
@@ -136,6 +194,7 @@ export async function upgradeCliProvider(
         timeout: CLI_UPGRADE_TIMEOUT_MS,
         maxBuffer: CLI_UPGRADE_MAX_BUFFER,
         windowsHide: true,
+        env: command.env,
       },
       (error, stdout, stderr) => {
         const output = [stdout, stderr]

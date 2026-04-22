@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 
 const {
   detectCliInstallMethod,
+  buildCliInstallCommand,
   buildCliUpgradeCommand,
   formatCliUpgradeCommandPreview,
 } = require("../dist/src/cli-updater.js");
@@ -19,7 +20,12 @@ test("detectCliInstallMethod recognizes common install sources", () => {
 test("buildCliUpgradeCommand returns provider-specific package manager commands", () => {
   assert.deepEqual(buildCliUpgradeCommand("codex", "npm", "win32"), {
     command: "npm.cmd",
-    args: ["install", "-g", "@openai/codex@latest"],
+    args: ["install", "-g", "@openai/codex@latest", "--registry", "https://registry.npmmirror.com"],
+    env: {
+      ...process.env,
+      npm_config_registry: "https://registry.npmmirror.com",
+      NPM_CONFIG_REGISTRY: "https://registry.npmmirror.com",
+    },
   });
 
   assert.deepEqual(buildCliUpgradeCommand("claude", "brew", "darwin"), {
@@ -36,6 +42,18 @@ test("buildCliUpgradeCommand returns provider-specific package manager commands"
       "--accept-source-agreements",
       "--accept-package-agreements",
     ],
+  });
+});
+
+test("buildCliInstallCommand bootstraps a provider package through npm mirror", () => {
+  assert.deepEqual(buildCliInstallCommand("claude", "win32"), {
+    command: "npm.cmd",
+    args: ["install", "-g", "@anthropic-ai/claude-code@latest", "--registry", "https://registry.npmmirror.com"],
+    env: {
+      ...process.env,
+      npm_config_registry: "https://registry.npmmirror.com",
+      NPM_CONFIG_REGISTRY: "https://registry.npmmirror.com",
+    },
   });
 });
 

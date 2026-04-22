@@ -122,6 +122,18 @@ For older Windows environments, especially Windows Server 2016 class machines, t
 
 This mode disables hardware acceleration before Electron finishes bootstrapping and applies conservative Chromium switches that are safer on older remote desktop or server environments.
 
+## Provider Runtime Auto-Maintenance
+
+The desktop now keeps provider runtimes healthier with two automatic behaviors:
+
+- if a local Claude Code or Codex CLI is already installed and a newer compatible release is detected, the desktop will try to upgrade it automatically
+- if no local CLI is available, the desktop can bootstrap a managed provider runtime through npm so the machine does not stay permanently blocked on a missing CLI
+
+For npm-based provider runtime downloads and upgrades, the desktop automatically prefers a domestic npm mirror by default:
+
+- default registry: `https://registry.npmmirror.com`
+- override with `AGENTFLOW_NPM_REGISTRY` when you want to use another internal or regional mirror
+
 ## Related Docs
 
 - [README.md](../README.md)
