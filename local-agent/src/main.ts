@@ -1663,6 +1663,32 @@ async function captureProjectScreenshot(projectId: string): Promise<RunAttachmen
   });
 }
 
+function shouldInjectScheduledOptimizationExecutionPolicy(task: ScheduledTask): boolean {
+  const normalizedName = String(task.name ?? "").toLowerCase();
+  const normalizedPrompt = String(task.prompt ?? "").toLowerCase();
+  return normalizedName.includes("自动优化")
+    || normalizedName.includes("optimize")
+    || normalizedPrompt.includes("文档优化")
+    || normalizedPrompt.includes("优化文档")
+    || normalizedPrompt.includes("optimization")
+    || normalizedPrompt.includes("roadmap");
+}
+
+function buildScheduledTaskExecutionPolicy(task: ScheduledTask): string {
+  if (!shouldInjectScheduledOptimizationExecutionPolicy(task)) {
+    return "";
+  }
+  return [
+    "执行优先级：",
+    "1. 优先按现有文档、路线图、计划文档里已经定义好的功能做代码开发和 bug 修复，不要默认只写文档。",
+    "2. 只有当对应功能已经开发完成、当前轮次确实不适合继续落代码，或需要补齐说明与进度时，才做文档优化。",
+    "3. 做代码任务时，先实现功能，再运行相关测试或构建验证，然后更新对应文档和进度。",
+    "4. 如果文档里的功能点还没落地，就继续开发这些功能，不要把主要精力放在扩写文档上。",
+    "5. 若当前没有明确待开发功能，才进入新一轮文档整理、补充计划或经验沉淀。",
+    "",
+  ].join("\n");
+}
+
 function buildScheduledTaskPrompt(task: ScheduledTask, project: Project): string {
   const scheduleLabel = task.scheduleType === "daily"
     ? `daily ${task.dailyTime ?? "--:--"}`
@@ -1673,11 +1699,13 @@ function buildScheduledTaskPrompt(task: ScheduledTask, project: Project): string
     : (task.scheduleType === "weekly"
       ? `weekly day=${task.weeklyDay ?? "-"} ${task.dailyTime ?? "--:--"}`
       : `once ${task.runAt ? new Date(task.runAt).toLocaleString() : "unspecified"}`)));
+  const executionPolicy = buildScheduledTaskExecutionPolicy(task);
   return [
     `[Scheduled Task] ${task.name}`,
     `Project: ${project.name}`,
     `Schedule: ${scheduleLabel}`,
     "",
+    executionPolicy,
     task.prompt.trim(),
   ].join("\n");
 }
