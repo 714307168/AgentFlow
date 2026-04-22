@@ -252,6 +252,8 @@ Android 端使用 Room 和 Preferences 保存：
 - [平台专项验收通过但暂不首发的短回写示例](./docs/platform-track-accepted-but-not-launching-writeback-examples.md)
 - [平台专项首发窗口错过后的短回写示例](./docs/platform-track-missed-launch-window-writeback-examples.md)
 - [平台专项延期后重新进入首发准备的短回写示例](./docs/platform-track-reenter-launch-prep-writeback-examples.md)
+- [平台专项首发窗口临时前移后的短回写示例](./docs/platform-track-launch-window-moved-up-writeback-examples.md)
+- [平台专项重新进入首发准备后再次收窄边界的短回写示例](./docs/platform-track-reenter-launch-prep-rescope-again-writeback-examples.md)
 - [受控授权远程协作设计](./docs/controlled-remote-authorization.md)
 - [项目级授权 MVP 实施方案](./docs/project-scope-access-mvp.md)
 - [项目级授权三端实施与发版检查表](./docs/project-scope-access-checklist.md)
