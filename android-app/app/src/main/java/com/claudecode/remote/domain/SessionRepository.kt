@@ -66,7 +66,7 @@ class SessionRepository(
     )
 
     val sessions: Flow<List<Session>> = sessionDao.getInboxSessions().map { entities ->
-        entities.map { it.toSession() }
+        entities.map { it.toSessionModel() }
     }
 
     suspend fun initialize(): Result<Unit> {
@@ -244,15 +244,15 @@ class SessionRepository(
 
     suspend fun getSessions(): List<Session> {
         return sessionDao.getAllSessions().map { entities ->
-            entities.map { it.toSession() }
+            entities.map { it.toSessionModel() }
         }.first()
     }
 
     suspend fun getInboxSessionSnapshots(): List<Session> =
-        sessionDao.getInboxSessionsSnapshot().map { it.toSession() }
+        sessionDao.getInboxSessionsSnapshot().map { it.toSessionModel() }
 
     suspend fun getSessionSnapshot(projectId: String): Session? =
-        sessionDao.getSessionByProjectId(projectId)?.toSession()
+        sessionDao.getSessionByProjectId(projectId)?.toSessionModel()
 
     suspend fun processEnvelope(envelope: Envelope) {
         when (envelope.event) {
@@ -570,29 +570,4 @@ class SessionRepository(
         return value.ifEmpty { null }
     }
 
-    private fun SessionEntity.toSession() = Session(
-        id = id,
-        name = name,
-        agentId = agentId,
-        projectId = projectId,
-        projectPath = projectPath,
-        groupName = groupName,
-        cliProvider = cliProvider,
-        cliModel = cliModel,
-        isAgentOnline = isAgentOnline,
-        isRunning = isRunning,
-        queuedCount = queuedCount,
-        currentPrompt = currentPrompt,
-        queuePreview = queuePreview,
-        queueJson = queueJson,
-        currentStartedAt = currentStartedAt,
-        activeConversationId = activeConversationId,
-        activeConversationTitle = activeConversationTitle,
-        conversationsJson = conversationsJson,
-        snapshotRevision = snapshotRevision,
-        projectSignature = projectSignature,
-        syncBucket = syncBucket,
-        createdAt = createdAt,
-        lastActiveAt = lastActiveAt
-    )
 }

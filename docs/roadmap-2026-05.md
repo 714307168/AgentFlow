@@ -1,6 +1,6 @@
 # 2026-05 路线图总览
 
-更新时间：2026-04-21
+更新时间：2026-04-22
 
 这份文档只保留当前真正还需要持续推进的主线、最近已经完成的节点，以及后续该看哪份细化文档。
 
@@ -424,6 +424,7 @@
 - Android 端已把冷项目 / dormant 项目的后台 shell sync 下一次检查时间持久化到本地 `sessions` 表，App 重启后仍能延续 TTL 降频策略。
 - `SessionShellSyncPlanner` 已改为同时参考 `sync_bucket` 和持久化的 `nextBackgroundCheckAfter`，避免冷项目在进程重启后重新回到高频抽样。
 - 已补 Android 单测覆盖持久化 TTL 阻塞与下一次检查时间计算，确保后续继续优化同步省流量时不会回退。
+- 本轮又补了 Android 侧共享 `SessionEntity` 映射，修掉 `SessionRepository` 漏传 `nextBackgroundCheckAfter` 的实际缺口，避免同步 TTL 只在部分入口生效。
 
 ## 6. 下一轮文档迭代计划
 

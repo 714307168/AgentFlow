@@ -11,6 +11,7 @@
 - Android session cache now persists `nextBackgroundCheckAfter` per project, so cold/dormant TTL gating survives process restarts instead of living only in memory.
 - Background session-shell sync now writes the next scheduled check timestamp back into Room after each selected project is queued.
 - Planner coverage now explicitly verifies that persisted `nextBackgroundCheckAfter` blocks cold projects until due while still allowing hot projects through immediately.
+- Android `SessionEntity -> Session` mapping is now centralized in one shared mapper, preventing `nextBackgroundCheckAfter`, `syncBucket`, and other shell metadata from drifting between repository paths.
 
 ## 1. 背景
 

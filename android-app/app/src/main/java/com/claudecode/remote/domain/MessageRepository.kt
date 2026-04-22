@@ -924,11 +924,11 @@ class MessageRepository(
 
     fun getSessionForProject(projectId: String): Flow<Session?> =
         sessionDao.observeSessionByProjectId(projectId).map { entity ->
-            entity?.toSession()
+            entity?.toSessionModel()
         }
 
     suspend fun getSessionForProjectSnapshot(projectId: String): Session? =
-        sessionDao.getSessionByProjectId(projectId)?.toSession()
+        sessionDao.getSessionByProjectId(projectId)?.toSessionModel()
 
     private suspend fun addMessage(message: Message, conversationId: String? = null) {
         val resolvedConversationId = conversationId?.trim()?.takeIf { it.isNotEmpty() }
@@ -2356,33 +2356,6 @@ class MessageRepository(
             filePath = resolvedPath.ifBlank { null }
         )
     }
-
-    private fun com.claudecode.remote.data.local.SessionEntity.toSession() = Session(
-        id = id,
-        name = name,
-        agentId = agentId,
-        projectId = projectId,
-        projectPath = projectPath,
-        groupName = groupName,
-        cliProvider = cliProvider,
-        cliModel = cliModel,
-        isAgentOnline = isAgentOnline,
-        isRunning = isRunning,
-        queuedCount = queuedCount,
-        currentPrompt = currentPrompt,
-        queuePreview = queuePreview,
-        queueJson = queueJson,
-        currentStartedAt = currentStartedAt,
-        activeConversationId = activeConversationId,
-        activeConversationTitle = activeConversationTitle,
-        conversationsJson = conversationsJson,
-        snapshotRevision = snapshotRevision,
-        projectSignature = projectSignature,
-        syncBucket = syncBucket,
-        createdAt = createdAt,
-        lastActiveAt = lastActiveAt,
-        nextBackgroundCheckAfter = nextBackgroundCheckAfter
-    )
 
     private fun parseMessageRole(raw: String): MessageRole =
         enumValues<MessageRole>().firstOrNull { it.name == raw.uppercase() } ?: MessageRole.ASSISTANT
