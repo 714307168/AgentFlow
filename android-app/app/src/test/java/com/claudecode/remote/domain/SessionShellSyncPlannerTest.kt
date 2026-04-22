@@ -124,6 +124,47 @@ class SessionShellSyncPlannerTest {
         assertEquals(listOf("dormant-project"), selected.map { it.projectId })
     }
 
+    @Test
+    fun `selectSessionShellSyncTargets skips sessions until persisted next background check time arrives`() {
+        val nowMs = 3 * SESSION_SHELL_SYNC_DORMANT_AGE_MS
+        val selected = selectSessionShellSyncTargets(
+            sessions = listOf(
+                session(projectId = "cold-project", syncBucket = "cold", nextBackgroundCheckAfter = nowMs + 5_000L),
+                session(projectId = "hot-project", syncBucket = "hot", nextBackgroundCheckAfter = nowMs + 5_000L),
+            ),
+            maxProjects = 2,
+            nowMs = nowMs
+        )
+
+        assertEquals(listOf("hot-project"), selected.map { it.projectId })
+    }
+
+    @Test
+    fun `computeSessionShellNextBackgroundCheckAfter only returns ttl for cold and dormant sessions`() {
+        val nowMs = 10_000L
+        assertEquals(
+            nowMs + SESSION_SHELL_SYNC_COLD_INTERVAL_MS,
+            computeSessionShellNextBackgroundCheckAfter(
+                session = session(projectId = "cold-project", syncBucket = "cold"),
+                nowMs = nowMs
+            )
+        )
+        assertEquals(
+            nowMs + SESSION_SHELL_SYNC_DORMANT_INTERVAL_MS,
+            computeSessionShellNextBackgroundCheckAfter(
+                session = session(projectId = "dormant-project", syncBucket = "dormant"),
+                nowMs = nowMs
+            )
+        )
+        assertEquals(
+            null,
+            computeSessionShellNextBackgroundCheckAfter(
+                session = session(projectId = "hot-project", syncBucket = "hot"),
+                nowMs = nowMs
+            )
+        )
+    }
+
     private fun session(
         projectId: String,
         agentId: String = "agent-1",
@@ -134,7 +175,8 @@ class SessionShellSyncPlannerTest {
         createdAt: Long = 1L,
         snapshotRevision: String? = null,
         projectSignature: String? = null,
-        syncBucket: String? = null
+        syncBucket: String? = null,
+        nextBackgroundCheckAfter: Long? = null
     ): Session = Session(
         id = "$agentId::$projectId",
         name = projectId,
@@ -148,6 +190,7 @@ class SessionShellSyncPlannerTest {
         projectSignature = projectSignature,
         syncBucket = syncBucket,
         createdAt = createdAt,
-        lastActiveAt = lastActiveAt
+        lastActiveAt = lastActiveAt,
+        nextBackgroundCheckAfter = nextBackgroundCheckAfter
     )
 }

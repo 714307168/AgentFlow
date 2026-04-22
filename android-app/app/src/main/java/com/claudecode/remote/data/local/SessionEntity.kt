@@ -28,5 +28,6 @@ data class SessionEntity(
     val projectSignature: String? = null,
     val syncBucket: String? = null,
     val createdAt: Long,
-    val lastActiveAt: Long
+    val lastActiveAt: Long,
+    val nextBackgroundCheckAfter: Long? = null
 )

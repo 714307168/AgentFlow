@@ -1,6 +1,6 @@
 # Project Sync Signature 设计
 
-更新时间：2026-04-15
+更新时间：2026-04-22
 
 ## Progress Update
 
@@ -8,6 +8,9 @@
 - `cold` projects are sampled at most once every 30 minutes during background shell sync rounds.
 - `dormant` projects are sampled at most once every 4 hours during background shell sync rounds.
 - Forced or manual sync paths still bypass this gate so explicit refresh stays immediate.
+- Android session cache now persists `nextBackgroundCheckAfter` per project, so cold/dormant TTL gating survives process restarts instead of living only in memory.
+- Background session-shell sync now writes the next scheduled check timestamp back into Room after each selected project is queued.
+- Planner coverage now explicitly verifies that persisted `nextBackgroundCheckAfter` blocks cold projects until due while still allowing hot projects through immediately.
 
 ## 1. 背景
 

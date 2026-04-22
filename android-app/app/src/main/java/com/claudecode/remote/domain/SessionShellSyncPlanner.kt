@@ -6,6 +6,14 @@ internal const val SESSION_SHELL_SYNC_MAX_PROJECTS = 6
 internal const val SESSION_SHELL_SYNC_LIMIT = 12
 internal const val SESSION_SHELL_SYNC_RECENT_OVERLAP_COUNT = 3
 
+internal fun computeSessionShellNextBackgroundCheckAfter(
+    session: Session,
+    nowMs: Long = System.currentTimeMillis()
+): Long? {
+    val intervalMs = resolveSessionShellSyncIntervalMs(resolveSessionSyncBucket(session, nowMs)) ?: return null
+    return nowMs + intervalMs
+}
+
 internal fun selectSessionShellSyncTargets(
     sessions: List<Session>,
     maxProjects: Int = SESSION_SHELL_SYNC_MAX_PROJECTS,
@@ -80,10 +88,10 @@ private fun shouldScheduleSessionShellBackgroundSync(
     lastBackgroundSyncRequestedAtMs: Long?,
     nowMs: Long
 ): Boolean {
-    val intervalMs = when (resolveSessionSyncBucket(session, nowMs)) {
-        SYNC_BUCKET_COLD -> SESSION_SHELL_SYNC_COLD_INTERVAL_MS
-        SYNC_BUCKET_DORMANT -> SESSION_SHELL_SYNC_DORMANT_INTERVAL_MS
-        else -> return true
+    val intervalMs = resolveSessionShellSyncIntervalMs(resolveSessionSyncBucket(session, nowMs)) ?: return true
+    val nextBackgroundCheckAfter = session.nextBackgroundCheckAfter
+    if (nextBackgroundCheckAfter != null && nextBackgroundCheckAfter > nowMs) {
+        return false
     }
     val lastRequestedAtMs = lastBackgroundSyncRequestedAtMs ?: return true
     if (nowMs <= lastRequestedAtMs) {
@@ -91,6 +99,13 @@ private fun shouldScheduleSessionShellBackgroundSync(
     }
     return nowMs - lastRequestedAtMs >= intervalMs
 }
+
+private fun resolveSessionShellSyncIntervalMs(bucket: String): Long? =
+    when (bucket) {
+        SYNC_BUCKET_COLD -> SESSION_SHELL_SYNC_COLD_INTERVAL_MS
+        SYNC_BUCKET_DORMANT -> SESSION_SHELL_SYNC_DORMANT_INTERVAL_MS
+        else -> null
+    }
 
 private fun resolveSessionSyncBucket(session: Session, nowMs: Long): String =
     resolveSessionSyncBucket(

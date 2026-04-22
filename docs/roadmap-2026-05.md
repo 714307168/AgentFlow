@@ -418,6 +418,13 @@
 - 发布和更新中心： [更新中心与发布说明](./release-and-update-center.md)
 - 发布止损： [版本回滚与撤回操作模板](./release-rollback-and-retract-template.md)
 
+### 本轮代码回写 2026-04-22
+
+- `R-sync-precision` 本轮继续落代码，不是只补文档。
+- Android 端已把冷项目 / dormant 项目的后台 shell sync 下一次检查时间持久化到本地 `sessions` 表，App 重启后仍能延续 TTL 降频策略。
+- `SessionShellSyncPlanner` 已改为同时参考 `sync_bucket` 和持久化的 `nextBackgroundCheckAfter`，避免冷项目在进程重启后重新回到高频抽样。
+- 已补 Android 单测覆盖持久化 TTL 阻塞与下一次检查时间计算，确保后续继续优化同步省流量时不会回退。
+
 ## 6. 下一轮文档迭代计划
 
 下一轮自动优化继续做三类收口：

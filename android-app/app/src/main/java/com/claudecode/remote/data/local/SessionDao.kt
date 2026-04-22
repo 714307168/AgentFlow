@@ -134,6 +134,9 @@ interface SessionDao {
     @Query("UPDATE sessions SET lastSyncSeq = :lastSyncSeq WHERE projectId = :projectId")
     suspend fun updateLastSyncSeq(projectId: String, lastSyncSeq: Long)
 
+    @Query("UPDATE sessions SET nextBackgroundCheckAfter = :nextBackgroundCheckAfter WHERE projectId = :projectId")
+    suspend fun updateNextBackgroundCheckAfter(projectId: String, nextBackgroundCheckAfter: Long?)
+
     @Query(
         """
         UPDATE sessions

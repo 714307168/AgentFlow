@@ -339,6 +339,15 @@ class MessageRepository(
             }
         }
         selectedSessions.forEach { session ->
+            sessionDao.updateNextBackgroundCheckAfter(
+                projectId = session.projectId,
+                nextBackgroundCheckAfter = computeSessionShellNextBackgroundCheckAfter(
+                    session = session,
+                    nowMs = nowMs
+                )
+            )
+        }
+        selectedSessions.forEach { session ->
             requestProjectSync(
                 projectId = session.projectId,
                 agentId = session.agentId,
@@ -2371,7 +2380,8 @@ class MessageRepository(
         projectSignature = projectSignature,
         syncBucket = syncBucket,
         createdAt = createdAt,
-        lastActiveAt = lastActiveAt
+        lastActiveAt = lastActiveAt,
+        nextBackgroundCheckAfter = nextBackgroundCheckAfter
     )
 
     private fun parseMessageRole(raw: String): MessageRole =
