@@ -304,16 +304,12 @@ class SessionRepository(
             )
             return
         }
-        val nextProjectIds = projects.map { it.id }.toSet()
-        val removedProjectIds = if (fullReplace) {
-            existingByProjectId.keys - nextProjectIds
-        } else {
-            existingByProjectId.values
-                .filter { it.agentId == agentId }
-                .map { it.projectId }
-                .filter { !nextProjectIds.contains(it) }
-                .toSet()
-        }
+        val removedProjectIds = buildRemovedProjectIdsForReplacement(
+            existingSessions = existingByProjectId.values,
+            nextProjects = projects,
+            agentId = agentId,
+            fullReplace = fullReplace
+        )
 
         db.withTransaction {
             projects.forEach { project ->
@@ -325,8 +321,7 @@ class SessionRepository(
             }
 
             removedProjectIds.forEach { projectId ->
-                sessionDao.deleteSessionByProjectId(projectId)
-                messageDao.deleteMessagesByProject(projectId)
+                deleteProjectLocally(projectId)
             }
         }
     }
@@ -349,11 +344,10 @@ class SessionRepository(
                 }
             }
             .associateBy { it.id }
-        val normalizedRemoves = projectRemoves
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
-            .distinct()
-            .filterNot { normalizedUpserts.containsKey(it) }
+        val normalizedRemoves = buildRemovedProjectIdsForDelta(
+            projectRemoves = projectRemoves,
+            retainedProjectIds = normalizedUpserts.keys
+        )
 
         db.withTransaction {
             normalizedUpserts.values.forEach { project ->
@@ -372,8 +366,7 @@ class SessionRepository(
 
             normalizedRemoves.forEach { projectId ->
                 cancelPendingOffline(projectId)
-                sessionDao.deleteSessionByProjectId(projectId)
-                messageDao.deleteMessagesByProject(projectId)
+                deleteProjectLocally(projectId)
             }
         }
     }
@@ -439,10 +432,7 @@ class SessionRepository(
         db.withTransaction {
             removedProjectIds.forEach { projectId ->
                 cancelPendingOffline(projectId)
-                sessionDao.deleteSessionByProjectId(projectId)
-                messageDao.deleteMessagesByProject(projectId)
-                tokenStore.clearDraft(projectId)
-                tokenStore.clearProjectChatSnapshot(projectId)
+                deleteProjectLocally(projectId)
             }
         }
         CrashLogger.logInfo(
@@ -462,6 +452,13 @@ class SessionRepository(
                 "Purged $deletedCount legacy workgroup messages from project message storage"
             )
         }
+    }
+
+    private suspend fun deleteProjectLocally(projectId: String) {
+        sessionDao.deleteSessionByProjectId(projectId)
+        messageDao.deleteMessagesByProject(projectId)
+        tokenStore.clearDraft(projectId)
+        tokenStore.clearProjectChatSnapshot(projectId)
     }
 
     private fun scheduleOfflineStatus(projectId: String, timestamp: Long) {

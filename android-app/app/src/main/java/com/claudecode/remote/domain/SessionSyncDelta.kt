@@ -47,6 +47,48 @@ internal fun buildKnownProjectIdsForDelta(sessions: Collection<SessionEntity>): 
         .sorted()
         .toList()
 
+internal fun buildRemovedProjectIdsForReplacement(
+    existingSessions: Collection<SessionEntity>,
+    nextProjects: Collection<ProjectInfo>,
+    agentId: String,
+    fullReplace: Boolean
+): Set<String> {
+    val nextProjectIds = nextProjects
+        .asSequence()
+        .map { project -> project.id.trim() }
+        .filter { it.isNotEmpty() }
+        .toSet()
+
+    return existingSessions
+        .asSequence()
+        .filter { session ->
+            val projectId = session.projectId.trim()
+            projectId.isNotEmpty() && (fullReplace || session.agentId == agentId)
+        }
+        .map { session -> session.projectId.trim() }
+        .filter { projectId -> projectId !in nextProjectIds }
+        .toSet()
+}
+
+internal fun buildRemovedProjectIdsForDelta(
+    projectRemoves: Collection<String>,
+    retainedProjectIds: Collection<String>
+): List<String> {
+    val retained = retainedProjectIds
+        .asSequence()
+        .map { it.trim() }
+        .filter { it.isNotEmpty() }
+        .toSet()
+
+    return projectRemoves
+        .asSequence()
+        .map { it.trim() }
+        .filter { it.isNotEmpty() }
+        .distinct()
+        .filter { it !in retained }
+        .toList()
+}
+
 internal fun mergeSessionEntityFromProject(
     existing: SessionEntity?,
     project: ProjectInfo,

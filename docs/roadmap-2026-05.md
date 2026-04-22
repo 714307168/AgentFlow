@@ -376,6 +376,10 @@
   - 收紧 cached scope 判断，显式项目授权下不再放行 blank / unknown agent 的聊天路由
   - 补齐旧深链 / 旧缓存页越权打开回归测试
   - 补齐未知 agent 缓存会话剔除回归测试，避免 scope 收缩后残留陈旧项目
+- `R-project-scope-access` Android 本地清理路径继续收口：
+  - 统一 full sync / delta sync / scope prune 的项目移除清理逻辑
+  - 项目被移除时，同步清理本地 draft 和 chat snapshot，避免会话记录删掉后仍残留旧输入或旧聊天快照
+  - 补齐 replacement / delta remove 纯函数回归测试，压实撤销授权后的本地缓存收缩行为
 
 ## 5. 文档拆分入口
 

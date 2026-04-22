@@ -1,6 +1,7 @@
 package com.claudecode.remote.domain
 
 import com.claudecode.remote.data.local.SessionEntity
+import com.claudecode.remote.data.remote.ProjectInfo
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -36,13 +37,61 @@ class SessionSyncDeltaTest {
         assertEquals(listOf("project-a", "project-b"), knownProjectIds)
     }
 
+    @Test
+    fun `buildRemovedProjectIdsForReplacement removes missing projects on full replace`() {
+        val removedProjectIds = buildRemovedProjectIdsForReplacement(
+            existingSessions = listOf(
+                sessionEntity(projectId = "project-a", agentId = "agent-1"),
+                sessionEntity(projectId = "project-b", agentId = "agent-2"),
+                sessionEntity(projectId = "project-c", agentId = "agent-2"),
+            ),
+            nextProjects = listOf(
+                projectInfo(projectId = "project-a"),
+                projectInfo(projectId = "project-c")
+            ),
+            agentId = "agent-1",
+            fullReplace = true
+        )
+
+        assertEquals(setOf("project-b"), removedProjectIds)
+    }
+
+    @Test
+    fun `buildRemovedProjectIdsForReplacement only removes projects under the updated agent on partial replace`() {
+        val removedProjectIds = buildRemovedProjectIdsForReplacement(
+            existingSessions = listOf(
+                sessionEntity(projectId = "project-a", agentId = "agent-1"),
+                sessionEntity(projectId = "project-b", agentId = "agent-1"),
+                sessionEntity(projectId = "project-c", agentId = "agent-2"),
+            ),
+            nextProjects = listOf(
+                projectInfo(projectId = "project-a")
+            ),
+            agentId = "agent-1",
+            fullReplace = false
+        )
+
+        assertEquals(setOf("project-b"), removedProjectIds)
+    }
+
+    @Test
+    fun `buildRemovedProjectIdsForDelta trims dedupes and skips projects that are re-upserted`() {
+        val removedProjectIds = buildRemovedProjectIdsForDelta(
+            projectRemoves = listOf("project-a", " project-b ", "project-a", "", "project-c"),
+            retainedProjectIds = listOf("project-b")
+        )
+
+        assertEquals(listOf("project-a", "project-c"), removedProjectIds)
+    }
+
     private fun sessionEntity(
         projectId: String,
+        agentId: String = "agent-1",
         syncBucket: String? = null,
     ): SessionEntity = SessionEntity(
         id = projectId.ifBlank { "blank" },
         name = projectId.ifBlank { "blank" },
-        agentId = "agent-1",
+        agentId = agentId,
         projectId = projectId,
         projectPath = "/tmp/$projectId",
         cliProvider = "claude",
@@ -63,5 +112,15 @@ class SessionSyncDeltaTest {
         syncBucket = syncBucket,
         createdAt = 1L,
         lastActiveAt = 1L
+    )
+
+    private fun projectInfo(projectId: String): ProjectInfo = ProjectInfo(
+        id = projectId,
+        name = projectId,
+        path = "/tmp/$projectId",
+        agentId = "",
+        cliProvider = "claude",
+        cliModel = null,
+        online = true
     )
 }
