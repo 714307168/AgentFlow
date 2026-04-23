@@ -176,6 +176,7 @@ fun ChatScreen(
     var scopedTransfers by remember(projectId) { mutableStateOf(emptyList<TransferCenterItem>()) }
     var isRefreshingTransfers by remember(projectId) { mutableStateOf(false) }
     var busyTransferId by remember(projectId) { mutableStateOf<String?>(null) }
+    val projectTransfersEnabled = isProjectTransferEntryEnabled(uiState.fileDownloadsAllowed)
 
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenMultipleDocuments()
@@ -213,8 +214,8 @@ fun ChatScreen(
         }
     }
 
-    LaunchedEffect(projectId, transferRefreshToken, uiState.fileDownloadsAllowed) {
-        if (projectId.isBlank() || !uiState.fileDownloadsAllowed) {
+    LaunchedEffect(projectId, transferRefreshToken, projectTransfersEnabled) {
+        if (!shouldLoadProjectTransfers(projectId, projectTransfersEnabled)) {
             scopedTransfers = emptyList()
             showTransferSheet = false
             busyTransferId = null
@@ -248,8 +249,8 @@ fun ChatScreen(
         onNavigateBack()
     }
 
-    LaunchedEffect(uiState.fileDownloadsAllowed) {
-        if (uiState.fileDownloadsAllowed) {
+    LaunchedEffect(projectTransfersEnabled) {
+        if (projectTransfersEnabled) {
             return@LaunchedEffect
         }
         showTransferSheet = false
@@ -576,8 +577,7 @@ fun ChatScreen(
                 )
             },
             primaryActionEnabled = canUseAttachmentPrimaryAction(
-                context = context,
-                attachment = target.attachment,
+                isDownloaded = isAttachmentDownloaded(context, target.attachment),
                 fileDownloadsAllowed = uiState.fileDownloadsAllowed
             ),
             onDismiss = { previewAttachment = null }
@@ -689,16 +689,19 @@ fun ChatScreen(
                     isConnected = uiState.isConnected,
                     runtimeText = runtimeLabel(uiState),
                     runtimeTone = runtimeColor(uiState),
-                    transferCount = if (uiState.fileDownloadsAllowed) scopedTransfers.size else 0,
+                    transferCount = visibleProjectTransferCount(
+                        scopedTransferCount = scopedTransfers.size,
+                        transfersEnabled = projectTransfersEnabled
+                    ),
                     onNavigateBack = onNavigateBack,
                     onRefresh = {
                         viewModel.refresh()
-                        if (uiState.fileDownloadsAllowed) {
+                        if (projectTransfersEnabled) {
                             transferRefreshToken += 1
                         }
                     },
                     onOpenTransfers = {
-                        if (uiState.fileDownloadsAllowed) {
+                        if (projectTransfersEnabled) {
                             showTransferSheet = true
                         }
                     },
@@ -710,7 +713,7 @@ fun ChatScreen(
                     conversationEnabled = uiState.isConnected,
                     refreshEnabled = !uiState.isSwitchingConversation,
                     modelEnabled = uiState.isConnected && !uiState.isSending,
-                    transfersEnabled = uiState.fileDownloadsAllowed
+                    transfersEnabled = projectTransfersEnabled
                 )
 
                 Surface(
@@ -1820,8 +1823,7 @@ private fun AttachmentGallery(
                     borderColor = borderColor,
                     isDownloading = attachment.id in downloadingAttachmentIds,
                     primaryActionEnabled = canUseAttachmentPrimaryAction(
-                        context = context,
-                        attachment = attachment,
+                        isDownloaded = isAttachmentDownloaded(context, attachment),
                         fileDownloadsAllowed = fileDownloadsAllowed
                     ),
                     onPrimaryAction = { onAttachmentAction(attachment) },
@@ -1834,8 +1836,7 @@ private fun AttachmentGallery(
                     borderColor = borderColor,
                     isDownloading = attachment.id in downloadingAttachmentIds,
                     primaryActionEnabled = canUseAttachmentPrimaryAction(
-                        context = context,
-                        attachment = attachment,
+                        isDownloaded = isAttachmentDownloaded(context, attachment),
                         fileDownloadsAllowed = fileDownloadsAllowed
                     ),
                     onPrimaryAction = { onAttachmentAction(attachment) }
@@ -2143,21 +2144,33 @@ private fun handleAttachmentAction(
     attachment: MessageAttachment,
     fileDownloadsAllowed: Boolean
 ) {
-    if (!canUseAttachmentPrimaryAction(context, attachment, fileDownloadsAllowed)) {
+    val isDownloaded = isAttachmentDownloaded(context, attachment)
+    if (!canUseAttachmentPrimaryAction(isDownloaded, fileDownloadsAllowed)) {
         return
     }
-    if (isAttachmentDownloaded(context, attachment)) {
+    if (isDownloaded) {
         openDownloadedAttachment(context, attachment)
     } else {
         viewModel.downloadAttachment(messageId, attachment)
     }
 }
 
-private fun canUseAttachmentPrimaryAction(
-    context: Context,
-    attachment: MessageAttachment,
+internal fun canUseAttachmentPrimaryAction(
+    isDownloaded: Boolean,
     fileDownloadsAllowed: Boolean
-): Boolean = isAttachmentDownloaded(context, attachment) || fileDownloadsAllowed
+): Boolean = isDownloaded || fileDownloadsAllowed
+
+internal fun isProjectTransferEntryEnabled(fileDownloadsAllowed: Boolean): Boolean = fileDownloadsAllowed
+
+internal fun shouldLoadProjectTransfers(
+    projectId: String,
+    transfersEnabled: Boolean
+): Boolean = projectId.isNotBlank() && transfersEnabled
+
+internal fun visibleProjectTransferCount(
+    scopedTransferCount: Int,
+    transfersEnabled: Boolean
+): Int = if (transfersEnabled) scopedTransferCount else 0
 
 private fun openDownloadedAttachment(context: Context, attachment: MessageAttachment) {
     val uri = resolveAttachmentOpenUri(context, attachment) ?: return

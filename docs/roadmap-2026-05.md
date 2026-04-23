@@ -386,6 +386,7 @@
   - 已打开聊天页若在撤权后失去访问权，会同步清理本地 draft 和持久化 chat snapshot，并阻止旧快照再次写回，避免本地残留继续泄露未授权项目内容
   - 细分旧深链/旧缓存页被挡住与“已打开聊天页后续被撤权”两类提示文案，避免访问受限时继续显示泛化提示
   - Android 已接入 `allowFileDownload` 能力字段，项目聊天页会按 cached scope 跳过 transfer 拉取、禁用 transfer 入口，并阻止未下载附件继续触发下载动作；缺少该字段时保持兼容放行
+  - Android 聊天页的文件权限分支已收口成共享 helper，并补了入口/拉取/已下载附件兜底的纯单测，避免后续继续在 UI 层散落重复判断
   - Android 项目聊天页现在也会按 cached scope 的 `capabilityBundle` 控制输入能力：`observe` 只能看，不能发消息或加附件；旧 relay 返回缺少该字段时继续兼容放行
   - Android 本地 project scope 守卫本轮补齐了 diagnostics 分支：已新增 cached-scope 诊断权限判断与纯函数回归测试，后续接诊断入口 UI 时可以直接复用同一套本地授权判断
 - Android 传输交互重复逻辑本轮继续收口：
