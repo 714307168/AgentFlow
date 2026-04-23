@@ -15,6 +15,7 @@
 - Android chat revocation cleanup now also clears local draft and persisted chat snapshot when an already-open project loses scope, and revoked pages no longer re-persist stale local snapshots after access is removed.
 - Android project access denial prompts are now reason-specific: old deep links and stale cached routes show a scope-blocked message, while already-open chats revoked during scope shrink show a live revocation message.
 - Android now parses `allowFileDownload` from cached `effective-scope` and applies it to project chat transfer loading, transfer entry state, and attachment download actions, while keeping legacy relay responses compatible by defaulting missing fields to allowed.
+- Android project chat compose is now gated by capability bundle as well: `observe` can no longer send or attach in project chats, while legacy relay payloads without `capabilityBundle` remain compatible and allowed.
 
 ## 1. 用途
 
@@ -135,7 +136,7 @@
 - [x] scope 外项目不能通过旧深链或旧缓存页打开
 - [x] 文件下载入口按能力包隐藏或禁用
 - [ ] 诊断入口按能力包隐藏或禁用
-- [ ] 发消息入口按能力包限制
+- [x] 发消息入口按能力包限制
 
 ### 5.4 Android 测试
 

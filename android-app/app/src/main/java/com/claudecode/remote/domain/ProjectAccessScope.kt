@@ -66,6 +66,19 @@ internal class ProjectAccessScope private constructor(
         return scope.isOwned || scope.allowDiagnostics
     }
 
+    fun canSendProjectMessages(agentId: String, projectId: String): Boolean {
+        if (!canAccessProject(agentId, projectId)) {
+            return false
+        }
+        if (!hasExplicitAgentScopes) {
+            return true
+        }
+        val scope = scopesByAgentId[agentId.trim()] ?: return false
+        return scope.isOwned ||
+            scope.capabilityBundle.isBlank() ||
+            capabilityBundlePriority(scope.capabilityBundle) >= capabilityBundlePriority("collaborate")
+    }
+
     fun filterProjects(
         fallbackAgentId: String,
         projects: Collection<ProjectInfo>

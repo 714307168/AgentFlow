@@ -11,6 +11,7 @@ import com.claudecode.remote.data.remote.RelayWebSocket
 import com.claudecode.remote.domain.MessageRepository
 import com.claudecode.remote.domain.ProjectAccessNoticeKind
 import com.claudecode.remote.domain.isProjectFileDownloadAllowedByCachedScope
+import com.claudecode.remote.domain.isProjectMessagingAllowedByCachedScope
 import com.claudecode.remote.domain.resolveProjectSessionAccessState
 import com.claudecode.remote.util.CrashLogger
 import kotlinx.coroutines.Job
@@ -128,7 +129,8 @@ data class ChatUiState(
     val conversations: List<ConversationItem> = emptyList(),
     val projectAccessRevoked: Boolean = false,
     val projectAccessNoticeKind: ProjectAccessNoticeKind? = null,
-    val fileDownloadsAllowed: Boolean = true
+    val fileDownloadsAllowed: Boolean = true,
+    val messageComposeAllowed: Boolean = true
 )
 
 class ChatViewModel(
@@ -267,6 +269,13 @@ class ChatViewModel(
 
     private fun resolveFileDownloadsAllowed(agentId: String, projectId: String): Boolean =
         isProjectFileDownloadAllowedByCachedScope(
+            effectiveScopeJson = tokenStore.getEffectiveScopeJson(),
+            agentId = agentId,
+            projectId = projectId
+        )
+
+    private fun resolveMessageComposeAllowed(agentId: String, projectId: String): Boolean =
+        isProjectMessagingAllowedByCachedScope(
             effectiveScopeJson = tokenStore.getEffectiveScopeJson(),
             agentId = agentId,
             projectId = projectId
@@ -419,6 +428,10 @@ class ChatViewModel(
                 fileDownloadsAllowed = resolveFileDownloadsAllowed(
                     agentId = resolvedAgentId,
                     projectId = projectId
+                ),
+                messageComposeAllowed = resolveMessageComposeAllowed(
+                    agentId = resolvedAgentId,
+                    projectId = projectId
                 )
             )
         }
@@ -464,6 +477,10 @@ class ChatViewModel(
                             queuePreview = queuePreview
                         ),
                         fileDownloadsAllowed = resolveFileDownloadsAllowed(
+                            agentId = resolvedAgentId,
+                            projectId = projectId
+                        ),
+                        messageComposeAllowed = resolveMessageComposeAllowed(
                             agentId = resolvedAgentId,
                             projectId = projectId
                         )
@@ -521,6 +538,10 @@ class ChatViewModel(
                             projectAccessRevoked = nextAccessState.projectAccessRevoked,
                             projectAccessNoticeKind = nextAccessState.noticeKind,
                             fileDownloadsAllowed = resolveFileDownloadsAllowed(
+                                agentId = resolvedAgentId,
+                                projectId = projectId
+                            ),
+                            messageComposeAllowed = resolveMessageComposeAllowed(
                                 agentId = resolvedAgentId,
                                 projectId = projectId
                             )
@@ -828,7 +849,7 @@ class ChatViewModel(
 
     fun addAttachments(uris: List<Uri>) {
         val state = _uiState.value
-        if (state.projectId.isBlank() || uris.isEmpty() || state.isSending) {
+        if (state.projectId.isBlank() || uris.isEmpty() || state.isSending || !state.messageComposeAllowed) {
             return
         }
 
@@ -859,7 +880,7 @@ class ChatViewModel(
 
     fun sendMessage() {
         val state = _uiState.value
-        if (state.projectId.isBlank() || state.isSending) {
+        if (state.projectId.isBlank() || state.isSending || !state.messageComposeAllowed) {
             return
         }
 

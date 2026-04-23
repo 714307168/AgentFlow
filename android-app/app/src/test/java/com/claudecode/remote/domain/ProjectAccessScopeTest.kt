@@ -211,6 +211,48 @@ class ProjectAccessScopeTest {
         assertTrue(scope.canDownloadProjectFiles("agent-1", "project-a"))
     }
 
+    @Test
+    fun observeBundleBlocksProjectMessagingButCollaborateAllowsIt() {
+        val observeScope = ProjectAccessScope.fromAgentScopes(
+            listOf(
+                EffectiveAgentScopeResponse(
+                    agentId = "agent-1",
+                    scopeType = "selected_projects",
+                    projectIds = listOf("project-a"),
+                    capabilityBundle = "observe"
+                )
+            )
+        )
+        val collaborateScope = ProjectAccessScope.fromAgentScopes(
+            listOf(
+                EffectiveAgentScopeResponse(
+                    agentId = "agent-1",
+                    scopeType = "selected_projects",
+                    projectIds = listOf("project-a"),
+                    capabilityBundle = "collaborate"
+                )
+            )
+        )
+
+        assertFalse(observeScope.canSendProjectMessages("agent-1", "project-a"))
+        assertTrue(collaborateScope.canSendProjectMessages("agent-1", "project-a"))
+    }
+
+    @Test
+    fun missingCapabilityBundleKeepsProjectMessagingAllowedForCompatibility() {
+        val scope = ProjectAccessScope.fromAgentScopes(
+            listOf(
+                EffectiveAgentScopeResponse(
+                    agentId = "agent-1",
+                    scopeType = "selected_projects",
+                    projectIds = listOf("project-a")
+                )
+            )
+        )
+
+        assertTrue(scope.canSendProjectMessages("agent-1", "project-a"))
+    }
+
     private fun sessionEntity(agentId: String, projectId: String): SessionEntity = SessionEntity(
         id = projectId,
         name = projectId,

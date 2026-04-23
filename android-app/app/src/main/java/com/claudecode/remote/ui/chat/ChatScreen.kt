@@ -667,7 +667,8 @@ fun ChatScreen(
                     onRemovePendingAttachment = { attachmentId ->
                         viewModel.removePendingAttachment(attachmentId)
                     },
-                    enabled = uiState.isConnected && !uiState.isSending,
+                    enabled = uiState.isConnected && !uiState.isSending && uiState.messageComposeAllowed,
+                    stopEnabled = uiState.isConnected && !uiState.isSending,
                     isRunning = uiState.isRunning
                 )
             }
@@ -1587,6 +1588,7 @@ private fun InputBar(
     onAttachFile: () -> Unit,
     onRemovePendingAttachment: (String) -> Unit,
     enabled: Boolean,
+    stopEnabled: Boolean,
     isRunning: Boolean
 ) {
     Surface(
@@ -1664,7 +1666,7 @@ private fun InputBar(
                 if (isRunning) {
                     FilledIconButton(
                         onClick = onStop,
-                        enabled = enabled,
+                        enabled = stopEnabled,
                         modifier = Modifier.size(44.dp),
                         colors = androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(
                             containerColor = MaterialTheme.colorScheme.error

@@ -280,4 +280,39 @@ class ProjectAccessGuardTest {
             )
         )
     }
+
+    @Test
+    fun cachedScopeMessagingGuardBlocksObserveBundle() {
+        val effectiveScopeJson = ProjectAccessScopeCodec.encode(
+            EffectiveScopeResponse(
+                agentScopes = listOf(
+                    EffectiveAgentScopeResponse(
+                        agentId = "agent-1",
+                        scopeType = "selected_projects",
+                        projectIds = listOf("project-a"),
+                        capabilityBundle = "observe"
+                    )
+                )
+            )
+        )
+
+        assertFalse(
+            isProjectMessagingAllowedByCachedScope(
+                effectiveScopeJson = effectiveScopeJson,
+                agentId = "agent-1",
+                projectId = "project-a"
+            )
+        )
+    }
+
+    @Test
+    fun cachedScopeMessagingGuardFallsBackToAllowedWhenScopeUnavailable() {
+        assertTrue(
+            isProjectMessagingAllowedByCachedScope(
+                effectiveScopeJson = null,
+                agentId = "agent-1",
+                projectId = "project-a"
+            )
+        )
+    }
 }

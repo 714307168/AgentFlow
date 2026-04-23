@@ -60,6 +60,20 @@ internal fun isProjectFileDownloadAllowedByCachedScope(
     return scope.canDownloadProjectFiles(agentId = agentId, projectId = normalizedProjectId)
 }
 
+internal fun isProjectMessagingAllowedByCachedScope(
+    effectiveScopeJson: String?,
+    agentId: String,
+    projectId: String
+): Boolean {
+    val normalizedProjectId = projectId.trim()
+    if (normalizedProjectId.isEmpty()) {
+        return false
+    }
+    val response = ProjectAccessScopeCodec.decode(effectiveScopeJson) ?: return true
+    val scope = ProjectAccessScope.fromResponse(response)
+    return scope.canSendProjectMessages(agentId = agentId, projectId = normalizedProjectId)
+}
+
 internal fun isProjectSessionRevokedByCachedScope(
     effectiveScopeJson: String?,
     agentId: String,
