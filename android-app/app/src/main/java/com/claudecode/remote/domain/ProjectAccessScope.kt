@@ -14,7 +14,10 @@ internal data class AgentProjectAccessScope(
     val ownerUsername: String,
     val isOwned: Boolean,
     val scopeType: String,
-    val projectIds: Set<String>
+    val projectIds: Set<String>,
+    val capabilityBundle: String,
+    val allowFileDownload: Boolean,
+    val allowDiagnostics: Boolean
 )
 
 internal class ProjectAccessScope private constructor(
@@ -39,6 +42,28 @@ internal class ProjectAccessScope private constructor(
         }
         val scope = scopesByAgentId[normalizedAgentId] ?: return false
         return scope.scopeType == SCOPE_TYPE_ALL_PROJECTS || normalizedProjectId in scope.projectIds
+    }
+
+    fun canDownloadProjectFiles(agentId: String, projectId: String): Boolean {
+        if (!canAccessProject(agentId, projectId)) {
+            return false
+        }
+        if (!hasExplicitAgentScopes) {
+            return true
+        }
+        val scope = scopesByAgentId[agentId.trim()] ?: return false
+        return scope.isOwned || scope.allowFileDownload
+    }
+
+    fun canAccessProjectDiagnostics(agentId: String, projectId: String): Boolean {
+        if (!canAccessProject(agentId, projectId)) {
+            return false
+        }
+        if (!hasExplicitAgentScopes) {
+            return true
+        }
+        val scope = scopesByAgentId[agentId.trim()] ?: return false
+        return scope.isOwned || scope.allowDiagnostics
     }
 
     fun filterProjects(
@@ -96,7 +121,10 @@ internal class ProjectAccessScope private constructor(
                         ownerUsername = scope.ownerUsername.trim(),
                         isOwned = scope.isOwned,
                         scopeType = if (isAllProjects) SCOPE_TYPE_ALL_PROJECTS else SCOPE_TYPE_SELECTED_PROJECTS,
-                        projectIds = if (isAllProjects) emptySet() else normalizedProjectIds
+                        projectIds = if (isAllProjects) emptySet() else normalizedProjectIds,
+                        capabilityBundle = normalizeCapabilityBundle(scope.capabilityBundle),
+                        allowFileDownload = scope.isOwned || scope.allowFileDownload,
+                        allowDiagnostics = scope.isOwned || scope.allowDiagnostics
                     )
                 } else {
                     val mergedAllProjects = previous.scopeType == SCOPE_TYPE_ALL_PROJECTS || isAllProjects
@@ -105,12 +133,35 @@ internal class ProjectAccessScope private constructor(
                         ownerUsername = previous.ownerUsername.ifBlank { scope.ownerUsername.trim() },
                         isOwned = previous.isOwned || scope.isOwned,
                         scopeType = if (mergedAllProjects) SCOPE_TYPE_ALL_PROJECTS else SCOPE_TYPE_SELECTED_PROJECTS,
-                        projectIds = if (mergedAllProjects) emptySet() else previous.projectIds + normalizedProjectIds
+                        projectIds = if (mergedAllProjects) emptySet() else previous.projectIds + normalizedProjectIds,
+                        capabilityBundle = mergeCapabilityBundles(previous.capabilityBundle, scope.capabilityBundle),
+                        allowFileDownload = previous.allowFileDownload || scope.isOwned || scope.allowFileDownload,
+                        allowDiagnostics = previous.allowDiagnostics || scope.isOwned || scope.allowDiagnostics
                     )
                 }
             }
             return ProjectAccessScope(merged.toMap())
         }
+
+        private fun normalizeCapabilityBundle(bundle: String): String =
+            bundle.trim().lowercase()
+
+        private fun mergeCapabilityBundles(previous: String, incoming: String): String {
+            val normalizedPrevious = normalizeCapabilityBundle(previous)
+            val normalizedIncoming = normalizeCapabilityBundle(incoming)
+            val previousPriority = capabilityBundlePriority(normalizedPrevious)
+            val incomingPriority = capabilityBundlePriority(normalizedIncoming)
+            return if (incomingPriority > previousPriority) normalizedIncoming else normalizedPrevious
+        }
+
+        private fun capabilityBundlePriority(bundle: String): Int =
+            when (bundle) {
+                "observe" -> 1
+                "collaborate" -> 2
+                "operate" -> 3
+                "admin" -> 4
+                else -> 0
+            }
     }
 }
 

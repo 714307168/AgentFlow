@@ -155,6 +155,62 @@ class ProjectAccessScopeTest {
         )
     }
 
+    @Test
+    fun explicitScopeCanDisableProjectFileDownloads() {
+        val scope = ProjectAccessScope.fromAgentScopes(
+            listOf(
+                EffectiveAgentScopeResponse(
+                    agentId = "agent-1",
+                    scopeType = "selected_projects",
+                    projectIds = listOf("project-a"),
+                    allowFileDownload = false
+                )
+            )
+        )
+
+        assertFalse(scope.canDownloadProjectFiles("agent-1", "project-a"))
+        assertFalse(scope.canDownloadProjectFiles("agent-1", "project-b"))
+    }
+
+    @Test
+    fun missingCapabilityFieldsKeepProjectFileDownloadsAllowedForCompatibility() {
+        val scope = ProjectAccessScope.fromAgentScopes(
+            listOf(
+                EffectiveAgentScopeResponse(
+                    agentId = "agent-1",
+                    scopeType = "selected_projects",
+                    projectIds = listOf("project-a")
+                )
+            )
+        )
+
+        assertTrue(scope.canDownloadProjectFiles("agent-1", "project-a"))
+    }
+
+    @Test
+    fun mergedAgentScopesUnionProjectDownloadPermission() {
+        val scope = ProjectAccessScope.fromAgentScopes(
+            listOf(
+                EffectiveAgentScopeResponse(
+                    agentId = "agent-1",
+                    scopeType = "selected_projects",
+                    projectIds = listOf("project-a"),
+                    allowFileDownload = false,
+                    capabilityBundle = "observe"
+                ),
+                EffectiveAgentScopeResponse(
+                    agentId = "agent-1",
+                    scopeType = "selected_projects",
+                    projectIds = listOf("project-a"),
+                    allowFileDownload = true,
+                    capabilityBundle = "collaborate"
+                )
+            )
+        )
+
+        assertTrue(scope.canDownloadProjectFiles("agent-1", "project-a"))
+    }
+
     private fun sessionEntity(agentId: String, projectId: String): SessionEntity = SessionEntity(
         id = projectId,
         name = projectId,

@@ -10,6 +10,7 @@ import com.claudecode.remote.data.model.MessageAttachment
 import com.claudecode.remote.data.remote.RelayWebSocket
 import com.claudecode.remote.domain.MessageRepository
 import com.claudecode.remote.domain.ProjectAccessNoticeKind
+import com.claudecode.remote.domain.isProjectFileDownloadAllowedByCachedScope
 import com.claudecode.remote.domain.resolveProjectSessionAccessState
 import com.claudecode.remote.util.CrashLogger
 import kotlinx.coroutines.Job
@@ -126,7 +127,8 @@ data class ChatUiState(
     val activeConversationTitle: String? = null,
     val conversations: List<ConversationItem> = emptyList(),
     val projectAccessRevoked: Boolean = false,
-    val projectAccessNoticeKind: ProjectAccessNoticeKind? = null
+    val projectAccessNoticeKind: ProjectAccessNoticeKind? = null,
+    val fileDownloadsAllowed: Boolean = true
 )
 
 class ChatViewModel(
@@ -263,6 +265,13 @@ class ChatViewModel(
         lastSnapshotPersistAtMs = 0L
     }
 
+    private fun resolveFileDownloadsAllowed(agentId: String, projectId: String): Boolean =
+        isProjectFileDownloadAllowedByCachedScope(
+            effectiveScopeJson = tokenStore.getEffectiveScopeJson(),
+            agentId = agentId,
+            projectId = projectId
+        )
+
     init {
         viewModelScope.launch {
             webSocket.connectionState.collect { state ->
@@ -366,10 +375,11 @@ class ChatViewModel(
         allMessages = persistedSnapshot?.messages ?: emptyList()
         allActivityMessages = persistedSnapshot?.activityMessages ?: emptyList()
         _uiState.update {
+            val resolvedAgentId = persistedSnapshot?.agentId?.ifBlank { agentId } ?: agentId
             it.copy(
                 projectId = projectId,
                 projectName = persistedSnapshot?.projectName?.ifBlank { projectName } ?: projectName,
-                agentId = persistedSnapshot?.agentId?.ifBlank { agentId } ?: agentId,
+                agentId = resolvedAgentId,
                 inputText = tokenStore.getDraft(projectId),
                 pendingAttachments = emptyList(),
                 downloadingAttachmentIds = emptySet(),
@@ -405,7 +415,11 @@ class ChatViewModel(
                         updatedAt = it.updatedAt,
                         isActive = it.isActive
                     )
-                } ?: emptyList()
+                } ?: emptyList(),
+                fileDownloadsAllowed = resolveFileDownloadsAllowed(
+                    agentId = resolvedAgentId,
+                    projectId = projectId
+                )
             )
         }
         publishVisibleMessages()
@@ -426,9 +440,10 @@ class ChatViewModel(
                 _uiState.update { current ->
                     val queuedCount = cachedSession?.queuedCount ?: 0
                     val queuePreview = cachedSession?.queuePreview
+                    val resolvedAgentId = cachedSession?.agentId?.ifBlank { current.agentId } ?: current.agentId
                     current.copy(
                         projectName = cachedSession?.name?.ifBlank { current.projectName } ?: current.projectName,
-                        agentId = cachedSession?.agentId?.ifBlank { current.agentId } ?: current.agentId,
+                        agentId = resolvedAgentId,
                         cliProvider = cachedSession?.cliProvider?.ifBlank { "claude" } ?: current.cliProvider,
                         cliModel = cachedSession?.cliModel?.orEmpty() ?: "",
                         isAgentOnline = cachedSession?.isAgentOnline ?: current.isAgentOnline,
@@ -447,6 +462,10 @@ class ChatViewModel(
                             rawJson = cachedSession?.queueJson,
                             queuedCount = queuedCount,
                             queuePreview = queuePreview
+                        ),
+                        fileDownloadsAllowed = resolveFileDownloadsAllowed(
+                            agentId = resolvedAgentId,
+                            projectId = projectId
                         )
                     )
                 }
@@ -465,11 +484,12 @@ class ChatViewModel(
                 messageRepository.getSessionForProject(projectId).collect { session ->
                     var shouldClearLocalCache = false
                     _uiState.update { current ->
+                        val resolvedAgentId = session?.agentId?.ifBlank { current.agentId } ?: current.agentId
                         val queuedCount = session?.queuedCount ?: 0
                         val queuePreview = session?.queuePreview
                         val nextAccessState = resolveProjectSessionAccessState(
                             effectiveScopeJson = tokenStore.getEffectiveScopeJson(),
-                            agentId = current.agentId,
+                            agentId = resolvedAgentId,
                             projectId = projectId,
                             hasAccessibleSession = session != null,
                             wasAlreadyRevoked = current.projectAccessRevoked
@@ -477,7 +497,7 @@ class ChatViewModel(
                         shouldClearLocalCache = nextAccessState.shouldClearLocalCache
                         current.copy(
                             projectName = session?.name?.ifBlank { current.projectName } ?: current.projectName,
-                            agentId = session?.agentId?.ifBlank { current.agentId } ?: current.agentId,
+                            agentId = resolvedAgentId,
                             cliProvider = session?.cliProvider?.ifBlank { "claude" } ?: current.cliProvider,
                             cliModel = session?.cliModel?.orEmpty() ?: "",
                             isAgentOnline = session?.isAgentOnline ?: current.isAgentOnline,
@@ -499,7 +519,11 @@ class ChatViewModel(
                             ),
                             isSwitchingConversation = false,
                             projectAccessRevoked = nextAccessState.projectAccessRevoked,
-                            projectAccessNoticeKind = nextAccessState.noticeKind
+                            projectAccessNoticeKind = nextAccessState.noticeKind,
+                            fileDownloadsAllowed = resolveFileDownloadsAllowed(
+                                agentId = resolvedAgentId,
+                                projectId = projectId
+                            )
                         )
                     }
                     if (shouldClearLocalCache) {
@@ -1198,6 +1222,9 @@ class ChatViewModel(
     fun downloadAttachment(messageId: String, attachment: MessageAttachment) {
         val state = _uiState.value
         if (state.projectId.isBlank() || attachment.id.isBlank()) {
+            return
+        }
+        if (!state.fileDownloadsAllowed && attachment.localUri?.isNotBlank() != true) {
             return
         }
         if (attachment.localUri?.isNotBlank() == true) {

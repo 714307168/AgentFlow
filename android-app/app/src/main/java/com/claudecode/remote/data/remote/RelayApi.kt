@@ -207,7 +207,10 @@ data class EffectiveAgentScopeResponse(
     @SerialName("owner_username") val ownerUsername: String = "",
     @SerialName("is_owned") val isOwned: Boolean = false,
     @SerialName("scope_type") val scopeType: String = "selected_projects",
-    @SerialName("project_ids") val projectIds: List<String> = emptyList()
+    @SerialName("project_ids") val projectIds: List<String> = emptyList(),
+    @SerialName("capability_bundle") val capabilityBundle: String = "",
+    @SerialName("allow_file_download") val allowFileDownload: Boolean = true,
+    @SerialName("allow_diagnostics") val allowDiagnostics: Boolean = true
 )
 
 @Serializable

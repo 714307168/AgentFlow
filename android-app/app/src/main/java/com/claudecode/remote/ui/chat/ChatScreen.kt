@@ -213,9 +213,11 @@ fun ChatScreen(
         }
     }
 
-    LaunchedEffect(projectId, transferRefreshToken) {
-        if (projectId.isBlank()) {
+    LaunchedEffect(projectId, transferRefreshToken, uiState.fileDownloadsAllowed) {
+        if (projectId.isBlank() || !uiState.fileDownloadsAllowed) {
             scopedTransfers = emptyList()
+            showTransferSheet = false
+            busyTransferId = null
             isRefreshingTransfers = false
             return@LaunchedEffect
         }
@@ -244,6 +246,16 @@ fun ChatScreen(
             Toast.LENGTH_SHORT
         ).show()
         onNavigateBack()
+    }
+
+    LaunchedEffect(uiState.fileDownloadsAllowed) {
+        if (uiState.fileDownloadsAllowed) {
+            return@LaunchedEffect
+        }
+        showTransferSheet = false
+        scopedTransfers = emptyList()
+        busyTransferId = null
+        isRefreshingTransfers = false
     }
 
     LaunchedEffect(
@@ -559,9 +571,15 @@ fun ChatScreen(
                     context = context,
                     viewModel = viewModel,
                     messageId = target.messageId,
-                    attachment = target.attachment
+                    attachment = target.attachment,
+                    fileDownloadsAllowed = uiState.fileDownloadsAllowed
                 )
             },
+            primaryActionEnabled = canUseAttachmentPrimaryAction(
+                context = context,
+                attachment = target.attachment,
+                fileDownloadsAllowed = uiState.fileDownloadsAllowed
+            ),
             onDismiss = { previewAttachment = null }
         )
     }
@@ -670,13 +688,19 @@ fun ChatScreen(
                     isConnected = uiState.isConnected,
                     runtimeText = runtimeLabel(uiState),
                     runtimeTone = runtimeColor(uiState),
-                    transferCount = scopedTransfers.size,
+                    transferCount = if (uiState.fileDownloadsAllowed) scopedTransfers.size else 0,
                     onNavigateBack = onNavigateBack,
                     onRefresh = {
                         viewModel.refresh()
-                        transferRefreshToken += 1
+                        if (uiState.fileDownloadsAllowed) {
+                            transferRefreshToken += 1
+                        }
                     },
-                    onOpenTransfers = { showTransferSheet = true },
+                    onOpenTransfers = {
+                        if (uiState.fileDownloadsAllowed) {
+                            showTransferSheet = true
+                        }
+                    },
                     onOpenConversations = { showConversationDialog = true },
                     onChangeModel = {
                         modelInput = uiState.cliModel
@@ -684,7 +708,8 @@ fun ChatScreen(
                     },
                     conversationEnabled = uiState.isConnected,
                     refreshEnabled = !uiState.isSwitchingConversation,
-                    modelEnabled = uiState.isConnected && !uiState.isSending
+                    modelEnabled = uiState.isConnected && !uiState.isSending,
+                    transfersEnabled = uiState.fileDownloadsAllowed
                 )
 
                 Surface(
@@ -765,9 +790,11 @@ fun ChatScreen(
                                                     context = context,
                                                     viewModel = viewModel,
                                                     messageId = message.id,
-                                                    attachment = attachment
+                                                    attachment = attachment,
+                                                    fileDownloadsAllowed = uiState.fileDownloadsAllowed
                                                 )
                                             },
+                                            fileDownloadsAllowed = uiState.fileDownloadsAllowed,
                                             onImageClick = { attachment ->
                                                 previewAttachment = AttachmentPreviewTarget(
                                                     messageId = message.id,
@@ -1090,7 +1117,8 @@ private fun ChatHeader(
     onChangeModel: () -> Unit,
     conversationEnabled: Boolean,
     refreshEnabled: Boolean,
-    modelEnabled: Boolean
+    modelEnabled: Boolean,
+    transfersEnabled: Boolean
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
@@ -1165,7 +1193,7 @@ private fun ChatHeader(
             ChatHeaderButton(
                 icon = Icons.Default.AttachFile,
                 contentDescription = stringResource(R.string.settings_transfers_title),
-                enabled = true,
+                enabled = transfersEnabled,
                 tint = MaterialTheme.colorScheme.primary,
                 onClick = onOpenTransfers
             )
@@ -1328,6 +1356,7 @@ private fun RuntimeNoticeBanner(uiState: ChatUiState) {
 private fun MessageBubble(
     message: Message,
     downloadingAttachmentIds: Set<String>,
+    fileDownloadsAllowed: Boolean,
     onCopyMessage: (String) -> Unit,
     onAttachmentAction: (MessageAttachment) -> Unit,
     onImageClick: (MessageAttachment) -> Unit
@@ -1391,6 +1420,7 @@ private fun MessageBubble(
                     AttachmentGallery(
                         attachments = message.attachments,
                         downloadingAttachmentIds = downloadingAttachmentIds,
+                        fileDownloadsAllowed = fileDownloadsAllowed,
                         textColor = textColor,
                         borderColor = borderColor,
                         onAttachmentAction = onAttachmentAction,
@@ -1773,11 +1803,13 @@ private fun PendingAttachmentTray(
 private fun AttachmentGallery(
     attachments: List<MessageAttachment>,
     downloadingAttachmentIds: Set<String>,
+    fileDownloadsAllowed: Boolean,
     textColor: Color,
     borderColor: Color,
     onAttachmentAction: (MessageAttachment) -> Unit,
     onImageClick: (MessageAttachment) -> Unit
 ) {
+    val context = LocalContext.current
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         attachments.forEach { attachment ->
             if (attachment.isImage) {
@@ -1785,6 +1817,11 @@ private fun AttachmentGallery(
                     attachment = attachment,
                     borderColor = borderColor,
                     isDownloading = attachment.id in downloadingAttachmentIds,
+                    primaryActionEnabled = canUseAttachmentPrimaryAction(
+                        context = context,
+                        attachment = attachment,
+                        fileDownloadsAllowed = fileDownloadsAllowed
+                    ),
                     onPrimaryAction = { onAttachmentAction(attachment) },
                     onClick = { onImageClick(attachment) }
                 )
@@ -1794,6 +1831,11 @@ private fun AttachmentGallery(
                     textColor = textColor,
                     borderColor = borderColor,
                     isDownloading = attachment.id in downloadingAttachmentIds,
+                    primaryActionEnabled = canUseAttachmentPrimaryAction(
+                        context = context,
+                        attachment = attachment,
+                        fileDownloadsAllowed = fileDownloadsAllowed
+                    ),
                     onPrimaryAction = { onAttachmentAction(attachment) }
                 )
             }
@@ -1806,6 +1848,7 @@ private fun AttachmentImageCard(
     attachment: MessageAttachment,
     borderColor: Color,
     isDownloading: Boolean,
+    primaryActionEnabled: Boolean,
     onPrimaryAction: () -> Unit,
     onClick: () -> Unit
 ) {
@@ -1844,7 +1887,10 @@ private fun AttachmentImageCard(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End
             ) {
-                TextButton(onClick = onPrimaryAction) {
+                TextButton(
+                    onClick = onPrimaryAction,
+                    enabled = primaryActionEnabled
+                ) {
                     Text(
                         attachmentActionLabel(
                             attachment = attachment,
@@ -1863,13 +1909,18 @@ private fun AttachmentFileCard(
     textColor: Color,
     borderColor: Color,
     isDownloading: Boolean,
+    primaryActionEnabled: Boolean,
     onPrimaryAction: () -> Unit
 ) {
     Surface(
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.2f),
         shape = RoundedCornerShape(14.dp),
         border = BorderStroke(1.dp, borderColor.copy(alpha = 0.6f)),
-        modifier = Modifier.clickable(onClick = onPrimaryAction)
+        modifier = if (primaryActionEnabled) {
+            Modifier.clickable(onClick = onPrimaryAction)
+        } else {
+            Modifier
+        }
     ) {
         Row(
             modifier = Modifier
@@ -1898,7 +1949,10 @@ private fun AttachmentFileCard(
                     style = MaterialTheme.typography.labelSmall
                 )
             }
-            TextButton(onClick = onPrimaryAction) {
+            TextButton(
+                onClick = onPrimaryAction,
+                enabled = primaryActionEnabled
+            ) {
                 Text(attachmentActionLabel(attachment = attachment, isDownloading = isDownloading))
             }
         }
@@ -1949,6 +2003,7 @@ private fun AttachmentPreviewDialog(
     attachment: MessageAttachment,
     actionLabel: String,
     onPrimaryAction: () -> Unit,
+    primaryActionEnabled: Boolean,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
@@ -2002,7 +2057,10 @@ private fun AttachmentPreviewDialog(
                     modifier = Modifier.align(Alignment.End),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    TextButton(onClick = onPrimaryAction) {
+                    TextButton(
+                        onClick = onPrimaryAction,
+                        enabled = primaryActionEnabled
+                    ) {
                         Text(actionLabel)
                     }
                     TextButton(onClick = onDismiss) {
@@ -2080,14 +2138,24 @@ private fun handleAttachmentAction(
     context: Context,
     viewModel: ChatViewModel,
     messageId: String,
-    attachment: MessageAttachment
+    attachment: MessageAttachment,
+    fileDownloadsAllowed: Boolean
 ) {
+    if (!canUseAttachmentPrimaryAction(context, attachment, fileDownloadsAllowed)) {
+        return
+    }
     if (isAttachmentDownloaded(context, attachment)) {
         openDownloadedAttachment(context, attachment)
     } else {
         viewModel.downloadAttachment(messageId, attachment)
     }
 }
+
+private fun canUseAttachmentPrimaryAction(
+    context: Context,
+    attachment: MessageAttachment,
+    fileDownloadsAllowed: Boolean
+): Boolean = isAttachmentDownloaded(context, attachment) || fileDownloadsAllowed
 
 private fun openDownloadedAttachment(context: Context, attachment: MessageAttachment) {
     val uri = resolveAttachmentOpenUri(context, attachment) ?: return

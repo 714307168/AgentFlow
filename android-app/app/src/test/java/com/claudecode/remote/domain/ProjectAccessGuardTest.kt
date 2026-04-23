@@ -245,4 +245,39 @@ class ProjectAccessGuardTest {
             )
         )
     }
+
+    @Test
+    fun cachedScopeFileDownloadGuardHonorsExplicitDisabledFlag() {
+        val effectiveScopeJson = ProjectAccessScopeCodec.encode(
+            EffectiveScopeResponse(
+                agentScopes = listOf(
+                    EffectiveAgentScopeResponse(
+                        agentId = "agent-1",
+                        scopeType = "selected_projects",
+                        projectIds = listOf("project-a"),
+                        allowFileDownload = false
+                    )
+                )
+            )
+        )
+
+        assertFalse(
+            isProjectFileDownloadAllowedByCachedScope(
+                effectiveScopeJson = effectiveScopeJson,
+                agentId = "agent-1",
+                projectId = "project-a"
+            )
+        )
+    }
+
+    @Test
+    fun cachedScopeFileDownloadGuardFallsBackToAllowedWhenScopeUnavailable() {
+        assertTrue(
+            isProjectFileDownloadAllowedByCachedScope(
+                effectiveScopeJson = null,
+                agentId = "agent-1",
+                projectId = "project-a"
+            )
+        )
+    }
 }
