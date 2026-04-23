@@ -9,7 +9,7 @@ import com.claudecode.remote.data.model.Message
 import com.claudecode.remote.data.model.MessageAttachment
 import com.claudecode.remote.data.remote.RelayWebSocket
 import com.claudecode.remote.domain.MessageRepository
-import com.claudecode.remote.domain.isProjectSessionRevokedByCachedScope
+import com.claudecode.remote.domain.resolveProjectSessionAccessState
 import com.claudecode.remote.util.CrashLogger
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -194,6 +194,10 @@ class ChatViewModel(
         if (projectId.isEmpty()) {
             return
         }
+        if (state.projectAccessRevoked) {
+            clearProjectLocalCache(projectId)
+            return
+        }
         val now = System.currentTimeMillis()
         if (!force && now - lastSnapshotPersistAtMs < SNAPSHOT_PERSIST_THROTTLE_MS) {
             return
@@ -248,6 +252,13 @@ class ChatViewModel(
         }.onFailure { error ->
             CrashLogger.logError("ChatViewModel", "Error persisting chat snapshot", error as? Exception ?: Exception(error))
         }
+    }
+
+    private fun clearProjectLocalCache(projectId: String) {
+        tokenStore.clearDraft(projectId)
+        tokenStore.clearProjectChatSnapshot(projectId)
+        lastPersistedSnapshotJson = null
+        lastSnapshotPersistAtMs = 0L
     }
 
     init {
@@ -450,15 +461,18 @@ class ChatViewModel(
         sessionJob = viewModelScope.launch {
             try {
                 messageRepository.getSessionForProject(projectId).collect { session ->
+                    var shouldClearLocalCache = false
                     _uiState.update { current ->
                         val queuedCount = session?.queuedCount ?: 0
                         val queuePreview = session?.queuePreview
-                        val projectAccessRevoked = isProjectSessionRevokedByCachedScope(
+                        val nextAccessState = resolveProjectSessionAccessState(
                             effectiveScopeJson = tokenStore.getEffectiveScopeJson(),
                             agentId = current.agentId,
                             projectId = projectId,
-                            hasAccessibleSession = session != null
+                            hasAccessibleSession = session != null,
+                            wasAlreadyRevoked = current.projectAccessRevoked
                         )
+                        shouldClearLocalCache = nextAccessState.shouldClearLocalCache
                         current.copy(
                             projectName = session?.name?.ifBlank { current.projectName } ?: current.projectName,
                             agentId = session?.agentId?.ifBlank { current.agentId } ?: current.agentId,
@@ -482,8 +496,11 @@ class ChatViewModel(
                                 queuePreview = queuePreview
                             ),
                             isSwitchingConversation = false,
-                            projectAccessRevoked = projectAccessRevoked
+                            projectAccessRevoked = nextAccessState.projectAccessRevoked
                         )
+                    }
+                    if (shouldClearLocalCache) {
+                        clearProjectLocalCache(projectId)
                     }
                     if ((session?.isRunning == true) || (session?.queuedCount ?: 0) > 0) {
                         markSyncBurst()

@@ -2,6 +2,7 @@ package com.claudecode.remote.domain
 
 import com.claudecode.remote.data.remote.EffectiveAgentScopeResponse
 import com.claudecode.remote.data.remote.EffectiveScopeResponse
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -170,6 +171,64 @@ class ProjectAccessGuardTest {
                 agentId = "agent-1",
                 projectId = "project-b",
                 hasAccessibleSession = false
+            )
+        )
+    }
+
+    @Test
+    fun accessStateRequestsLocalCacheClearOnFirstRevokedTransition() {
+        val effectiveScopeJson = ProjectAccessScopeCodec.encode(
+            EffectiveScopeResponse(
+                agentScopes = listOf(
+                    EffectiveAgentScopeResponse(
+                        agentId = "agent-1",
+                        scopeType = "selected_projects",
+                        projectIds = listOf("project-a")
+                    )
+                )
+            )
+        )
+
+        assertEquals(
+            ProjectSessionAccessState(
+                projectAccessRevoked = true,
+                shouldClearLocalCache = true
+            ),
+            resolveProjectSessionAccessState(
+                effectiveScopeJson = effectiveScopeJson,
+                agentId = "agent-1",
+                projectId = "project-b",
+                hasAccessibleSession = false,
+                wasAlreadyRevoked = false
+            )
+        )
+    }
+
+    @Test
+    fun accessStateDoesNotRequestRepeatedCacheClearAfterRevokedStateIsLatched() {
+        val effectiveScopeJson = ProjectAccessScopeCodec.encode(
+            EffectiveScopeResponse(
+                agentScopes = listOf(
+                    EffectiveAgentScopeResponse(
+                        agentId = "agent-1",
+                        scopeType = "selected_projects",
+                        projectIds = listOf("project-a")
+                    )
+                )
+            )
+        )
+
+        assertEquals(
+            ProjectSessionAccessState(
+                projectAccessRevoked = true,
+                shouldClearLocalCache = false
+            ),
+            resolveProjectSessionAccessState(
+                effectiveScopeJson = effectiveScopeJson,
+                agentId = "agent-1",
+                projectId = "project-b",
+                hasAccessibleSession = false,
+                wasAlreadyRevoked = true
             )
         )
     }

@@ -1,5 +1,10 @@
 package com.claudecode.remote.domain
 
+internal data class ProjectSessionAccessState(
+    val projectAccessRevoked: Boolean,
+    val shouldClearLocalCache: Boolean
+)
+
 internal fun isProjectRouteBlockedByCachedScope(
     effectiveScopeJson: String?,
     agentId: String,
@@ -27,5 +32,24 @@ internal fun isProjectSessionRevokedByCachedScope(
         effectiveScopeJson = effectiveScopeJson,
         agentId = agentId,
         projectId = projectId
+    )
+}
+
+internal fun resolveProjectSessionAccessState(
+    effectiveScopeJson: String?,
+    agentId: String,
+    projectId: String,
+    hasAccessibleSession: Boolean,
+    wasAlreadyRevoked: Boolean
+): ProjectSessionAccessState {
+    val projectAccessRevoked = isProjectSessionRevokedByCachedScope(
+        effectiveScopeJson = effectiveScopeJson,
+        agentId = agentId,
+        projectId = projectId,
+        hasAccessibleSession = hasAccessibleSession
+    )
+    return ProjectSessionAccessState(
+        projectAccessRevoked = projectAccessRevoked,
+        shouldClearLocalCache = projectAccessRevoked && !wasAlreadyRevoked
     )
 }
