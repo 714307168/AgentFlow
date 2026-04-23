@@ -212,6 +212,38 @@ class ProjectAccessScopeTest {
     }
 
     @Test
+    fun explicitScopeCanDisableProjectDiagnostics() {
+        val scope = ProjectAccessScope.fromAgentScopes(
+            listOf(
+                EffectiveAgentScopeResponse(
+                    agentId = "agent-1",
+                    scopeType = "selected_projects",
+                    projectIds = listOf("project-a"),
+                    allowDiagnostics = false
+                )
+            )
+        )
+
+        assertFalse(scope.canAccessProjectDiagnostics("agent-1", "project-a"))
+        assertFalse(scope.canAccessProjectDiagnostics("agent-1", "project-b"))
+    }
+
+    @Test
+    fun missingCapabilityFieldsKeepProjectDiagnosticsAllowedForCompatibility() {
+        val scope = ProjectAccessScope.fromAgentScopes(
+            listOf(
+                EffectiveAgentScopeResponse(
+                    agentId = "agent-1",
+                    scopeType = "selected_projects",
+                    projectIds = listOf("project-a")
+                )
+            )
+        )
+
+        assertTrue(scope.canAccessProjectDiagnostics("agent-1", "project-a"))
+    }
+
+    @Test
     fun observeBundleBlocksProjectMessagingButCollaborateAllowsIt() {
         val observeScope = ProjectAccessScope.fromAgentScopes(
             listOf(

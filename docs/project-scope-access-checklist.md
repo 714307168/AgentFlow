@@ -16,6 +16,7 @@
 - Android project access denial prompts are now reason-specific: old deep links and stale cached routes show a scope-blocked message, while already-open chats revoked during scope shrink show a live revocation message.
 - Android now parses `allowFileDownload` from cached `effective-scope` and applies it to project chat transfer loading, transfer entry state, and attachment download actions, while keeping legacy relay responses compatible by defaulting missing fields to allowed.
 - Android project chat compose is now gated by capability bundle as well: `observe` can no longer send or attach in project chats, while legacy relay payloads without `capabilityBundle` remain compatible and allowed.
+- Android cached scope now also exposes a dedicated project diagnostics guard with regression coverage for explicit `allowDiagnostics = false` and legacy missing-field compatibility, so the future diagnostics entry can reuse the same local authorization gate as files and messaging.
 
 ## 1. 用途
 

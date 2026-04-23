@@ -74,6 +74,20 @@ internal fun isProjectMessagingAllowedByCachedScope(
     return scope.canSendProjectMessages(agentId = agentId, projectId = normalizedProjectId)
 }
 
+internal fun isProjectDiagnosticsAllowedByCachedScope(
+    effectiveScopeJson: String?,
+    agentId: String,
+    projectId: String
+): Boolean {
+    val normalizedProjectId = projectId.trim()
+    if (normalizedProjectId.isEmpty()) {
+        return false
+    }
+    val response = ProjectAccessScopeCodec.decode(effectiveScopeJson) ?: return true
+    val scope = ProjectAccessScope.fromResponse(response)
+    return scope.canAccessProjectDiagnostics(agentId = agentId, projectId = normalizedProjectId)
+}
+
 internal fun isProjectSessionRevokedByCachedScope(
     effectiveScopeJson: String?,
     agentId: String,
