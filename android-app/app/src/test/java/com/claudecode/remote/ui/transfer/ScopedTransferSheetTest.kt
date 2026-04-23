@@ -3,6 +3,7 @@ package com.claudecode.remote.ui.transfer
 import com.claudecode.remote.domain.TransferCenterItem
 import com.claudecode.remote.domain.TransferReceiptItem
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -136,6 +137,34 @@ class ScopedTransferSheetTest {
         )
 
         assertTrue(details.isEmpty())
+    }
+
+    @Test
+    fun mergeUpdatedTransferReplacesMatchingItemOnly() {
+        val original = transferItem(senderType = "desktop")
+        val untouched = transferItem(senderType = "mobile", targetId = "other").copy(id = "transfer-2")
+        val updated = original.copy(fileName = "updated.txt", downloaded = true)
+
+        val merged = mergeUpdatedTransfer(listOf(original, untouched), updated)
+
+        assertEquals(listOf(updated, untouched), merged)
+        assertSame(untouched, merged[1])
+    }
+
+    @Test
+    fun resolveTransferActionMessageFallsBackWhenMessageIsBlank() {
+        assertEquals(
+            "fallback",
+            resolveTransferActionMessage(IllegalStateException("   "), "fallback"),
+        )
+        assertEquals(
+            "network down",
+            resolveTransferActionMessage(IllegalStateException("network down"), "fallback"),
+        )
+        assertEquals(
+            "fallback",
+            resolveTransferActionMessage(null, "fallback"),
+        )
     }
 
     private fun transferItem(

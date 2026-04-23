@@ -336,7 +336,7 @@ fun openTransferFile(context: Context, item: TransferCenterItem): Result<Unit> {
     }
 }
 
-fun resolveTransferLocalFile(context: Context, item: TransferCenterItem): File? {
+fun resolveTransferLocalFile(item: TransferCenterItem): File? {
     val localUri = item.localUri?.trim().orEmpty()
     if (localUri.isNotEmpty()) {
         val parsed = runCatching { Uri.parse(localUri) }.getOrNull()
@@ -368,7 +368,7 @@ fun resolveTransferContentUri(context: Context, item: TransferCenterItem): Uri? 
         when (parsed?.scheme?.lowercase()) {
             "content" -> return parsed
             "file" -> {
-                val file = resolveTransferLocalFile(context, item)
+                val file = resolveTransferLocalFile(item)
                 if (file != null) {
                     return FileProvider.getUriForFile(
                         context,
@@ -380,7 +380,7 @@ fun resolveTransferContentUri(context: Context, item: TransferCenterItem): Uri? 
         }
     }
 
-    val file = resolveTransferLocalFile(context, item) ?: return null
+    val file = resolveTransferLocalFile(item) ?: return null
     return FileProvider.getUriForFile(
         context,
         "${context.packageName}.fileprovider",

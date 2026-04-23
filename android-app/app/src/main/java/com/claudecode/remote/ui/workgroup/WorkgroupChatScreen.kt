@@ -71,7 +71,9 @@ import com.claudecode.remote.ui.common.animateScrollToItemBottom
 import com.claudecode.remote.ui.common.rememberEventCoroutineScope
 import com.claudecode.remote.ui.common.scrollToItemBottom
 import com.claudecode.remote.ui.transfer.ScopedTransferSheet
+import com.claudecode.remote.ui.transfer.mergeUpdatedTransfer
 import com.claudecode.remote.ui.transfer.openTransferFile
+import com.claudecode.remote.ui.transfer.resolveTransferActionMessage
 import kotlinx.coroutines.launch
 
 @Composable
@@ -200,9 +202,7 @@ fun WorkgroupChatScreen(
                         busyTransferId = item.id
                         onDownloadTransfer(item.id).fold(
                             onSuccess = { updated ->
-                                scopedTransfers = scopedTransfers.map { candidate ->
-                                    if (candidate.id == updated.id) updated else candidate
-                                }
+                                scopedTransfers = mergeUpdatedTransfer(scopedTransfers, updated)
                                 Toast.makeText(
                                     context,
                                     context.getString(R.string.settings_transfers_downloaded, updated.fileName),
@@ -212,7 +212,10 @@ fun WorkgroupChatScreen(
                             onFailure = {
                                 Toast.makeText(
                                     context,
-                                    it.message ?: context.getString(R.string.settings_transfers_download_failed),
+                                    resolveTransferActionMessage(
+                                        error = it,
+                                        fallback = context.getString(R.string.settings_transfers_download_failed)
+                                    ),
                                     Toast.LENGTH_SHORT
                                 ).show()
                             }
@@ -229,7 +232,10 @@ fun WorkgroupChatScreen(
                     } else {
                         Toast.makeText(
                             context,
-                            openResult.exceptionOrNull()?.message ?: context.getString(R.string.settings_transfers_open_failed),
+                            resolveTransferActionMessage(
+                                error = openResult.exceptionOrNull(),
+                                fallback = context.getString(R.string.settings_transfers_open_failed)
+                            ),
                             Toast.LENGTH_SHORT
                         ).show()
                     }

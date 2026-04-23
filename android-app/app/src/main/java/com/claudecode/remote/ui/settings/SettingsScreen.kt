@@ -1,9 +1,6 @@
 package com.claudecode.remote.ui.settings
 
-import android.content.ActivityNotFoundException
 import android.content.Context
-import android.content.Intent
-import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
@@ -73,6 +70,9 @@ import com.claudecode.remote.R
 import com.claudecode.remote.domain.TransferCenterItem
 import com.claudecode.remote.domain.TransferReceiptItem
 import com.claudecode.remote.ui.common.rememberEventCoroutineScope
+import com.claudecode.remote.ui.transfer.mergeUpdatedTransfer
+import com.claudecode.remote.ui.transfer.openTransferFile
+import com.claudecode.remote.ui.transfer.resolveTransferActionMessage
 import com.claudecode.remote.update.AppUpdateState
 import com.claudecode.remote.update.AppUpdateStatus
 import com.claudecode.remote.util.CrashLogFileInfo
@@ -747,15 +747,18 @@ private fun TransferCenterSection(
                                             busyTransferId = item.id
                                             onDownloadTransfer(item.id).fold(
                                                 onSuccess = { updated ->
-                                                    transfers = transfers.map { candidate ->
-                                                        if (candidate.id == updated.id) updated else candidate
-                                                    }
+                                                    transfers = mergeUpdatedTransfer(transfers, updated)
                                                     onBannerMessage(
                                                         context.getString(R.string.settings_transfers_downloaded, updated.fileName)
                                                     )
                                                 },
                                                 onFailure = {
-                                                    onBannerMessage(it.message ?: context.getString(R.string.settings_transfers_download_failed))
+                                                    onBannerMessage(
+                                                        resolveTransferActionMessage(
+                                                            error = it,
+                                                            fallback = context.getString(R.string.settings_transfers_download_failed)
+                                                        )
+                                                    )
                                                 }
                                             )
                                             busyTransferId = null
@@ -781,8 +784,10 @@ private fun TransferCenterSection(
                                             eventScope.launch { onMarkTransferOpened(item.id) }
                                         } else {
                                             onBannerMessage(
-                                                openResult.exceptionOrNull()?.message
-                                                    ?: context.getString(R.string.settings_transfers_open_failed)
+                                                resolveTransferActionMessage(
+                                                    error = openResult.exceptionOrNull(),
+                                                    fallback = context.getString(R.string.settings_transfers_open_failed)
+                                                )
                                             )
                                         }
                                     },
@@ -1379,22 +1384,5 @@ private fun formatTransferReceiptTarget(context: Context, receipt: TransferRecei
         )
         !receipt.clientType.isBlank() -> receipt.clientType
         else -> context.getString(R.string.settings_transfers_receipt_unknown)
-    }
-}
-
-private fun openTransferFile(context: Context, item: TransferCenterItem): Result<Unit> {
-    return runCatching {
-        val localUri = item.localUri?.takeIf { it.isNotBlank() }
-            ?: throw IllegalStateException(context.getString(R.string.settings_transfers_open_failed))
-        val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(Uri.parse(localUri), item.mimeType.ifBlank { "application/octet-stream" })
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        try {
-            context.startActivity(intent)
-        } catch (error: ActivityNotFoundException) {
-            throw IllegalStateException(context.getString(R.string.settings_transfers_open_failed), error)
-        }
     }
 }
