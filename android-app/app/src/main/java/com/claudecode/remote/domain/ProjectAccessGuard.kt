@@ -1,22 +1,49 @@
 package com.claudecode.remote.domain
 
+enum class ProjectAccessNoticeKind {
+    ROUTE_BLOCKED_BY_SCOPE,
+    SESSION_REVOKED_BY_SCOPE
+}
+
+internal data class ProjectRouteAccessState(
+    val isBlocked: Boolean,
+    val noticeKind: ProjectAccessNoticeKind? = null
+)
+
 internal data class ProjectSessionAccessState(
     val projectAccessRevoked: Boolean,
-    val shouldClearLocalCache: Boolean
+    val shouldClearLocalCache: Boolean,
+    val noticeKind: ProjectAccessNoticeKind? = null
 )
 
 internal fun isProjectRouteBlockedByCachedScope(
     effectiveScopeJson: String?,
     agentId: String,
     projectId: String
-): Boolean {
+): Boolean =
+    resolveProjectRouteAccessState(
+        effectiveScopeJson = effectiveScopeJson,
+        agentId = agentId,
+        projectId = projectId
+    ).isBlocked
+
+internal fun resolveProjectRouteAccessState(
+    effectiveScopeJson: String?,
+    agentId: String,
+    projectId: String
+): ProjectRouteAccessState {
     val normalizedProjectId = projectId.trim()
     if (normalizedProjectId.isEmpty()) {
-        return false
+        return ProjectRouteAccessState(isBlocked = false)
     }
-    val response = ProjectAccessScopeCodec.decode(effectiveScopeJson) ?: return false
+    val response = ProjectAccessScopeCodec.decode(effectiveScopeJson)
+        ?: return ProjectRouteAccessState(isBlocked = false)
     val scope = ProjectAccessScope.fromResponse(response)
-    return !scope.canAccessProject(agentId = agentId, projectId = normalizedProjectId)
+    val isBlocked = !scope.canAccessProject(agentId = agentId, projectId = normalizedProjectId)
+    return ProjectRouteAccessState(
+        isBlocked = isBlocked,
+        noticeKind = if (isBlocked) ProjectAccessNoticeKind.ROUTE_BLOCKED_BY_SCOPE else null
+    )
 }
 
 internal fun isProjectSessionRevokedByCachedScope(
@@ -50,6 +77,7 @@ internal fun resolveProjectSessionAccessState(
     )
     return ProjectSessionAccessState(
         projectAccessRevoked = projectAccessRevoked,
-        shouldClearLocalCache = projectAccessRevoked && !wasAlreadyRevoked
+        shouldClearLocalCache = projectAccessRevoked && !wasAlreadyRevoked,
+        noticeKind = if (projectAccessRevoked) ProjectAccessNoticeKind.SESSION_REVOKED_BY_SCOPE else null
     )
 }

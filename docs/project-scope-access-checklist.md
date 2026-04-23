@@ -13,6 +13,7 @@
 - Android project removals now clear draft and chat snapshot caches consistently across full sync, delta sync, and scope-prune paths, with regression coverage for replacement and delta removal planning.
 - Android chat pages now auto-exit with a scoped access message when the current project is revoked during scope shrink, so stale open pages no longer linger after access is removed.
 - Android chat revocation cleanup now also clears local draft and persisted chat snapshot when an already-open project loses scope, and revoked pages no longer re-persist stale local snapshots after access is removed.
+- Android project access denial prompts are now reason-specific: old deep links and stale cached routes show a scope-blocked message, while already-open chats revoked during scope shrink show a live revocation message.
 
 ## 1. 用途
 
@@ -173,7 +174,7 @@
 ### 7.3 Android
 
 - [x] scope 收缩时不会残留可点击入口
-- [ ] 被限制时提示文案不是泛化错误
+- [x] 被限制时提示文案不是泛化错误
 - [x] 本地旧缓存不会继续泄露未授权项目内容
 
 ### 7.4 三端联动

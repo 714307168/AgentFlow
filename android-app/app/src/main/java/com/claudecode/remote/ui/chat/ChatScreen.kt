@@ -111,6 +111,7 @@ import com.claudecode.remote.domain.TransferCenterItem
 import com.claudecode.remote.ui.common.ClientCapabilities
 import com.claudecode.remote.ui.common.ProviderUi
 import com.claudecode.remote.ui.common.animateScrollToItemBottom
+import com.claudecode.remote.ui.projectAccessNoticeMessageResId
 import com.claudecode.remote.ui.common.rememberEventCoroutineScope
 import com.claudecode.remote.ui.common.scrollToItemBottom
 import com.claudecode.remote.ui.transfer.ScopedTransferSheet
@@ -237,7 +238,7 @@ fun ChatScreen(
         }
         Toast.makeText(
             context,
-            context.getString(R.string.chat_project_access_revoked),
+            context.getString(projectAccessNoticeMessageResId(uiState.projectAccessNoticeKind)),
             Toast.LENGTH_SHORT
         ).show()
         onNavigateBack()

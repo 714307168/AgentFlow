@@ -157,6 +157,8 @@
     <string name="chat_no_activity">No activity yet.</string>
     <string name="chat_no_queue">No queued messages right now.</string>
     <string name="chat_project_access_revoked">You no longer have access to this project.</string>
+    <string name="chat_project_access_scope_blocked">This project is outside your current authorization scope.</string>
+    <string name="chat_project_access_revoked_live">Access to this project was removed while you were viewing it.</string>
     <string name="chat_queue_source_remote">Mobile</string>
     <string name="chat_queue_source_desktop">Desktop</string>
     <string name="chat_queue_source_unknown">Queue</string>

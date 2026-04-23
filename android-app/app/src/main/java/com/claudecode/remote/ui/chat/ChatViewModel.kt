@@ -9,6 +9,7 @@ import com.claudecode.remote.data.model.Message
 import com.claudecode.remote.data.model.MessageAttachment
 import com.claudecode.remote.data.remote.RelayWebSocket
 import com.claudecode.remote.domain.MessageRepository
+import com.claudecode.remote.domain.ProjectAccessNoticeKind
 import com.claudecode.remote.domain.resolveProjectSessionAccessState
 import com.claudecode.remote.util.CrashLogger
 import kotlinx.coroutines.Job
@@ -124,7 +125,8 @@ data class ChatUiState(
     val activeConversationId: String? = null,
     val activeConversationTitle: String? = null,
     val conversations: List<ConversationItem> = emptyList(),
-    val projectAccessRevoked: Boolean = false
+    val projectAccessRevoked: Boolean = false,
+    val projectAccessNoticeKind: ProjectAccessNoticeKind? = null
 )
 
 class ChatViewModel(
@@ -496,7 +498,8 @@ class ChatViewModel(
                                 queuePreview = queuePreview
                             ),
                             isSwitchingConversation = false,
-                            projectAccessRevoked = nextAccessState.projectAccessRevoked
+                            projectAccessRevoked = nextAccessState.projectAccessRevoked,
+                            projectAccessNoticeKind = nextAccessState.noticeKind
                         )
                     }
                     if (shouldClearLocalCache) {

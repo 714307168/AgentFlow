@@ -47,13 +47,14 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
-import com.claudecode.remote.domain.isProjectRouteBlockedByCachedScope
 import com.claudecode.remote.domain.ForegroundConnectionRecoveryAction
 import com.claudecode.remote.domain.ForegroundRecoveryPass
 import com.claudecode.remote.domain.buildForegroundRecoveryPasses
 import com.claudecode.remote.domain.decideForegroundConnectionRecovery
+import com.claudecode.remote.domain.resolveProjectRouteAccessState
 import com.claudecode.remote.domain.shouldScheduleNetworkRecovery
 import com.claudecode.remote.service.RelayConnectionService
+import com.claudecode.remote.ui.projectAccessNoticeMessageResId
 import com.claudecode.remote.ui.agent.AgentHubScreen
 import com.claudecode.remote.ui.agent.AgentHubViewModel
 import com.claudecode.remote.ui.chat.ChatScreen
@@ -369,8 +370,8 @@ class MainActivity : ComponentActivity() {
                             val agentId = android.net.Uri.decode(
                                 backStackEntry.arguments?.getString("agentId") ?: ""
                             )
-                            val isBlockedByCachedScope = remember(projectId, agentId) {
-                                isProjectRouteBlockedByCachedScope(
+                            val routeAccessState = remember(projectId, agentId) {
+                                resolveProjectRouteAccessState(
                                     effectiveScopeJson = tokenStore.getEffectiveScopeJson(),
                                     agentId = agentId,
                                     projectId = projectId
@@ -390,7 +391,7 @@ class MainActivity : ComponentActivity() {
                                 return@composable
                             }
 
-                            if (isBlockedByCachedScope) {
+                            if (routeAccessState.isBlocked) {
                                 CrashLogger.logInfo(
                                     "MainActivity",
                                     "Blocked out-of-scope chat route: projectId=$projectId agentId=$agentId"
@@ -400,7 +401,7 @@ class MainActivity : ComponentActivity() {
                                     tokenStore.clearProjectChatSnapshot(projectId)
                                     Toast.makeText(
                                         applicationContext,
-                                        getString(R.string.chat_project_access_revoked),
+                                        getString(projectAccessNoticeMessageResId(routeAccessState.noticeKind)),
                                         Toast.LENGTH_SHORT
                                     ).show()
                                     navController.popBackStack()

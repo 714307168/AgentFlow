@@ -41,6 +41,17 @@ class ProjectAccessGuardTest {
                 projectId = "project-b"
             )
         )
+        assertEquals(
+            ProjectRouteAccessState(
+                isBlocked = true,
+                noticeKind = ProjectAccessNoticeKind.ROUTE_BLOCKED_BY_SCOPE
+            ),
+            resolveProjectRouteAccessState(
+                effectiveScopeJson = effectiveScopeJson,
+                agentId = "agent-1",
+                projectId = "project-b"
+            )
+        )
     }
 
     @Test
@@ -192,7 +203,8 @@ class ProjectAccessGuardTest {
         assertEquals(
             ProjectSessionAccessState(
                 projectAccessRevoked = true,
-                shouldClearLocalCache = true
+                shouldClearLocalCache = true,
+                noticeKind = ProjectAccessNoticeKind.SESSION_REVOKED_BY_SCOPE
             ),
             resolveProjectSessionAccessState(
                 effectiveScopeJson = effectiveScopeJson,
@@ -221,7 +233,8 @@ class ProjectAccessGuardTest {
         assertEquals(
             ProjectSessionAccessState(
                 projectAccessRevoked = true,
-                shouldClearLocalCache = false
+                shouldClearLocalCache = false,
+                noticeKind = ProjectAccessNoticeKind.SESSION_REVOKED_BY_SCOPE
             ),
             resolveProjectSessionAccessState(
                 effectiveScopeJson = effectiveScopeJson,
