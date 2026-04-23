@@ -17,6 +17,9 @@
 - Android now parses `allowFileDownload` from cached `effective-scope` and applies it to project chat transfer loading, transfer entry state, and attachment download actions, while keeping legacy relay responses compatible by defaulting missing fields to allowed.
 - Android project chat compose is now gated by capability bundle as well: `observe` can no longer send or attach in project chats, while legacy relay payloads without `capabilityBundle` remain compatible and allowed.
 - Android cached scope now also exposes a dedicated project diagnostics guard with regression coverage for explicit `allowDiagnostics = false` and legacy missing-field compatibility, so the future diagnostics entry can reuse the same local authorization gate as files and messaging.
+- relay-server access grants now persist and return `scope_type / capability_bundle / allow_file_download / allow_diagnostics / expires_at / revoked_at`, and active access checks / effective-scope aggregation now ignore expired or revoked grants instead of relying on legacy blanket grants only.
+- relay-server now exposes grant ids plus `PATCH /api/access/grants/:id` and `POST /api/access/grants/:id/revoke`, with regression coverage for editing and soft revoke semantics.
+- desktop remote access settings now support all-project vs selected-project scope, capability bundle, file-download and diagnostics toggles, expiration time, grant edit backfill, and revoke by grant id with immediate list refresh.
 
 ## 1. 用途
 
@@ -44,26 +47,26 @@
 ### 3.1 数据模型
 
 - [ ] 新增 `node_access_grants` 表或等价存储结构
-- [ ] 支持 `scope_type = all_projects | selected_projects`
+- [x] 支持 `scope_type = all_projects | selected_projects`
 - [ ] 支持 `scope_project_ids_json`
-- [ ] 支持 `capability_bundle`
-- [ ] 支持 `allow_file_download`
-- [ ] 支持 `allow_diagnostics`
-- [ ] 支持 `expires_at` / `revoked_at`
+- [x] 支持 `capability_bundle`
+- [x] 支持 `allow_file_download`
+- [x] 支持 `allow_diagnostics`
+- [x] 支持 `expires_at` / `revoked_at`
 
 ### 3.2 接口
 
-- [ ] `GET /api/access/grants`
-- [ ] `POST /api/access/grants`
-- [ ] `PATCH /api/access/grants/:id`
-- [ ] `POST /api/access/grants/:id/revoke`
+- [x] `GET /api/access/grants`
+- [x] `POST /api/access/grants`
+- [x] `PATCH /api/access/grants/:id`
+- [x] `POST /api/access/grants/:id/revoke`
 - [x] `GET /api/access/effective-scope`
 
 ### 3.3 授权计算
 
-- [ ] 只返回未过期且未撤销授权
+- [x] 只返回未过期且未撤销授权
 - [ ] 同一账号多条授权能正确合并
-- [ ] `selected_projects` 正确转换为 project id 集合
+- [x] `selected_projects` 正确转换为 project id 集合
 - [ ] 当 `target_device_id` 不为空时，只对匹配设备生效
 
 ### 3.4 统一校验入口

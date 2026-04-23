@@ -2,6 +2,7 @@ package db
 
 import (
 	"database/sql"
+	"encoding/base64"
 	"fmt"
 	"sort"
 	"strconv"
@@ -10,36 +11,69 @@ import (
 )
 
 type AccessibleAgent struct {
-	AgentID           string    `json:"agent_id"`
-	OwnerUserID       int       `json:"owner_user_id"`
-	OwnerUsername     string    `json:"owner_username"`
-	OwnerNote         string    `json:"owner_note"`
-	IsOwned           bool      `json:"is_owned"`
-	GrantedByUserID   int       `json:"granted_by_user_id"`
-	GrantedProjectIDs []string  `json:"granted_project_ids"`
-	CreatedAt         time.Time `json:"created_at"`
+	AgentID           string     `json:"agent_id"`
+	OwnerUserID       int        `json:"owner_user_id"`
+	OwnerUsername     string     `json:"owner_username"`
+	OwnerNote         string     `json:"owner_note"`
+	IsOwned           bool       `json:"is_owned"`
+	GrantedByUserID   int        `json:"granted_by_user_id"`
+	GrantedProjectIDs []string   `json:"granted_project_ids"`
+	ScopeType         string     `json:"scope_type"`
+	CapabilityBundle  string     `json:"capability_bundle"`
+	AllowFileDownload bool       `json:"allow_file_download"`
+	AllowDiagnostics  bool       `json:"allow_diagnostics"`
+	ExpiresAt         *time.Time `json:"expires_at,omitempty"`
+	CreatedAt         time.Time  `json:"created_at"`
 }
 
 type AgentAccessGrant struct {
-	ControllerUserID   int       `json:"controller_user_id"`
-	ControllerUsername string    `json:"controller_username"`
-	TargetAgentID      string    `json:"target_agent_id"`
-	TargetOwnerUserID  int       `json:"target_owner_user_id"`
-	TargetOwnerName    string    `json:"target_owner_name"`
-	GrantedProjectIDs  []string  `json:"granted_project_ids"`
-	Note               string    `json:"note"`
-	CreatedByUserID    int       `json:"created_by_user_id"`
-	CreatedAt          time.Time `json:"created_at"`
+	ID                 string     `json:"id"`
+	ControllerUserID   int        `json:"controller_user_id"`
+	ControllerUsername string     `json:"controller_username"`
+	TargetAgentID      string     `json:"target_agent_id"`
+	TargetOwnerUserID  int        `json:"target_owner_user_id"`
+	TargetOwnerName    string     `json:"target_owner_name"`
+	GrantedProjectIDs  []string   `json:"granted_project_ids"`
+	ScopeType          string     `json:"scope_type"`
+	CapabilityBundle   string     `json:"capability_bundle"`
+	AllowFileDownload  bool       `json:"allow_file_download"`
+	AllowDiagnostics   bool       `json:"allow_diagnostics"`
+	ExpiresAt          *time.Time `json:"expires_at,omitempty"`
+	RevokedAt          *time.Time `json:"revoked_at,omitempty"`
+	Note               string     `json:"note"`
+	CreatedByUserID    int        `json:"created_by_user_id"`
+	CreatedAt          time.Time  `json:"created_at"`
 }
 
 type EffectiveAgentScope struct {
-	AgentID       string   `json:"agent_id"`
-	OwnerUserID   int      `json:"owner_user_id"`
-	OwnerUsername string   `json:"owner_username"`
-	IsOwned       bool     `json:"is_owned"`
-	ScopeType     string   `json:"scope_type"`
-	ProjectIDs    []string `json:"project_ids"`
+	AgentID           string   `json:"agent_id"`
+	OwnerUserID       int      `json:"owner_user_id"`
+	OwnerUsername     string   `json:"owner_username"`
+	IsOwned           bool     `json:"is_owned"`
+	ScopeType         string   `json:"scope_type"`
+	ProjectIDs        []string `json:"project_ids"`
+	CapabilityBundle  string   `json:"capability_bundle"`
+	AllowFileDownload bool     `json:"allow_file_download"`
+	AllowDiagnostics  bool     `json:"allow_diagnostics"`
 }
+
+type AccessGrantInput struct {
+	ControllerUserID  int
+	TargetAgentID     string
+	CreatedByUserID   int
+	Note              string
+	ProjectIDs        []string
+	ScopeType         string
+	CapabilityBundle  string
+	AllowFileDownload bool
+	AllowDiagnostics  bool
+	ExpiresAt         *time.Time
+}
+
+const (
+	accessGrantScopeAllProjects      = "all_projects"
+	accessGrantScopeSelectedProjects = "selected_projects"
+)
 
 func normalizeAccessGrantProjectIDs(projectIDs []string) []string {
 	if len(projectIDs) == 0 {
@@ -64,6 +98,62 @@ func normalizeAccessGrantProjectIDs(projectIDs []string) []string {
 
 func grantScopeKey(controllerUserID int, targetAgentID string) string {
 	return strconv.Itoa(controllerUserID) + ":" + targetAgentID
+}
+
+func buildAccessGrantID(controllerUserID int, targetAgentID string) string {
+	encodedAgentID := base64.RawURLEncoding.EncodeToString([]byte(strings.TrimSpace(targetAgentID)))
+	return strconv.Itoa(controllerUserID) + ":" + encodedAgentID
+}
+
+func parseAccessGrantID(grantID string) (int, string, error) {
+	parts := strings.SplitN(strings.TrimSpace(grantID), ":", 2)
+	if len(parts) != 2 {
+		return 0, "", fmt.Errorf("invalid grant id")
+	}
+	controllerUserID, err := strconv.Atoi(parts[0])
+	if err != nil || controllerUserID <= 0 {
+		return 0, "", fmt.Errorf("invalid grant id")
+	}
+	targetAgentIDBytes, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return 0, "", fmt.Errorf("invalid grant id")
+	}
+	targetAgentID := strings.TrimSpace(string(targetAgentIDBytes))
+	if targetAgentID == "" {
+		return 0, "", fmt.Errorf("invalid grant id")
+	}
+	return controllerUserID, targetAgentID, nil
+}
+
+func normalizeCapabilityBundle(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "observe", "collaborate", "operate", "admin":
+		return strings.ToLower(strings.TrimSpace(value))
+	default:
+		return ""
+	}
+}
+
+func normalizeScopeType(scopeType string, normalizedProjectIDs []string) string {
+	switch strings.ToLower(strings.TrimSpace(scopeType)) {
+	case accessGrantScopeSelectedProjects:
+		return accessGrantScopeSelectedProjects
+	case accessGrantScopeAllProjects:
+		return accessGrantScopeAllProjects
+	default:
+		if len(normalizedProjectIDs) > 0 {
+			return accessGrantScopeSelectedProjects
+		}
+		return accessGrantScopeAllProjects
+	}
+}
+
+func ptrTime(value sql.NullTime) *time.Time {
+	if !value.Valid {
+		return nil
+	}
+	v := value.Time
+	return &v
 }
 
 func (db *DB) GetAgentUserID(agentID string) (int, error) {
@@ -96,6 +186,8 @@ func (db *DB) UserCanAccessAgent(userID int, agentID string) (bool, error) {
 				FROM agent_access_grants g
 				WHERE g.controller_user_id = ?
 					AND g.target_agent_id = a.id
+					AND g.revoked_at IS NULL
+					AND (g.expires_at IS NULL OR g.expires_at > CURRENT_TIMESTAMP)
 			)
 		)
 	`, agentID, userID, userID).Scan(&count)
@@ -121,8 +213,11 @@ func (db *DB) UserCanAccessProject(userID int, agentID string, projectID string)
 				FROM agent_access_grants g
 				WHERE g.controller_user_id = ?
 					AND g.target_agent_id = a.id
+					AND g.revoked_at IS NULL
+					AND (g.expires_at IS NULL OR g.expires_at > CURRENT_TIMESTAMP)
 					AND (
-						NOT EXISTS (
+						g.scope_type = 'all_projects'
+						OR NOT EXISTS (
 							SELECT 1
 							FROM agent_access_grant_projects gp
 							WHERE gp.controller_user_id = g.controller_user_id
@@ -154,12 +249,17 @@ func (db *DB) ListAccessibleAgentsForUser(userID int) ([]AccessibleAgent, error)
 			COALESCE(a.note, ''),
 			CASE WHEN a.user_id = ? THEN 1 ELSE 0 END AS is_owned,
 			COALESCE(g.created_by_user_id, 0),
+			COALESCE(g.scope_type, ''),
+			COALESCE(g.capability_bundle, ''),
+			COALESCE(g.allow_file_download, 1),
+			COALESCE(g.allow_diagnostics, 1),
+			g.expires_at,
 			a.created_at,
 			g.created_at
 		FROM agents a
 		INNER JOIN users u ON u.id = a.user_id
 		LEFT JOIN agent_access_grants g
-			ON g.target_agent_id = a.id AND g.controller_user_id = ?
+			ON g.target_agent_id = a.id AND g.controller_user_id = ? AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at > CURRENT_TIMESTAMP)
 		WHERE a.user_id = ? OR g.controller_user_id = ?
 		ORDER BY is_owned DESC, COALESCE(g.created_at, a.created_at) DESC, a.id ASC
 	`, userID, userID, userID, userID)
@@ -172,6 +272,11 @@ func (db *DB) ListAccessibleAgentsForUser(userID int) ([]AccessibleAgent, error)
 	for rows.Next() {
 		var item AccessibleAgent
 		var isOwned int
+		var allowFileDownload int
+		var allowDiagnostics int
+		var scopeType string
+		var capabilityBundle string
+		var expiresAt sql.NullTime
 		var agentCreatedAt time.Time
 		var grantCreatedAt sql.NullTime
 		if err := rows.Scan(
@@ -181,6 +286,11 @@ func (db *DB) ListAccessibleAgentsForUser(userID int) ([]AccessibleAgent, error)
 			&item.OwnerNote,
 			&isOwned,
 			&item.GrantedByUserID,
+			&scopeType,
+			&capabilityBundle,
+			&allowFileDownload,
+			&allowDiagnostics,
+			&expiresAt,
 			&agentCreatedAt,
 			&grantCreatedAt,
 		); err != nil {
@@ -188,9 +298,21 @@ func (db *DB) ListAccessibleAgentsForUser(userID int) ([]AccessibleAgent, error)
 		}
 		item.IsOwned = isOwned == 1
 		item.GrantedProjectIDs = []string{}
+		item.ScopeType = normalizeScopeType(scopeType, nil)
+		item.CapabilityBundle = capabilityBundle
+		item.AllowFileDownload = allowFileDownload != 0
+		item.AllowDiagnostics = allowDiagnostics != 0
+		item.ExpiresAt = ptrTime(expiresAt)
 		item.CreatedAt = agentCreatedAt
 		if grantCreatedAt.Valid {
 			item.CreatedAt = grantCreatedAt.Time
+		}
+		if item.IsOwned {
+			item.ScopeType = accessGrantScopeAllProjects
+			item.CapabilityBundle = "admin"
+			item.AllowFileDownload = true
+			item.AllowDiagnostics = true
+			item.ExpiresAt = nil
 		}
 		items = append(items, item)
 	}
@@ -210,22 +332,51 @@ func (db *DB) ListAccessibleAgentsForUser(userID int) ([]AccessibleAgent, error)
 		if items[index].GrantedProjectIDs == nil {
 			items[index].GrantedProjectIDs = []string{}
 		}
+		if !items[index].IsOwned && len(items[index].GrantedProjectIDs) > 0 {
+			items[index].ScopeType = accessGrantScopeSelectedProjects
+		}
 	}
 	return items, nil
 }
 
 func (db *DB) CreateAgentAccessGrant(controllerUserID int, targetAgentID string, createdByUserID int, note string, projectIDs []string) error {
+	return db.CreateAgentAccessGrantWithInput(AccessGrantInput{
+		ControllerUserID:  controllerUserID,
+		TargetAgentID:     targetAgentID,
+		CreatedByUserID:   createdByUserID,
+		Note:              note,
+		ProjectIDs:        projectIDs,
+		ScopeType:         normalizeScopeType("", normalizeAccessGrantProjectIDs(projectIDs)),
+		CapabilityBundle:  "collaborate",
+		AllowFileDownload: true,
+		AllowDiagnostics:  true,
+	})
+}
+
+func (db *DB) CreateAgentAccessGrantWithInput(input AccessGrantInput) error {
+	targetAgentID := strings.TrimSpace(input.TargetAgentID)
 	targetOwnerID, err := db.GetAgentUserID(targetAgentID)
 	if err != nil {
 		return err
 	}
-	if targetOwnerID == controllerUserID {
+	if targetOwnerID == input.ControllerUserID {
 		return fmt.Errorf("controller already owns the target agent")
 	}
 
-	normalizedProjectIDs := normalizeAccessGrantProjectIDs(projectIDs)
-	if len(projectIDs) > 0 && len(normalizedProjectIDs) == 0 {
+	normalizedProjectIDs := normalizeAccessGrantProjectIDs(input.ProjectIDs)
+	if len(input.ProjectIDs) > 0 && len(normalizedProjectIDs) == 0 {
 		return fmt.Errorf("at least one valid project id is required")
+	}
+	scopeType := normalizeScopeType(input.ScopeType, normalizedProjectIDs)
+	if scopeType == accessGrantScopeSelectedProjects && len(normalizedProjectIDs) == 0 {
+		return fmt.Errorf("at least one valid project id is required")
+	}
+	capabilityBundle := normalizeCapabilityBundle(input.CapabilityBundle)
+	if strings.TrimSpace(input.CapabilityBundle) != "" && capabilityBundle == "" {
+		return fmt.Errorf("invalid capability bundle")
+	}
+	if capabilityBundle == "" {
+		capabilityBundle = "collaborate"
 	}
 
 	tx, err := db.Begin()
@@ -235,24 +386,47 @@ func (db *DB) CreateAgentAccessGrant(controllerUserID int, targetAgentID string,
 	defer tx.Rollback()
 
 	_, err = tx.Exec(`
-		INSERT INTO agent_access_grants (controller_user_id, target_agent_id, note, created_by_user_id)
-		VALUES (?, ?, ?, ?)
-	`, controllerUserID, targetAgentID, note, createdByUserID)
+		INSERT INTO agent_access_grants (
+			controller_user_id,
+			target_agent_id,
+			scope_type,
+			capability_bundle,
+			allow_file_download,
+			allow_diagnostics,
+			note,
+			created_by_user_id,
+			expires_at,
+			revoked_at,
+			created_at
+		)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, CURRENT_TIMESTAMP)
+		ON CONFLICT(controller_user_id, target_agent_id) DO UPDATE SET
+			scope_type = excluded.scope_type,
+			capability_bundle = excluded.capability_bundle,
+			allow_file_download = excluded.allow_file_download,
+			allow_diagnostics = excluded.allow_diagnostics,
+			note = excluded.note,
+			created_by_user_id = excluded.created_by_user_id,
+			expires_at = excluded.expires_at,
+			revoked_at = NULL,
+			created_at = CURRENT_TIMESTAMP
+	`, input.ControllerUserID, targetAgentID, scopeType, capabilityBundle, boolToInt(input.AllowFileDownload), boolToInt(input.AllowDiagnostics), strings.TrimSpace(input.Note), input.CreatedByUserID, input.ExpiresAt)
 	if err != nil {
-		if isUniqueConstraintError(err, "agent_access_grants.controller_user_id, agent_access_grants.target_agent_id") {
-			return fmt.Errorf("grant already exists")
-		}
-		if isUniqueConstraintError(err, "agent_access_grants.target_agent_id") {
-			return fmt.Errorf("grant already exists")
-		}
 		return fmt.Errorf("failed to create access grant: %w", err)
+	}
+
+	if _, err := tx.Exec(`
+		DELETE FROM agent_access_grant_projects
+		WHERE controller_user_id = ? AND target_agent_id = ?
+	`, input.ControllerUserID, targetAgentID); err != nil {
+		return fmt.Errorf("failed to clear access grant project scope: %w", err)
 	}
 
 	for _, projectID := range normalizedProjectIDs {
 		if _, err := tx.Exec(`
 			INSERT INTO agent_access_grant_projects (controller_user_id, target_agent_id, project_id)
 			VALUES (?, ?, ?)
-		`, controllerUserID, targetAgentID, projectID); err != nil {
+		`, input.ControllerUserID, targetAgentID, projectID); err != nil {
 			return fmt.Errorf("failed to save access grant project scope: %w", err)
 		}
 	}
@@ -261,6 +435,82 @@ func (db *DB) CreateAgentAccessGrant(controllerUserID int, targetAgentID string,
 		return fmt.Errorf("failed to commit access grant: %w", err)
 	}
 	return nil
+}
+
+func (db *DB) GetAgentAccessGrant(controllerUserID int, targetAgentID string) (*AgentAccessGrant, error) {
+	row := db.QueryRow(`
+		SELECT
+			g.controller_user_id,
+			controller.username,
+			g.target_agent_id,
+			a.user_id,
+			owner.username,
+			COALESCE(g.scope_type, ''),
+			COALESCE(g.capability_bundle, ''),
+			COALESCE(g.allow_file_download, 1),
+			COALESCE(g.allow_diagnostics, 1),
+			g.expires_at,
+			g.revoked_at,
+			COALESCE(g.note, ''),
+			g.created_by_user_id,
+			g.created_at
+		FROM agent_access_grants g
+		INNER JOIN users controller ON controller.id = g.controller_user_id
+		INNER JOIN agents a ON a.id = g.target_agent_id
+		INNER JOIN users owner ON owner.id = a.user_id
+		WHERE g.controller_user_id = ? AND g.target_agent_id = ?
+	`, controllerUserID, strings.TrimSpace(targetAgentID))
+
+	var grant AgentAccessGrant
+	var allowFileDownload int
+	var allowDiagnostics int
+	var expiresAt sql.NullTime
+	var revokedAt sql.NullTime
+	if err := row.Scan(
+		&grant.ControllerUserID,
+		&grant.ControllerUsername,
+		&grant.TargetAgentID,
+		&grant.TargetOwnerUserID,
+		&grant.TargetOwnerName,
+		&grant.ScopeType,
+		&grant.CapabilityBundle,
+		&allowFileDownload,
+		&allowDiagnostics,
+		&expiresAt,
+		&revokedAt,
+		&grant.Note,
+		&grant.CreatedByUserID,
+		&grant.CreatedAt,
+	); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("grant not found")
+		}
+		return nil, fmt.Errorf("failed to load access grant: %w", err)
+	}
+	grant.ID = buildAccessGrantID(grant.ControllerUserID, grant.TargetAgentID)
+	grant.GrantedProjectIDs = []string{}
+	grant.AllowFileDownload = allowFileDownload != 0
+	grant.AllowDiagnostics = allowDiagnostics != 0
+	grant.ExpiresAt = ptrTime(expiresAt)
+	grant.RevokedAt = ptrTime(revokedAt)
+
+	projectIDs, err := db.listGrantProjectIDs(controllerUserID, targetAgentID)
+	if err != nil {
+		return nil, err
+	}
+	grant.GrantedProjectIDs = projectIDs
+	if grant.ScopeType == "" {
+		grant.ScopeType = normalizeScopeType("", projectIDs)
+	}
+	return &grant, nil
+}
+
+func (db *DB) GetAgentAccessGrantByID(grantID string) (*AgentAccessGrant, error) {
+	controllerUserID, targetAgentID, err := parseAccessGrantID(grantID)
+	if err != nil {
+		return nil, err
+	}
+	return db.GetAgentAccessGrant(controllerUserID, targetAgentID)
 }
 
 func (db *DB) DeleteAgentAccessGrant(controllerUserID int, targetAgentID string) error {
@@ -293,6 +543,33 @@ func (db *DB) DeleteAgentAccessGrant(controllerUserID int, targetAgentID string)
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit delete access grant: %w", err)
+	}
+	return nil
+}
+
+func (db *DB) RevokeAgentAccessGrantByID(grantID string) error {
+	controllerUserID, targetAgentID, err := parseAccessGrantID(grantID)
+	if err != nil {
+		return err
+	}
+	return db.RevokeAgentAccessGrant(controllerUserID, targetAgentID)
+}
+
+func (db *DB) RevokeAgentAccessGrant(controllerUserID int, targetAgentID string) error {
+	res, err := db.Exec(`
+		UPDATE agent_access_grants
+		SET revoked_at = CURRENT_TIMESTAMP
+		WHERE controller_user_id = ? AND target_agent_id = ? AND revoked_at IS NULL
+	`, controllerUserID, strings.TrimSpace(targetAgentID))
+	if err != nil {
+		return fmt.Errorf("failed to revoke access grant: %w", err)
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to read revoke result: %w", err)
+	}
+	if rowsAffected == 0 {
+		return fmt.Errorf("grant not found")
 	}
 	return nil
 }
@@ -342,6 +619,12 @@ func (db *DB) ListIncomingAgentAccessGrants(ownerUserID int) ([]AgentAccessGrant
 			g.target_agent_id,
 			a.user_id,
 			owner.username,
+			COALESCE(g.scope_type, ''),
+			COALESCE(g.capability_bundle, ''),
+			COALESCE(g.allow_file_download, 1),
+			COALESCE(g.allow_diagnostics, 1),
+			g.expires_at,
+			g.revoked_at,
 			COALESCE(g.note, ''),
 			g.created_by_user_id,
 			g.created_at
@@ -349,7 +632,7 @@ func (db *DB) ListIncomingAgentAccessGrants(ownerUserID int) ([]AgentAccessGrant
 		INNER JOIN users controller ON controller.id = g.controller_user_id
 		INNER JOIN agents a ON a.id = g.target_agent_id
 		INNER JOIN users owner ON owner.id = a.user_id
-		WHERE a.user_id = ?
+		WHERE a.user_id = ? AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at > CURRENT_TIMESTAMP)
 		ORDER BY g.created_at DESC, g.target_agent_id ASC
 	`, ownerUserID)
 	if err != nil {
@@ -360,12 +643,22 @@ func (db *DB) ListIncomingAgentAccessGrants(ownerUserID int) ([]AgentAccessGrant
 	var grants []AgentAccessGrant
 	for rows.Next() {
 		var grant AgentAccessGrant
+		var allowFileDownload int
+		var allowDiagnostics int
+		var expiresAt sql.NullTime
+		var revokedAt sql.NullTime
 		if err := rows.Scan(
 			&grant.ControllerUserID,
 			&grant.ControllerUsername,
 			&grant.TargetAgentID,
 			&grant.TargetOwnerUserID,
 			&grant.TargetOwnerName,
+			&grant.ScopeType,
+			&grant.CapabilityBundle,
+			&allowFileDownload,
+			&allowDiagnostics,
+			&expiresAt,
+			&revokedAt,
 			&grant.Note,
 			&grant.CreatedByUserID,
 			&grant.CreatedAt,
@@ -373,6 +666,11 @@ func (db *DB) ListIncomingAgentAccessGrants(ownerUserID int) ([]AgentAccessGrant
 			return nil, fmt.Errorf("failed to scan incoming access grant: %w", err)
 		}
 		grant.GrantedProjectIDs = []string{}
+		grant.ID = buildAccessGrantID(grant.ControllerUserID, grant.TargetAgentID)
+		grant.AllowFileDownload = allowFileDownload != 0
+		grant.AllowDiagnostics = allowDiagnostics != 0
+		grant.ExpiresAt = ptrTime(expiresAt)
+		grant.RevokedAt = ptrTime(revokedAt)
 		grants = append(grants, grant)
 	}
 	if err := rows.Err(); err != nil {
@@ -398,6 +696,14 @@ func (db *DB) listGrantProjectIDsForController(controllerUserID int) (map[string
 		SELECT target_agent_id, project_id
 		FROM agent_access_grant_projects
 		WHERE controller_user_id = ?
+			AND EXISTS (
+				SELECT 1
+				FROM agent_access_grants g
+				WHERE g.controller_user_id = agent_access_grant_projects.controller_user_id
+					AND g.target_agent_id = agent_access_grant_projects.target_agent_id
+					AND g.revoked_at IS NULL
+					AND (g.expires_at IS NULL OR g.expires_at > CURRENT_TIMESTAMP)
+			)
 		ORDER BY target_agent_id ASC, project_id ASC
 	`, controllerUserID)
 	if err != nil {
@@ -420,12 +726,46 @@ func (db *DB) listGrantProjectIDsForController(controllerUserID int) (map[string
 	return scopes, nil
 }
 
+func (db *DB) listGrantProjectIDs(controllerUserID int, targetAgentID string) ([]string, error) {
+	rows, err := db.Query(`
+		SELECT project_id
+		FROM agent_access_grant_projects
+		WHERE controller_user_id = ? AND target_agent_id = ?
+		ORDER BY project_id ASC
+	`, controllerUserID, strings.TrimSpace(targetAgentID))
+	if err != nil {
+		return nil, fmt.Errorf("failed to query access grant project scope: %w", err)
+	}
+	defer rows.Close()
+
+	items := make([]string, 0)
+	for rows.Next() {
+		var projectID string
+		if err := rows.Scan(&projectID); err != nil {
+			return nil, fmt.Errorf("failed to scan access grant project scope: %w", err)
+		}
+		items = append(items, projectID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to read access grant project scope: %w", err)
+	}
+	return items, nil
+}
+
 func (db *DB) listGrantProjectIDsForOwner(ownerUserID int) (map[string][]string, error) {
 	rows, err := db.Query(`
 		SELECT gp.controller_user_id, gp.target_agent_id, gp.project_id
 		FROM agent_access_grant_projects gp
 		INNER JOIN agents a ON a.id = gp.target_agent_id
 		WHERE a.user_id = ?
+			AND EXISTS (
+				SELECT 1
+				FROM agent_access_grants g
+				WHERE g.controller_user_id = gp.controller_user_id
+					AND g.target_agent_id = gp.target_agent_id
+					AND g.revoked_at IS NULL
+					AND (g.expires_at IS NULL OR g.expires_at > CURRENT_TIMESTAMP)
+			)
 		ORDER BY gp.controller_user_id ASC, gp.target_agent_id ASC, gp.project_id ASC
 	`, ownerUserID)
 	if err != nil {
@@ -459,19 +799,29 @@ func (db *DB) ListEffectiveAgentScopesForUser(userID int) ([]EffectiveAgentScope
 	scopes := make([]EffectiveAgentScope, 0, len(agents))
 	for _, agent := range agents {
 		projectIDs := append([]string{}, agent.GrantedProjectIDs...)
-		scopeType := "selected_projects"
-		if agent.IsOwned || len(projectIDs) == 0 {
-			scopeType = "all_projects"
+		scopeType := agent.ScopeType
+		if agent.IsOwned || scopeType == "" || (len(projectIDs) == 0 && scopeType != accessGrantScopeSelectedProjects) {
+			scopeType = accessGrantScopeAllProjects
 			projectIDs = []string{}
 		}
 		scopes = append(scopes, EffectiveAgentScope{
-			AgentID:       agent.AgentID,
-			OwnerUserID:   agent.OwnerUserID,
-			OwnerUsername: agent.OwnerUsername,
-			IsOwned:       agent.IsOwned,
-			ScopeType:     scopeType,
-			ProjectIDs:    projectIDs,
+			AgentID:           agent.AgentID,
+			OwnerUserID:       agent.OwnerUserID,
+			OwnerUsername:     agent.OwnerUsername,
+			IsOwned:           agent.IsOwned,
+			ScopeType:         scopeType,
+			ProjectIDs:        projectIDs,
+			CapabilityBundle:  agent.CapabilityBundle,
+			AllowFileDownload: agent.AllowFileDownload,
+			AllowDiagnostics:  agent.AllowDiagnostics,
 		})
 	}
 	return scopes, nil
+}
+
+func boolToInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
 }

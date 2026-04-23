@@ -231,6 +231,10 @@
   - 修复点：加密偏好损坏恢复、前台服务启动异常保护
   - Android `1.2.24 (build 108)` 已发布到更新中心
   - 更新中心 release id：`225`
+- 项目级授权本轮继续压实：
+  - relay-server 已补齐 grant id、授权编辑接口和软撤销接口，授权模型与桌面端表单字段保持一致
+  - desktop 已补齐项目范围模式、能力包、文件下载/诊断开关、过期时间、授权回填编辑与撤销交互
+  - relay-server 回归测试与 desktop TypeScript 构建已通过，可继续推进剩余 Android 诊断入口与联调验收项
 - 发布文档本轮继续收口：
   - 新增 [发布一致性检查模板](./release-consistency-checklist.md)
   - 补齐了更新中心、GitHub Release、本地版本号三者一致性核对入口
@@ -389,6 +393,10 @@
   - Android 聊天页的文件权限分支已收口成共享 helper，并补了入口/拉取/已下载附件兜底的纯单测，避免后续继续在 UI 层散落重复判断
   - Android 项目聊天页现在也会按 cached scope 的 `capabilityBundle` 控制输入能力：`observe` 只能看，不能发消息或加附件；旧 relay 返回缺少该字段时继续兼容放行
   - Android 本地 project scope 守卫本轮补齐了 diagnostics 分支：已新增 cached-scope 诊断权限判断与纯函数回归测试，后续接诊断入口 UI 时可以直接复用同一套本地授权判断
+- `R-project-scope-access` relay 授权模型本轮继续补齐：
+  - access grant 已持久化并输出 `scope_type / capability_bundle / allow_file_download / allow_diagnostics / expires_at / revoked_at`
+  - `/api/access/grants` 与 `/api/access/effective-scope` 现在只返回未过期且未撤销授权
+  - relay-server 的有效授权与 transfer 共享项目访问判断都已吃到 active-grant 过滤，并补了 capability/过期授权回归测试
 - Android 传输交互重复逻辑本轮继续收口：
   - 提取共享 transfer interaction helper，统一聊天页、协作组页、设置页的下载成功替换、失败文案兜底和打开失败反馈
   - 设置页改为复用共享 openTransferFile 实现，并移除 ScopedTransferSheet 本地文件解析里的未使用参数 warning

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/claudecode/relay-server/config"
 	"github.com/claudecode/relay-server/db"
@@ -18,12 +19,22 @@ type accessOverviewPayload struct {
 		AgentID           string   `json:"agent_id"`
 		OwnerUsername     string   `json:"owner_username"`
 		GrantedProjectIDs []string `json:"granted_project_ids"`
+		ScopeType         string   `json:"scope_type"`
+		CapabilityBundle  string   `json:"capability_bundle"`
+		AllowFileDownload bool     `json:"allow_file_download"`
+		AllowDiagnostics  bool     `json:"allow_diagnostics"`
 		IsOwned           bool     `json:"is_owned"`
 	} `json:"controllable_agents"`
 	IncomingGrants []struct {
+		ID                 string   `json:"id"`
 		ControllerUsername string   `json:"controller_username"`
 		TargetAgentID      string   `json:"target_agent_id"`
 		GrantedProjectIDs  []string `json:"granted_project_ids"`
+		ScopeType          string   `json:"scope_type"`
+		CapabilityBundle   string   `json:"capability_bundle"`
+		AllowFileDownload  bool     `json:"allow_file_download"`
+		AllowDiagnostics   bool     `json:"allow_diagnostics"`
+		Note               string   `json:"note"`
 	} `json:"incoming_grants"`
 }
 
@@ -34,12 +45,15 @@ type effectiveScopePayload struct {
 	AgentID     string `json:"agent_id"`
 	DeviceID    string `json:"device_id"`
 	AgentScopes []struct {
-		AgentID       string   `json:"agent_id"`
-		OwnerUserID   int      `json:"owner_user_id"`
-		OwnerUsername string   `json:"owner_username"`
-		IsOwned       bool     `json:"is_owned"`
-		ScopeType     string   `json:"scope_type"`
-		ProjectIDs    []string `json:"project_ids"`
+		AgentID           string   `json:"agent_id"`
+		OwnerUserID       int      `json:"owner_user_id"`
+		OwnerUsername     string   `json:"owner_username"`
+		IsOwned           bool     `json:"is_owned"`
+		ScopeType         string   `json:"scope_type"`
+		ProjectIDs        []string `json:"project_ids"`
+		CapabilityBundle  string   `json:"capability_bundle"`
+		AllowFileDownload bool     `json:"allow_file_download"`
+		AllowDiagnostics  bool     `json:"allow_diagnostics"`
 	} `json:"agent_scopes"`
 }
 
@@ -81,6 +95,7 @@ func TestAccessGrantsHandlerListsOwnedAndGrantedAgents(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/auth/login", handler.LoginHandler(database, cfg))
 	mux.HandleFunc("/api/access/grants", handler.AccessGrantsHandler(cfg, database))
+	mux.HandleFunc("/api/access/grants/", handler.AccessGrantsHandler(cfg, database))
 	mux.HandleFunc("/api/access/effective-scope", handler.EffectiveScopeHandler(cfg, database))
 
 	server := httptest.NewServer(mux)
@@ -159,6 +174,7 @@ func TestAccessGrantRejectsBlankProjectScope(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/auth/login", handler.LoginHandler(database, cfg))
 	mux.HandleFunc("/api/access/grants", handler.AccessGrantsHandler(cfg, database))
+	mux.HandleFunc("/api/access/grants/", handler.AccessGrantsHandler(cfg, database))
 	mux.HandleFunc("/api/access/effective-scope", handler.EffectiveScopeHandler(cfg, database))
 
 	server := httptest.NewServer(mux)
@@ -199,6 +215,199 @@ func TestAccessGrantRejectsBlankProjectScope(t *testing.T) {
 	doBearerJSON(t, server.URL+"/api/access/grants", ownerToken, http.StatusOK, &ownerOverview)
 	if len(ownerOverview.IncomingGrants) != 0 {
 		t.Fatalf("expected no stored incoming grants after rejected request, got %+v", ownerOverview.IncomingGrants)
+	}
+}
+
+func TestAccessGrantPatchUpdatesScopeAndPermissions(t *testing.T) {
+	dataDir := t.TempDir()
+	database, err := db.Open(dataDir)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer database.Close()
+
+	owner, err := database.CreateUser("owner", "Owner12345A", false)
+	if err != nil {
+		t.Fatalf("create owner: %v", err)
+	}
+	viewer, err := database.CreateUser("viewer", "Viewer12345A", false)
+	if err != nil {
+		t.Fatalf("create viewer: %v", err)
+	}
+	if err := database.RegisterAgent("owner-agent", owner.ID, "Owner desktop"); err != nil {
+		t.Fatalf("register owner agent: %v", err)
+	}
+	if err := database.RegisterAgent("viewer-agent", viewer.ID, "Viewer desktop"); err != nil {
+		t.Fatalf("register viewer agent: %v", err)
+	}
+	if err := database.CreateAgentAccessGrantWithInput(db.AccessGrantInput{
+		ControllerUserID:  viewer.ID,
+		TargetAgentID:     "owner-agent",
+		CreatedByUserID:   owner.ID,
+		Note:              "initial",
+		ProjectIDs:        []string{"project-alpha", "project-beta"},
+		ScopeType:         "selected_projects",
+		CapabilityBundle:  "collaborate",
+		AllowFileDownload: true,
+		AllowDiagnostics:  true,
+	}); err != nil {
+		t.Fatalf("create access grant: %v", err)
+	}
+
+	cfg := &config.Config{
+		JWTSecret:    "relay-test-secret-20260324",
+		PingInterval: 30,
+		QueueSize:    100,
+		CORSOrigins:  "*",
+		DataDir:      dataDir,
+		DatabasePath: dataDir,
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/auth/login", handler.LoginHandler(database, cfg))
+	mux.HandleFunc("/api/access/grants", handler.AccessGrantsHandler(cfg, database))
+	mux.HandleFunc("/api/access/grants/", handler.AccessGrantsHandler(cfg, database))
+	mux.HandleFunc("/api/access/effective-scope", handler.EffectiveScopeHandler(cfg, database))
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	ownerToken := mustLoginClientToken(t, server.URL, "owner", "Owner12345A", "agent", "owner-agent")
+	viewerToken := mustLoginClientToken(t, server.URL, "viewer", "Viewer12345A", "device", "viewer-device")
+
+	var ownerOverview accessOverviewPayload
+	doBearerJSON(t, server.URL+"/api/access/grants", ownerToken, http.StatusOK, &ownerOverview)
+	if len(ownerOverview.IncomingGrants) != 1 || ownerOverview.IncomingGrants[0].ID == "" {
+		t.Fatalf("expected one editable incoming grant, got %+v", ownerOverview.IncomingGrants)
+	}
+	grantID := ownerOverview.IncomingGrants[0].ID
+	expiresAt := time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339)
+
+	doJSONRequest(t, http.MethodPatch, server.URL+"/api/access/grants/"+grantID, map[string]any{
+		"project_ids":         []string{"project-beta"},
+		"scope_type":          "selected_projects",
+		"capability_bundle":   "observe",
+		"allow_file_download": false,
+		"allow_diagnostics":   false,
+		"expires_at":          expiresAt,
+		"note":                "tightened",
+	}, http.StatusOK, ownerToken, &map[string]any{})
+
+	doBearerJSON(t, server.URL+"/api/access/grants", ownerToken, http.StatusOK, &ownerOverview)
+	if len(ownerOverview.IncomingGrants) != 1 {
+		t.Fatalf("expected one incoming grant after patch, got %+v", ownerOverview.IncomingGrants)
+	}
+	updatedGrant := ownerOverview.IncomingGrants[0]
+	if updatedGrant.CapabilityBundle != "observe" || updatedGrant.AllowFileDownload || updatedGrant.AllowDiagnostics {
+		t.Fatalf("unexpected updated grant flags: %+v", updatedGrant)
+	}
+	if updatedGrant.Note != "tightened" || len(updatedGrant.GrantedProjectIDs) != 1 || updatedGrant.GrantedProjectIDs[0] != "project-beta" {
+		t.Fatalf("unexpected updated grant payload: %+v", updatedGrant)
+	}
+
+	var payload effectiveScopePayload
+	doBearerJSON(t, server.URL+"/api/access/effective-scope", viewerToken, http.StatusOK, &payload)
+	for _, item := range payload.AgentScopes {
+		if item.AgentID != "owner-agent" {
+			continue
+		}
+		if item.ScopeType != "selected_projects" || item.CapabilityBundle != "observe" {
+			t.Fatalf("unexpected updated scope payload: %+v", item)
+		}
+		if item.AllowFileDownload || item.AllowDiagnostics {
+			t.Fatalf("expected updated restrictions in effective scope, got %+v", item)
+		}
+		if len(item.ProjectIDs) != 1 || item.ProjectIDs[0] != "project-beta" {
+			t.Fatalf("unexpected updated project scope: %+v", item.ProjectIDs)
+		}
+		return
+	}
+	t.Fatalf("expected owner-agent in viewer effective scope: %+v", payload.AgentScopes)
+}
+
+func TestAccessGrantRevokeEndpointRemovesGrantFromOverviewAndEffectiveScope(t *testing.T) {
+	dataDir := t.TempDir()
+	database, err := db.Open(dataDir)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer database.Close()
+
+	owner, err := database.CreateUser("owner", "Owner12345A", false)
+	if err != nil {
+		t.Fatalf("create owner: %v", err)
+	}
+	viewer, err := database.CreateUser("viewer", "Viewer12345A", false)
+	if err != nil {
+		t.Fatalf("create viewer: %v", err)
+	}
+	if err := database.RegisterAgent("owner-agent", owner.ID, "Owner desktop"); err != nil {
+		t.Fatalf("register owner agent: %v", err)
+	}
+	if err := database.RegisterAgent("viewer-agent", viewer.ID, "Viewer desktop"); err != nil {
+		t.Fatalf("register viewer agent: %v", err)
+	}
+	if err := database.CreateAgentAccessGrantWithInput(db.AccessGrantInput{
+		ControllerUserID:  viewer.ID,
+		TargetAgentID:     "owner-agent",
+		CreatedByUserID:   owner.ID,
+		Note:              "revoke-me",
+		ProjectIDs:        []string{"project-alpha"},
+		ScopeType:         "selected_projects",
+		CapabilityBundle:  "collaborate",
+		AllowFileDownload: true,
+		AllowDiagnostics:  true,
+	}); err != nil {
+		t.Fatalf("create access grant: %v", err)
+	}
+
+	cfg := &config.Config{
+		JWTSecret:    "relay-test-secret-20260324",
+		PingInterval: 30,
+		QueueSize:    100,
+		CORSOrigins:  "*",
+		DataDir:      dataDir,
+		DatabasePath: dataDir,
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/auth/login", handler.LoginHandler(database, cfg))
+	mux.HandleFunc("/api/access/grants", handler.AccessGrantsHandler(cfg, database))
+	mux.HandleFunc("/api/access/grants/", handler.AccessGrantsHandler(cfg, database))
+	mux.HandleFunc("/api/access/effective-scope", handler.EffectiveScopeHandler(cfg, database))
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	ownerToken := mustLoginClientToken(t, server.URL, "owner", "Owner12345A", "agent", "owner-agent")
+	viewerToken := mustLoginClientToken(t, server.URL, "viewer", "Viewer12345A", "device", "viewer-device")
+
+	var ownerOverview accessOverviewPayload
+	doBearerJSON(t, server.URL+"/api/access/grants", ownerToken, http.StatusOK, &ownerOverview)
+	if len(ownerOverview.IncomingGrants) != 1 || ownerOverview.IncomingGrants[0].ID == "" {
+		t.Fatalf("expected one incoming grant before revoke, got %+v", ownerOverview.IncomingGrants)
+	}
+	grantID := ownerOverview.IncomingGrants[0].ID
+
+	doJSONRequest(t, http.MethodPost, server.URL+"/api/access/grants/"+grantID+"/revoke", map[string]any{}, http.StatusOK, ownerToken, &map[string]any{})
+
+	doBearerJSON(t, server.URL+"/api/access/grants", ownerToken, http.StatusOK, &ownerOverview)
+	if len(ownerOverview.IncomingGrants) != 0 {
+		t.Fatalf("expected no incoming grants after revoke, got %+v", ownerOverview.IncomingGrants)
+	}
+
+	var viewerOverview accessOverviewPayload
+	doBearerJSON(t, server.URL+"/api/access/grants", viewerToken, http.StatusOK, &viewerOverview)
+	for _, item := range viewerOverview.ControllableAgents {
+		if item.AgentID == "owner-agent" {
+			t.Fatalf("revoked grant should not expose owner-agent in controllable list: %+v", viewerOverview.ControllableAgents)
+		}
+	}
+
+	var payload effectiveScopePayload
+	doBearerJSON(t, server.URL+"/api/access/effective-scope", viewerToken, http.StatusOK, &payload)
+	for _, item := range payload.AgentScopes {
+		if item.AgentID == "owner-agent" {
+			t.Fatalf("revoked grant should not expose owner-agent in effective scope: %+v", payload.AgentScopes)
+		}
 	}
 }
 
@@ -385,6 +594,152 @@ func TestEffectiveScopeTreatsLegacyGrantWithoutProjectRowsAsAllProjects(t *testi
 	t.Fatalf("expected owner-agent in effective scope: %+v", payload.AgentScopes)
 }
 
+func TestEffectiveScopeIncludesCapabilityAndPermissionFlags(t *testing.T) {
+	dataDir := t.TempDir()
+	database, err := db.Open(dataDir)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer database.Close()
+
+	owner, err := database.CreateUser("owner", "Owner12345A", false)
+	if err != nil {
+		t.Fatalf("create owner: %v", err)
+	}
+	viewer, err := database.CreateUser("viewer", "Viewer12345A", false)
+	if err != nil {
+		t.Fatalf("create viewer: %v", err)
+	}
+	if err := database.RegisterAgent("owner-agent", owner.ID, "Owner desktop"); err != nil {
+		t.Fatalf("register owner agent: %v", err)
+	}
+	if err := database.RegisterAgent("viewer-agent", viewer.ID, "Viewer desktop"); err != nil {
+		t.Fatalf("register viewer agent: %v", err)
+	}
+	if err := database.CreateAgentAccessGrantWithInput(db.AccessGrantInput{
+		ControllerUserID:  viewer.ID,
+		TargetAgentID:     "owner-agent",
+		CreatedByUserID:   owner.ID,
+		Note:              "restricted",
+		ProjectIDs:        []string{"project-alpha"},
+		ScopeType:         "selected_projects",
+		CapabilityBundle:  "observe",
+		AllowFileDownload: false,
+		AllowDiagnostics:  false,
+	}); err != nil {
+		t.Fatalf("create access grant: %v", err)
+	}
+
+	cfg := &config.Config{
+		JWTSecret:    "relay-test-secret-20260324",
+		PingInterval: 30,
+		QueueSize:    100,
+		CORSOrigins:  "*",
+		DataDir:      dataDir,
+		DatabasePath: dataDir,
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/auth/login", handler.LoginHandler(database, cfg))
+	mux.HandleFunc("/api/access/grants", handler.AccessGrantsHandler(cfg, database))
+	mux.HandleFunc("/api/access/grants/", handler.AccessGrantsHandler(cfg, database))
+	mux.HandleFunc("/api/access/effective-scope", handler.EffectiveScopeHandler(cfg, database))
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	viewerToken := mustLoginClientToken(t, server.URL, "viewer", "Viewer12345A", "device", "viewer-device")
+
+	var payload effectiveScopePayload
+	doBearerJSON(t, server.URL+"/api/access/effective-scope", viewerToken, http.StatusOK, &payload)
+	for _, item := range payload.AgentScopes {
+		if item.AgentID != "owner-agent" {
+			continue
+		}
+		if item.ScopeType != "selected_projects" || item.CapabilityBundle != "observe" {
+			t.Fatalf("unexpected scope payload: %+v", item)
+		}
+		if item.AllowFileDownload || item.AllowDiagnostics {
+			t.Fatalf("expected restricted capability flags, got %+v", item)
+		}
+		return
+	}
+	t.Fatalf("expected owner-agent in effective scope: %+v", payload.AgentScopes)
+}
+
+func TestExpiredGrantDoesNotAppearInOverviewOrEffectiveScope(t *testing.T) {
+	dataDir := t.TempDir()
+	database, err := db.Open(dataDir)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer database.Close()
+
+	owner, err := database.CreateUser("owner", "Owner12345A", false)
+	if err != nil {
+		t.Fatalf("create owner: %v", err)
+	}
+	viewer, err := database.CreateUser("viewer", "Viewer12345A", false)
+	if err != nil {
+		t.Fatalf("create viewer: %v", err)
+	}
+	if err := database.RegisterAgent("owner-agent", owner.ID, "Owner desktop"); err != nil {
+		t.Fatalf("register owner agent: %v", err)
+	}
+	if err := database.RegisterAgent("viewer-agent", viewer.ID, "Viewer desktop"); err != nil {
+		t.Fatalf("register viewer agent: %v", err)
+	}
+	expiredAt := time.Now().Add(-time.Hour).UTC()
+	if err := database.CreateAgentAccessGrantWithInput(db.AccessGrantInput{
+		ControllerUserID:  viewer.ID,
+		TargetAgentID:     "owner-agent",
+		CreatedByUserID:   owner.ID,
+		Note:              "expired",
+		ProjectIDs:        []string{"project-alpha"},
+		ScopeType:         "selected_projects",
+		CapabilityBundle:  "collaborate",
+		AllowFileDownload: true,
+		AllowDiagnostics:  true,
+		ExpiresAt:         &expiredAt,
+	}); err != nil {
+		t.Fatalf("create access grant: %v", err)
+	}
+
+	cfg := &config.Config{
+		JWTSecret:    "relay-test-secret-20260324",
+		PingInterval: 30,
+		QueueSize:    100,
+		CORSOrigins:  "*",
+		DataDir:      dataDir,
+		DatabasePath: dataDir,
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/auth/login", handler.LoginHandler(database, cfg))
+	mux.HandleFunc("/api/access/grants", handler.AccessGrantsHandler(cfg, database))
+	mux.HandleFunc("/api/access/grants/", handler.AccessGrantsHandler(cfg, database))
+	mux.HandleFunc("/api/access/effective-scope", handler.EffectiveScopeHandler(cfg, database))
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	viewerToken := mustLoginClientToken(t, server.URL, "viewer", "Viewer12345A", "device", "viewer-device")
+
+	var overview accessOverviewPayload
+	doBearerJSON(t, server.URL+"/api/access/grants", viewerToken, http.StatusOK, &overview)
+	for _, item := range overview.ControllableAgents {
+		if item.AgentID == "owner-agent" {
+			t.Fatalf("expired grant should not expose owner-agent in overview: %+v", overview.ControllableAgents)
+		}
+	}
+
+	var payload effectiveScopePayload
+	doBearerJSON(t, server.URL+"/api/access/effective-scope", viewerToken, http.StatusOK, &payload)
+	for _, item := range payload.AgentScopes {
+		if item.AgentID == "owner-agent" {
+			t.Fatalf("expired grant should not expose owner-agent in effective scope: %+v", payload.AgentScopes)
+		}
+	}
+}
+
 func TestWorkgroupKickRevokesGrantedAccess(t *testing.T) {
 	dataDir := t.TempDir()
 	database, err := db.Open(dataDir)
@@ -444,6 +799,7 @@ func newAccessAndWorkgroupTestServer(t *testing.T, database *db.DB, dataDir stri
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/auth/login", handler.LoginHandler(database, cfg))
 	mux.HandleFunc("/api/access/grants", handler.AccessGrantsHandler(cfg, database))
+	mux.HandleFunc("/api/access/grants/", handler.AccessGrantsHandler(cfg, database))
 	mux.HandleFunc("/api/access/effective-scope", handler.EffectiveScopeHandler(cfg, database))
 	mux.HandleFunc("/api/workgroups/registry/publish", handler.WorkgroupRegistryHandler(cfg, database))
 	mux.HandleFunc("/api/workgroups/registry/join", handler.WorkgroupRegistryHandler(cfg, database))

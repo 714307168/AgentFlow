@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/claudecode/relay-server/config"
 	"github.com/claudecode/relay-server/db"
@@ -24,12 +25,172 @@ type effectiveScopeResponse struct {
 	AgentScopes []db.EffectiveAgentScope `json:"agent_scopes"`
 }
 
+type accessGrantCreateRequest struct {
+	ControllerUsername string   `json:"controller_username"`
+	TargetAgentID      string   `json:"target_agent_id"`
+	ProjectIDs         []string `json:"project_ids"`
+	ScopeType          string   `json:"scope_type"`
+	CapabilityBundle   string   `json:"capability_bundle"`
+	AllowFileDownload  *bool    `json:"allow_file_download"`
+	AllowDiagnostics   *bool    `json:"allow_diagnostics"`
+	ExpiresAt          string   `json:"expires_at"`
+	Note               string   `json:"note"`
+}
+
+type accessGrantPatchRequest struct {
+	ProjectIDs        *[]string `json:"project_ids"`
+	ScopeType         *string   `json:"scope_type"`
+	CapabilityBundle  *string   `json:"capability_bundle"`
+	AllowFileDownload *bool     `json:"allow_file_download"`
+	AllowDiagnostics  *bool     `json:"allow_diagnostics"`
+	ExpiresAt         *string   `json:"expires_at"`
+	Note              *string   `json:"note"`
+}
+
+func parseOptionalRFC3339(value string) (*time.Time, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return nil, nil
+	}
+	parsed, err := time.Parse(time.RFC3339, trimmed)
+	if err != nil {
+		return nil, err
+	}
+	return &parsed, nil
+}
+
+func verifyGrantOwnership(database *db.DB, session *clientSession, targetAgentID string) error {
+	if session.User.IsAdmin {
+		return nil
+	}
+	belongs, err := database.AgentBelongsToUser(strings.TrimSpace(targetAgentID), session.User.ID)
+	if err != nil {
+		return err
+	}
+	if !belongs {
+		return errForbidden("target agent does not belong to current user")
+	}
+	return nil
+}
+
+type forbiddenError struct {
+	message string
+}
+
+func (e forbiddenError) Error() string {
+	return e.message
+}
+
+func errForbidden(message string) error {
+	return forbiddenError{message: message}
+}
+
+func writeAccessGrantError(w http.ResponseWriter, err error, fallback string) {
+	if err == nil {
+		return
+	}
+	if _, ok := err.(forbiddenError); ok {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	http.Error(w, fallback, http.StatusInternalServerError)
+}
+
 // AccessGrantsHandler manages one-way desktop control grants for signed-in app clients.
 func AccessGrantsHandler(cfg *config.Config, database *db.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		session, err := currentClientSession(r, cfg, database)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusUnauthorized)
+			return
+		}
+
+		pathSuffix := strings.TrimPrefix(r.URL.Path, "/api/access/grants")
+		if pathSuffix != "" && pathSuffix != "/" {
+			segments := strings.Split(strings.Trim(pathSuffix, "/"), "/")
+			if len(segments) == 1 && r.Method == http.MethodPatch {
+				grant, err := database.GetAgentAccessGrantByID(segments[0])
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusNotFound)
+					return
+				}
+				if err := verifyGrantOwnership(database, session, grant.TargetAgentID); err != nil {
+					writeAccessGrantError(w, err, "failed to verify target agent ownership")
+					return
+				}
+
+				var body accessGrantPatchRequest
+				if err := decodeJSONBody(w, r, &body); err != nil {
+					http.Error(w, "invalid request body", http.StatusBadRequest)
+					return
+				}
+
+				input := db.AccessGrantInput{
+					ControllerUserID:  grant.ControllerUserID,
+					TargetAgentID:     grant.TargetAgentID,
+					CreatedByUserID:   session.User.ID,
+					Note:              grant.Note,
+					ProjectIDs:        grant.GrantedProjectIDs,
+					ScopeType:         grant.ScopeType,
+					CapabilityBundle:  grant.CapabilityBundle,
+					AllowFileDownload: grant.AllowFileDownload,
+					AllowDiagnostics:  grant.AllowDiagnostics,
+					ExpiresAt:         grant.ExpiresAt,
+				}
+				if body.ProjectIDs != nil {
+					input.ProjectIDs = *body.ProjectIDs
+				}
+				if body.ScopeType != nil {
+					input.ScopeType = strings.TrimSpace(*body.ScopeType)
+				}
+				if body.CapabilityBundle != nil {
+					input.CapabilityBundle = strings.TrimSpace(*body.CapabilityBundle)
+				}
+				if body.AllowFileDownload != nil {
+					input.AllowFileDownload = *body.AllowFileDownload
+				}
+				if body.AllowDiagnostics != nil {
+					input.AllowDiagnostics = *body.AllowDiagnostics
+				}
+				if body.Note != nil {
+					input.Note = strings.TrimSpace(*body.Note)
+				}
+				if body.ExpiresAt != nil {
+					expiresAt, err := parseOptionalRFC3339(*body.ExpiresAt)
+					if err != nil {
+						http.Error(w, "invalid expires_at", http.StatusBadRequest)
+						return
+					}
+					input.ExpiresAt = expiresAt
+				}
+
+				if err := database.CreateAgentAccessGrantWithInput(input); err != nil {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(map[string]any{"success": true})
+				return
+			}
+			if len(segments) == 2 && segments[1] == "revoke" && r.Method == http.MethodPost {
+				grant, err := database.GetAgentAccessGrantByID(segments[0])
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusNotFound)
+					return
+				}
+				if err := verifyGrantOwnership(database, session, grant.TargetAgentID); err != nil {
+					writeAccessGrantError(w, err, "failed to verify target agent ownership")
+					return
+				}
+				if err := database.RevokeAgentAccessGrantByID(segments[0]); err != nil {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(map[string]any{"success": true})
+				return
+			}
+			http.Error(w, "not found", http.StatusNotFound)
 			return
 		}
 
@@ -52,12 +213,7 @@ func AccessGrantsHandler(cfg *config.Config, database *db.DB) http.HandlerFunc {
 			})
 
 		case http.MethodPost:
-			var body struct {
-				ControllerUsername string   `json:"controller_username"`
-				TargetAgentID      string   `json:"target_agent_id"`
-				ProjectIDs         []string `json:"project_ids"`
-				Note               string   `json:"note"`
-			}
+			var body accessGrantCreateRequest
 			if err := decodeJSONBody(w, r, &body); err != nil {
 				http.Error(w, "invalid request body", http.StatusBadRequest)
 				return
@@ -70,16 +226,15 @@ func AccessGrantsHandler(cfg *config.Config, database *db.DB) http.HandlerFunc {
 				return
 			}
 
-			if !session.User.IsAdmin {
-				belongs, err := database.AgentBelongsToUser(body.TargetAgentID, session.User.ID)
-				if err != nil {
-					http.Error(w, "failed to verify target agent ownership", http.StatusInternalServerError)
-					return
-				}
-				if !belongs {
-					http.Error(w, "target agent does not belong to current user", http.StatusForbidden)
-					return
-				}
+			if err := verifyGrantOwnership(database, session, body.TargetAgentID); err != nil {
+				writeAccessGrantError(w, err, "failed to verify target agent ownership")
+				return
+			}
+
+			expiresAt, err := parseOptionalRFC3339(body.ExpiresAt)
+			if err != nil {
+				http.Error(w, "invalid expires_at", http.StatusBadRequest)
+				return
 			}
 
 			controllerUser, err := database.GetUserByUsername(body.ControllerUsername)
@@ -88,7 +243,26 @@ func AccessGrantsHandler(cfg *config.Config, database *db.DB) http.HandlerFunc {
 				return
 			}
 
-			if err := database.CreateAgentAccessGrant(controllerUser.ID, body.TargetAgentID, session.User.ID, strings.TrimSpace(body.Note), body.ProjectIDs); err != nil {
+			allowFileDownload := true
+			if body.AllowFileDownload != nil {
+				allowFileDownload = *body.AllowFileDownload
+			}
+			allowDiagnostics := true
+			if body.AllowDiagnostics != nil {
+				allowDiagnostics = *body.AllowDiagnostics
+			}
+			if err := database.CreateAgentAccessGrantWithInput(db.AccessGrantInput{
+				ControllerUserID:  controllerUser.ID,
+				TargetAgentID:     body.TargetAgentID,
+				CreatedByUserID:   session.User.ID,
+				Note:              strings.TrimSpace(body.Note),
+				ProjectIDs:        body.ProjectIDs,
+				ScopeType:         body.ScopeType,
+				CapabilityBundle:  body.CapabilityBundle,
+				AllowFileDownload: allowFileDownload,
+				AllowDiagnostics:  allowDiagnostics,
+				ExpiresAt:         expiresAt,
+			}); err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
@@ -110,16 +284,9 @@ func AccessGrantsHandler(cfg *config.Config, database *db.DB) http.HandlerFunc {
 				return
 			}
 
-			if !session.User.IsAdmin {
-				belongs, err := database.AgentBelongsToUser(targetAgentID, session.User.ID)
-				if err != nil {
-					http.Error(w, "failed to verify target agent ownership", http.StatusInternalServerError)
-					return
-				}
-				if !belongs {
-					http.Error(w, "target agent does not belong to current user", http.StatusForbidden)
-					return
-				}
+			if err := verifyGrantOwnership(database, session, targetAgentID); err != nil {
+				writeAccessGrantError(w, err, "failed to verify target agent ownership")
+				return
 			}
 
 			if err := database.DeleteAgentAccessGrant(controllerUserID, targetAgentID); err != nil {

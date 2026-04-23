@@ -205,6 +205,24 @@ interface RelayTransferCreateOptions {
   expiresInHours?: number | null;
 }
 
+interface AccessGrantSaveOptions {
+  grantId?: string | null;
+  controllerUsername?: string | null;
+  projectIds?: string[] | null;
+  scopeType?: string | null;
+  capabilityBundle?: string | null;
+  allowFileDownload?: boolean;
+  allowDiagnostics?: boolean;
+  expiresAt?: string | null;
+  note?: string | null;
+}
+
+interface AccessGrantRevokeOptions {
+  grantId?: string | null;
+  controllerUserId?: number | null;
+  targetAgentId?: string | null;
+}
+
 type SettingsPane = "overview" | "connection" | "project" | "message" | "automation" | "advanced";
 
 interface PersistedWindowState {
@@ -1424,6 +1442,110 @@ async function fetchAccessGrantsFromServer(): Promise<unknown> {
     throw new Error(errorText || response.statusText);
   }
   return await response.json();
+}
+
+async function saveAccessGrantToServer(data: AccessGrantSaveOptions): Promise<{ success: boolean; error?: string }> {
+  const refreshed = await refreshAgentToken(false);
+  const config = loadConfig();
+  if (!refreshed || !config.token || !config.agentId) {
+    return { success: false, error: "Not logged in" };
+  }
+
+  const body: Record<string, unknown> = {
+    project_ids: Array.isArray(data.projectIds) ? data.projectIds : [],
+    scope_type: data.scopeType ?? "",
+    capability_bundle: data.capabilityBundle ?? "",
+    allow_file_download: data.allowFileDownload !== false,
+    allow_diagnostics: data.allowDiagnostics !== false,
+    expires_at: data.expiresAt ?? "",
+    note: data.note ?? "",
+  };
+
+  try {
+    let response: Response;
+    if (data.grantId?.trim()) {
+      response = await fetchRelayJson(`${toHttpBaseUrl(config.serverUrl)}/api/access/grants/${encodeURIComponent(data.grantId.trim())}`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${config.token}`,
+        },
+        body,
+      });
+    } else {
+      const controllerUsername = String(data.controllerUsername || "").trim();
+      if (!controllerUsername) {
+        return { success: false, error: "Controller username is required" };
+      }
+      response = await fetchRelayJson(`${toHttpBaseUrl(config.serverUrl)}/api/access/grants`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${config.token}`,
+        },
+        body: {
+          ...body,
+          controller_username: controllerUsername,
+          target_agent_id: config.agentId,
+        },
+      });
+    }
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return { success: false, error: errorText || response.statusText };
+    }
+
+    clearAccessGrantCache();
+    requestRemoteProjectCatalogRefresh();
+    return { success: true };
+  } catch (error: unknown) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+async function revokeAccessGrantOnServer(data: AccessGrantRevokeOptions): Promise<{ success: boolean; error?: string }> {
+  const refreshed = await refreshAgentToken(false);
+  const config = loadConfig();
+  if (!refreshed || !config.token) {
+    return { success: false, error: "Not logged in" };
+  }
+
+  try {
+    let response: Response;
+    if (data.grantId?.trim()) {
+      response = await fetchRelayJson(`${toHttpBaseUrl(config.serverUrl)}/api/access/grants/${encodeURIComponent(data.grantId.trim())}/revoke`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${config.token}`,
+        },
+      });
+    } else {
+      const targetAgentId = data.targetAgentId?.trim() || config.agentId;
+      if (!targetAgentId || !Number.isFinite(data.controllerUserId) || Number(data.controllerUserId) <= 0) {
+        return { success: false, error: "Invalid access grant target" };
+      }
+      const query = new URLSearchParams({
+        controller_user_id: String(Number(data.controllerUserId)),
+        target_agent_id: targetAgentId,
+      });
+      response = await fetchRelayJson(`${toHttpBaseUrl(config.serverUrl)}/api/access/grants?${query.toString()}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${config.token}`,
+        },
+      });
+    }
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return { success: false, error: errorText || response.statusText };
+    }
+
+    clearAccessGrantCache();
+    requestRemoteProjectCatalogRefresh();
+    return { success: true };
+  } catch (error: unknown) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
 }
 
 const accessGrantCache = createTimedAsyncCache<unknown>({
@@ -5019,66 +5141,23 @@ ipcMain.handle("list-access-grants", async (_event, options?: { force?: boolean 
 });
 
 ipcMain.handle("grant-access-to-user", async (_event, data: { controllerUsername: string; projectIds?: string[] | null; note?: string | null }) => {
-  const refreshed = await refreshAgentToken(false);
-  const config = loadConfig();
-  if (!refreshed || !config.token || !config.agentId) {
-    return { success: false, error: "Not logged in" };
-  }
-
-  try {
-    const response = await fetchRelayJson(`${toHttpBaseUrl(config.serverUrl)}/api/access/grants`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${config.token}`,
-      },
-      body: {
-        controller_username: data.controllerUsername,
-        target_agent_id: config.agentId,
-        project_ids: Array.isArray(data.projectIds) ? data.projectIds : [],
-        note: data.note ?? "",
-      },
-    });
-    if (!response.ok) {
-      const errorText = await response.text();
-      return { success: false, error: errorText || response.statusText };
-    }
-    clearAccessGrantCache();
-    requestRemoteProjectCatalogRefresh();
-    return { success: true };
-  } catch (error: any) {
-    return { success: false, error: error?.message ?? String(error) };
-  }
+  return saveAccessGrantToServer({
+    controllerUsername: data.controllerUsername,
+    projectIds: data.projectIds,
+    scopeType: "selected_projects",
+    capabilityBundle: "collaborate",
+    allowFileDownload: true,
+    allowDiagnostics: true,
+    note: data.note ?? "",
+  });
 });
 
-ipcMain.handle("revoke-access-grant", async (_event, data: { controllerUserId: number; targetAgentId?: string | null }) => {
-  const refreshed = await refreshAgentToken(false);
-  const config = loadConfig();
-  const targetAgentId = data.targetAgentId?.trim() || config.agentId;
-  if (!refreshed || !config.token || !targetAgentId) {
-    return { success: false, error: "Not logged in" };
-  }
+ipcMain.handle("save-access-grant", async (_event, data: AccessGrantSaveOptions) => {
+  return saveAccessGrantToServer(data);
+});
 
-  try {
-    const query = new URLSearchParams({
-      controller_user_id: String(data.controllerUserId),
-      target_agent_id: targetAgentId,
-    });
-    const response = await fetchRelayJson(`${toHttpBaseUrl(config.serverUrl)}/api/access/grants?${query.toString()}`, {
-      method: "DELETE",
-      headers: {
-        Authorization: `Bearer ${config.token}`,
-      },
-    });
-    if (!response.ok) {
-      const errorText = await response.text();
-      return { success: false, error: errorText || response.statusText };
-    }
-    clearAccessGrantCache();
-    requestRemoteProjectCatalogRefresh();
-    return { success: true };
-  } catch (error: any) {
-    return { success: false, error: error?.message ?? String(error) };
-  }
+ipcMain.handle("revoke-access-grant", async (_event, data: AccessGrantRevokeOptions) => {
+  return revokeAccessGrantOnServer(data);
 });
 
 ipcMain.handle("save-config", (_event, config: Partial<AgentConfig>) => {

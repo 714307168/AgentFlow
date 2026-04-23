@@ -1051,6 +1051,13 @@
               <input type="text" id="shareAccessUser" placeholder="friend-account">
             </div>
             <div class="field">
+              <label id="shareAccessScopeTypeLabel">Project Scope</label>
+              <select id="shareAccessScopeType">
+                <option value="selected_projects">Selected Projects</option>
+                <option value="all_projects">All Projects</option>
+              </select>
+            </div>
+            <div class="field" id="shareAccessProjectScopeField">
               <div class="setting-label-row">
                 <label id="shareAccessProjectsLabel">Authorized Projects</label>
                 <span class="setting-scope" id="shareAccessProjectSummary">0 / 0 selected</span>
@@ -1066,11 +1073,50 @@
               <div class="field-help" id="shareAccessProjectsHelp">Only selected local projects will be visible to this user.</div>
             </div>
             <div class="field">
+              <label id="shareAccessCapabilityLabel">Capability Bundle</label>
+              <select id="shareAccessCapabilityBundle">
+                <option value="observe">Observe</option>
+                <option value="collaborate" selected>Collaborate</option>
+                <option value="operate">Operate</option>
+                <option value="admin">Admin</option>
+              </select>
+            </div>
+            <div class="toggle-row field">
+              <div class="toggle-copy">
+                <div class="setting-label-row">
+                  <div id="shareAccessDownloadLabel">Allow File Download</div>
+                </div>
+                <div class="toggle-help" id="shareAccessDownloadHelp">Allow this account to download files from the authorized projects.</div>
+              </div>
+              <label class="toggle">
+                <input type="checkbox" id="shareAccessAllowFileDownload" checked>
+                <span class="slider"></span>
+              </label>
+            </div>
+            <div class="toggle-row field">
+              <div class="toggle-copy">
+                <div class="setting-label-row">
+                  <div id="shareAccessDiagnosticsLabel">Allow Diagnostics</div>
+                </div>
+                <div class="toggle-help" id="shareAccessDiagnosticsHelp">Allow this account to view or export diagnostics for the authorized projects.</div>
+              </div>
+              <label class="toggle">
+                <input type="checkbox" id="shareAccessAllowDiagnostics" checked>
+                <span class="slider"></span>
+              </label>
+            </div>
+            <div class="field">
+              <label id="shareAccessExpiresAtLabel">Expires At</label>
+              <input type="datetime-local" id="shareAccessExpiresAt">
+              <div class="field-help" id="shareAccessExpiresAtHelp">Leave blank to keep the grant active until it is manually revoked.</div>
+            </div>
+            <div class="field">
               <label id="shareAccessNoteLabel">Note</label>
               <input type="text" id="shareAccessNote" placeholder="Optional note">
             </div>
             <div class="btn-row">
               <button class="btn-primary btn-small" id="shareAccessBtn">Grant Access</button>
+              <button class="btn-secondary btn-small hidden" id="shareAccessCancelBtn" type="button">Cancel Edit</button>
               <button class="btn-secondary btn-small" id="refreshAccessBtn">Refresh</button>
             </div>
             <div class="field" style="margin-top: 12px;">
@@ -1872,6 +1918,7 @@
       workgroupRegistry: "",
     };
     let currentWorkgroupId = "";
+    let editingAccessGrantId = null;
     let editingScheduledTaskId = null;
     let editingWorkgroupId = null;
     let editingMemberId = null;
@@ -2474,6 +2521,58 @@
       return Array.from(accessGrantProjectPickerState.selectedProjectIds);
     }
 
+    function getAccessGrantScopeType() {
+      return document.getElementById("shareAccessScopeType").value || "selected_projects";
+    }
+
+    function getAccessGrantCapabilityLabel(bundle) {
+      switch (String(bundle || "").trim()) {
+        case "observe":
+          return inlineText("Observe", "观察");
+        case "operate":
+          return inlineText("Operate", "操作");
+        case "admin":
+          return inlineText("Admin", "管理员");
+        default:
+          return inlineText("Collaborate", "协作");
+      }
+    }
+
+    function formatAccessGrantDateTimeInput(value) {
+      const text = String(value || "").trim();
+      if (!text) {
+        return "";
+      }
+      const parsed = new Date(text);
+      if (Number.isNaN(parsed.getTime())) {
+        return "";
+      }
+      const pad = (part) => String(part).padStart(2, "0");
+      return [
+        parsed.getFullYear(),
+        "-",
+        pad(parsed.getMonth() + 1),
+        "-",
+        pad(parsed.getDate()),
+        "T",
+        pad(parsed.getHours()),
+        ":",
+        pad(parsed.getMinutes()),
+      ].join("");
+    }
+
+    function getAccessGrantExpiresAtIsoValue() {
+      const rawValue = String(document.getElementById("shareAccessExpiresAt").value || "").trim();
+      if (!rawValue) {
+        return null;
+      }
+      const parsed = new Date(rawValue);
+      if (Number.isNaN(parsed.getTime())) {
+        return null;
+      }
+      return parsed.toISOString();
+    }
+
     function getAccessGrantProjectProviderLabel(project) {
       return project?.cliProvider === "codex" ? "OpenAI Codex" : "Claude Code";
     }
@@ -2524,6 +2623,77 @@
         renderSignatures.accessGrantProjectPicker = markup;
         listEl.innerHTML = markup;
       }
+    }
+
+    function syncAccessGrantScopeFields() {
+      const selectedProjectsOnly = getAccessGrantScopeType() === "selected_projects";
+      const projectScopeField = document.getElementById("shareAccessProjectScopeField");
+      const picker = document.getElementById("shareAccessProjectPicker");
+      const searchInput = document.getElementById("shareAccessProjectSearch");
+      const selectAllBtn = document.getElementById("shareAccessSelectAllBtn");
+      const clearBtn = document.getElementById("shareAccessClearBtn");
+      const helpEl = document.getElementById("shareAccessProjectsHelp");
+      projectScopeField.classList.toggle("hidden", !selectedProjectsOnly);
+      picker.classList.toggle("disabled", !selectedProjectsOnly);
+      searchInput.disabled = !selectedProjectsOnly;
+      selectAllBtn.disabled = !selectedProjectsOnly;
+      clearBtn.disabled = !selectedProjectsOnly;
+      helpEl.textContent = selectedProjectsOnly
+        ? inlineText("Only selected local projects will be visible to this user.", "只有勾选的本地项目会对该账号可见。")
+        : inlineText("This grant will apply to all current and future local projects.", "这个授权会覆盖当前和后续所有本地项目。");
+    }
+
+    function resetAccessGrantForm(grant = null) {
+      editingAccessGrantId = grant?.id || null;
+      const userInput = document.getElementById("shareAccessUser");
+      const cancelBtn = document.getElementById("shareAccessCancelBtn");
+      const submitBtn = document.getElementById("shareAccessBtn");
+      userInput.value = grant?.controller_username || "";
+      userInput.disabled = Boolean(editingAccessGrantId);
+      document.getElementById("shareAccessScopeType").value = grant?.scope_type || "selected_projects";
+      document.getElementById("shareAccessCapabilityBundle").value = grant?.capability_bundle || "collaborate";
+      document.getElementById("shareAccessAllowFileDownload").checked = grant?.allow_file_download !== false;
+      document.getElementById("shareAccessAllowDiagnostics").checked = grant?.allow_diagnostics !== false;
+      document.getElementById("shareAccessExpiresAt").value = formatAccessGrantDateTimeInput(grant?.expires_at);
+      document.getElementById("shareAccessNote").value = grant?.note || "";
+      accessGrantProjectPickerState.filterText = "";
+      document.getElementById("shareAccessProjectSearch").value = "";
+      renderAccessGrantProjectPicker(grant?.granted_project_ids || []);
+      syncAccessGrantScopeFields();
+      submitBtn.textContent = editingAccessGrantId
+        ? inlineText("Update Access", "更新授权")
+        : inlineText("Grant Access", "发起授权");
+      cancelBtn.classList.toggle("hidden", !editingAccessGrantId);
+    }
+
+    function editAccessGrant(grantId) {
+      const grants = Array.isArray(latestAccessState?.incoming_grants) ? latestAccessState.incoming_grants : [];
+      const grant = grants.find((entry) => String(entry?.id || "") === String(grantId || ""));
+      if (!grant) {
+        showStatus(inlineText("The selected access grant no longer exists.", "当前授权记录已不存在。"), true);
+        resetAccessGrantForm();
+        return;
+      }
+      resetAccessGrantForm(grant);
+      document.getElementById("shareAccessNote").focus();
+    }
+
+    function buildAccessGrantMeta(item) {
+      const parts = [
+        inlineText(`Capability: ${getAccessGrantCapabilityLabel(item?.capability_bundle)}`, `能力包：${getAccessGrantCapabilityLabel(item?.capability_bundle)}`),
+        item?.allow_file_download === false
+          ? inlineText("File download disabled", "已禁用文件下载")
+          : inlineText("File download allowed", "允许文件下载"),
+        item?.allow_diagnostics === false
+          ? inlineText("Diagnostics disabled", "已禁用诊断")
+          : inlineText("Diagnostics allowed", "允许诊断"),
+      ];
+      if (item?.expires_at) {
+        parts.push(inlineText(`Expires: ${formatDateTime(item.expires_at)}`, `过期时间：${formatDateTime(item.expires_at)}`));
+      } else {
+        parts.push(inlineText("No expiration", "不过期"));
+      }
+      return parts.join(" · ");
     }
 
     function formatAccessGrantScope(item) {
@@ -3778,10 +3948,12 @@
                 <div class="project-name">${escapeHtml(grant.controller_username || "")}</div>
                 <div class="project-path">${escapeHtml(grant.target_agent_id || "")}</div>
                 <div class="project-path">${escapeHtml(`${inlineText("Project Scope", "项目范围")}: ${formatAccessGrantScope(grant)}`)}</div>
+                <div class="project-path">${escapeHtml(buildAccessGrantMeta(grant))}</div>
                 <div class="project-path">${escapeHtml(grant.note || "")}</div>
               </div>
               <div class="project-actions">
-                <button class="btn-danger btn-small" onclick="revokeAccessGrant(${Number(grant.controller_user_id || 0)}, '${escapeHtml(grant.target_agent_id || "")}')">${escapeHtml(inlineText("Revoke", "撤销"))}</button>
+                <button class="btn-secondary btn-small" onclick="editAccessGrant('${escapeHtml(grant.id || "")}')">${escapeHtml(inlineText("Edit", "编辑"))}</button>
+                <button class="btn-danger btn-small" onclick="revokeAccessGrant('${escapeHtml(grant.id || "")}', ${Number(grant.controller_user_id || 0)}, '${escapeHtml(grant.target_agent_id || "")}')">${escapeHtml(inlineText("Revoke", "撤销"))}</button>
               </div>
             </div>
           `).join("");
@@ -3798,6 +3970,7 @@
                 <div class="project-name">${escapeHtml(agent.owner_username || "")}</div>
                 <div class="project-path">${escapeHtml(agent.agent_id || "")}</div>
                 <div class="project-path">${escapeHtml(`${inlineText("Project Scope", "项目范围")}: ${formatAccessGrantScope(agent)}`)}</div>
+                <div class="project-path">${escapeHtml(buildAccessGrantMeta(agent))}</div>
                 <div class="project-path">${escapeHtml(agent.owner_note || "")}</div>
               </div>
             </div>
@@ -4467,6 +4640,13 @@
             const result = await api.listAccessGrants({ force });
             if (result?.success) {
               renderAccessGrants(result.data || {});
+              const hadEditingGrant = Boolean(editingAccessGrantId);
+              const stillEditing = editingAccessGrantId
+                && Array.isArray(latestAccessState?.incoming_grants)
+                && latestAccessState.incoming_grants.some((entry) => String(entry?.id || "") === String(editingAccessGrantId));
+              if (hadEditingGrant && !stillEditing) {
+                resetAccessGrantForm();
+              }
             }
           paneLoadState.accessLoaded = true;
           paneLoadState.accessDirty = false;
@@ -4479,7 +4659,7 @@
       }
     }
 
-    async function revokeAccessGrant(controllerUserId, targetAgentId) {
+    async function revokeAccessGrant(grantId, controllerUserId, targetAgentId) {
       if (!confirmRiskAction({
         action: inlineText("Revoke this remote access grant?", "撤销这条远程访问授权？"),
         impact: inlineText("The selected user will immediately lose control over this desktop.", "目标用户会立即失去对当前桌面端的控制权限。"),
@@ -4488,12 +4668,15 @@
         return;
       }
       try {
-        const result = await api.revokeAccessGrant({ controllerUserId, targetAgentId });
+        const result = await api.revokeAccessGrant({ grantId, controllerUserId, targetAgentId });
         if (!result?.success) {
           showStatus(result?.error || inlineText("Failed to revoke access.", "撤销授权失败。"), true);
           return;
         }
         paneLoadState.accessDirty = true;
+        if (editingAccessGrantId && String(editingAccessGrantId) === String(grantId || "")) {
+          resetAccessGrantForm();
+        }
         await loadAccessGrants({ force: true });
         flashSaved();
       } catch (error) {
@@ -4524,6 +4707,7 @@
         await paneLoadState.projectsPromise;
         renderProjects();
         renderAccessGrantProjectPicker();
+        syncAccessGrantScopeFields();
         renderAccessGrants(latestAccessState);
         renderOverviewDashboard();
         renderTransferControlOptions();
@@ -5928,31 +6112,47 @@
 
     document.getElementById("shareAccessBtn").addEventListener("click", async () => {
       const controllerUsername = document.getElementById("shareAccessUser").value.trim();
-      const projectIds = getSelectedAccessGrantProjectIds();
+      const scopeType = getAccessGrantScopeType();
+      const projectIds = scopeType === "selected_projects" ? getSelectedAccessGrantProjectIds() : [];
+      const capabilityBundle = document.getElementById("shareAccessCapabilityBundle").value || "collaborate";
+      const allowFileDownload = document.getElementById("shareAccessAllowFileDownload").checked;
+      const allowDiagnostics = document.getElementById("shareAccessAllowDiagnostics").checked;
+      const expiresAt = getAccessGrantExpiresAtIsoValue();
       const note = document.getElementById("shareAccessNote").value.trim();
-      if (!controllerUsername) {
+      if (!editingAccessGrantId && !controllerUsername) {
         showStatus(inlineText("Enter a username to grant access.", "请输入要授权的用户名。"), true);
         return;
       }
-      if (!projectIds.length) {
+      if (scopeType === "selected_projects" && !projectIds.length) {
         showStatus(inlineText("Select at least one local project to share.", "请至少勾选一个要授权的本地项目。"), true);
         return;
       }
       try {
-        const result = await api.grantAccessToUser({
+        const result = await (api.saveAccessGrant ? api.saveAccessGrant({
+          grantId: editingAccessGrantId,
+          controllerUsername,
+          projectIds,
+          scopeType,
+          capabilityBundle,
+          allowFileDownload,
+          allowDiagnostics,
+          expiresAt,
+          note: note || null,
+        }) : api.grantAccessToUser({
           controllerUsername,
           projectIds,
           note: note || null,
-        });
+        }));
         if (!result?.success) {
-          showStatus(result?.error || inlineText("Failed to grant access.", "授权失败。"), true);
+          showStatus(
+            result?.error || (editingAccessGrantId
+              ? inlineText("Failed to update access.", "更新授权失败。")
+              : inlineText("Failed to grant access.", "授权失败。")),
+            true
+          );
           return;
         }
-        document.getElementById("shareAccessUser").value = "";
-        document.getElementById("shareAccessNote").value = "";
-        accessGrantProjectPickerState.filterText = "";
-        document.getElementById("shareAccessProjectSearch").value = "";
-        renderAccessGrantProjectPicker([]);
+        resetAccessGrantForm();
         paneLoadState.accessDirty = true;
         await loadAccessGrants({ force: true });
         flashSaved();
@@ -5961,10 +6161,18 @@
       }
     });
 
+    document.getElementById("shareAccessCancelBtn").addEventListener("click", () => {
+      resetAccessGrantForm();
+    });
+
     document.getElementById("refreshAccessBtn").addEventListener("click", async () => {
       paneLoadState.accessDirty = true;
       await loadAccessGrants({ force: true });
       flashSaved();
+    });
+
+    document.getElementById("shareAccessScopeType").addEventListener("change", () => {
+      syncAccessGrantScopeFields();
     });
 
     document.getElementById("shareAccessProjectSearch").addEventListener("input", (event) => {

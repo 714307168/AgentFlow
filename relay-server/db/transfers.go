@@ -15,14 +15,18 @@ const transferSharedProjectAccessSQL = `
 			WHERE a.id = t.sender_agent_id AND (
 				a.user_id = ?
 				OR EXISTS (
-					SELECT 1
-					FROM agent_access_grants g
-					WHERE g.controller_user_id = ?
-						AND g.target_agent_id = t.sender_agent_id
-						AND (
-							NOT EXISTS (
-								SELECT 1
-								FROM agent_access_grant_projects gp
+				SELECT 1
+				FROM agent_access_grants g
+				WHERE g.controller_user_id = ?
+					AND g.target_agent_id = t.sender_agent_id
+					AND g.revoked_at IS NULL
+					AND (g.expires_at IS NULL OR g.expires_at > CURRENT_TIMESTAMP)
+					AND (
+						g.scope_type = 'all_projects'
+						OR
+						NOT EXISTS (
+							SELECT 1
+							FROM agent_access_grant_projects gp
 								WHERE gp.controller_user_id = g.controller_user_id
 									AND gp.target_agent_id = g.target_agent_id
 							)

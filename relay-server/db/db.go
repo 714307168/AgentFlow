@@ -90,9 +90,15 @@ func (db *DB) initSchema() error {
 	CREATE TABLE IF NOT EXISTS agent_access_grants (
 		controller_user_id INTEGER NOT NULL,
 		target_agent_id TEXT NOT NULL,
+		scope_type TEXT NOT NULL DEFAULT 'all_projects',
+		capability_bundle TEXT NOT NULL DEFAULT 'collaborate',
+		allow_file_download INTEGER NOT NULL DEFAULT 1,
+		allow_diagnostics INTEGER NOT NULL DEFAULT 1,
 		note TEXT,
 		created_by_user_id INTEGER NOT NULL,
 		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		expires_at DATETIME,
+		revoked_at DATETIME,
 		PRIMARY KEY (controller_user_id, target_agent_id),
 		FOREIGN KEY (controller_user_id) REFERENCES users(id) ON DELETE CASCADE,
 		FOREIGN KEY (target_agent_id) REFERENCES agents(id) ON DELETE CASCADE,
@@ -233,6 +239,9 @@ func (db *DB) initSchema() error {
 	if err := db.ensureUserAdminColumn(); err != nil {
 		return err
 	}
+	if err := db.ensureAgentAccessGrantColumns(); err != nil {
+		return err
+	}
 	if err := db.ensureAtLeastOneAdmin(); err != nil {
 		return err
 	}
@@ -278,6 +287,75 @@ func (db *DB) ensureUserAdminColumn() error {
 	}
 	log.Info().Msg("Added users.is_admin column")
 	return nil
+}
+
+func (db *DB) ensureAgentAccessGrantColumns() error {
+	columns := []struct {
+		name       string
+		definition string
+	}{
+		{name: "scope_type", definition: "TEXT NOT NULL DEFAULT 'all_projects'"},
+		{name: "capability_bundle", definition: "TEXT NOT NULL DEFAULT 'collaborate'"},
+		{name: "allow_file_download", definition: "INTEGER NOT NULL DEFAULT 1"},
+		{name: "allow_diagnostics", definition: "INTEGER NOT NULL DEFAULT 1"},
+		{name: "expires_at", definition: "DATETIME"},
+		{name: "revoked_at", definition: "DATETIME"},
+	}
+
+	existing, err := db.tableColumns("agent_access_grants")
+	if err != nil {
+		return err
+	}
+	for _, column := range columns {
+		if existing[column.name] {
+			continue
+		}
+		if _, err := db.Exec("ALTER TABLE agent_access_grants ADD COLUMN " + column.name + " " + column.definition); err != nil {
+			return fmt.Errorf("failed to add agent_access_grants.%s column: %w", column.name, err)
+		}
+		log.Info().Str("column", column.name).Msg("Added agent_access_grants column")
+	}
+	if _, err := db.Exec(`
+		UPDATE agent_access_grants
+		SET scope_type = 'selected_projects'
+		WHERE EXISTS (
+			SELECT 1
+			FROM agent_access_grant_projects gp
+			WHERE gp.controller_user_id = agent_access_grants.controller_user_id
+				AND gp.target_agent_id = agent_access_grants.target_agent_id
+		)
+	`); err != nil {
+		return fmt.Errorf("failed to normalize scoped access grants: %w", err)
+	}
+	return nil
+}
+
+func (db *DB) tableColumns(tableName string) (map[string]bool, error) {
+	rows, err := db.Query("PRAGMA table_info(" + tableName + ")")
+	if err != nil {
+		return nil, fmt.Errorf("failed to inspect %s schema: %w", tableName, err)
+	}
+	defer rows.Close()
+
+	columns := make(map[string]bool)
+	for rows.Next() {
+		var (
+			cid        int
+			name       string
+			columnType string
+			notNull    int
+			defaultVal sql.NullString
+			pk         int
+		)
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultVal, &pk); err != nil {
+			return nil, fmt.Errorf("failed to scan %s schema: %w", tableName, err)
+		}
+		columns[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to read %s schema: %w", tableName, err)
+	}
+	return columns, nil
 }
 
 func (db *DB) ensureAtLeastOneAdmin() error {

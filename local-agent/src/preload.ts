@@ -159,7 +159,18 @@ contextBridge.exposeInMainWorld('claudeAgent', {
   getConfig: () => ipcRenderer.invoke('get-config'),
   listAccessGrants: (options?: { force?: boolean }) => ipcRenderer.invoke('list-access-grants', options ?? null),
   grantAccessToUser: (data: { controllerUsername: string; projectIds?: string[] | null; note?: string | null }) => ipcRenderer.invoke('grant-access-to-user', data),
-  revokeAccessGrant: (data: { controllerUserId: number; targetAgentId?: string | null }) => ipcRenderer.invoke('revoke-access-grant', data),
+  saveAccessGrant: (data: {
+    grantId?: string | null;
+    controllerUsername?: string | null;
+    projectIds?: string[] | null;
+    scopeType?: string | null;
+    capabilityBundle?: string | null;
+    allowFileDownload?: boolean;
+    allowDiagnostics?: boolean;
+    expiresAt?: string | null;
+    note?: string | null;
+  }) => ipcRenderer.invoke('save-access-grant', data),
+  revokeAccessGrant: (data: { grantId?: string | null; controllerUserId?: number | null; targetAgentId?: string | null }) => ipcRenderer.invoke('revoke-access-grant', data),
   saveConfig: (config: Record<string, string>) => ipcRenderer.invoke('save-config', config),
   login: (data: { username: string; password: string; agentId: string }) => ipcRenderer.invoke('login', data),
   onProjectId: (callback: (id: string | null) => void) => {
