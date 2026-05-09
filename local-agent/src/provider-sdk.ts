@@ -1,4 +1,5 @@
 import * as fs from "fs";
+import { loadManagedProviderSdkModule } from "./provider-sdk-manager";
 import {
   getProviderDefaultSdkBaseUrl,
   getProviderDefaultSdkModel,
@@ -30,6 +31,8 @@ export interface ProviderSdkExecutionResult {
 const MAX_SDK_MESSAGES = 12;
 const MAX_SDK_TOTAL_CHARS = 24_000;
 
+class ManagedProviderSdkUnavailableError extends Error {}
+
 export function isProviderSdkConfigured(config: ProviderSdkConfig | null | undefined): boolean {
   return Boolean(config?.apiKey?.trim());
 }
@@ -42,9 +45,23 @@ export async function executeProviderSdkRun(
   }
 
   if (options.provider === "codex") {
+    try {
+      return await executeManagedOpenAiChatCompletion(options);
+    } catch (error) {
+      if (!(error instanceof ManagedProviderSdkUnavailableError)) {
+        throw error;
+      }
+    }
     return await executeOpenAiChatCompletion(options);
   }
 
+  try {
+    return await executeManagedAnthropicMessages(options);
+  } catch (error) {
+    if (!(error instanceof ManagedProviderSdkUnavailableError)) {
+      throw error;
+    }
+  }
   return await executeAnthropicMessages(options);
 }
 
@@ -76,6 +93,100 @@ function buildConversationHistory(messages: SessionMessage[] | undefined, prompt
     }];
   }
   return kept;
+}
+
+async function executeManagedOpenAiChatCompletion(
+  options: ProviderSdkExecutionOptions,
+): Promise<ProviderSdkExecutionResult> {
+  const OpenAI = resolveManagedOpenAiClientConstructor();
+  const client = new OpenAI({
+    apiKey: options.config.apiKey!.trim(),
+    baseURL: normalizeText(options.config.baseUrl) || getProviderDefaultSdkBaseUrl("codex"),
+  });
+  const messages = await Promise.all(
+    buildConversationHistory(options.messages, options.prompt).map(async (message) => ({
+      role: message.role,
+      content: await buildOpenAiContentBlocks(
+        message.content,
+        message.attachments ?? (message.content === options.prompt ? options.attachments ?? [] : []),
+      ),
+    })),
+  );
+  const systemPrompt = normalizeText(options.projectPrompt);
+  const payloadMessages = systemPrompt
+    ? [{ role: "system", content: systemPrompt }, ...messages]
+    : messages;
+  const payloadModel =
+    normalizeText(options.model) || normalizeText(options.config.defaultModel) || getProviderDefaultSdkModel("codex");
+  const response = await client.chat.completions.create({
+    model: payloadModel,
+    messages: payloadMessages,
+  });
+  const content = response?.choices?.[0]?.message?.content;
+  const text = typeof content === "string"
+    ? content.trim()
+    : Array.isArray(content)
+      ? content
+        .map((entry) => {
+          if (typeof entry === "string") {
+            return entry;
+          }
+          if (entry && typeof entry === "object" && "text" in entry) {
+            return String((entry as { text?: unknown }).text ?? "");
+          }
+          return "";
+        })
+        .join("\n")
+        .trim()
+      : "";
+  if (!text) {
+    throw new Error("OpenAI managed SDK returned no assistant text.");
+  }
+  return {
+    text,
+    model: normalizeText(response?.model) || payloadModel,
+  };
+}
+
+async function executeManagedAnthropicMessages(
+  options: ProviderSdkExecutionOptions,
+): Promise<ProviderSdkExecutionResult> {
+  const Anthropic = resolveManagedAnthropicClientConstructor();
+  const client = new Anthropic({
+    apiKey: options.config.apiKey!.trim(),
+    baseURL: normalizeText(options.config.baseUrl) || getProviderDefaultSdkBaseUrl("claude"),
+  });
+  const messages = await Promise.all(
+    buildConversationHistory(options.messages, options.prompt).map(async (message) => ({
+      role: message.role,
+      content: await buildAnthropicContentBlocks(
+        message.content,
+        message.attachments ?? (message.content === options.prompt ? options.attachments ?? [] : []),
+      ),
+    })),
+  );
+  const payloadModel =
+    normalizeText(options.model) || normalizeText(options.config.defaultModel) || getProviderDefaultSdkModel("claude");
+  const response = await client.messages.create({
+    model: payloadModel,
+    max_tokens: 4096,
+    system: normalizeText(options.projectPrompt) || undefined,
+    messages,
+  });
+  const text = Array.isArray(response?.content)
+    ? response.content
+      .filter((entry) => entry?.type === "text")
+      .map((entry) => String(entry?.text ?? ""))
+      .join("\n")
+      .trim()
+    : "";
+  if (!text) {
+    throw new Error("Anthropic managed SDK returned no assistant text.");
+  }
+  return {
+    text,
+    model: normalizeText(response?.model) || payloadModel,
+  };
 }
 
 async function executeOpenAiChatCompletion(
@@ -273,6 +384,60 @@ async function buildImageBase64(attachment: RunAttachment): Promise<{ base64: st
 
 function normalizeText(value: string | null | undefined): string {
   return String(value ?? "").trim();
+}
+
+function resolveManagedOpenAiClientConstructor(): new (options: Record<string, unknown>) => {
+  chat: {
+    completions: {
+      create: (payload: Record<string, unknown>) => Promise<{
+        choices?: Array<{ message?: { content?: unknown } }>;
+        model?: string | null;
+      }>;
+    };
+  };
+} {
+  const sdkModule = loadManagedProviderSdkModule("codex");
+  const candidate = sdkModule && typeof sdkModule === "object" && "default" in (sdkModule as Record<string, unknown>)
+    ? (sdkModule as Record<string, unknown>).default ?? (sdkModule as Record<string, unknown>).OpenAI ?? sdkModule
+    : ((sdkModule as Record<string, unknown> | null | undefined)?.OpenAI ?? sdkModule);
+  if (typeof candidate !== "function") {
+    throw new ManagedProviderSdkUnavailableError("Managed OpenAI SDK module is unavailable.");
+  }
+  return candidate as new (options: Record<string, unknown>) => {
+    chat: {
+      completions: {
+        create: (payload: Record<string, unknown>) => Promise<{
+          choices?: Array<{ message?: { content?: unknown } }>;
+          model?: string | null;
+        }>;
+      };
+    };
+  };
+}
+
+function resolveManagedAnthropicClientConstructor(): new (options: Record<string, unknown>) => {
+  messages: {
+    create: (payload: Record<string, unknown>) => Promise<{
+      content?: Array<{ type?: string; text?: string }>;
+      model?: string | null;
+    }>;
+  };
+} {
+  const sdkModule = loadManagedProviderSdkModule("claude");
+  const candidate = sdkModule && typeof sdkModule === "object" && "default" in (sdkModule as Record<string, unknown>)
+    ? (sdkModule as Record<string, unknown>).default ?? (sdkModule as Record<string, unknown>).Anthropic ?? sdkModule
+    : ((sdkModule as Record<string, unknown> | null | undefined)?.Anthropic ?? sdkModule);
+  if (typeof candidate !== "function") {
+    throw new ManagedProviderSdkUnavailableError("Managed Anthropic SDK module is unavailable.");
+  }
+  return candidate as new (options: Record<string, unknown>) => {
+    messages: {
+      create: (payload: Record<string, unknown>) => Promise<{
+        content?: Array<{ type?: string; text?: string }>;
+        model?: string | null;
+      }>;
+    };
+  };
 }
 
 function joinBaseUrl(baseUrl: string, suffix: string): string {

@@ -71,6 +71,12 @@ import { resolvePreferredNpmRegistry } from "./npm-network";
 import { selectProviderRuntime, type ProviderRuntimeSelection } from "./provider-runtime";
 import { isProviderSdkConfigured, type ProviderSdkConfig } from "./provider-sdk";
 import {
+  buildProviderSdkInstallCommand,
+  formatProviderSdkInstallCommand,
+  maintainManagedProviderSdk,
+  probeManagedProviderSdk,
+} from "./provider-sdk-manager";
+import {
   buildProviderEnvironment,
   getProviderDefaultSdkModel,
   getProviderSdkConfigValue,
@@ -438,6 +444,7 @@ const WORKGROUP_REGISTRY_SEARCH_CACHE_TTL_MS = 12_000;
 const WORKGROUP_REGISTRY_MEMBERS_CACHE_TTL_MS = 12_000;
 const CLI_PROVIDER_RUNTIME_STATUS_CACHE_TTL_MS = 15_000;
 const CLI_PROVIDER_AUTO_UPGRADE_COOLDOWN_MS = 6 * 60 * 60 * 1000;
+const PROVIDER_SDK_AUTO_UPGRADE_COOLDOWN_MS = 6 * 60 * 60 * 1000;
 const DESKTOP_LOG_TRACE_ID_PATTERN = /(?:trace[_-]?id["=: ]+|traceId["=: ]+)([a-z0-9:-]{6,})/ig;
 const DESKTOP_LOG_WORKGROUP_ID_PATTERN = /(?:workgroup[_-]?id["=: ]+|workgroupId["=: ]+)([a-z0-9._:-]{3,})/ig;
 const RELAY_FOLLOW_UP_REFRESH_DELAYS_MS = [300, 1_500, 5_000] as const;
@@ -461,6 +468,8 @@ let lastControllerRelayRecoveryAt = 0;
 const relayFollowUpRefreshTimers = new Set<NodeJS.Timeout>();
 const lastCliProviderAutoMaintainAt = new Map<CliProvider, number>();
 const pendingCliProviderAutoMaintains = new Map<CliProvider, Promise<CliProviderRuntimeStatus>>();
+const lastProviderSdkAutoMaintainAt = new Map<CliProvider, number>();
+const pendingProviderSdkAutoMaintains = new Map<CliProvider, Promise<void>>();
 const cliProviderRuntimeStatusCache = createTimedAsyncCache<Record<CliProvider, CliProviderRuntimeStatus>>({
   ttlMs: CLI_PROVIDER_RUNTIME_STATUS_CACHE_TTL_MS,
   load: getCliProviderRuntimeStatuses,
@@ -586,6 +595,77 @@ async function getCliProviderRuntimeStatus(
   return await maybeAutoMaintainCliProvider(status);
 }
 
+function canAutoMaintainManagedProviderSdk(status: Awaited<ReturnType<typeof probeManagedProviderSdk>>): boolean {
+  return !status.installed || status.upgradeAvailable;
+}
+
+async function maybeAutoMaintainProviderSdk(provider: CliProvider): Promise<void> {
+  const pendingMaintain = pendingProviderSdkAutoMaintains.get(provider);
+  if (pendingMaintain) {
+    await pendingMaintain;
+    return;
+  }
+
+  const lastStartedAt = lastProviderSdkAutoMaintainAt.get(provider) ?? 0;
+  if (Date.now() - lastStartedAt < PROVIDER_SDK_AUTO_UPGRADE_COOLDOWN_MS) {
+    return;
+  }
+
+  const maintainPromise = (async () => {
+    const status = await probeManagedProviderSdk(provider);
+    if (!canAutoMaintainManagedProviderSdk(status)) {
+      return;
+    }
+
+    lastProviderSdkAutoMaintainAt.set(provider, Date.now());
+    const action = status.installed ? "upgrade" : "install";
+    const commandPreview = formatProviderSdkInstallCommand(
+      buildProviderSdkInstallCommand(provider, status.installRoot),
+    );
+    appLogger.info("runtime", `Attempting automatic managed SDK ${action}.`, {
+      provider,
+      installedVersion: status.version,
+      latestVersion: status.latestVersion,
+      command: commandPreview,
+      npmRegistry: resolvePreferredNpmRegistry(),
+      installRoot: status.installRoot,
+    });
+
+    const result = await maintainManagedProviderSdk(provider, status.installRoot);
+    if (!result.success) {
+      appLogger.warn("runtime", `Automatic managed SDK ${action} failed.`, {
+        provider,
+        command: result.commandPreview,
+        error: result.error,
+        output: result.output,
+        npmRegistry: resolvePreferredNpmRegistry(),
+        installRoot: status.installRoot,
+      });
+      return;
+    }
+
+    const refreshedStatus = await probeManagedProviderSdk(provider, status.installRoot);
+    appLogger.info("runtime", `Automatic managed SDK ${action} completed.`, {
+      provider,
+      command: result.commandPreview,
+      output: result.output,
+      version: refreshedStatus.version,
+      latestVersion: refreshedStatus.latestVersion,
+      npmRegistry: resolvePreferredNpmRegistry(),
+      installRoot: status.installRoot,
+    });
+  })();
+
+  pendingProviderSdkAutoMaintains.set(provider, maintainPromise);
+  try {
+    await maintainPromise;
+  } finally {
+    if (pendingProviderSdkAutoMaintains.get(provider) === maintainPromise) {
+      pendingProviderSdkAutoMaintains.delete(provider);
+    }
+  }
+}
+
 async function getCliProviderRuntimeStatusSnapshot(
   options: { force?: boolean; allowAutoUpgrade?: boolean } = {},
 ): Promise<Record<CliProvider, CliProviderRuntimeStatus>> {
@@ -604,6 +684,9 @@ async function resolveProviderRuntime(projectId: string, provider: CliProvider):
     cliStatus,
     sdkConfigured: isProviderSdkConfigured(sdkConfig),
   });
+  if (runtime.kind === "sdk" && runtime.sdkConfigured) {
+    void maybeAutoMaintainProviderSdk(provider);
+  }
   appLogger.info("runtime", "Resolved provider runtime.", {
     projectId,
     provider,
@@ -6616,7 +6699,16 @@ app.whenReady().then(async () => {
   updateManager.start();
   void Promise.all((["claude", "codex"] as CliProvider[]).map(async (provider) => {
     try {
-      await getCliProviderRuntimeStatus(provider, { allowAutoUpgrade: true });
+      const cliStatus = await getCliProviderRuntimeStatus(provider, { allowAutoUpgrade: true });
+      const sdkConfig = getProviderSdkConfig(provider);
+      const runtime = selectProviderRuntime({
+        provider,
+        cliStatus,
+        sdkConfigured: isProviderSdkConfigured(sdkConfig),
+      });
+      if (runtime.kind === "sdk" && runtime.sdkConfigured) {
+        await maybeAutoMaintainProviderSdk(provider);
+      }
     } catch (error) {
       appLogger.warn("runtime", "Failed to warm provider runtime status.", {
         provider,

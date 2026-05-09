@@ -14,6 +14,7 @@ Module._load = function patchedLoad(request, parent, isMain) {
         getPath() {
           return testUserDataPath;
         },
+        setPath() {},
       },
     };
   }
