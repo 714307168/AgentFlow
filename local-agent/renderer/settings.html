@@ -1881,6 +1881,8 @@
     const providerRuntimeApi = window.SettingsProviderRuntime;
     const settingsAccessGrants = window.SettingsAccessGrants;
     const settingsPaneLoaders = window.SettingsPaneLoaders;
+    const CACHED_SECRET_PLACEHOLDER = "__cached__";
+    const SECRET_FIELD_IDS = ["password", "openaiApiKey", "anthropicApiKey", "githubToken"];
     let currentLang = "en";
     let msgs = {};
     let activeSettingsPane = "overview";
@@ -1955,6 +1957,31 @@
       workgroupsDirty: true,
       workgroupsPromise: null,
     };
+
+    function isCachedSecretPlaceholder(value) {
+      return String(value || "") === CACHED_SECRET_PLACEHOLDER;
+    }
+
+    function applySecretFieldValue(fieldId, value) {
+      const input = document.getElementById(fieldId);
+      if (!input) {
+        return;
+      }
+      input.value = value || "";
+    }
+
+    function readSecretFieldValue(fieldId) {
+      const input = document.getElementById(fieldId);
+      const value = input ? input.value : "";
+      return isCachedSecretPlaceholder(value) ? undefined : value;
+    }
+
+    function syncCachedSecretFieldDisplays(secretState = {}) {
+      applySecretFieldValue("password", secretState.password || "");
+      applySecretFieldValue("openaiApiKey", secretState.openaiApiKey || "");
+      applySecretFieldValue("anthropicApiKey", secretState.anthropicApiKey || "");
+      applySecretFieldValue("githubToken", secretState.githubToken || "");
+    }
 
     function normalizeSettingsPane(pane) {
       return ["overview", "connection", "project", "message", "automation", "advanced"].includes(pane) ? pane : "overview";
@@ -3797,33 +3824,52 @@
     }
 
     async function saveConnectionConfig() {
-      latestConfig = {
-        ...(latestConfig || {}),
+      const password = readSecretFieldValue("password");
+      const openaiApiKey = readSecretFieldValue("openaiApiKey");
+      const anthropicApiKey = readSecretFieldValue("anthropicApiKey");
+      const githubToken = readSecretFieldValue("githubToken");
+      const payload = {
         serverUrl: document.getElementById("serverUrl").value.trim(),
         username: document.getElementById("username").value.trim(),
-        password: document.getElementById("password").value,
         agentId: document.getElementById("agentId").value.trim(),
         openaiBaseUrl: document.getElementById("openaiBaseUrl").value.trim(),
         openaiDefaultModel: document.getElementById("openaiDefaultModel").value.trim(),
         anthropicBaseUrl: document.getElementById("anthropicBaseUrl").value.trim(),
         anthropicDefaultModel: document.getElementById("anthropicDefaultModel").value.trim(),
-        githubToken: document.getElementById("githubToken").value,
         cliProvider: document.getElementById("cliProvider").value,
       };
-      await api.saveConfig({
-        serverUrl: document.getElementById("serverUrl").value.trim(),
-        username: document.getElementById("username").value.trim(),
-        password: document.getElementById("password").value,
-        agentId: document.getElementById("agentId").value.trim(),
-        openaiApiKey: document.getElementById("openaiApiKey").value,
-        openaiBaseUrl: document.getElementById("openaiBaseUrl").value.trim(),
-        openaiDefaultModel: document.getElementById("openaiDefaultModel").value.trim(),
-        anthropicApiKey: document.getElementById("anthropicApiKey").value,
-        anthropicBaseUrl: document.getElementById("anthropicBaseUrl").value.trim(),
-        anthropicDefaultModel: document.getElementById("anthropicDefaultModel").value.trim(),
-        githubToken: document.getElementById("githubToken").value,
-        cliProvider: document.getElementById("cliProvider").value,
-      });
+      if (password !== undefined) {
+        payload.password = password;
+      }
+      if (openaiApiKey !== undefined) {
+        payload.openaiApiKey = openaiApiKey;
+      }
+      if (anthropicApiKey !== undefined) {
+        payload.anthropicApiKey = anthropicApiKey;
+      }
+      if (githubToken !== undefined) {
+        payload.githubToken = githubToken;
+      }
+
+      await api.saveConfig(payload);
+
+      latestConfig = {
+        ...(latestConfig || {}),
+        ...payload,
+        password: password === undefined
+          ? (latestConfig?.password || "")
+          : (password ? CACHED_SECRET_PLACEHOLDER : ""),
+        openaiApiKey: openaiApiKey === undefined
+          ? (latestConfig?.openaiApiKey || "")
+          : (openaiApiKey ? CACHED_SECRET_PLACEHOLDER : ""),
+        anthropicApiKey: anthropicApiKey === undefined
+          ? (latestConfig?.anthropicApiKey || "")
+          : (anthropicApiKey ? CACHED_SECRET_PLACEHOLDER : ""),
+        githubToken: githubToken === undefined
+          ? (latestConfig?.githubToken || "")
+          : (githubToken ? CACHED_SECRET_PLACEHOLDER : ""),
+      };
+      syncCachedSecretFieldDisplays(latestConfig);
       renderOverviewDashboard();
       flashSaved();
     }
@@ -5662,15 +5708,12 @@
       latestCliProviderRuntimeStatus = runtimeStatus || null;
       document.getElementById("serverUrl").value = config.serverUrl || "";
       document.getElementById("username").value = config.username || "";
-      document.getElementById("password").value = config.password || "";
       document.getElementById("agentId").value = config.agentId || "";
-      document.getElementById("openaiApiKey").value = config.openaiApiKey || "";
       document.getElementById("openaiBaseUrl").value = config.openaiBaseUrl || "";
       document.getElementById("openaiDefaultModel").value = config.openaiDefaultModel || "";
-      document.getElementById("anthropicApiKey").value = config.anthropicApiKey || "";
       document.getElementById("anthropicBaseUrl").value = config.anthropicBaseUrl || "";
       document.getElementById("anthropicDefaultModel").value = config.anthropicDefaultModel || "";
-      document.getElementById("githubToken").value = config.githubToken || "";
+      syncCachedSecretFieldDisplays(config);
       document.getElementById("cliProvider").value = config.cliProvider || "claude";
       document.getElementById("projectProvider").value = config.cliProvider || "claude";
       document.getElementById("projectModel").value = "";
@@ -5706,6 +5749,15 @@
 
     ["serverUrl", "username", "password", "agentId", "openaiApiKey", "openaiBaseUrl", "openaiDefaultModel", "anthropicApiKey", "anthropicBaseUrl", "anthropicDefaultModel", "githubToken"].forEach((id) => {
       document.getElementById(id).addEventListener("blur", () => { void saveConnectionConfig(); });
+    });
+
+    SECRET_FIELD_IDS.forEach((id) => {
+      document.getElementById(id).addEventListener("focus", (event) => {
+        const input = event.target;
+        if (input && isCachedSecretPlaceholder(input.value) && typeof input.select === "function") {
+          setTimeout(() => input.select(), 0);
+        }
+      });
     });
 
     document.getElementById("cliProvider").addEventListener("change", () => {
@@ -5744,7 +5796,7 @@
     document.getElementById("loginBtn").addEventListener("click", async () => {
       const serverUrl = document.getElementById("serverUrl").value.trim();
       const username = document.getElementById("username").value.trim();
-      const password = document.getElementById("password").value.trim();
+      const password = String(readSecretFieldValue("password") || "").trim();
       const agentId = document.getElementById("agentId").value.trim();
       if (!serverUrl || !username || !password || !agentId) {
         showStatus(msg("settings.fillRequired", "Please fill in all fields."), true);

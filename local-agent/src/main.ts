@@ -82,6 +82,11 @@ import { createLocalCommandGateway, defineLocalCommand, type LocalCommandDescrip
 import { buildGitHubCommandEnvironment } from "./github-command-env";
 import { applyDesktopStartupModePlan, buildDesktopStartupModePlan } from "./desktop-startup-mode";
 import {
+  CACHED_SECRET_PLACEHOLDER,
+  normalizeSecretInputForSave,
+  toPublicSecretFieldValue,
+} from "./config-secret-state";
+import {
   buildRelayFollowUpRefreshPasses,
   type RelayFollowUpRefreshPass,
 } from "./relay-follow-up-refresh-plan";
@@ -3428,22 +3433,26 @@ function loadConfig(): AgentConfig {
 
 function getPublicConfig(): Omit<AgentConfig, "encryptedToken" | "encryptedPassword" | "encryptedOpenaiApiKey" | "encryptedAnthropicApiKey" | "encryptedGithubToken"> {
   const config = loadConfig();
+  const encryptedPassword = (configStore.get("encryptedPassword") as string) || "";
+  const encryptedOpenaiApiKey = (configStore.get("encryptedOpenaiApiKey") as string) || "";
+  const encryptedAnthropicApiKey = (configStore.get("encryptedAnthropicApiKey") as string) || "";
+  const encryptedGithubToken = (configStore.get("encryptedGithubToken") as string) || "";
   return {
     serverUrl: config.serverUrl,
     agentId: config.agentId,
-    token: config.token ? "__cached__" : "",
+    token: config.token ? CACHED_SECRET_PLACEHOLDER : "",
     username: config.username,
-    password: config.password,
+    password: toPublicSecretFieldValue(encryptedPassword, config.password),
     controllerDeviceId: config.controllerDeviceId,
-    controllerToken: config.controllerToken ? "__cached__" : "",
+    controllerToken: config.controllerToken ? CACHED_SECRET_PLACEHOLDER : "",
     controllerTokenExpiresAt: config.controllerTokenExpiresAt,
-    openaiApiKey: config.openaiApiKey,
+    openaiApiKey: toPublicSecretFieldValue(encryptedOpenaiApiKey, config.openaiApiKey),
     openaiBaseUrl: config.openaiBaseUrl,
     openaiDefaultModel: config.openaiDefaultModel,
-    anthropicApiKey: config.anthropicApiKey,
+    anthropicApiKey: toPublicSecretFieldValue(encryptedAnthropicApiKey, config.anthropicApiKey),
     anthropicBaseUrl: config.anthropicBaseUrl,
     anthropicDefaultModel: config.anthropicDefaultModel,
-    githubToken: config.githubToken,
+    githubToken: toPublicSecretFieldValue(encryptedGithubToken, config.githubToken),
     tokenExpiresAt: config.tokenExpiresAt,
     cliProvider: config.cliProvider,
   };
@@ -5173,14 +5182,34 @@ ipcMain.handle("save-config", (_event, config: Partial<AgentConfig>) => {
     configStore.set("token", "");
   }
   if (config.username !== undefined) configStore.set("username", config.username);
-  if (config.password !== undefined) configStore.set("encryptedPassword", encodeSecretForStore(config.password));
-  if (config.openaiApiKey !== undefined) configStore.set("encryptedOpenaiApiKey", encodeSecretForStore(config.openaiApiKey));
+  if (config.password !== undefined) {
+    const normalized = normalizeSecretInputForSave(config.password);
+    if (normalized.shouldUpdate) {
+      configStore.set("encryptedPassword", encodeSecretForStore(normalized.nextValue));
+    }
+  }
+  if (config.openaiApiKey !== undefined) {
+    const normalized = normalizeSecretInputForSave(config.openaiApiKey);
+    if (normalized.shouldUpdate) {
+      configStore.set("encryptedOpenaiApiKey", encodeSecretForStore(normalized.nextValue));
+    }
+  }
   if (config.openaiBaseUrl !== undefined) configStore.set("openaiBaseUrl", config.openaiBaseUrl);
   if (config.openaiDefaultModel !== undefined) configStore.set("openaiDefaultModel", config.openaiDefaultModel);
-  if (config.anthropicApiKey !== undefined) configStore.set("encryptedAnthropicApiKey", encodeSecretForStore(config.anthropicApiKey));
+  if (config.anthropicApiKey !== undefined) {
+    const normalized = normalizeSecretInputForSave(config.anthropicApiKey);
+    if (normalized.shouldUpdate) {
+      configStore.set("encryptedAnthropicApiKey", encodeSecretForStore(normalized.nextValue));
+    }
+  }
   if (config.anthropicBaseUrl !== undefined) configStore.set("anthropicBaseUrl", config.anthropicBaseUrl);
   if (config.anthropicDefaultModel !== undefined) configStore.set("anthropicDefaultModel", config.anthropicDefaultModel);
-  if (config.githubToken !== undefined) configStore.set("encryptedGithubToken", encodeSecretForStore(config.githubToken));
+  if (config.githubToken !== undefined) {
+    const normalized = normalizeSecretInputForSave(config.githubToken);
+    if (normalized.shouldUpdate) {
+      configStore.set("encryptedGithubToken", encodeSecretForStore(normalized.nextValue));
+    }
+  }
   if (config.cliProvider !== undefined) configStore.set("cliProvider", config.cliProvider);
   return true;
 });
