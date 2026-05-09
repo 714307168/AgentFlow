@@ -69,6 +69,18 @@ export interface RuntimeConfig {
   }) => void;
   onProjectConfigChanged?: (projectId: string) => void;
   captureProjectScreenshot?: (projectId: string) => Promise<RunAttachment>;
+  generateProjectImageAsset?: (options: {
+    projectId: string;
+    cwd: string;
+    provider: CliProvider;
+    model: string | null;
+    prompt: string;
+  }) => Promise<{
+    attachment: RunAttachment;
+    savedPath: string;
+    model: string | null;
+    revisedPrompt?: string | null;
+  }>;
 }
 
 export interface EnqueueMessageOptions {
@@ -1259,6 +1271,15 @@ class RuntimeManager extends EventEmitter {
       };
     }
 
+    if (command.name === "image") {
+      const completionDetail = await this.handleGenerateImageSlashCommand(state, run, context, command.args);
+      return {
+        run,
+        handledLocally: true,
+        completionDetail,
+      };
+    }
+
     if (state.provider === "codex") {
       const runtime = await this.resolveProviderRuntime(state.projectId, state.provider);
       if (command.name === "init") {
@@ -2332,6 +2353,63 @@ class RuntimeManager extends EventEmitter {
     }
   }
 
+  private async handleGenerateImageSlashCommand(
+    state: ProjectState,
+    run: PendingRun,
+    context: RunContext,
+    rawArgs: string,
+  ): Promise<string> {
+    const prompt = rawArgs.trim();
+    if (!prompt) {
+      const message = "Usage: /image <prompt>";
+      this.appendAssistantText(state, context, run, message);
+      run.onTextDelta?.(message);
+      return "Displayed /image usage.";
+    }
+
+    const generateProjectImageAsset = this.getConfig().generateProjectImageAsset;
+    if (!generateProjectImageAsset) {
+      const message = "Project image generation is not available in this build.";
+      this.appendAssistantText(state, context, run, message);
+      run.onTextDelta?.(message);
+      return message;
+    }
+
+    try {
+      const result = await generateProjectImageAsset({
+        projectId: state.projectId,
+        cwd: run.cwd,
+        provider: state.provider,
+        model: state.model,
+        prompt,
+      });
+      const relativePath = this.describeProjectAssetPath(run.cwd, result.savedPath);
+      const messageLines = [
+        `Generated image asset: ${result.attachment.name}`,
+        `Saved to: ${relativePath}`,
+      ];
+      if (result.model) {
+        messageLines.push(`Model: ${result.model}`);
+      }
+      if (result.revisedPrompt?.trim()) {
+        messageLines.push(`Revised prompt: ${result.revisedPrompt.trim()}`);
+      }
+      this.addAssistantMessage(
+        state,
+        context,
+        run,
+        messageLines.join("\n"),
+        [result.attachment],
+      );
+      return `Generated image asset ${result.attachment.name}.`;
+    } catch (error) {
+      const message = `Unable to generate image: ${error instanceof Error ? error.message : String(error)}`;
+      this.appendAssistantText(state, context, run, message);
+      run.onTextDelta?.(message);
+      return message;
+    }
+  }
+
   private unwrapQuotedValue(rawValue: string): string {
     const trimmed = rawValue.trim();
     if (trimmed.length >= 2) {
@@ -2396,6 +2474,19 @@ class RuntimeManager extends EventEmitter {
         jpegQuality: 78,
       }),
     });
+  }
+
+  private describeProjectAssetPath(projectPath: string, assetPath: string): string {
+    const normalizedProjectPath = projectPath.trim();
+    const normalizedAssetPath = assetPath.trim();
+    if (!normalizedProjectPath || !normalizedAssetPath) {
+      return normalizedAssetPath || assetPath;
+    }
+    const relativePath = path.relative(normalizedProjectPath, normalizedAssetPath);
+    if (!relativePath || relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
+      return normalizedAssetPath;
+    }
+    return relativePath.replace(/\\/g, "/");
   }
 
   private createConversationState(createdAt = Date.now()): ProjectConversationState {

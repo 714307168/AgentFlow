@@ -1,0 +1,86 @@
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const Module = require("node:module");
+
+const testUserDataPath = fs.mkdtempSync(path.join(os.tmpdir(), "agentflow-provider-sdk-runtime-test-"));
+const originalLoad = Module._load;
+Module._load = function patchedLoad(request, parent, isMain) {
+  if (request === "electron") {
+    return {
+      app: {
+        getPath() {
+          return testUserDataPath;
+        },
+        setPath() {},
+      },
+    };
+  }
+  return originalLoad.call(this, request, parent, isMain);
+};
+
+const {
+  generateProviderSdkImage,
+} = require("../dist/src/provider-sdk.js");
+
+test("generateProviderSdkImage rejects unsupported providers", async () => {
+  await assert.rejects(
+    generateProviderSdkImage({
+      provider: "claude",
+      config: {
+        apiKey: "test-key",
+        baseUrl: "https://api.anthropic.com",
+        defaultModel: "claude-3-7-sonnet-latest",
+      },
+      model: null,
+      prompt: "create an icon",
+    }),
+    /Image generation is currently available only for OpenAI-compatible project providers/,
+  );
+});
+
+test("generateProviderSdkImage falls back to the HTTP image endpoint when no managed SDK is installed", async () => {
+  const originalFetch = global.fetch;
+  global.fetch = async (input, init) => {
+    assert.equal(String(input), "https://api.openai.com/v1/images/generations");
+    assert.equal(init?.method, "POST");
+    const payload = JSON.parse(String(init?.body || "{}"));
+    assert.equal(payload.model, "gpt-image-1");
+    assert.equal(payload.prompt, "create a launch illustration");
+    return {
+      ok: true,
+      async json() {
+        return {
+          model: "gpt-image-1",
+          data: [{
+            b64_json: Buffer.from("png-bytes").toString("base64"),
+            revised_prompt: "Create a launch illustration",
+          }],
+        };
+      },
+    };
+  };
+
+  try {
+    const result = await generateProviderSdkImage({
+      provider: "codex",
+      config: {
+        apiKey: "test-key",
+        baseUrl: "https://api.openai.com",
+        defaultModel: "gpt-image-1",
+      },
+      model: "gpt-image-1",
+      prompt: "create a launch illustration",
+    });
+
+    assert.equal(result.model, "gpt-image-1");
+    assert.equal(result.mimeType, "image/png");
+    assert.equal(result.fileExtension, ".png");
+    assert.equal(result.revisedPrompt, "Create a launch illustration");
+    assert.equal(result.bytes.equals(Buffer.from("png-bytes")), true);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});

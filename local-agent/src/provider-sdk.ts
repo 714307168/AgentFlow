@@ -28,6 +28,22 @@ export interface ProviderSdkExecutionResult {
   model: string | null;
 }
 
+export interface ProviderSdkImageGenerationOptions {
+  provider: CliProvider;
+  config: ProviderSdkConfig;
+  model: string | null;
+  prompt: string;
+  signal?: AbortSignal;
+}
+
+export interface ProviderSdkImageGenerationResult {
+  bytes: Buffer;
+  mimeType: string;
+  fileExtension: string;
+  model: string | null;
+  revisedPrompt: string | null;
+}
+
 const MAX_SDK_MESSAGES = 12;
 const MAX_SDK_TOTAL_CHARS = 24_000;
 
@@ -63,6 +79,27 @@ export async function executeProviderSdkRun(
     }
   }
   return await executeAnthropicMessages(options);
+}
+
+export async function generateProviderSdkImage(
+  options: ProviderSdkImageGenerationOptions,
+): Promise<ProviderSdkImageGenerationResult> {
+  if (!isProviderSdkConfigured(options.config)) {
+    throw new Error("Provider SDK credentials are not configured.");
+  }
+  if (options.provider !== "codex") {
+    throw new Error("Image generation is currently available only for OpenAI-compatible project providers.");
+  }
+
+  try {
+    return await generateManagedOpenAiImage(options);
+  } catch (error) {
+    if (!(error instanceof ManagedProviderSdkUnavailableError)) {
+      throw error;
+    }
+  }
+
+  return await generateOpenAiImageViaHttp(options);
 }
 
 function buildConversationHistory(messages: SessionMessage[] | undefined, prompt: string): SessionMessage[] {
@@ -146,6 +183,24 @@ async function executeManagedOpenAiChatCompletion(
     text,
     model: normalizeText(response?.model) || payloadModel,
   };
+}
+
+async function generateManagedOpenAiImage(
+  options: ProviderSdkImageGenerationOptions,
+): Promise<ProviderSdkImageGenerationResult> {
+  const OpenAI = resolveManagedOpenAiClientConstructor();
+  const client = new OpenAI({
+    apiKey: options.config.apiKey!.trim(),
+    baseURL: normalizeText(options.config.baseUrl) || getProviderDefaultSdkBaseUrl("codex"),
+  });
+  const payloadModel =
+    normalizeText(options.model) || normalizeText(options.config.defaultModel) || getProviderDefaultSdkModel("codex");
+  const response = await client.images.generate({
+    model: payloadModel,
+    prompt: normalizeText(options.prompt),
+    size: "1024x1024",
+  });
+  return await normalizeOpenAiGeneratedImageResponse(response, payloadModel, options.signal);
 }
 
 async function executeManagedAnthropicMessages(
@@ -243,6 +298,38 @@ async function executeOpenAiChatCompletion(
     text,
     model: normalizeText(payload.model) || normalizeText(options.model) || normalizeText(options.config.defaultModel),
   };
+}
+
+async function generateOpenAiImageViaHttp(
+  options: ProviderSdkImageGenerationOptions,
+): Promise<ProviderSdkImageGenerationResult> {
+  const url = joinBaseUrl(options.config.baseUrl || getProviderDefaultSdkBaseUrl("codex"), "/v1/images/generations");
+  const payloadModel =
+    normalizeText(options.model) || normalizeText(options.config.defaultModel) || getProviderDefaultSdkModel("codex");
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${options.config.apiKey!.trim()}`,
+    },
+    body: JSON.stringify({
+      model: payloadModel,
+      prompt: normalizeText(options.prompt),
+      size: "1024x1024",
+    }),
+    signal: options.signal,
+  });
+
+  if (!response.ok) {
+    const errorText = (await response.text()).trim();
+    throw new Error(errorText || response.statusText || "OpenAI image generation request failed.");
+  }
+
+  const payload = await response.json() as {
+    data?: Array<{ b64_json?: string; url?: string; revised_prompt?: string }>;
+    model?: string;
+  };
+  return await normalizeOpenAiGeneratedImageResponse(payload, payloadModel, options.signal);
 }
 
 async function executeAnthropicMessages(
@@ -395,6 +482,12 @@ function resolveManagedOpenAiClientConstructor(): new (options: Record<string, u
       }>;
     };
   };
+  images: {
+    generate: (payload: Record<string, unknown>) => Promise<{
+      data?: Array<{ b64_json?: string; url?: string; revised_prompt?: string }>;
+      model?: string | null;
+    }>;
+  };
 } {
   const sdkModule = loadManagedProviderSdkModule("codex");
   const candidate = sdkModule && typeof sdkModule === "object" && "default" in (sdkModule as Record<string, unknown>)
@@ -411,6 +504,12 @@ function resolveManagedOpenAiClientConstructor(): new (options: Record<string, u
           model?: string | null;
         }>;
       };
+    };
+    images: {
+      generate: (payload: Record<string, unknown>) => Promise<{
+        data?: Array<{ b64_json?: string; url?: string; revised_prompt?: string }>;
+        model?: string | null;
+      }>;
     };
   };
 }
@@ -442,4 +541,72 @@ function resolveManagedAnthropicClientConstructor(): new (options: Record<string
 
 function joinBaseUrl(baseUrl: string, suffix: string): string {
   return `${baseUrl.replace(/\/+$/u, "")}${suffix}`;
+}
+
+async function normalizeOpenAiGeneratedImageResponse(
+  payload: {
+    data?: Array<{ b64_json?: string; url?: string; revised_prompt?: string }>;
+    model?: string | null;
+  },
+  fallbackModel: string,
+  signal?: AbortSignal,
+): Promise<ProviderSdkImageGenerationResult> {
+  const firstImage = Array.isArray(payload?.data) ? payload.data[0] : null;
+  if (firstImage?.b64_json) {
+    return {
+      bytes: Buffer.from(firstImage.b64_json, "base64"),
+      mimeType: "image/png",
+      fileExtension: ".png",
+      model: normalizeText(payload?.model) || fallbackModel,
+      revisedPrompt: normalizeText(firstImage.revised_prompt) || null,
+    };
+  }
+  if (firstImage?.url) {
+    const downloaded = await downloadGeneratedImage(firstImage.url, signal);
+    return {
+      ...downloaded,
+      model: normalizeText(payload?.model) || fallbackModel,
+      revisedPrompt: normalizeText(firstImage.revised_prompt) || null,
+    };
+  }
+  throw new Error("OpenAI image generation returned no image output.");
+}
+
+async function downloadGeneratedImage(
+  url: string,
+  signal?: AbortSignal,
+): Promise<Pick<ProviderSdkImageGenerationResult, "bytes" | "mimeType" | "fileExtension">> {
+  const response = await fetch(url, {
+    method: "GET",
+    signal,
+  });
+  if (!response.ok) {
+    const errorText = (await response.text()).trim();
+    throw new Error(errorText || response.statusText || "Failed to download generated image.");
+  }
+  const bytes = Buffer.from(await response.arrayBuffer());
+  const mimeType = normalizeImageMimeType(response.headers.get("content-type")) || "image/png";
+  return {
+    bytes,
+    mimeType,
+    fileExtension: guessImageFileExtensionFromMimeType(mimeType),
+  };
+}
+
+function normalizeImageMimeType(contentType: string | null): string | null {
+  const normalized = normalizeText(contentType).split(";")[0]?.trim().toLowerCase() ?? "";
+  return normalized.startsWith("image/") ? normalized : null;
+}
+
+function guessImageFileExtensionFromMimeType(mimeType: string): string {
+  switch (mimeType) {
+    case "image/jpeg":
+      return ".jpg";
+    case "image/webp":
+      return ".webp";
+    case "image/gif":
+      return ".gif";
+    default:
+      return ".png";
+  }
 }

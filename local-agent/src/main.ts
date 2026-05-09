@@ -48,6 +48,7 @@ import { t, getLang, setLang, getAllMessages, Lang } from "./i18n";
 import { buildRelayApiHeaders, getRelayApiClientVersion, RELAY_API_VERSION } from "./api-version";
 import { fetchRelayJson } from "./relay-http";
 import {
+  buildImagePreviewDataUrlFromPath,
   buildImagePreviewDataUrlFromNativeImage,
   createRunAttachmentFromPath,
   getUniqueAttachmentPath,
@@ -69,7 +70,11 @@ import { getCliProviderRuntimeStatuses, probeCliProviderRuntime, type CliProvide
 import { installCliProvider, upgradeCliProvider } from "./cli-updater";
 import { resolvePreferredNpmRegistry } from "./npm-network";
 import { selectProviderRuntime, type ProviderRuntimeSelection } from "./provider-runtime";
-import { isProviderSdkConfigured, type ProviderSdkConfig } from "./provider-sdk";
+import {
+  generateProviderSdkImage,
+  isProviderSdkConfigured,
+  type ProviderSdkConfig,
+} from "./provider-sdk";
 import {
   buildProviderSdkInstallCommand,
   formatProviderSdkInstallCommand,
@@ -1820,6 +1825,7 @@ const runtimeManager = new RuntimeManager(() => ({
     updateWindowTitles();
   },
   captureProjectScreenshot: async (projectId) => captureProjectScreenshot(projectId),
+  generateProjectImageAsset: async (options) => generateProjectImageAsset(options),
 }));
 runtimeManager.pruneHistoryCache(appSettingsStore.get("historyRetentionDays") as number);
 const localScheduler = new LocalScheduler({
@@ -1898,6 +1904,96 @@ async function captureProjectScreenshot(projectId: string): Promise<RunAttachmen
       jpegQuality: 78,
     }),
   });
+}
+
+async function generateProjectImageAsset(options: {
+  projectId: string;
+  cwd: string;
+  provider: CliProvider;
+  model: string | null;
+  prompt: string;
+}): Promise<{
+  attachment: RunAttachment;
+  savedPath: string;
+  model: string | null;
+  revisedPrompt?: string | null;
+}> {
+  const project = getLocalProjectById(options.projectId);
+  if (!project) {
+    throw new Error("Project was not found.");
+  }
+  const projectPath = String(project.path ?? "").trim();
+  if (!projectPath) {
+    throw new Error("Project path is empty.");
+  }
+  if (!fs.existsSync(projectPath)) {
+    throw new Error(`Project path does not exist: ${projectPath}`);
+  }
+  if (options.provider !== "codex") {
+    throw new Error("Image generation is currently available only for OpenAI Codex projects.");
+  }
+
+  const sdkConfig = getProviderSdkConfig(options.provider);
+  if (!sdkConfig || !isProviderSdkConfigured(sdkConfig)) {
+    throw new Error("OpenAI API credentials are not configured for image generation.");
+  }
+
+  const generated = await generateProviderSdkImage({
+    provider: options.provider,
+    config: sdkConfig,
+    model: options.model,
+    prompt: options.prompt,
+  });
+
+  const outputDirectory = path.join(projectPath, "generated-assets");
+  fs.mkdirSync(outputDirectory, { recursive: true });
+  const fileName = createGeneratedImageFileName(options.prompt, generated.fileExtension);
+  const savedPath = getUniqueProjectAssetPath(outputDirectory, fileName);
+  fs.writeFileSync(savedPath, generated.bytes);
+
+  const stagedPath = getUniqueAttachmentPath(options.projectId, path.basename(savedPath));
+  fs.copyFileSync(savedPath, stagedPath);
+  const attachment = createRunAttachmentFromPath(stagedPath, {
+    name: path.basename(savedPath),
+    kind: "image",
+    mimeType: generated.mimeType || guessMimeType(savedPath, "image/png"),
+    previewDataUrl: buildImagePreviewDataUrlFromPath(stagedPath, {
+      maxDimension: 960,
+      maxDataUrlChars: 180_000,
+      format: "jpeg",
+      jpegQuality: 78,
+    }),
+  });
+
+  return {
+    attachment,
+    savedPath,
+    model: generated.model,
+    revisedPrompt: generated.revisedPrompt,
+  };
+}
+
+function createGeneratedImageFileName(prompt: string, extension: string): string {
+  const normalizedPrompt = String(prompt ?? "").trim().toLowerCase();
+  const slug = normalizedPrompt
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const safeExtension = extension.startsWith(".") ? extension : `.${extension}`;
+  return `${slug || "generated-image"}-${timestamp}${safeExtension}`;
+}
+
+function getUniqueProjectAssetPath(directory: string, fileName: string): string {
+  const extension = path.extname(fileName);
+  const stem = extension ? fileName.slice(0, -extension.length) : fileName;
+  let candidate = path.join(directory, fileName);
+  let suffix = 1;
+  while (fs.existsSync(candidate)) {
+    candidate = path.join(directory, `${stem}-${suffix}${extension}`);
+    suffix += 1;
+  }
+  return candidate;
 }
 
 function shouldInjectScheduledOptimizationExecutionPolicy(task: ScheduledTask): boolean {

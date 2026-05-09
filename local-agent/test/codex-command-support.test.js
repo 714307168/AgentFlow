@@ -42,6 +42,7 @@ function createRuntimeManager(options = {}) {
     getProjectCodexWebSearchEnabled: () => options.codexWebSearchEnabled === true,
     resolveProviderRuntime: options.resolveProviderRuntime,
     getProviderSdkConfig: options.getProviderSdkConfig,
+    generateProjectImageAsset: options.generateProjectImageAsset,
     updateProject: (_projectId, updates) => {
       updateCalls.push(updates);
     },
@@ -286,8 +287,77 @@ test("RuntimeManager /tools reports current Codex support and search status", as
   assert.equal(message.includes("built-in agent tools"), true);
   assert.equal(message.includes("command execution"), true);
   assert.equal(message.includes("Web search tool: enabled"), true);
+  assert.equal(message.includes("/image <prompt>"), true);
+  assert.equal(message.includes("generated-assets"), true);
   assert.equal(message.includes("/mcp list|get"), true);
   assert.equal(message.includes("Not exposed in this app"), true);
+
+  runtimeManager.dispose();
+});
+
+test("RuntimeManager handles /image locally for Codex projects with image generation configured", async () => {
+  const calls = [];
+  const { runtimeManager } = createRuntimeManager({
+    provider: "codex",
+    model: "gpt-image-1",
+    generateProjectImageAsset: async (input) => {
+      calls.push(input);
+      return {
+        attachment: {
+          id: "generated-image",
+          name: "hero-banner.png",
+          path: path.join(process.cwd(), "generated-assets", "hero-banner.png"),
+          size: 128,
+          kind: "image",
+          mimeType: "image/png",
+        },
+        savedPath: path.join(process.cwd(), "generated-assets", "hero-banner.png"),
+        model: "gpt-image-1",
+        revisedPrompt: "A polished hero banner",
+      };
+    },
+  });
+  const state = runtimeManager.ensureState("project-codex");
+
+  const prepared = await runtimeManager.prepareRun(
+    state,
+    createPreparedRun("/image create a polished hero banner"),
+    createRunContext(),
+  );
+
+  assert.equal(prepared.handledLocally, true);
+  assert.deepEqual(calls, [{
+    projectId: "project-codex",
+    cwd: process.cwd(),
+    provider: "codex",
+    model: "gpt-image-1",
+    prompt: "create a polished hero banner",
+  }]);
+
+  const message = runtimeManager.getSnapshot("project-codex").messages.at(-1);
+  assert.equal(message?.content.includes("Generated image asset: hero-banner.png"), true);
+  assert.equal(message?.content.includes("Saved to: generated-assets/hero-banner.png"), true);
+  assert.equal(message?.content.includes("Model: gpt-image-1"), true);
+  assert.equal(message?.content.includes("Revised prompt: A polished hero banner"), true);
+  assert.equal(message?.attachments?.[0]?.name, "hero-banner.png");
+
+  runtimeManager.dispose();
+});
+
+test("RuntimeManager /image shows usage when no prompt is provided", async () => {
+  const { runtimeManager } = createRuntimeManager({
+    provider: "codex",
+  });
+  const state = runtimeManager.ensureState("project-codex");
+
+  const prepared = await runtimeManager.prepareRun(
+    state,
+    createPreparedRun("/image"),
+    createRunContext(),
+  );
+
+  assert.equal(prepared.handledLocally, true);
+  assert.equal(runtimeManager.getSnapshot("project-codex").messages.at(-1)?.content, "Usage: /image <prompt>");
 
   runtimeManager.dispose();
 });

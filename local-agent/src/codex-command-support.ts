@@ -66,12 +66,13 @@ export function buildSlashHelpMessage(provider: CliProvider): string {
     "- /model <name>: switch the current project to a specific model.",
     "- /model auto: return to the provider default model.",
     "- /screenshot: capture the primary desktop display and send it back into this chat.",
+    "- /image <prompt>: generate an image asset through the current project model when the provider supports image generation.",
     "- /send-image <path>: copy a local image into this chat. Relative paths resolve from the project root.",
     "- /search [status|on|off|toggle]: manage Codex web search availability for future runs.",
     "",
     "Provider behavior:",
     "- Claude Code: native slash commands are passed through when Claude's headless mode supports them.",
-    "- OpenAI Codex: headless codex exec does not expose native slash commands, so this app emulates local commands such as /help, /tools, /model, /search, /screenshot, and /send-image.",
+    "- OpenAI Codex: headless codex exec does not expose native slash commands, so this app emulates local commands such as /help, /tools, /model, /search, /screenshot, /image, and /send-image.",
   ];
 
   if (provider === "codex") {
@@ -94,7 +95,7 @@ export function buildSlashHelpMessage(provider: CliProvider): string {
 export function buildCodexUnsupportedSlashMessage(commandName: string): string {
   return [
     `/${commandName} is not available in headless Codex mode.`,
-    "This workspace currently emulates /help, /tools, /model, /search, /review, /features, /version, /completion, /mcp, /screenshot, and /send-image for Codex projects.",
+    "This workspace currently emulates /help, /tools, /model, /search, /review, /features, /version, /completion, /mcp, /screenshot, /image, and /send-image for Codex projects.",
     "Use a normal prompt for the same intent, or run the full interactive Codex CLI if you need native slash commands.",
   ].join("\n");
 }
@@ -146,6 +147,7 @@ export function buildProviderToolsMessage(options: {
         "- App-side Codex runs still disable Codex tool discovery helpers that are not needed in this desktop flow.",
         "- This app surfaces Codex activity such as command execution, agent messages, and completion events into the chat/activity timeline.",
         `- Web search tool: ${options.codexSearchEnabled ? "enabled" : "disabled"} for subsequent runs. Use /search on|off|toggle to change it.`,
+        "- `/image <prompt>` generates an image asset through the configured OpenAI-compatible API and saves it under `generated-assets/` in the project workspace.",
         "- `/review` runs `codex review` for workspace changes without leaving the app.",
         "- `/features` runs `codex features list` so you can inspect CLI feature flags from the app.",
         "- `/version` shows the installed Codex CLI version used by the desktop agent.",
