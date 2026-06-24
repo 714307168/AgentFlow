@@ -896,6 +896,389 @@
       display: flex;
       justify-content: flex-end;
     }
+    :root {
+      --bg: #eef2f7;
+      --panel: rgba(255, 255, 255, 0.92);
+      --panel-2: #f7f9fc;
+      --panel-3: #edf3fb;
+      --border: #d8e1ec;
+      --text: #182435;
+      --muted: #637083;
+      --accent: #1f7a8c;
+      --accent-hover: #155e75;
+      --success: #16803c;
+      --success-bg: rgba(22, 128, 60, 0.1);
+      --error: #c24135;
+      --error-bg: rgba(194, 65, 53, 0.1);
+      --warning: #b7791f;
+      --shadow: rgba(32, 47, 68, 0.12);
+      --card-shadow: 0 18px 50px rgba(31, 58, 88, 0.13);
+      --soft-ring: 0 0 0 4px rgba(31, 122, 140, 0.12);
+    }
+    body {
+      background:
+        radial-gradient(circle at 18% -8%, rgba(31, 122, 140, 0.18), transparent 30%),
+        radial-gradient(circle at 88% 4%, rgba(245, 158, 11, 0.14), transparent 24%),
+        linear-gradient(135deg, #f7fafc 0%, #e9f0f7 44%, #dde8f3 100%);
+      color: var(--text);
+      font-family: "Microsoft YaHei UI", "HarmonyOS Sans SC", "Segoe UI", sans-serif;
+    }
+    .titlebar {
+      height: 52px;
+      padding: 0 20px;
+      background: rgba(247, 250, 252, 0.82);
+      border-bottom: 1px solid rgba(216, 225, 236, 0.88);
+      backdrop-filter: blur(18px);
+    }
+    .titlebar-title {
+      color: #203048;
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .titlebar-button {
+      color: #516176;
+      border-radius: 10px;
+    }
+    .titlebar-button:hover {
+      background: rgba(31, 122, 140, 0.12);
+      color: var(--accent-hover);
+    }
+    .content {
+      max-width: 1360px;
+      padding: 22px 28px 28px;
+      gap: 16px;
+    }
+    .header {
+      margin-bottom: 0;
+      padding: 18px 20px;
+      border: 1px solid rgba(216, 225, 236, 0.82);
+      border-radius: 24px;
+      background: rgba(255, 255, 255, 0.72);
+      box-shadow: 0 12px 34px rgba(31, 58, 88, 0.08);
+      backdrop-filter: blur(18px);
+    }
+    h1 {
+      color: #142033;
+      font-size: 28px;
+      letter-spacing: -0.03em;
+    }
+    .header-meta {
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .connection-status-detail {
+      margin-top: 0;
+      padding: 10px 14px;
+      border-color: rgba(216, 225, 236, 0.82);
+      background: rgba(255, 255, 255, 0.56);
+      color: #516176;
+      font-family: "Cascadia Mono", Consolas, monospace;
+      box-shadow: 0 10px 28px rgba(31, 58, 88, 0.06);
+    }
+    .settings-shell {
+      grid-template-columns: 268px minmax(0, 1fr);
+      gap: 24px;
+    }
+    .settings-nav {
+      top: 14px;
+      height: fit-content;
+      padding: 14px;
+      border: 1px solid rgba(216, 225, 236, 0.86);
+      border-radius: 26px;
+      background: rgba(255, 255, 255, 0.68);
+      box-shadow: var(--card-shadow);
+      backdrop-filter: blur(18px);
+    }
+    .settings-nav::before {
+      content: "Settings";
+      display: block;
+      padding: 4px 10px 8px;
+      color: #718094;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+    .settings-nav-item {
+      min-height: 50px;
+      justify-content: flex-start;
+      gap: 12px;
+      padding: 0 14px;
+      border-radius: 16px;
+      color: #46566b;
+      font-size: 13px;
+      font-weight: 800;
+      text-align: left;
+      transition: transform 0.16s ease, background 0.16s ease, color 0.16s ease, border-color 0.16s ease;
+    }
+    .settings-nav-item::before {
+      display: inline-grid;
+      place-items: center;
+      width: 28px;
+      height: 28px;
+      border-radius: 11px;
+      background: rgba(31, 122, 140, 0.1);
+      color: var(--accent-hover);
+      font-size: 14px;
+      flex: 0 0 auto;
+    }
+    .settings-nav-item[data-pane="overview"]::before { content: "◎"; }
+    .settings-nav-item[data-pane="connection"]::before { content: "↔"; }
+    .settings-nav-item[data-pane="project"]::before { content: "▦"; }
+    .settings-nav-item[data-pane="message"]::before { content: "✉"; }
+    .settings-nav-item[data-pane="automation"]::before { content: "⏱"; }
+    .settings-nav-item[data-pane="advanced"]::before { content: "⚙"; }
+    .settings-nav-item:hover {
+      background: rgba(31, 122, 140, 0.09);
+      border-color: rgba(31, 122, 140, 0.18);
+      color: #183246;
+      transform: translateX(2px);
+    }
+    .settings-nav-item.active {
+      background: linear-gradient(135deg, #1f7a8c 0%, #155e75 100%);
+      border-color: rgba(31, 122, 140, 0.36);
+      color: #fff;
+      box-shadow: 0 14px 26px rgba(31, 122, 140, 0.24);
+    }
+    .settings-nav-item.active::before {
+      background: rgba(255, 255, 255, 0.18);
+      color: #fff;
+    }
+    .settings-main {
+      padding-right: 10px;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(31, 122, 140, 0.35) transparent;
+    }
+    .settings-main::-webkit-scrollbar,
+    .project-picker-list::-webkit-scrollbar {
+      width: 10px;
+    }
+    .settings-main::-webkit-scrollbar-thumb,
+    .project-picker-list::-webkit-scrollbar-thumb {
+      background: rgba(31, 122, 140, 0.24);
+      border: 3px solid transparent;
+      border-radius: 999px;
+      background-clip: padding-box;
+    }
+    .settings-pane {
+      animation: pane-in 180ms ease-out;
+    }
+    @keyframes pane-in {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .section,
+    .workgroup-card,
+    .runtime-card,
+    .runtime-status-card,
+    .overview-card,
+    .project-item,
+    .add-project-form {
+      border-color: rgba(216, 225, 236, 0.92);
+      background: var(--panel);
+      box-shadow: var(--card-shadow);
+    }
+    .section {
+      position: relative;
+      overflow: hidden;
+      border-radius: 24px;
+      padding: 22px;
+      margin-bottom: 18px;
+    }
+    .section::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 4px;
+      background: linear-gradient(90deg, rgba(31, 122, 140, 0.85), rgba(245, 158, 11, 0.48), transparent);
+      opacity: 0.7;
+    }
+    .section-title {
+      color: #172338;
+      font-size: 18px;
+      letter-spacing: -0.02em;
+    }
+    .section-subtitle,
+    .field-help,
+    .toggle-help,
+    .overview-card-note,
+    .runtime-status-detail,
+    .workgroup-subtext {
+      color: #69778a;
+    }
+    .overview-grid {
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    }
+    .overview-card {
+      min-height: 126px;
+      border-radius: 20px;
+      padding: 18px;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(243, 247, 252, 0.92));
+    }
+    .overview-card-label {
+      color: #68778a;
+      font-weight: 800;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+    }
+    .overview-card-value {
+      color: #132033;
+      font-size: 28px;
+      letter-spacing: -0.04em;
+    }
+    label,
+    .project-edit-label,
+    .runtime-status-title,
+    .workgroup-card-title,
+    .runtime-card-title {
+      color: #24344a;
+      font-weight: 800;
+    }
+    input[type="text"],
+    input[type="password"],
+    input[type="datetime-local"],
+    input[type="time"],
+    textarea,
+    select,
+    .project-provider-select,
+    .project-model-input {
+      min-height: 42px;
+      border-color: rgba(195, 207, 222, 0.95);
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.88);
+      color: #172338;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+      transition: border-color 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
+    }
+    input[type="text"]:focus,
+    input[type="password"]:focus,
+    input[type="datetime-local"]:focus,
+    input[type="time"]:focus,
+    textarea:focus,
+    select:focus {
+      border-color: var(--accent);
+      background: #fff;
+      box-shadow: var(--soft-ring);
+    }
+    input::placeholder,
+    textarea::placeholder {
+      color: #98a4b3;
+    }
+    .toggle-row {
+      min-height: 62px;
+      padding: 12px 14px;
+      border: 1px solid rgba(216, 225, 236, 0.78);
+      border-radius: 18px;
+      background: rgba(247, 249, 252, 0.74);
+      cursor: pointer;
+      transition: border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
+    }
+    .toggle-row:hover {
+      border-color: rgba(31, 122, 140, 0.34);
+      background: rgba(239, 247, 250, 0.92);
+      box-shadow: 0 10px 24px rgba(31, 58, 88, 0.08);
+    }
+    .toggle-row + .toggle-row {
+      margin-top: 10px;
+      padding-top: 12px;
+      border-top: 1px solid rgba(216, 225, 236, 0.78);
+    }
+    .toggle {
+      width: 54px;
+      height: 30px;
+      flex: 0 0 auto;
+    }
+    .toggle-row > .toggle {
+      flex: 0 0 54px;
+    }
+    .slider {
+      background: #c8d3df;
+      border-color: #b8c5d4;
+      box-shadow: inset 0 1px 3px rgba(36, 52, 74, 0.16);
+    }
+    .slider::before {
+      width: 24px;
+      height: 24px;
+      top: 2px;
+      left: 2px;
+      box-shadow: 0 3px 8px rgba(36, 52, 74, 0.22);
+    }
+    .toggle input:checked + .slider {
+      background: linear-gradient(135deg, #1f7a8c, #13906f);
+      border-color: rgba(31, 122, 140, 0.8);
+    }
+    .toggle input:checked + .slider::before {
+      transform: translateX(24px);
+    }
+    .btn-row {
+      gap: 10px;
+    }
+    button {
+      border-radius: 14px;
+      font-weight: 800;
+      transition: transform 0.14s ease, box-shadow 0.14s ease, background 0.14s ease;
+    }
+    button:hover {
+      transform: translateY(-1px);
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, #1f7a8c, #155e75);
+      box-shadow: 0 12px 22px rgba(31, 122, 140, 0.2);
+    }
+    .btn-primary:hover {
+      background: linear-gradient(135deg, #22879b, #176983);
+    }
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.72);
+      color: #24344a;
+      border-color: rgba(195, 207, 222, 0.95);
+    }
+    .btn-secondary:hover {
+      background: #fff;
+      box-shadow: 0 10px 20px rgba(31, 58, 88, 0.1);
+    }
+    .connection-status,
+    .save-indicator,
+    .setting-scope,
+    .scope-pill,
+    .workgroup-pill,
+    .runtime-status-pill,
+    .runtime-status-chip,
+    .project-provider-badge,
+    .project-model-badge {
+      background: rgba(255, 255, 255, 0.72);
+      border-color: rgba(195, 207, 222, 0.86);
+      color: #34465e;
+    }
+    .connection-status.connected {
+      color: var(--success);
+      border-color: rgba(22, 128, 60, 0.28);
+      background: rgba(22, 128, 60, 0.08);
+    }
+    .connection-status.disconnected {
+      color: var(--error);
+      border-color: rgba(194, 65, 53, 0.26);
+      background: rgba(194, 65, 53, 0.08);
+    }
+    .project-list:empty::before,
+    .empty-state,
+    .workgroup-empty {
+      border-color: rgba(31, 122, 140, 0.22);
+      background: rgba(239, 247, 250, 0.76);
+      color: #69778a;
+    }
+    .project-path,
+    .pubkey,
+    .runtime-status-version {
+      font-family: "Cascadia Mono", Consolas, monospace;
+    }
+    .split-grid,
+    .runtime-grid {
+      gap: 16px;
+    }
     @media (max-width: 960px) {
       .settings-shell {
         grid-template-columns: 1fr;
@@ -904,12 +1287,19 @@
         position: static;
         flex-direction: row;
         flex-wrap: wrap;
+        border-radius: 22px;
       }
+      .settings-nav::before { display: none; }
+      .settings-nav-item { flex: 1 1 210px; }
       .settings-main {
         padding-right: 0;
       }
       .content {
-        padding: 16px;
+        padding: 14px;
+      }
+      .header {
+        align-items: flex-start;
+        flex-direction: column;
       }
     }
   </style>
@@ -2507,17 +2897,25 @@
     function bindDirectToggleClickSupport() {
       document.addEventListener("click", (event) => {
         const target = event.target instanceof Element ? event.target : null;
-        const toggleEl = target?.closest("div.toggle");
-        if (!toggleEl) {
+        if (!target) {
           return;
         }
-        const checkbox = toggleEl.querySelector('input[type="checkbox"]');
+        if (target.closest("label.toggle")) {
+          return;
+        }
+        if (target.closest("button, input, select, textarea, a")) {
+          return;
+        }
+        const toggleRow = target.closest(".toggle-row");
+        if (!toggleRow) {
+          return;
+        }
+        const checkbox = toggleRow.querySelector('input[type="checkbox"]');
         if (!(checkbox instanceof HTMLInputElement) || checkbox.disabled) {
           return;
         }
         event.preventDefault();
-        checkbox.checked = !checkbox.checked;
-        checkbox.dispatchEvent(new Event("change", { bubbles: true }));
+        checkbox.click();
       });
     }
 

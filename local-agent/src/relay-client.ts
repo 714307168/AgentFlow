@@ -205,7 +205,11 @@ class RelayClient extends EventEmitter {
     if (decision.action === "none") {
       return;
     }
-    console.warn(`[RelayClient] ${decision.action === "connect" ? "Connecting" : "Reconnecting"} relay socket during ${reason}; ${decision.detail}`);
+    appLogger.warn("RelayClient", "Recovering relay socket during health check.", {
+      action: decision.action,
+      reason,
+      detail: decision.detail,
+    });
     this.recordConnectionEvent("health-check-reconnect", {
       detail: decision.detail,
     });
@@ -283,7 +287,9 @@ class RelayClient extends EventEmitter {
     try {
       this.ws.send(JSON.stringify(outgoing));
     } catch (error) {
-      console.warn("[RelayClient] Failed to send; queueing for retry", error);
+      appLogger.warn("RelayClient", "Failed to send envelope; queueing for retry.", {
+        error: error instanceof Error ? error.message : String(error),
+      });
       this.queueOutgoingEnvelope(env);
     }
   }

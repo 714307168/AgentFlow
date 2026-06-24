@@ -352,8 +352,8 @@ const windowStateStore = new Store<WindowStateSchema>({
   name: "window-state",
   defaults: {
     settingsWindow: {
-      width: 800,
-      height: 700,
+      width: 1080,
+      height: 760,
       maximized: false,
     },
     workspaceWindow: {
@@ -2168,8 +2168,8 @@ function getLangPayload(): { lang: Lang; messages: Record<string, string> } {
 function getWindowState(storeKey: keyof WindowStateSchema): PersistedWindowState {
   const fallback = windowStateStore.get(storeKey) as PersistedWindowState | undefined;
   return {
-    width: Math.max(640, Number(fallback?.width) || (storeKey === "settingsWindow" ? 800 : 1000)),
-    height: Math.max(520, Number(fallback?.height) || 700),
+    width: Math.max(storeKey === "settingsWindow" ? 980 : 640, Number(fallback?.width) || (storeKey === "settingsWindow" ? 1080 : 1000)),
+    height: Math.max(storeKey === "settingsWindow" ? 680 : 520, Number(fallback?.height) || (storeKey === "settingsWindow" ? 760 : 700)),
     maximized: Boolean(fallback?.maximized),
     x: Number.isFinite(fallback?.x) ? Number(fallback?.x) : undefined,
     y: Number.isFinite(fallback?.y) ? Number(fallback?.y) : undefined,
@@ -3743,7 +3743,7 @@ async function recoverAgentRelayAuthentication(reason: string): Promise<void> {
   if (!relayClient) {
     return;
   }
-  console.warn(`[Main] Recovering agent relay after auth failure: ${reason}`);
+  appLogger.warn("relay", "Recovering agent relay after auth failure.", { reason });
   relayClient.resetResumeState();
   updateRelayClientAuthFromConfig();
   relayClient.connect();
@@ -3761,7 +3761,7 @@ async function recoverControllerRelayAuthentication(reason: string): Promise<voi
   if (!controllerRelayClient) {
     return;
   }
-  console.warn(`[Main] Recovering controller relay after auth failure: ${reason}`);
+  appLogger.warn("relay", "Recovering controller relay after auth failure.", { reason });
   controllerRelayClient.resetResumeState();
   updateControllerRelayClientAuthFromConfig();
   controllerRelayClient.connect();
@@ -4451,7 +4451,9 @@ function showMainWindow(parentWindow?: BrowserWindow | null): void {
     icon: createAppIcon(256),
     frame: false,
     transparent: false,
-    backgroundColor: "#0d1117",
+    backgroundColor: "#eef2f7",
+    minWidth: 980,
+    minHeight: 680,
     parent: parentWindow ?? undefined,
     resizable: true,
     webPreferences: {
@@ -4620,7 +4622,7 @@ function syncProjectCatalog(agentId: string): void {
 
 function initRelay(config: AgentConfig): void {
   if (!config.agentId || !config.token) {
-    console.warn("[Main] agentId or token not configured — relay not started");
+    appLogger.warn("relay", "Agent ID or token is not configured; relay startup skipped.");
     return;
   }
 
