@@ -36,8 +36,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run tests
-        run: npm test
+      - name: Build desktop
+        run: npm run build
 
   relay:
     name: Relay server checks
@@ -77,11 +77,6 @@ jobs:
 
       - name: Make Gradle executable
         run: chmod +x ./gradlew
-
-      - name: Run unit tests
-        env:
-          AGENTFLOW_ANDROID_BUILD_DIR: ${{ runner.temp }}/agentflow-android-build
-        run: ./gradlew --no-daemon testDebugUnitTest
 
       - name: Build debug APK
         env:

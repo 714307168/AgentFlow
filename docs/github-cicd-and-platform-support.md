@@ -13,11 +13,11 @@ Triggers:
 - Push to `main`, `master`, or `develop`
 
 Checks:
-- Desktop: install `local-agent` dependencies and run `npm test` on Windows.
+- Desktop: install `local-agent` dependencies and run `npm run build` on Windows.
 - Relay server: run `go test ./...` in `relay-server` on Linux.
-- Android: run `testDebugUnitTest` and `assembleDebug` in `android-app` on Linux.
+- Android: run `assembleDebug` in `android-app` on Linux.
 
-The Android workflow sets `AGENTFLOW_ANDROID_BUILD_DIR` to the runner temp directory so generated build files stay outside the repository path.
+The Android workflow sets `AGENTFLOW_ANDROID_BUILD_DIR` on Gradle steps so generated build files stay outside the repository path. Full desktop and Android unit-test suites are still required in the local release flow before publishing client versions.
 
 ## 2. Release Pipeline
 
