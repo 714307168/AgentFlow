@@ -62,13 +62,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.LifecycleOwner
 import com.claudecode.remote.R
 import com.claudecode.remote.data.model.WorkgroupMember
 import com.claudecode.remote.data.model.WorkgroupMessage
 import com.claudecode.remote.domain.TransferCenterItem
 import com.claudecode.remote.ui.common.animateScrollToItemBottom
 import com.claudecode.remote.ui.common.rememberEventCoroutineScope
+import com.claudecode.remote.ui.common.rememberViewTreeLifecycleOwner
 import com.claudecode.remote.ui.common.scrollToItemBottom
 import com.claudecode.remote.ui.transfer.ScopedTransferSheet
 import com.claudecode.remote.ui.transfer.mergeUpdatedTransfer
@@ -92,7 +92,7 @@ fun WorkgroupChatScreen(
     val uiState by viewModel.uiState.collectAsState()
     val listState = rememberLazyListState()
     val eventScope = rememberEventCoroutineScope()
-    val lifecycleOwner = context as? LifecycleOwner
+    val lifecycleOwner = rememberViewTreeLifecycleOwner()
     var previousLastMessageId by remember(agentId, workgroupId) { mutableStateOf<String?>(null) }
     var previousMessageCount by remember(agentId, workgroupId) { mutableStateOf(0) }
     var resumeScrollRequestToken by remember(agentId, workgroupId) { mutableStateOf(0) }

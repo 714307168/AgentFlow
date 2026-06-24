@@ -100,7 +100,6 @@ import androidx.compose.ui.window.Dialog
 import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.LifecycleOwner
 import com.claudecode.remote.R
 import com.claudecode.remote.UiPresenceTracker
 import com.claudecode.remote.data.model.Message
@@ -113,6 +112,7 @@ import com.claudecode.remote.ui.common.ProviderUi
 import com.claudecode.remote.ui.common.animateScrollToItemBottom
 import com.claudecode.remote.ui.projectAccessNoticeMessageResId
 import com.claudecode.remote.ui.common.rememberEventCoroutineScope
+import com.claudecode.remote.ui.common.rememberViewTreeLifecycleOwner
 import com.claudecode.remote.ui.common.scrollToItemBottom
 import com.claudecode.remote.ui.transfer.mergeUpdatedTransfer
 import com.claudecode.remote.ui.transfer.resolveTransferActionMessage
@@ -149,7 +149,7 @@ fun ChatScreen(
 ) {
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
-    val lifecycleOwner = context as? LifecycleOwner
+    val lifecycleOwner = rememberViewTreeLifecycleOwner()
     val uiState by viewModel.uiState.collectAsState()
     val conversationListState = remember(projectId) { LazyListState() }
     val activityListState = remember(projectId) { LazyListState() }

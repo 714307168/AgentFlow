@@ -47,7 +47,6 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -60,11 +59,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.LifecycleOwner
 import com.claudecode.remote.R
 import com.claudecode.remote.data.model.Session
 import com.claudecode.remote.data.remote.RelayWebSocket
 import com.claudecode.remote.ui.common.ProviderUi
+import com.claudecode.remote.ui.common.rememberViewTreeLifecycleOwner
 import com.claudecode.remote.update.AppUpdateState
 import com.claudecode.remote.update.AppUpdateStatus
 
@@ -83,8 +82,7 @@ fun SessionListScreen(
     onRefreshSessions: () -> Unit,
     onToggleConnection: () -> Unit
 ) {
-    val context = LocalContext.current
-    val lifecycleOwner = context as? LifecycleOwner
+    val lifecycleOwner = rememberViewTreeLifecycleOwner()
     val uiState by viewModel.uiState.collectAsState()
     val connectionState by webSocket.connectionState.collectAsState()
     val connectionError by webSocket.errorMessage.collectAsState()
