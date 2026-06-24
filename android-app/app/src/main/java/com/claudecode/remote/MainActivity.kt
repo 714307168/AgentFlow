@@ -102,10 +102,6 @@ class MainActivity : ComponentActivity() {
         requestNotificationPermissionIfNeeded()
         appContainer.chatNavigationBus.publishFromIntent(intent)
 
-        if (appContainer.tokenStore.shouldAutoStartRelay()) {
-            RelayConnectionService.start(applicationContext)
-        }
-
         enableEdgeToEdge()
         setContent {
             RemoteTheme {

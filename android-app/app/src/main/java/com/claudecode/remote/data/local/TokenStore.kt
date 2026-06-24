@@ -88,7 +88,7 @@ class TokenStore(context: Context) {
         hasDeviceBinding() && hasSavedCredentials()
 
     fun shouldAutoStartRelay(): Boolean =
-        hasDeviceBinding() && hasSavedSession()
+        hasDeviceBinding() && hasSavedCredentials()
 
     fun saveAutoUpdateCheckEnabled(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_AUTO_UPDATE_CHECK, enabled).apply()
