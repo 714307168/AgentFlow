@@ -169,10 +169,6 @@ class MainActivity : ComponentActivity() {
                     appContainer.chatNavigationBus.consume(target)
                 }
 
-                LaunchedEffect(Unit) {
-                    appUpdateManager.maybeAutoCheck()
-                }
-
                 Scaffold(
                     containerColor = MaterialTheme.colorScheme.background,
                     contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -559,20 +555,10 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         appContainer.uiPresenceTracker.setAppInForeground(true)
-        if (appContainer.tokenStore.shouldAutoStartRelay()) {
-            RelayConnectionService.start(applicationContext)
-        }
-        registerNetworkRecoveryCallbackIfNeeded()
     }
 
     override fun onResume() {
         super.onResume()
-        if (appContainer.tokenStore.shouldAutoStartRelay()) {
-            val now = System.currentTimeMillis()
-            val shouldForceReconnect = lastStoppedAtMs > 0L &&
-                now - lastStoppedAtMs >= FOREGROUND_FORCE_RECONNECT_THRESHOLD_MS
-            scheduleForegroundRecoveryPasses("activity-resume", shouldForceReconnect)
-        }
     }
 
     override fun onStop() {
