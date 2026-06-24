@@ -160,6 +160,9 @@ jobs:
       - name: Install Android SDK packages
         run: sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
+      - name: Configure Android SDK path
+        run: printf 'sdk.dir=%s\n' "$ANDROID_HOME" > local.properties
+
       - name: Make Gradle executable
         run: chmod +x ./gradlew
 
