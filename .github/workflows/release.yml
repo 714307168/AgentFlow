@@ -161,13 +161,16 @@ jobs:
         run: sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
       - name: Configure Android SDK path
-        run: printf 'sdk.dir=%s\n' "$ANDROID_HOME" > local.properties
+        run: |
+          SDK_DIR="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-${ANDROID_SDK_HOME:-}}}"
+          test -n "$SDK_DIR"
+          printf 'sdk.dir=%s\n' "$SDK_DIR" > local.properties
 
       - name: Make Gradle executable
         run: chmod +x ./gradlew
 
       - name: Build release APK
-        run: ./gradlew --no-daemon assembleRelease
+        run: ./gradlew --no-daemon --stacktrace assembleRelease
 
       - name: Upload Android artifacts
         uses: actions/upload-artifact@v4
