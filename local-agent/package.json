@@ -11,9 +11,11 @@
     "dev": "tsc --watch",
     "rebuild": "electron-rebuild",
     "generate-icons": "powershell -ExecutionPolicy Bypass -File .\\scripts\\generate-icons.ps1",
-    "dist": "npm run generate-icons && electron-builder --publish never",
-    "dist:win": "npm run generate-icons && electron-builder --win nsis --publish never",
-    "dist:win:portable": "npm run generate-icons && electron-builder --config electron-builder.portable.yml --publish never"
+    "dist": "npm run build && npm run generate-icons && electron-builder --publish never",
+    "dist:win": "npm run build && npm run generate-icons && electron-builder --win nsis --publish never",
+    "dist:mac": "npm run build && electron-builder --mac dmg --publish never",
+    "dist:linux": "npm run build && electron-builder --linux AppImage --publish never",
+    "dist:win:portable": "npm run build && npm run generate-icons && electron-builder --config electron-builder.portable.yml --publish never"
   },
   "dependencies": {
     "electron-store": "^8.1.0",

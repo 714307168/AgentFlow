@@ -1,0 +1,194 @@
+name: Release Artifacts
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_windows:
+        description: Build Windows installer
+        type: boolean
+        default: true
+      build_macos:
+        description: Build macOS DMG
+        type: boolean
+        default: true
+      build_linux:
+        description: Build Linux AppImage
+        type: boolean
+        default: true
+      build_android:
+        description: Build Android APK
+        type: boolean
+        default: true
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    name: Windows installer
+    runs-on: windows-latest
+    if: github.event_name == 'push' || inputs.build_windows
+    defaults:
+      run:
+        working-directory: local-agent
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: local-agent/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Windows installer
+        run: npm run dist:win
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: agentflow-windows
+          path: |
+            local-agent/release/*.exe
+            local-agent/release/*.blockmap
+            local-agent/release/*.yml
+          if-no-files-found: error
+
+  macos:
+    name: macOS DMG
+    runs-on: macos-latest
+    if: github.event_name == 'push' || inputs.build_macos
+    defaults:
+      run:
+        working-directory: local-agent
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: local-agent/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build macOS DMG
+        run: npm run dist:mac
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: agentflow-macos
+          path: |
+            local-agent/release/*.dmg
+            local-agent/release/*.blockmap
+            local-agent/release/*.yml
+          if-no-files-found: error
+
+  linux:
+    name: Linux AppImage
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || inputs.build_linux
+    defaults:
+      run:
+        working-directory: local-agent
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: local-agent/package-lock.json
+
+      - name: Install system packages
+        run: sudo apt-get update && sudo apt-get install -y libarchive-tools rpm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Linux AppImage
+        run: npm run dist:linux
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: agentflow-linux
+          path: |
+            local-agent/release/*.AppImage
+            local-agent/release/*.blockmap
+            local-agent/release/*.yml
+          if-no-files-found: error
+
+  android:
+    name: Android APK
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || inputs.build_android
+    defaults:
+      run:
+        working-directory: android-app
+    env:
+      AGENTFLOW_ANDROID_BUILD_DIR: ${{ runner.temp }}/agentflow-android-build
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+
+      - name: Make Gradle executable
+        run: chmod +x ./gradlew
+
+      - name: Build release APK
+        run: ./gradlew --no-daemon assembleRelease
+
+      - name: Upload Android artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: agentflow-android
+          path: android-app/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+
+  github-release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    needs:
+      - windows
+      - macos
+      - linux
+      - android
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist-artifacts
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG_NAME" dist-artifacts/**/* \
+            --title "AgentFlow $TAG_NAME" \
+            --notes "Automated multi-platform build artifacts."

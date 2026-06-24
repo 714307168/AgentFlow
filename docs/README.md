@@ -36,6 +36,7 @@ Use this page as the main documentation entry. The root README should stay produ
 - [Release And Update Center](./release-and-update-center.md) - update center model, APIs, storage, and admin flow.
 - [Release Upload Runbook](./release-upload-runbook.md) - build, upload, and verification flow.
 - [GitHub Releases](./github-releases.md) - GitHub Release publishing notes.
+- [GitHub CI/CD And Platform Support](./github-cicd-and-platform-support.md) - GitHub Actions pipeline and multi-platform support boundary.
 - [Release Consistency Checklist](./release-consistency-checklist.md) - pre-release consistency checks.
 - [Release Rollback And Retract Template](./release-rollback-and-retract-template.md) - rollback and release retract checklist.
 
@@ -113,4 +114,3 @@ Use this page as the main documentation entry. The root README should stay produ
 - [Platform Track Reenter Launch Prep Writeback Examples](./platform-track-reenter-launch-prep-writeback-examples.md)
 - [Platform Track Launch Window Moved Up Writeback Examples](./platform-track-launch-window-moved-up-writeback-examples.md)
 - [Platform Track Reenter Launch Prep Rescope Again Writeback Examples](./platform-track-reenter-launch-prep-rescope-again-writeback-examples.md)
-
