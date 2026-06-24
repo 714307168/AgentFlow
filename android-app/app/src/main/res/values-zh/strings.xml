@@ -36,7 +36,7 @@
     <string name="status_queued">排队 %1$d</string>
     <string name="settings_account_title">账号与中继</string>
     <string name="settings_account_subtitle">登录一次后，后台连接会持续保持。</string>
-    <string name="settings_server_placeholder">http://localhost:8080</string>
+    <string name="settings_server_placeholder">https://relay.liuyg.cn</string>
     <string name="settings_username">用户名</string>
     <string name="settings_password">密码</string>
     <string name="settings_sign_in">登录</string>

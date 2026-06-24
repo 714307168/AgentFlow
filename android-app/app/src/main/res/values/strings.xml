@@ -45,7 +45,7 @@
     <string name="status_queued">Queued %1$d</string>
     <string name="settings_account_title">Account and Relay</string>
     <string name="settings_account_subtitle">Sign in once, then keep the background connection alive.</string>
-    <string name="settings_server_placeholder">http://localhost:8080</string>
+    <string name="settings_server_placeholder">https://relay.liuyg.cn</string>
     <string name="settings_username">Username</string>
     <string name="settings_password">Password</string>
     <string name="settings_sign_in">Sign In</string>

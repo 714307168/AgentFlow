@@ -307,7 +307,7 @@ const WORKGROUP_PM_PROJECT_PREFIX = "__workgroup_pm__:";
 
 const configStore = new Store<AgentConfig>({
   defaults: {
-    serverUrl: "ws://localhost:8080/ws",
+    serverUrl: "wss://relay.liuyg.cn/ws",
     agentId: "",
     token: "",
     username: "",
@@ -787,7 +787,7 @@ function decodeSecretFromStore(storedValue?: string): string {
 function toHttpBaseUrl(rawUrl: string): string {
   const trimmed = rawUrl.trim().replace(/\/+$/, "");
   if (!trimmed) {
-    return "http://localhost:8080";
+    return "https://relay.liuyg.cn";
   }
 
   if (trimmed.startsWith("ws://")) {

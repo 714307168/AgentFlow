@@ -25,7 +25,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 
-private const val DEFAULT_SERVER_URL = "http://localhost:8080"
+private const val DEFAULT_SERVER_URL = "https://relay.liuyg.cn"
 
 class RemoteApplication : Application() {
     val appContainer: AppContainer by lazy { AppContainer(this) }
@@ -170,7 +170,7 @@ fun normalizeHttpBaseUrl(rawUrl: String): String {
         trimmed.startsWith("ws://") -> "http://${trimmed.removePrefix("ws://")}"
         trimmed.startsWith("wss://") -> "https://${trimmed.removePrefix("wss://")}"
         trimmed.startsWith("http://") || trimmed.startsWith("https://") -> trimmed
-        trimmed.isEmpty() -> "http://localhost:8080"
+        trimmed.isEmpty() -> DEFAULT_SERVER_URL
         else -> "http://$trimmed"
     }
     return "$normalized/"

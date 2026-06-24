@@ -607,7 +607,7 @@ class RelayWebSocket(
     private fun toWsUrl(rawUrl: String): String {
         val trimmed = rawUrl.trim().trimEnd('/')
         if (trimmed.isEmpty()) {
-            return "ws://localhost:8080/ws"
+            return "wss://relay.liuyg.cn/ws"
         }
 
         return when {
