@@ -64,8 +64,6 @@ jobs:
     defaults:
       run:
         working-directory: android-app
-    env:
-      AGENTFLOW_ANDROID_BUILD_DIR: ${{ runner.temp }}/agentflow-android-build
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -81,7 +79,11 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Run unit tests
+        env:
+          AGENTFLOW_ANDROID_BUILD_DIR: ${{ runner.temp }}/agentflow-android-build
         run: ./gradlew --no-daemon testDebugUnitTest
 
       - name: Build debug APK
+        env:
+          AGENTFLOW_ANDROID_BUILD_DIR: ${{ runner.temp }}/agentflow-android-build
         run: ./gradlew --no-daemon assembleDebug
