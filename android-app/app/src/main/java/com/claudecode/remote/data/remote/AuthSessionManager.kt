@@ -94,8 +94,7 @@ class AuthSessionManager(
         token: String,
         expiresAt: String
     ) {
-        tokenStore.saveUsername(username)
-        tokenStore.savePassword(password)
+        tokenStore.saveCredentials(username, password)
         tokenStore.saveToken(token)
         tokenStore.saveTokenExpiresAt(expiresAt)
     }

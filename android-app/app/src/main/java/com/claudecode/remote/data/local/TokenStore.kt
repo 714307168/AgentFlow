@@ -27,6 +27,13 @@ class TokenStore(context: Context) {
 
     fun getTokenExpiresAt(): String? = prefs.getString(KEY_TOKEN_EXPIRES_AT, null)
 
+    fun clearToken() {
+        prefs.edit()
+            .remove(KEY_TOKEN)
+            .remove(KEY_TOKEN_EXPIRES_AT)
+            .apply()
+    }
+
     fun saveDeviceId(id: String) {
         prefs.edit().putString(KEY_DEVICE_ID, id).apply()
     }
@@ -74,6 +81,13 @@ class TokenStore(context: Context) {
     }
 
     fun getPassword(): String? = prefs.getString(KEY_PASSWORD, null)
+
+    fun saveCredentials(username: String, password: String) {
+        prefs.edit()
+            .putString(KEY_USERNAME, username)
+            .putString(KEY_PASSWORD, password)
+            .apply()
+    }
 
     fun hasSavedCredentials(): Boolean =
         !getUsername().isNullOrBlank() && !getPassword().isNullOrBlank()

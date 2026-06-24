@@ -58,7 +58,7 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	loginRateLimiter := newIPRateLimiter(10, 5*time.Minute)
+	loginRateLimiter := newIPRateLimiter(60, 5*time.Minute)
 	registerRateLimiter := newIPRateLimiter(12, 10*time.Minute)
 	changePasswordRateLimiter := newIPRateLimiter(10, 10*time.Minute)
 	adminLoginRateLimiter := newIPRateLimiter(8, 10*time.Minute)

@@ -170,7 +170,7 @@ class RelayConnectionService : Service() {
                 CrashLogger.logError("RelayConnectionService", "Failed to connect WebSocket", e)
             }
         }
-        return START_STICKY
+        return START_NOT_STICKY
     }
 
     override fun onDestroy() {

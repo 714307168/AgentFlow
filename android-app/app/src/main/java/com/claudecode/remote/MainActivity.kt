@@ -468,7 +468,10 @@ class MainActivity : ComponentActivity() {
                                 onLogin = { url, username, password, deviceId ->
                                     val normalizedUrl = normalizeHttpBaseUrl(url)
                                     appContainer.updateServerUrl(normalizedUrl)
+                                    tokenStore.saveCredentials(username.trim(), password)
+                                    tokenStore.clearToken()
                                     tokenStore.saveDeviceId(deviceId)
+                                    settingsRefreshTrigger.value += 1
 
                                     lifecycleScope.launch {
                                         try {
