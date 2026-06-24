@@ -175,10 +175,20 @@ jobs:
           ./gradlew --no-daemon --stacktrace clean assembleRelease 2>&1 | tee android-build.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
-            summary=$(grep -E -m 1 'FAILURE:|Execution failed|SDK location|Could not|e: ' android-build.log || true)
+            summary=$(grep -E -m 1 'Execution failed|SDK location|Could not|this and base files|e: ' android-build.log || true)
+            if [ -z "$summary" ]; then
+              summary=$(awk '/\* What went wrong:/{getline; print; exit}' android-build.log || true)
+            fi
             echo "::error title=Android build failed::${summary:-See Android build log above.}"
             exit "$status"
           fi
+
+      - name: Upload Android build log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-release-build-log
+          path: android-app/android-build.log
 
       - name: Upload Android artifacts
         uses: actions/upload-artifact@v4
