@@ -32,6 +32,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.Modifier
@@ -138,6 +139,7 @@ class MainActivity : ComponentActivity() {
                 }
                 val navigationTarget by appContainer.chatNavigationBus.target.collectAsState()
                 val updateState by appUpdateManager.state.collectAsState()
+                val settingsRefreshTrigger = remember { mutableStateOf(0) }
                 val backStackEntry by navController.currentBackStackEntryAsState()
                 val currentDestination = backStackEntry?.destination
                 val darkTheme = isSystemInDarkTheme()
@@ -431,6 +433,7 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                         composable("settings") {
+                            settingsRefreshTrigger.value
                             SettingsScreen(
                                 initialState = SettingsState(
                                     serverUrl = tokenStore.getServerUrl() ?: "",
@@ -451,6 +454,7 @@ class MainActivity : ComponentActivity() {
                                     val normalizedUrl = normalizeHttpBaseUrl(url)
                                     appContainer.updateServerUrl(normalizedUrl)
                                     tokenStore.saveDeviceId(devId)
+                                    settingsRefreshTrigger.value += 1
                                     if (tokenStore.hasSavedSession() && devId.isNotBlank()) {
                                         relayWebSocket.disconnect()
                                         RelayConnectionService.start(applicationContext)
@@ -482,6 +486,7 @@ class MainActivity : ComponentActivity() {
                                                 clientId = deviceId
                                             ).getOrThrow()
                                             CrashLogger.logInfo("MainActivity", "Login successful: ${response.user.username}")
+                                            settingsRefreshTrigger.value += 1
 
                                             relayWebSocket.disconnect()
                                             RelayConnectionService.start(applicationContext)
