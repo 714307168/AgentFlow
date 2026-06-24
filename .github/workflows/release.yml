@@ -154,6 +154,12 @@ jobs:
           java-version: 17
           cache: gradle
 
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+
       - name: Make Gradle executable
         run: chmod +x ./gradlew
 
