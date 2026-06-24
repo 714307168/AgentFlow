@@ -203,15 +203,15 @@ Example endpoints:
 
 ## Documentation
 
+- [Complete Documentation Index](./docs/README.md)
 - [Chinese README](./README.md)
-- [Relay Server Deployment](./docs/relay-server-deployment.md)
+- [Architecture Overview](./docs/architecture-overview.md)
+- [Relay Server Deployment](./docs/relay-server-deployment.en.md)
+- [Release Upload Runbook](./docs/release-upload-runbook.md)
+- [Release and Update Center](./docs/release-and-update-center.md)
+- [Message Sync Update Troubleshooting](./docs/message-sync-update-troubleshooting.md)
 - [Controlled Remote Authorization Design (Chinese)](./docs/controlled-remote-authorization.md)
 - [Project-Scoped Access MVP Plan (Chinese)](./docs/project-scope-access-mvp.md)
-- [Project-Scoped Access Checklist (Chinese)](./docs/project-scope-access-checklist.md)
-- [Project-Scoped Access API Schema (Chinese)](./docs/project-scope-access-api-schema.md)
-- [Release and Update Center](./docs/release-and-update-center.md)
-- [Release Upload Runbook](./docs/release-upload-runbook.md)
-- [GitHub Releases Publishing](./docs/github-releases.md)
 - [Local Agent README](./local-agent/README.md)
 - [CLAUDE.md](./CLAUDE.md)
 

@@ -11,6 +11,16 @@ This repository contains a three-part remote control system for Claude Code:
 - When you modify code, run the relevant tests before finishing.
 - After completing the change, create a commit.
 - If the work affects a release version or publishing flow, complete the corresponding release or publish step.
+- Keep documentation organized through docs/README.md; avoid dumping every document link into the root README.
+
+## Optimization Task Priority
+
+When running scheduled or broad optimization tasks:
+
+1. Prefer implementing features and fixes already described in existing design or roadmap documents.
+2. If documented work is incomplete, continue development from those documents and update progress after the implementation lands.
+3. Only write new planning documents when existing documented work is complete, unclear, or missing a design needed to unblock development.
+4. If both code work and documentation cleanup are possible, code and tests take priority; documentation follows as the record of what changed.
 
 ## Main Commands
 
