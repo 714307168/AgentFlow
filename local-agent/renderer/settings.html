@@ -1279,6 +1279,196 @@
     .runtime-grid {
       gap: 16px;
     }
+    .project-management-pane .section {
+      padding: 0;
+    }
+    .project-hub-header,
+    .workgroup-hub-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 24px;
+      border-bottom: 1px solid rgba(216, 225, 236, 0.72);
+      background:
+        radial-gradient(circle at 8% 0%, rgba(31, 122, 140, 0.12), transparent 30%),
+        linear-gradient(135deg, rgba(255, 255, 255, 0.92), rgba(239, 247, 250, 0.82));
+    }
+    .section-kicker {
+      margin-bottom: 7px;
+      color: var(--accent-hover);
+      font-size: 11px;
+      font-weight: 900;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+    .project-hub-actions,
+    .workgroup-hub-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 10px;
+      flex-wrap: wrap;
+      min-width: 220px;
+    }
+    .project-hub-body,
+    .workgroup-hub-body {
+      padding: 20px 24px 24px;
+    }
+    .project-toolbar-card {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 16px;
+      padding: 14px 16px;
+      border: 1px solid rgba(31, 122, 140, 0.16);
+      border-radius: 20px;
+      background: rgba(239, 247, 250, 0.68);
+    }
+    .project-toolbar-copy {
+      color: #516176;
+      font-size: 12px;
+      line-height: 1.55;
+    }
+    .project-toolbar-copy strong {
+      display: block;
+      color: #203048;
+      font-size: 13px;
+      margin-bottom: 2px;
+    }
+    .project-list {
+      gap: 16px;
+    }
+    .project-item.project-item-form {
+      position: relative;
+      grid-template-columns: minmax(260px, 0.86fr) minmax(420px, 1.4fr);
+      gap: 18px;
+      align-items: stretch;
+      padding: 0;
+      overflow: hidden;
+      border-radius: 22px;
+      background:
+        linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(246, 249, 252, 0.9));
+    }
+    .project-item.project-item-form::before {
+      content: "";
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 5px;
+      background: linear-gradient(180deg, var(--accent), rgba(245, 158, 11, 0.66));
+    }
+    .project-item.project-item-form .project-info {
+      position: relative;
+      padding: 20px 18px 20px 22px;
+      background: rgba(239, 247, 250, 0.58);
+      border-right: 1px solid rgba(216, 225, 236, 0.72);
+    }
+    .project-name {
+      color: #132033;
+      font-size: 18px;
+      line-height: 1.25;
+      letter-spacing: -0.02em;
+      word-break: break-word;
+    }
+    .project-meta-row {
+      margin: 12px 0;
+    }
+    .project-path {
+      margin-top: 8px;
+      padding: 8px 10px;
+      border: 1px solid rgba(195, 207, 222, 0.72);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.68);
+      color: #5d6b7e;
+      white-space: normal;
+      word-break: break-all;
+    }
+    .project-path:first-of-type {
+      display: inline-flex;
+      width: fit-content;
+      max-width: 100%;
+      color: var(--accent-hover);
+      font-weight: 800;
+      word-break: break-word;
+    }
+    .project-item-form .project-actions {
+      padding: 18px;
+      background: rgba(255, 255, 255, 0.5);
+    }
+    .project-edit-grid {
+      grid-template-columns: repeat(3, minmax(150px, 1fr));
+      gap: 14px;
+    }
+    .project-edit-field--wide {
+      grid-column: 1 / -1;
+    }
+    .project-item-form textarea.project-model-input {
+      min-height: 118px;
+    }
+    .project-item-form .project-action-row {
+      justify-content: flex-end;
+      padding-top: 12px;
+      margin-top: 2px;
+      border-top: 1px solid rgba(216, 225, 236, 0.72);
+    }
+    .project-provider-badge,
+    .project-model-badge {
+      box-shadow: 0 6px 14px rgba(31, 58, 88, 0.08);
+    }
+    .add-project-form {
+      margin: 0 0 16px;
+      padding: 18px;
+      border-radius: 20px;
+      background:
+        radial-gradient(circle at 100% 0%, rgba(31, 122, 140, 0.1), transparent 24%),
+        rgba(255, 255, 255, 0.86);
+    }
+    .add-project-form.visible {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(220px, 1fr));
+      gap: 14px;
+    }
+    .add-project-form .field {
+      margin-bottom: 0;
+    }
+    .add-project-form .field:has(textarea),
+    .add-project-form .toggle-row,
+    .add-project-form .btn-row {
+      grid-column: 1 / -1;
+    }
+    .workgroup-hub-body > .workgroup-toolbar {
+      margin-bottom: 16px;
+      padding: 14px;
+      border: 1px solid rgba(216, 225, 236, 0.78);
+      border-radius: 20px;
+      background: rgba(247, 249, 252, 0.72);
+    }
+    .project-management-pane .workgroup-card {
+      border-radius: 20px;
+      background: rgba(255, 255, 255, 0.78);
+    }
+    .project-management-pane .workgroup-card-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 14px;
+      color: #172338;
+      font-size: 14px;
+    }
+    .project-management-pane .workgroup-card-title::before {
+      content: "";
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      background: var(--accent);
+      box-shadow: 0 0 0 4px rgba(31, 122, 140, 0.1);
+      flex: 0 0 auto;
+    }
+    .project-management-pane #workgroupTaskTitle::before {
+      background: #d97706;
+      box-shadow: 0 0 0 4px rgba(217, 119, 6, 0.12);
+    }
     @media (max-width: 960px) {
       .settings-shell {
         grid-template-columns: 1fr;
@@ -1300,6 +1490,28 @@
       .header {
         align-items: flex-start;
         flex-direction: column;
+      }
+      .project-hub-header,
+      .workgroup-hub-header,
+      .project-toolbar-card {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      .project-hub-actions,
+      .workgroup-hub-actions {
+        justify-content: flex-start;
+        min-width: 0;
+      }
+      .project-item.project-item-form {
+        grid-template-columns: 1fr;
+      }
+      .project-item.project-item-form .project-info {
+        border-right: 0;
+        border-bottom: 1px solid rgba(216, 225, 236, 0.72);
+      }
+      .project-edit-grid,
+      .add-project-form.visible {
+        grid-template-columns: 1fr;
       }
     }
   </style>
@@ -1520,70 +1732,92 @@
           </div>
         </section>
 
-        <section class="settings-pane hidden" id="projectPane" data-pane-content="project">
+        <section class="settings-pane project-management-pane hidden" id="projectPane" data-pane-content="project">
           <div class="section" id="projectSectionCard">
-            <div class="section-title" id="projectSection">Projects</div>
-            <div class="btn-row">
-              <button class="btn-primary" id="addProjectBtn">Add Project</button>
+            <div class="project-hub-header">
+              <div>
+                <div class="section-kicker" id="projectSectionKicker">Project Management</div>
+                <div class="section-title" id="projectSection">Projects</div>
+                <div class="section-subtitle" id="projectSectionHint">Bind local folders to a runtime provider, then tune the model and project guidance without leaving this screen.</div>
+              </div>
+              <div class="project-hub-actions">
+                <button class="btn-primary" id="addProjectBtn">Add Project</button>
+              </div>
             </div>
-            <div class="add-project-form" id="addProjectForm">
-              <div class="field">
-                <label id="projectNameLabel">Project Name</label>
-                <input type="text" id="projectName" placeholder="Enter project name">
-              </div>
-              <div class="field">
-                <label id="projectPathLabel">Project Path</label>
-                <input type="text" id="projectPath" placeholder="Enter project path">
-              </div>
-              <div class="field">
-                <label id="projectGroupLabel">Project Group</label>
-                <input type="text" id="projectGroup" placeholder="Leave blank for Default">
-              </div>
-              <div class="field">
-                <label id="projectProviderLabel">CLI Provider</label>
-                <select id="projectProvider">
-                  <option value="claude">Claude Code</option>
-                  <option value="codex">OpenAI Codex</option>
-                </select>
-              </div>
-              <div class="field">
-                <label id="projectModelLabel">Project Model</label>
-                <input type="text" id="projectModel" placeholder="Leave blank to use the provider default">
-              </div>
-              <div class="toggle-row field hidden" id="projectCodexSearchRow">
-                <div class="toggle-copy">
-                  <div class="setting-label-row">
-                    <div id="projectCodexSearchLabel">Codex Web Search</div>
-                  </div>
-                  <div class="toggle-help" id="projectCodexSearchHint">Enable the Codex `--search` tool for future runs in this project.</div>
+            <div class="project-hub-body">
+              <div class="project-toolbar-card">
+                <div class="project-toolbar-copy">
+                  <strong id="projectToolbarTitle">Local project catalog</strong>
+                  <span id="projectToolbarHint">Each card below is editable in place. Open starts the workspace, while provider and model changes are saved from the field itself.</span>
                 </div>
-                <label class="toggle">
-                  <input type="checkbox" id="projectCodexSearchEnabled">
-                  <span class="slider"></span>
-                </label>
               </div>
-              <div class="field">
-                <label id="projectPromptLabel">Project Guidance</label>
-                <textarea id="projectPrompt" rows="6" placeholder="Where are the docs, deployment notes, test docs, and server config docs for this project?"></textarea>
+              <div class="add-project-form" id="addProjectForm">
+                <div class="field">
+                  <label id="projectNameLabel">Project Name</label>
+                  <input type="text" id="projectName" placeholder="Enter project name">
+                </div>
+                <div class="field">
+                  <label id="projectPathLabel">Project Path</label>
+                  <input type="text" id="projectPath" placeholder="Enter project path">
+                </div>
+                <div class="field">
+                  <label id="projectGroupLabel">Project Group</label>
+                  <input type="text" id="projectGroup" placeholder="Leave blank for Default">
+                </div>
+                <div class="field">
+                  <label id="projectProviderLabel">CLI Provider</label>
+                  <select id="projectProvider">
+                    <option value="claude">Claude Code</option>
+                    <option value="codex">OpenAI Codex</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label id="projectModelLabel">Project Model</label>
+                  <input type="text" id="projectModel" placeholder="Leave blank to use the provider default">
+                </div>
+                <div class="toggle-row field hidden" id="projectCodexSearchRow">
+                  <div class="toggle-copy">
+                    <div class="setting-label-row">
+                      <div id="projectCodexSearchLabel">Codex Web Search</div>
+                    </div>
+                    <div class="toggle-help" id="projectCodexSearchHint">Enable Codex web search for future runs in this project.</div>
+                  </div>
+                  <label class="toggle">
+                    <input type="checkbox" id="projectCodexSearchEnabled">
+                    <span class="slider"></span>
+                  </label>
+                </div>
+                <div class="field">
+                  <label id="projectPromptLabel">Project Guidance</label>
+                  <textarea id="projectPrompt" rows="6" placeholder="Where are the docs, deployment notes, test docs, and server config docs for this project?"></textarea>
+                </div>
+                <div class="btn-row">
+                  <button class="btn-primary btn-small" id="saveProjectBtn">Save</button>
+                  <button class="btn-secondary btn-small" id="cancelProjectBtn">Cancel</button>
+                </div>
               </div>
-              <div class="btn-row">
-                <button class="btn-primary btn-small" id="saveProjectBtn">Save</button>
-                <button class="btn-secondary btn-small" id="cancelProjectBtn">Cancel</button>
-              </div>
+              <div class="project-list" id="projectList" data-empty-message="No projects yet. Add one above to get started."></div>
             </div>
-            <div class="project-list" id="projectList" data-empty-message="No projects yet. Add one above to get started."></div>
           </div>
 
           <div class="section" id="workgroupSectionCard">
-            <div class="section-title" id="workgroupSection">Workgroups</div>
-            <div class="section-subtitle" id="workgroupSectionHint">Create a lightweight collaboration group: pick the agents, write one group announcement, and coordinate directly in the chat.</div>
-            <div class="workgroup-toolbar">
-              <select id="workgroupSelect"></select>
-              <button class="btn-secondary btn-small" id="newWorkgroupBtn">New Workgroup</button>
-              <button class="btn-danger btn-small" id="deleteWorkgroupBtn">Delete</button>
-              <button class="btn-secondary btn-small" id="refreshWorkgroupBtn">Refresh</button>
+            <div class="workgroup-hub-header">
+              <div>
+                <div class="section-kicker" id="workgroupSectionKicker">Collaboration</div>
+                <div class="section-title" id="workgroupSection">Workgroups</div>
+                <div class="section-subtitle" id="workgroupSectionHint">Create a lightweight collaboration group: pick the agents, write one group announcement, and coordinate directly in the chat.</div>
+              </div>
+              <div class="workgroup-hub-actions">
+                <button class="btn-secondary btn-small" id="newWorkgroupBtn">New Workgroup</button>
+                <button class="btn-danger btn-small" id="deleteWorkgroupBtn">Delete</button>
+                <button class="btn-secondary btn-small" id="refreshWorkgroupBtn">Refresh</button>
+              </div>
             </div>
-            <div class="split-grid">
+            <div class="workgroup-hub-body">
+              <div class="workgroup-toolbar">
+                <select id="workgroupSelect"></select>
+              </div>
+              <div class="split-grid">
               <div class="workgroup-card">
                 <div class="workgroup-card-title" id="workgroupFormTitle">Collaboration Group</div>
                 <div class="workgroup-form-grid">
@@ -1658,8 +1892,8 @@
                 </div>
                 <div class="project-list" id="workgroupMemberList" data-empty-message="No members yet."></div>
               </div>
-            </div>
-            <div class="workgroup-card" style="display:none; margin-top: 14px;">
+              </div>
+              <div class="workgroup-card" style="display:none; margin-top: 14px;">
               <div class="workgroup-card-title" id="workgroupRegistryTitle">Join Workgroup</div>
               <div class="field">
                 <label id="workgroupRegistryQueryLabel">Group Number</label>
@@ -1669,8 +1903,8 @@
                 </div>
               </div>
               <div class="project-list" id="workgroupRegistryResultList" data-empty-message="No matching workgroup."></div>
-            </div>
-            <div class="workgroup-card" style="margin-top: 14px;">
+              </div>
+              <div class="workgroup-card" style="margin-top: 14px;">
               <div class="workgroup-card-title" id="workgroupTaskTitle">Tasks</div>
               <div class="workgroup-form-grid">
                 <div class="field">
@@ -1746,7 +1980,8 @@
                 <button class="btn-primary btn-small" id="saveWorkgroupTaskBtn">Save Task</button>
                 <button class="btn-secondary btn-small" id="cancelWorkgroupTaskBtn">Reset</button>
               </div>
-              <div class="project-list" id="workgroupTaskList" data-empty-message="No tasks yet."></div>
+                <div class="project-list" id="workgroupTaskList" data-empty-message="No tasks yet."></div>
+              </div>
             </div>
           </div>
         </section>
@@ -3847,7 +4082,17 @@
       document.getElementById("langSection").textContent = msg("settings.language", "Language");
       document.getElementById("langLabel").textContent = msg("settings.languageLabel", "Interface Language");
       document.getElementById("langScope").textContent = inlineText("Local Only", "仅本机");
+      document.getElementById("projectSectionKicker").textContent = inlineText("Project Management", "项目管理");
       document.getElementById("projectSection").textContent = msg("settings.projects", "Projects");
+      document.getElementById("projectSectionHint").textContent = inlineText(
+        "Bind local folders to a runtime provider, then tune the model and project guidance without leaving this screen.",
+        "把本地目录绑定到运行时提供方，并在同一个页面里调整模型和项目提示词。"
+      );
+      document.getElementById("projectToolbarTitle").textContent = inlineText("Local project catalog", "本地项目目录");
+      document.getElementById("projectToolbarHint").textContent = inlineText(
+        "Each card below is editable in place. Open starts the workspace, while provider and model changes are saved from the field itself.",
+        "下面每张项目卡片都可以就地编辑。打开会进入工作区，提供方和模型会从字段自身保存。"
+      );
       document.getElementById("addProjectBtn").textContent = msg("settings.addProject", "Add Project");
       document.getElementById("projectNameLabel").textContent = msg("settings.projectName", "Project Name");
       document.getElementById("projectName").placeholder = msg("settings.projectNamePlaceholder", "Enter project name");
@@ -3860,14 +4105,15 @@
       document.getElementById("projectModel").placeholder = projectModelPlaceholder();
       document.getElementById("projectCodexSearchLabel").textContent = inlineText("Codex Web Search", "Codex 网络搜索");
       document.getElementById("projectCodexSearchHint").textContent = inlineText(
-        "Enable the Codex `--search` tool for future runs in this project.",
-        "为当前项目后续运行启用 Codex `--search` 工具。"
+        "Enable Codex web search for future runs in this project.",
+        "为当前项目后续运行启用 Codex 网络搜索。"
       );
       document.getElementById("projectPromptLabel").textContent = inlineText("Project Guidance", "项目提示词");
       document.getElementById("projectPrompt").placeholder = projectPromptPlaceholder();
       document.getElementById("projectList").setAttribute("data-empty-message", msg("settings.projectEmpty", "No projects yet. Add one above to get started."));
       document.getElementById("saveProjectBtn").textContent = msg("settings.save", "Save");
       document.getElementById("cancelProjectBtn").textContent = msg("settings.cancel", "Cancel");
+      document.getElementById("workgroupSectionKicker").textContent = inlineText("Collaboration", "协作");
       document.getElementById("workgroupSection").textContent = inlineText("Workgroups", "工作组");
       document.getElementById("workgroupSectionHint").textContent = inlineText(
         "Create a lightweight collaboration group: pick the agents, write one group announcement, and coordinate directly in the chat.",
