@@ -91,4 +91,12 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Build debug APK
-        run: ./gradlew --no-daemon --stacktrace assembleDebug
+        run: |
+          set +e
+          ./gradlew --no-daemon --stacktrace clean assembleDebug 2>&1 | tee android-build.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            summary=$(grep -E -m 1 'FAILURE:|Execution failed|SDK location|Could not|e: ' android-build.log || true)
+            echo "::error title=Android build failed::${summary:-See Android build log above.}"
+            exit "$status"
+          fi
