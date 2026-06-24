@@ -174,7 +174,10 @@ class MessageRouter {
         this.handleFileSync(env);
         break;
       case Events.AUTH_OK:
-        console.log("[MessageRouter] Auth OK");
+        appLogger.info("MessageRouter", "Auth OK received", {
+          agentId: env.agent_id ?? null,
+          projectId: env.project_id ?? null,
+        });
         break;
       case Events.AUTH_ERROR:
         console.error("[MessageRouter] Auth error:", env.payload);
@@ -183,12 +186,14 @@ class MessageRouter {
         this.handleRelayError(env);
         break;
       default:
-        console.log("[MessageRouter] Unhandled event: " + env.event);
+        appLogger.info("MessageRouter", "Unhandled relay event", {
+          event: env.event,
+          projectId: env.project_id ?? null,
+        });
     }
   }
 
   private handleMessageSend(env: Envelope): void {
-    console.log("[MessageRouter] Received message.send:", JSON.stringify(env));
     const projectId = env.project_id;
     const payload = env.payload as {
       content?: string;
@@ -201,6 +206,13 @@ class MessageRouter {
       : env.id;
     const traceId = this.normalizeTraceId(clientMessageId, env.id);
     const streamId = env.stream_id || `${clientMessageId}:assistant`;
+    appLogger.info("MessageRouter", "Received project message.send", {
+      requestId: env.id,
+      projectId: projectId ?? null,
+      streamId,
+      attachmentCount: Array.isArray(payload?.attachments) ? payload.attachments.length : 0,
+      source: payload?.source ?? null,
+    });
 
     if (!projectId) {
       console.error("[MessageRouter] message.send missing project_id");
@@ -213,7 +225,6 @@ class MessageRouter {
     }
 
     const project = projectStore.getById(projectId);
-    console.log("[MessageRouter] All projects:", JSON.stringify(projectStore.getAll()));
     if (!project) {
       console.error("[MessageRouter] Unknown project: " + projectId);
       this.logMessageTrace("error", "Rejected project message.send because the project was unknown.", {
@@ -357,7 +368,6 @@ class MessageRouter {
   }
 
   private handleProjectBind(env: Envelope): void {
-    console.log("[MessageRouter] Received project.bind:", JSON.stringify(env));
     const payload = env.payload as {
       project_id?: string;
       id?: string;
@@ -371,6 +381,11 @@ class MessageRouter {
       project_prompt?: string | null;
     } | undefined;
     const projectId = payload?.project_id ?? payload?.id;
+    appLogger.info("MessageRouter", "Received project.bind", {
+      projectId: projectId ?? null,
+      hasName: Boolean(payload?.name),
+      hasPath: Boolean(payload?.path),
+    });
 
     if (!projectId || !payload?.name || !payload?.path) {
       console.error("[MessageRouter] project.bind missing required fields, payload:", JSON.stringify(payload));
@@ -407,7 +422,11 @@ class MessageRouter {
       });
     }
 
-    console.log("[MessageRouter] Project bound: " + payload.name + " (" + projectId + ")");
+    appLogger.info("MessageRouter", "Project bound", {
+      projectId,
+      name: payload.name,
+      existed: Boolean(existing),
+    });
     this.options.onProjectsChanged?.();
 
     this.relayClient.send({
@@ -421,7 +440,7 @@ class MessageRouter {
 
   private handleProjectBound(env: Envelope): void {
     const projectId = env.project_id ?? "unknown";
-    console.log("[MessageRouter] Project bind acknowledged:", projectId);
+    appLogger.info("MessageRouter", "Project bind acknowledged", { projectId });
   }
 
   private handleProjectListRequest(): void {
@@ -817,11 +836,13 @@ class MessageRouter {
       return;
     }
     const stopped = this.options.runtimeManager.stopCurrentRun(projectId);
-    console.log(`[MessageRouter] task.stop for project ${projectId}: stopped=${stopped}`);
+    appLogger.info("MessageRouter", "Task stop received", { projectId, stopped });
   }
 
   private handleAgentWakeup(env: Envelope): void {
-    console.log("[MessageRouter] Agent wakeup received", env.payload);
+    appLogger.info("MessageRouter", "Agent wakeup received", {
+      hasPayload: env.payload !== undefined && env.payload !== null,
+    });
     this.options.revealWakeupWindow?.();
   }
 
@@ -848,7 +869,7 @@ class MessageRouter {
     }
     const kind = typeof payload?.kind === "string" ? payload.kind : "";
     if (kind !== MessageRouter.DOWNLOAD_REQUEST_KIND) {
-      console.log("[MessageRouter] Ignoring file.sync payload:", JSON.stringify(payload ?? {}));
+      appLogger.info("MessageRouter", "Ignoring unsupported file.sync payload", { kind });
       return;
     }
 
@@ -866,7 +887,11 @@ class MessageRouter {
       return;
     }
 
-    console.log(`[MessageRouter] File upload started: ${fileName} (${fileId})`);
+    appLogger.info("MessageRouter", "File upload started", {
+      fileId,
+      fileName: String(fileName),
+      projectId,
+    });
     this.fileBuffers.set(fileId, {
       fileName: String(fileName),
       projectId,
@@ -895,7 +920,11 @@ class MessageRouter {
     // Decode base64 chunk
     const chunkBuffer = Buffer.from(chunkData, 'base64');
     buffer.chunks.set(seq, chunkBuffer);
-    console.log(`[MessageRouter] Received chunk ${seq} for file ${fileId}`);
+    appLogger.info("MessageRouter", "File chunk received", {
+      fileId,
+      seq,
+      chunkSize: chunkBuffer.length,
+    });
   }
 
   private handleFileDone(env: Envelope): void {
@@ -927,7 +956,12 @@ class MessageRouter {
         mimeType: buffer.mimeType,
       });
 
-      console.log(`[MessageRouter] File saved: ${attachment.path}`);
+      appLogger.info("MessageRouter", "File saved", {
+        fileId,
+        fileName: attachment.name,
+        size: attachment.size,
+        kind: attachment.kind,
+      });
 
       // Send confirmation back
       this.relayClient.send({

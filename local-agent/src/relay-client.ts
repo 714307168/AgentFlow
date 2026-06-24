@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from "uuid";
 import { ClientType, Envelope, Events } from "./types";
 import E2ECrypto, { EncryptedPayload } from "./crypto";
 import { buildRelayApiHeaders } from "./api-version";
+import appLogger from "./app-logger";
 import {
   decideRelayHealthCheckRecovery,
   type RelaySocketState,
@@ -292,7 +293,7 @@ class RelayClient extends EventEmitter {
       socket.terminate();
       return;
     }
-    console.log("[RelayClient] Connected to relay server");
+    appLogger.info("RelayClient", "Connected to relay server", { generation });
     this.lastInboundAt = Date.now();
     this.lastConnectedAt = this.lastInboundAt;
     this.resetBackoff();
@@ -484,7 +485,10 @@ class RelayClient extends EventEmitter {
     if (!this.isCurrentSocket(generation, socket)) {
       return;
     }
-    console.log("[RelayClient] Connection closed");
+    appLogger.info("RelayClient", "Connection closed", {
+      code,
+      reason: this.normalizeCloseReason(reason),
+    });
     this.isAuthenticated = false;
     this.stopPing();
     this.ws = null;
@@ -535,7 +539,10 @@ class RelayClient extends EventEmitter {
       reconnectAttemptCount: this.reconnectAttemptCount,
       detail: "delay=" + String(this.reconnectDelay),
     });
-    console.log('[RelayClient] Reconnecting in ' + this.reconnectDelay + 'ms...');
+    appLogger.info("RelayClient", "Reconnect scheduled", {
+      delayMs: this.reconnectDelay,
+      attempt: this.reconnectAttemptCount,
+    });
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.connect();

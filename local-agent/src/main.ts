@@ -4659,7 +4659,7 @@ function initRelay(config: AgentConfig): void {
   });
 
   relayClient.on("connected", () => {
-    console.log("[Main] Relay connected");
+    appLogger.info("relay", "Relay connected.");
     clearRelaySyncState();
     lastWorkgroupRelayPayloadRevision = "";
     lastWorkgroupCollaborationRelayPayloadHash = "";
@@ -4679,7 +4679,7 @@ function initRelay(config: AgentConfig): void {
   });
 
   relayClient.on("disconnected", () => {
-    console.log("[Main] Relay disconnected");
+    appLogger.info("relay", "Relay disconnected.");
     clearRelaySyncState();
     lastWorkgroupRelayPayloadRevision = "";
     lastWorkgroupCollaborationRelayPayloadHash = "";
