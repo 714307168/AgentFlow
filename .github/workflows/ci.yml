@@ -79,6 +79,4 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Build debug APK
-        env:
-          AGENTFLOW_ANDROID_BUILD_DIR: ${{ runner.temp }}/agentflow-android-build
         run: ./gradlew --no-daemon assembleDebug

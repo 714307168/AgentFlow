@@ -6,10 +6,16 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization") version "1.9.22" apply false
 }
 
+fun String.containsNonAscii(): Boolean = any { it.code > 127 }
+
 val androidBuildRoot = System.getenv("AGENTFLOW_ANDROID_BUILD_DIR")?.let(::File)
-    ?: rootProject.projectDir.toPath().root.toFile()
-        .resolve("agentflow-android-build")
-        .resolve(rootProject.name)
+    ?: if (rootProject.projectDir.absolutePath.containsNonAscii()) {
+        rootProject.projectDir.toPath().root.toFile()
+            .resolve("agentflow-android-build")
+            .resolve(rootProject.name)
+    } else {
+        rootProject.projectDir.resolve("build")
+    }
 
 allprojects {
     val projectBuildDirName = if (path == ":") {
@@ -17,6 +23,6 @@ allprojects {
     } else {
         path.removePrefix(":").replace(':', '-')
     }
-    // Keep build outputs on an ASCII path so Windows unit-test workers can load classes reliably.
+    // Keep build outputs on an ASCII path when the checkout path contains non-ASCII characters.
     layout.buildDirectory.set(androidBuildRoot.resolve(projectBuildDirName))
 }

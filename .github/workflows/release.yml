@@ -158,15 +158,13 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Build release APK
-        env:
-          AGENTFLOW_ANDROID_BUILD_DIR: ${{ runner.temp }}/agentflow-android-build
         run: ./gradlew --no-daemon assembleRelease
 
       - name: Upload Android artifacts
         uses: actions/upload-artifact@v4
         with:
           name: agentflow-android
-          path: ${{ runner.temp }}/agentflow-android-build/AgentFlow/app/outputs/apk/release/*.apk
+          path: android-app/build/app/outputs/apk/release/*.apk
           if-no-files-found: error
 
   github-release:

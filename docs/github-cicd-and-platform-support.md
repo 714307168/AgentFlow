@@ -17,7 +17,7 @@ Checks:
 - Relay server: run `go test ./...` in `relay-server` on Linux.
 - Android: run `assembleDebug` in `android-app` on Linux.
 
-The Android workflow sets `AGENTFLOW_ANDROID_BUILD_DIR` on Gradle steps so generated build files stay outside the repository path. Full desktop and Android unit-test suites are still required in the local release flow before publishing client versions.
+The Android build keeps generated files inside the project build directory on ASCII CI paths. On local non-ASCII checkout paths, Gradle automatically falls back to an ASCII build root. Full desktop and Android unit-test suites are still required in the local release flow before publishing client versions.
 
 ## 2. Release Pipeline
 
