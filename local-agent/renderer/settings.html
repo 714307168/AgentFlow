@@ -1356,7 +1356,7 @@
       position: absolute;
       inset: 0 auto 0 0;
       width: 5px;
-      background: linear-gradient(180deg, var(--accent), rgba(245, 158, 11, 0.66));
+      background: linear-gradient(180deg, var(--accent), rgba(19, 144, 111, 0.72));
     }
     .project-item.project-item-form .project-info {
       position: relative;
@@ -1397,8 +1397,54 @@
       background: rgba(255, 255, 255, 0.5);
     }
     .project-edit-grid {
-      grid-template-columns: repeat(3, minmax(150px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
       gap: 14px;
+      align-items: stretch;
+    }
+    .project-management-pane .project-edit-field,
+    .project-management-pane .add-project-form .field,
+    .project-management-pane .workgroup-form-grid .field {
+      min-width: 0;
+      padding: 14px;
+      border: 1px solid rgba(31, 122, 140, 0.14);
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.78);
+      box-shadow: 0 10px 24px rgba(31, 58, 88, 0.07);
+    }
+    .project-management-pane .project-edit-field.hidden {
+      display: none;
+    }
+    .project-management-pane .project-edit-field .toggle-row,
+    .project-management-pane .add-project-form .toggle-row,
+    .project-management-pane .workgroup-form-grid .toggle-row {
+      margin: 0;
+      min-height: 100%;
+      border-color: rgba(31, 122, 140, 0.14);
+      background: rgba(239, 247, 250, 0.64);
+      box-shadow: none;
+    }
+    .project-management-pane .project-edit-label,
+    .project-management-pane .workgroup-form-grid label,
+    .project-management-pane .add-project-form label {
+      color: #1f4352;
+      font-size: 12px;
+      letter-spacing: 0.02em;
+    }
+    .project-management-pane .project-model-input,
+    .project-management-pane .project-provider-select,
+    .project-management-pane .add-project-form input,
+    .project-management-pane .add-project-form select,
+    .project-management-pane .add-project-form textarea,
+    .project-management-pane .workgroup-form-grid input,
+    .project-management-pane .workgroup-form-grid select,
+    .project-management-pane .workgroup-form-grid textarea {
+      margin-top: 6px;
+      background: rgba(255, 255, 255, 0.9);
+    }
+    .project-management-pane .project-model-badge {
+      border-color: rgba(31, 122, 140, 0.22);
+      background: rgba(31, 122, 140, 0.08);
+      color: var(--accent-hover);
     }
     .project-edit-field--wide {
       grid-column: 1 / -1;
@@ -1466,8 +1512,8 @@
       flex: 0 0 auto;
     }
     .project-management-pane #workgroupTaskTitle::before {
-      background: #d97706;
-      box-shadow: 0 0 0 4px rgba(217, 119, 6, 0.12);
+      background: var(--accent);
+      box-shadow: 0 0 0 4px rgba(31, 122, 140, 0.1);
     }
     @media (max-width: 960px) {
       .settings-shell {
