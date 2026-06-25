@@ -277,7 +277,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG_NAME: ${{ steps.release-meta.outputs.tag }}
         run: |
-          mapfile -t files < <(find dist-artifacts -type f | sort)
+          mkdir -p release-assets
+          while IFS= read -r -d '' file; do
+            artifact_name="$(basename "$(dirname "$file")")"
+            case "$artifact_name" in
+              *build-log*) continue ;;
+            esac
+            base_name="$(basename "$file")"
+            cp "$file" "release-assets/${artifact_name}-${base_name}"
+          done < <(find dist-artifacts -type f -print0 | sort -z)
+
+          mapfile -t files < <(find release-assets -type f | sort)
           if [ "${#files[@]}" -eq 0 ]; then
             echo "::error title=Release assets missing::No artifact files were downloaded for release publishing."
             exit 1
