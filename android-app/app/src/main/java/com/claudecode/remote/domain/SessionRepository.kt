@@ -152,38 +152,27 @@ class SessionRepository(
                 val meta = resolveSyncMetaOrNull(token, previousRevision)
                 if (meta != null) {
                     if (!meta.changed && previousRevision != null && meta.revision == previousRevision) {
-                        tokenStore.saveDeviceSyncRevision(meta.revision)
-                        CrashLogger.logInfo(
-                            "SessionRepository",
-                            "Skipping full project sync because revision is unchanged revision=${meta.revision} projectCount=${meta.projectCount}"
-                        )
+                        if (!tryApplyProjectSyncDelta(
+                                token = token,
+                                previousRevision = previousRevision,
+                                cachedSessions = cachedSessions,
+                                reason = "unchanged-revision"
+                            )
+                        ) {
+                            tokenStore.saveDeviceSyncRevision(meta.revision)
+                            CrashLogger.logInfo(
+                                "SessionRepository",
+                                "Skipping full project sync because revision is unchanged and delta is unavailable revision=${meta.revision} projectCount=${meta.projectCount}"
+                            )
+                        }
                         shouldSkipFullSync = true
                     } else if (previousRevision != null) {
-                        val deltaApplied = resolveSyncDeltaOrNull(
+                        val deltaApplied = tryApplyProjectSyncDelta(
                             token = token,
                             previousRevision = previousRevision,
-                            cachedSessions = cachedSessions
-                        )?.let { delta ->
-                            if (!delta.changed && delta.projectUpserts.isEmpty() && delta.projectRemoves.isEmpty()) {
-                                tokenStore.saveDeviceSyncRevision(delta.revision)
-                                CrashLogger.logInfo(
-                                    "SessionRepository",
-                                    "Skipping full project sync because delta resolved no material changes revision=${delta.revision} projectCount=${delta.projectCount}"
-                                )
-                            } else {
-                                applyProjectSyncDelta(
-                                    agentId = delta.agentId,
-                                    projectUpserts = delta.projectUpserts,
-                                    projectRemoves = delta.projectRemoves
-                                )
-                                tokenStore.saveDeviceSyncRevision(delta.revision)
-                                CrashLogger.logInfo(
-                                    "SessionRepository",
-                                    "Applied project delta sync revision=${delta.revision} upserts=${delta.projectUpserts.size} removes=${delta.projectRemoves.size} projectCount=${delta.projectCount}"
-                                )
-                            }
-                            true
-                        } ?: false
+                            cachedSessions = cachedSessions,
+                            reason = "revision-changed"
+                        )
                         if (deltaApplied) {
                             shouldSkipFullSync = true
                         } else {
@@ -215,9 +204,19 @@ class SessionRepository(
 
                 val scopedProjects = currentProjectAccessScope?.filterProjects(response.agentId, response.projects)
                     ?: response.projects
-                replaceSessionsFromDesktop(response.agentId, scopedProjects, fullReplace = true)
+                val trustEmptyFullReplace = shouldTrustEmptyFullProjectReplacement(
+                    projectCount = response.projectCount,
+                    revision = response.revision,
+                    hasExplicitProjectAccessScope = currentProjectAccessScope?.hasExplicitScopes() == true
+                )
+                replaceSessionsFromDesktop(
+                    agentId = response.agentId,
+                    projects = scopedProjects,
+                    fullReplace = true,
+                    trustEmptyFullReplace = trustEmptyFullReplace
+                )
                 val resolvedRevision = response.revision?.trim().orEmpty()
-                if (scopedProjects.isNotEmpty() || cachedSessions.isEmpty()) {
+                if (scopedProjects.isNotEmpty() || cachedSessions.isEmpty() || trustEmptyFullReplace) {
                     tokenStore.saveDeviceSyncRevision(resolvedRevision)
                 }
 
@@ -294,10 +293,15 @@ class SessionRepository(
         }
     }
 
-    private suspend fun replaceSessionsFromDesktop(agentId: String, projects: List<ProjectInfo>, fullReplace: Boolean) {
+    private suspend fun replaceSessionsFromDesktop(
+        agentId: String,
+        projects: List<ProjectInfo>,
+        fullReplace: Boolean,
+        trustEmptyFullReplace: Boolean = false
+    ) {
         val now = System.currentTimeMillis()
         val existingByProjectId = sessionDao.getAllSessionsSnapshot().associateBy { it.projectId }
-        if (fullReplace && projects.isEmpty() && existingByProjectId.isNotEmpty()) {
+        if (fullReplace && projects.isEmpty() && existingByProjectId.isNotEmpty() && !trustEmptyFullReplace) {
             CrashLogger.logInfo(
                 "SessionRepository",
                 "Ignoring empty project sync because local cache already has sessions"
@@ -369,6 +373,40 @@ class SessionRepository(
                 deleteProjectLocally(projectId)
             }
         }
+    }
+
+    private suspend fun tryApplyProjectSyncDelta(
+        token: String,
+        previousRevision: String,
+        cachedSessions: List<SessionEntity>,
+        reason: String
+    ): Boolean {
+        val delta = resolveSyncDeltaOrNull(
+            token = token,
+            previousRevision = previousRevision,
+            cachedSessions = cachedSessions
+        ) ?: return false
+
+        if (!delta.changed && delta.projectUpserts.isEmpty() && delta.projectRemoves.isEmpty()) {
+            tokenStore.saveDeviceSyncRevision(delta.revision)
+            CrashLogger.logInfo(
+                "SessionRepository",
+                "Skipping full project sync because delta resolved no material changes reason=$reason revision=${delta.revision} projectCount=${delta.projectCount}"
+            )
+            return true
+        }
+
+        applyProjectSyncDelta(
+            agentId = delta.agentId,
+            projectUpserts = delta.projectUpserts,
+            projectRemoves = delta.projectRemoves
+        )
+        tokenStore.saveDeviceSyncRevision(delta.revision)
+        CrashLogger.logInfo(
+            "SessionRepository",
+            "Applied project delta sync reason=$reason revision=${delta.revision} upserts=${delta.projectUpserts.size} removes=${delta.projectRemoves.size} projectCount=${delta.projectCount}"
+        )
+        return true
     }
 
     private fun cancelPendingOffline(projectId: String) {

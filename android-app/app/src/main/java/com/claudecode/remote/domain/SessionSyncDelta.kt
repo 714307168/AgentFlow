@@ -89,6 +89,15 @@ internal fun buildRemovedProjectIdsForDelta(
         .toList()
 }
 
+internal fun shouldTrustEmptyFullProjectReplacement(
+    projectCount: Int?,
+    revision: String?,
+    hasExplicitProjectAccessScope: Boolean
+): Boolean =
+    projectCount == 0 ||
+        revision?.trim()?.startsWith("sync-empty:") == true ||
+        hasExplicitProjectAccessScope
+
 internal fun mergeSessionEntityFromProject(
     existing: SessionEntity?,
     project: ProjectInfo,

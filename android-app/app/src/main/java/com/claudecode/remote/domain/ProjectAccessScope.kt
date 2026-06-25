@@ -25,6 +25,8 @@ internal class ProjectAccessScope private constructor(
 ) {
     private val hasExplicitAgentScopes = scopesByAgentId.isNotEmpty()
 
+    fun hasExplicitScopes(): Boolean = hasExplicitAgentScopes
+
     fun canAccessAgent(agentId: String): Boolean =
         !hasExplicitAgentScopes || scopesByAgentId.containsKey(agentId.trim())
 

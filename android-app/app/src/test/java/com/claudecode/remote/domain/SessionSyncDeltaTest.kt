@@ -84,6 +84,42 @@ class SessionSyncDeltaTest {
         assertEquals(listOf("project-a", "project-c"), removedProjectIds)
     }
 
+    @Test
+    fun `shouldTrustEmptyFullProjectReplacement trusts explicit empty server state`() {
+        assertEquals(
+            true,
+            shouldTrustEmptyFullProjectReplacement(
+                projectCount = 0,
+                revision = "sync-empty:agent-1",
+                hasExplicitProjectAccessScope = false
+            )
+        )
+    }
+
+    @Test
+    fun `shouldTrustEmptyFullProjectReplacement trusts empty explicit access scope`() {
+        assertEquals(
+            true,
+            shouldTrustEmptyFullProjectReplacement(
+                projectCount = 3,
+                revision = "rev-1",
+                hasExplicitProjectAccessScope = true
+            )
+        )
+    }
+
+    @Test
+    fun `shouldTrustEmptyFullProjectReplacement keeps legacy empty response protective`() {
+        assertEquals(
+            false,
+            shouldTrustEmptyFullProjectReplacement(
+                projectCount = null,
+                revision = null,
+                hasExplicitProjectAccessScope = false
+            )
+        )
+    }
+
     private fun sessionEntity(
         projectId: String,
         agentId: String = "agent-1",
