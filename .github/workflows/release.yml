@@ -222,6 +222,7 @@ jobs:
     if: >-
       ${{ always() &&
           (github.event_name == 'push' || inputs.publish_release) &&
+          (needs.windows.result == 'success' || needs.windows.result == 'skipped') &&
           (needs.macos.result == 'success' || needs.macos.result == 'skipped') &&
           (needs.linux.result == 'success' || needs.linux.result == 'skipped') &&
           (needs.android.result == 'success' || needs.android.result == 'skipped') &&
@@ -277,7 +278,7 @@ jobs:
             esac
             base_name="$(basename "$file")"
             case "$base_name" in
-              *.apk|*.dmg|*.AppImage|*.exe) ;;
+              *.apk|*.dmg|*.AppImage|*-setup.exe) ;;
               *) continue ;;
             esac
             cp "$file" "release-assets/${artifact_name}-${base_name}"
@@ -289,11 +290,17 @@ jobs:
             exit 1
           fi
 
+          windows_installer_count="$(find release-assets -type f -name '*-setup.exe' | wc -l)"
+          if [ "$windows_installer_count" -eq 0 ]; then
+            echo "::error title=Windows installer missing::Windows release must publish an installer package ending with -setup.exe."
+            exit 1
+          fi
+
           if gh release view "$TAG_NAME" >/dev/null 2>&1; then
             gh release view "$TAG_NAME" --json assets --jq '.assets[].name' |
               while IFS= read -r asset_name; do
                 case "$asset_name" in
-                  *.apk|*.dmg|*.AppImage|*.exe) ;;
+                  *.apk|*.dmg|*.AppImage|*-setup.exe) ;;
                   *) gh release delete-asset "$TAG_NAME" "$asset_name" -y ;;
                 esac
               done
