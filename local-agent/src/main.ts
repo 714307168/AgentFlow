@@ -4465,15 +4465,23 @@ async function refreshControllerToken(force: boolean = false): Promise<boolean> 
   }
 }
 
-function createTray(): Tray {
-  const icon = createTrayIcon();
-  const trayInstance = new Tray(icon.isEmpty() ? nativeImage.createEmpty() : icon);
-  trayInstance.setToolTip(t("tray.disconnected"));
-  rebuildTrayMenu(trayInstance);
-  trayInstance.on("click", () => {
-    showWorkspaceWindow();
-  });
-  return trayInstance;
+function createTray(): Tray | null {
+  try {
+    const icon = createTrayIcon();
+    const trayInstance = new Tray(icon.isEmpty() ? nativeImage.createEmpty() : icon);
+    trayInstance.setToolTip(t("tray.disconnected"));
+    rebuildTrayMenu(trayInstance);
+    trayInstance.on("click", () => {
+      showWorkspaceWindow();
+    });
+    return trayInstance;
+  } catch (error) {
+    appLogger.warn("tray", "Failed to create tray; continuing without tray.", {
+      error: error instanceof Error ? error.message : String(error),
+      platform: process.platform,
+    });
+    return null;
+  }
 }
 
 function rebuildTrayMenu(trayInstance?: Tray): void {

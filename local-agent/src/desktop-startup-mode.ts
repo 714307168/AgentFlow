@@ -32,6 +32,11 @@ const SAFE_GRAPHICS_SWITCHES: DesktopStartupSwitch[] = [
   { name: "disable-features", value: "CalculateNativeWinOcclusion" },
 ];
 
+const LINUX_COMPATIBILITY_SWITCHES: DesktopStartupSwitch[] = [
+  { name: "no-sandbox" },
+  { name: "disable-dev-shm-usage" },
+];
+
 function normalizeBooleanFlag(value: string | undefined): boolean {
   if (!value) {
     return false;
@@ -82,6 +87,16 @@ function shouldEnableLegacyWindowsSafeMode(
   return build !== null && build <= 14393;
 }
 
+function shouldEnableLinuxCompatibilityMode(
+  platform: NodeJS.Platform,
+  env: Record<string, string | undefined> | null | undefined,
+): boolean {
+  if (platform !== "linux") {
+    return false;
+  }
+  return !normalizeBooleanFlag(env?.AGENTFLOW_DISABLE_LINUX_COMPATIBILITY_MODE);
+}
+
 export function buildDesktopStartupModePlan(options: DesktopStartupModeOptions = {}): DesktopStartupModePlan {
   const platform = options.platform ?? process.platform;
   const osRelease = options.osRelease ?? null;
@@ -94,6 +109,9 @@ export function buildDesktopStartupModePlan(options: DesktopStartupModeOptions =
   }
   if (shouldEnableLegacyWindowsSafeMode(platform, osRelease)) {
     reasons.push("legacy-windows-build");
+  }
+  if (shouldEnableLinuxCompatibilityMode(platform, env)) {
+    reasons.push("linux-compatibility-mode");
   }
 
   if (reasons.length === 0) {
@@ -108,7 +126,10 @@ export function buildDesktopStartupModePlan(options: DesktopStartupModeOptions =
   return {
     safeGraphics: true,
     disableHardwareAcceleration: true,
-    switches: SAFE_GRAPHICS_SWITCHES.map((entry) => ({ ...entry })),
+    switches: [
+      ...SAFE_GRAPHICS_SWITCHES,
+      ...(reasons.includes("linux-compatibility-mode") ? LINUX_COMPATIBILITY_SWITCHES : []),
+    ].map((entry) => ({ ...entry })),
     reasons,
   };
 }

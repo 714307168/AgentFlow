@@ -48,6 +48,12 @@ The workflow does not publish to the private update center by default. That step
 | iPhone / iOS | Planned, not implemented | There is no Xcode/Swift iOS project in the repository yet. CI can only be added after the app target exists and Apple signing secrets are prepared. |
 | WeChat Mini Program | Planned, not implemented | Existing docs define the Lite boundary, but no mini-program project exists yet. |
 
+Linux desktop startup notes:
+
+- Linux builds start in compatibility mode by default: Electron GPU acceleration is disabled and Chromium runs with --no-sandbox / --disable-dev-shm-usage. This keeps Arch, UOS/UnionTech, and Kylin desktops from failing before the main window opens when sandbox helpers, AppIndicator, Wayland, GPU drivers, or small /dev/shm environments are inconsistent.
+- To opt out for a hardened local environment, launch with AGENTFLOW_DISABLE_LINUX_COMPATIBILITY_MODE=true.
+- Tray creation is non-fatal on Linux. If the desktop shell lacks a compatible tray/AppIndicator host, AgentFlow opens without a tray instead of aborting startup.
+
 ## 4. macOS Release Requirements
 
 Before publishing macOS as a supported customer release:

@@ -38,9 +38,29 @@ test("desktop startup mode enables safe graphics on legacy Windows builds", () =
   ]);
 });
 
-test("desktop startup mode can be forced manually", () => {
+test("desktop startup mode enables Linux compatibility by default", () => {
   const plan = buildDesktopStartupModePlan({
     platform: "linux",
+    osRelease: "6.8.0",
+    argv: ["agentflow"],
+    env: {},
+  });
+
+  assert.equal(plan.safeGraphics, true);
+  assert.equal(plan.disableHardwareAcceleration, true);
+  assert.deepEqual(plan.reasons, ["linux-compatibility-mode"]);
+  assert.deepEqual(plan.switches, [
+    { name: "disable-gpu" },
+    { name: "disable-gpu-compositing" },
+    { name: "disable-features", value: "CalculateNativeWinOcclusion" },
+    { name: "no-sandbox" },
+    { name: "disable-dev-shm-usage" },
+  ]);
+});
+
+test("desktop startup mode can be forced manually", () => {
+  const plan = buildDesktopStartupModePlan({
+    platform: "darwin",
     osRelease: "6.8.0",
     argv: ["agentflow", "--safe-mode"],
     env: {},
@@ -48,6 +68,22 @@ test("desktop startup mode can be forced manually", () => {
 
   assert.equal(plan.safeGraphics, true);
   assert.deepEqual(plan.reasons, ["manual-safe-mode"]);
+});
+
+test("desktop startup mode can disable Linux compatibility explicitly", () => {
+  const plan = buildDesktopStartupModePlan({
+    platform: "linux",
+    osRelease: "6.8.0",
+    argv: ["agentflow"],
+    env: { AGENTFLOW_DISABLE_LINUX_COMPATIBILITY_MODE: "true" },
+  });
+
+  assert.deepEqual(plan, {
+    safeGraphics: false,
+    disableHardwareAcceleration: false,
+    switches: [],
+    reasons: [],
+  });
 });
 
 test("desktop startup mode also respects environment safe mode", () => {
