@@ -76,17 +76,41 @@ pacman:
   afterInstall: assets/linux-after-install.sh
   afterRemove: assets/linux-after-remove.sh
   depends:
+    - alsa-lib
+    - at-spi2-core
     - c-ares
+    - cairo
+    - dbus
+    - expat
     - ffmpeg
+    - gcc-libs
+    - glib2
+    - glibc
     - gtk3
+    - hicolor-icon-theme
+    - libdrm
     - libevent
+    - libnotify
+    - libsecret
     - libvpx
-    - libxslt
+    - libx11
+    - libxcb
+    - libxcomposite
+    - libxdamage
+    - libxext
+    - libxfixes
+    - libxkbcommon
+    - libxrandr
     - libxss
+    - libxtst
+    - libxslt
     - llhttp
+    - mesa
     - minizip
     - nspr
     - nss
+    - pango
     - re2
     - snappy
-    - libnotify
+    - xdg-utils
+    - zlib

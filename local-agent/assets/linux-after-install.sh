@@ -3,6 +3,18 @@ set -eu
 
 APP_DESKTOP_FILE="/usr/share/applications/${executable}.desktop"
 SHORTCUT_NAME="${productFilename}.desktop"
+APP_INSTALL_DIR="/opt/${productFilename}"
+
+fix_chrome_sandbox() {
+  sandbox_path="$APP_INSTALL_DIR/chrome-sandbox"
+
+  if [ ! -f "$sandbox_path" ]; then
+    return 0
+  fi
+
+  chown root:root "$sandbox_path" 2>/dev/null || true
+  chmod 4755 "$sandbox_path" 2>/dev/null || true
+}
 
 copy_shortcut_to_desktop() {
   home_dir="$1"
@@ -70,5 +82,7 @@ for home_dir in /home/*; do
   [ -d "$home_dir" ] || continue
   install_for_home "$home_dir"
 done
+
+fix_chrome_sandbox
 
 exit 0

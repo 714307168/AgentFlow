@@ -19,8 +19,32 @@ test("linux package scripts create desktop shortcuts for desktop environments", 
   assert.match(installScript, /XDG_DESKTOP_DIR/);
   assert.match(installScript, /\$home_dir\/Desktop/);
   assert.match(installScript, /\$home_dir\/桌面/);
+  assert.match(installScript, /chrome-sandbox/);
+  assert.match(installScript, /chmod 4755/);
+  assert.match(installScript, /chown root:root/);
   assert.match(removeScript, /Exec=\.\*\$EXECUTABLE_NAME/);
+  assert.match(removeScript, /\$home_dir\/桌面/);
 
   assert.equal((builderConfig.match(/afterInstall: assets\/linux-after-install\.sh/g) || []).length, 2);
   assert.equal((builderConfig.match(/afterRemove: assets\/linux-after-remove\.sh/g) || []).length, 2);
+});
+
+test("arch package keeps electron runtime dependencies installable", () => {
+  const builderConfig = readProjectFile("electron-builder.yml");
+
+  for (const dependency of [
+    "alsa-lib",
+    "at-spi2-core",
+    "gtk3",
+    "libnotify",
+    "libsecret",
+    "libxtst",
+    "libxss",
+    "nss",
+    "xdg-utils",
+  ]) {
+    assert.match(builderConfig, new RegExp(`\\n    - ${dependency}\\n`));
+  }
+
+  assert.doesNotMatch(builderConfig, /\n    - http-parser\n/);
 });
