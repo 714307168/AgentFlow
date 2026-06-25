@@ -43,7 +43,12 @@ mac:
         - arm64
 
 linux:
+  icon: app-icon.png
+  category: Development
   target:
     - target: AppImage
+      arch:
+        - x64
+    - target: pacman
       arch:
         - x64

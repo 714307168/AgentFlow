@@ -1,6 +1,6 @@
 # GitHub CI/CD And Platform Support
 
-Updated: 2026-06-24
+Updated: 2026-06-25
 
 This document records the automated GitHub pipeline and the current platform support boundary for AgentFlow.
 
@@ -25,15 +25,15 @@ Workflow: `.github/workflows/release.yml`
 
 Triggers:
 - Manual `workflow_dispatch`, with per-platform switches.
-- Push tag matching `v*`.
+- Push to the release branches configured in the workflow.
 
 Build artifacts:
 - Windows: `AgentFlow-*-x64-setup.exe`
 - macOS: `*.dmg`
-- Linux: `*.AppImage`
+- Linux: `*.AppImage` and Arch Linux `*.pacman` / `*.pkg.tar.*`
 - Android: release `*.apk`
 
-On tag pushes, the workflow downloads all artifacts and creates a GitHub Release with the same tag name.
+On push releases, the workflow resolves the desktop version from `local-agent/package.json`, refreshes the matching `v*` tag, downloads all artifacts, and publishes them to the matching GitHub Release.
 
 The workflow does not publish to the private update center by default. That step needs repository secrets and a server-side publishing command, otherwise CI would have to embed deployment credentials. Keep update-center publishing as a separate protected step until those secrets are configured.
 
@@ -44,7 +44,7 @@ The workflow does not publish to the private update center by default. That step
 | Windows desktop | Supported | Existing NSIS installer flow remains the primary desktop release path. |
 | Android | Supported | Existing Gradle project can build debug and release APKs. Release signing requires local or GitHub secret-backed keystore config. |
 | macOS desktop | Build pipeline added | Electron Builder has DMG config. Real distribution still needs Developer ID signing, notarization, and mac update-center entries. |
-| Linux desktop | Build pipeline added | AppImage build is available. Need runtime verification on common distributions before treating it as a supported release. |
+| Linux desktop | Build pipeline added | AppImage and Arch Linux pacman packages are produced. Need runtime verification on common distributions before treating Linux as a fully supported release. |
 | iPhone / iOS | Planned, not implemented | There is no Xcode/Swift iOS project in the repository yet. CI can only be added after the app target exists and Apple signing secrets are prepared. |
 | WeChat Mini Program | Planned, not implemented | Existing docs define the Lite boundary, but no mini-program project exists yet. |
 

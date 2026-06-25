@@ -2,6 +2,13 @@
   "name": "agentflow-desktop",
   "version": "1.1.145",
   "description": "Desktop agent for AgentFlow remote control",
+  "author": "AgentFlow contributors <noreply@agentflow.local>",
+  "license": "MIT",
+  "homepage": "https://github.com/714307168/AgentFlow",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/714307168/AgentFlow.git"
+  },
   "main": "dist/src/main.js",
   "scripts": {
     "build": "tsc && node -e \"const fs=require('fs');const path=require('path');for (const name of ['terminal.js','terminal.js.map','project-runtime-rules.js','project-runtime-rules.js.map']) { const source=path.join('dist','renderer',name); if (fs.existsSync(source)) { fs.copyFileSync(source,path.join('renderer',name)); } }\"",
@@ -15,7 +22,8 @@
     "dist": "npm run build && npm run ensure-icons && electron-builder --publish never",
     "dist:win": "npm run build && npm run ensure-icons && electron-builder --win nsis --publish never",
     "dist:mac": "npm run build && electron-builder --mac dmg --publish never",
-    "dist:linux": "npm run build && electron-builder --linux AppImage --publish never",
+    "dist:linux": "npm run build && electron-builder --linux AppImage pacman --publish never",
+    "dist:linux:arch": "npm run build && electron-builder --linux pacman --publish never",
     "dist:win:portable": "npm run build && npm run ensure-icons && electron-builder --config electron-builder.portable.yml --publish never"
   },
   "dependencies": {
