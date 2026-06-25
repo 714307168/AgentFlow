@@ -140,6 +140,23 @@ class SessionShellSyncPlannerTest {
     }
 
     @Test
+    fun `selectSessionShellSyncTargets can ignore background schedule for foreground refreshes`() {
+        val nowMs = 3 * SESSION_SHELL_SYNC_DORMANT_AGE_MS
+        val selected = selectSessionShellSyncTargets(
+            sessions = listOf(
+                session(projectId = "cold-project", syncBucket = "cold", nextBackgroundCheckAfter = nowMs + 60_000L),
+                session(projectId = "dormant-project", syncBucket = "dormant", nextBackgroundCheckAfter = nowMs + 60_000L),
+                session(projectId = "hot-project", syncBucket = "hot", nextBackgroundCheckAfter = nowMs + 60_000L),
+            ),
+            maxProjects = 3,
+            ignoreBackgroundSchedule = true,
+            nowMs = nowMs
+        )
+
+        assertEquals(listOf("hot-project", "cold-project", "dormant-project"), selected.map { it.projectId })
+    }
+
+    @Test
     fun `computeSessionShellNextBackgroundCheckAfter only returns ttl for cold and dormant sessions`() {
         val nowMs = 10_000L
         assertEquals(

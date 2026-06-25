@@ -797,7 +797,8 @@ class MainActivity : ComponentActivity() {
         runCatching {
             messageRepository.requestSessionShellSyncs(
                 sessions = sessions,
-                bypassDedupe = true
+                bypassDedupe = true,
+                maxProjects = sessions.size
             )
         }.onSuccess {
             CrashLogger.logInfo(

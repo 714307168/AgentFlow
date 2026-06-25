@@ -237,9 +237,11 @@ class SessionViewModel(
             repository.syncFromServer(force = true).fold(
                 onSuccess = {
                     if (webSocket.connectionState.value == RelayWebSocket.ConnectionState.CONNECTED) {
+                        val sessions = repository.getSessions()
                         messageRepository.requestSessionShellSyncs(
-                            sessions = repository.getSessions(),
-                            bypassDedupe = true
+                            sessions = sessions,
+                            bypassDedupe = true,
+                            maxProjects = sessions.size
                         )
                         refreshWorkgroups(showLoading = false, force = true)
                     }
@@ -268,7 +270,12 @@ class SessionViewModel(
                         ts = System.currentTimeMillis()
                     )
                 )
-                messageRepository.requestSessionShellSyncs(repository.getSessions())
+                val sessions = repository.getSessions()
+                messageRepository.requestSessionShellSyncs(
+                    sessions = sessions,
+                    bypassDedupe = true,
+                    maxProjects = sessions.size
+                )
                 refreshWorkgroups(showLoading = false)
             } else if (latestSessions.isEmpty()) {
                 repository.syncFromServer(force = true)

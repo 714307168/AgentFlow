@@ -331,6 +331,7 @@ class MessageRepository(
             maxProjects = maxProjects,
             lastBackgroundSyncRequestedAtByProjectId =
                 if (bypassDedupe) emptyMap() else lastBackgroundSessionShellSyncRequestedAtByProjectId,
+            ignoreBackgroundSchedule = bypassDedupe,
             nowMs = nowMs
         )
         if (!bypassDedupe) {

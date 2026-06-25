@@ -18,6 +18,7 @@ internal fun selectSessionShellSyncTargets(
     sessions: List<Session>,
     maxProjects: Int = SESSION_SHELL_SYNC_MAX_PROJECTS,
     lastBackgroundSyncRequestedAtByProjectId: Map<String, Long> = emptyMap(),
+    ignoreBackgroundSchedule: Boolean = false,
     nowMs: Long = System.currentTimeMillis()
 ): List<Session> {
     if (maxProjects <= 0 || sessions.isEmpty()) {
@@ -31,6 +32,7 @@ internal fun selectSessionShellSyncTargets(
             shouldScheduleSessionShellBackgroundSync(
                 session = session,
                 lastBackgroundSyncRequestedAtMs = lastBackgroundSyncRequestedAtByProjectId[session.projectId],
+                ignoreBackgroundSchedule = ignoreBackgroundSchedule,
                 nowMs = nowMs
             )
         }
@@ -86,8 +88,12 @@ private fun isDormantShellSyncSession(session: Session, nowMs: Long): Boolean =
 private fun shouldScheduleSessionShellBackgroundSync(
     session: Session,
     lastBackgroundSyncRequestedAtMs: Long?,
+    ignoreBackgroundSchedule: Boolean,
     nowMs: Long
 ): Boolean {
+    if (ignoreBackgroundSchedule) {
+        return true
+    }
     val intervalMs = resolveSessionShellSyncIntervalMs(resolveSessionSyncBucket(session, nowMs)) ?: return true
     val nextBackgroundCheckAfter = session.nextBackgroundCheckAfter
     if (nextBackgroundCheckAfter != null && nextBackgroundCheckAfter > nowMs) {
