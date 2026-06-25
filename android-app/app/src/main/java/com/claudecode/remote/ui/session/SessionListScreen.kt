@@ -658,7 +658,7 @@ private fun SessionCard(item: SessionListItem, onClick: () -> Unit) {
     } else {
         session.projectPath.ifBlank { item.metaText.orEmpty() }
     }
-    val timestamp = item.previewTimestamp ?: session.createdAt
+    val timestamp = item.previewTimestamp
     val metaText = buildString {
         append(providerLabel(session.cliProvider))
         modelLabel(session.cliModel)
@@ -762,11 +762,13 @@ private fun SessionCard(item: SessionListItem, onClick: () -> Unit) {
                         modifier = Modifier.weight(1f)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = formatTimestamp(timestamp),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    if (timestamp != null) {
+                        Text(
+                            text = formatTimestamp(timestamp),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
 
                 Text(

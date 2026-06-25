@@ -55,6 +55,17 @@ data class SessionUiState(
     val collapsedGroupKeys: Set<String> = emptySet()
 )
 
+internal fun resolveProjectPreviewTimestamp(preview: Message?): Long? =
+    preview?.timestamp?.takeIf { it > 0L }
+
+internal fun sessionListItemComparator(): Comparator<SessionListItem> =
+    compareByDescending<SessionListItem> { it.isRunning || it.queuedCount > 0 }
+        .thenByDescending { it.isRunning }
+        .thenByDescending { it.queuedCount }
+        .thenByDescending { it.previewTimestamp != null }
+        .thenByDescending { it.previewTimestamp ?: 0L }
+        .thenBy { it.title.lowercase() }
+
 class SessionViewModel(
     private val repository: SessionRepository,
     private val messageRepository: MessageRepository,
@@ -339,9 +350,7 @@ class SessionViewModel(
                     agentId = session.agentId,
                     title = session.name,
                     previewText = preview?.toPreviewText()?.takeIf { it.isNotBlank() },
-                    previewTimestamp = preview?.timestamp
-                        ?: session.lastActiveAt.takeIf { it > 0L }
-                        ?: session.createdAt.takeIf { it > 0L },
+                    previewTimestamp = resolveProjectPreviewTimestamp(preview),
                     isPreviewStreaming = preview?.isStreaming == true,
                     metaText = buildString {
                         append(session.cliProvider)
@@ -369,8 +378,7 @@ class SessionViewModel(
                 }
             }
             .sortedWith(
-                compareByDescending<SessionListItem> { it.previewTimestamp ?: 0L }
-                    .thenBy { it.title.lowercase() }
+                sessionListItemComparator()
             )
 
         _uiState.update { current ->
