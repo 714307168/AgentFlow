@@ -1028,7 +1028,8 @@
     .settings-nav-item[data-pane="overview"]::before { content: "◎"; }
     .settings-nav-item[data-pane="connection"]::before { content: "↔"; }
     .settings-nav-item[data-pane="project"]::before { content: "▦"; }
-    .settings-nav-item[data-pane="message"]::before { content: "✉"; }
+    .settings-nav-item[data-pane="workgroup"]::before { content: "◇"; }
+    .settings-nav-item[data-pane="transfer"]::before { content: "⇄"; }
     .settings-nav-item[data-pane="automation"]::before { content: "⏱"; }
     .settings-nav-item[data-pane="language"]::before { content: "文"; }
     .settings-nav-item[data-pane="launch"]::before { content: "▶"; }
@@ -1599,8 +1600,9 @@
       <aside class="settings-nav">
         <button class="settings-nav-item" id="overviewMenuItem" type="button" data-pane="overview">Overview</button>
         <button class="settings-nav-item" id="connectionMenuItem" type="button" data-pane="connection">Connection</button>
-        <button class="settings-nav-item" id="projectMenuItem" type="button" data-pane="project">Projects & Workgroups</button>
-        <button class="settings-nav-item" id="messageMenuItem" type="button" data-pane="message">Messages & Files</button>
+        <button class="settings-nav-item" id="projectMenuItem" type="button" data-pane="project">Projects</button>
+        <button class="settings-nav-item" id="workgroupMenuItem" type="button" data-pane="workgroup">Workgroups</button>
+        <button class="settings-nav-item" id="transferMenuItem" type="button" data-pane="transfer">File Transfers</button>
         <button class="settings-nav-item" id="automationMenuItem" type="button" data-pane="automation">Automation</button>
         <button class="settings-nav-item" id="languageMenuItem" type="button" data-pane="language">Language</button>
         <button class="settings-nav-item" id="launchMenuItem" type="button" data-pane="launch">Launch</button>
@@ -1862,6 +1864,9 @@
             </div>
           </div>
 
+        </section>
+
+        <section class="settings-pane project-management-pane hidden" id="workgroupPane" data-pane-content="workgroup">
           <div class="section" id="workgroupSectionCard">
             <div class="workgroup-hub-header">
               <div>
@@ -2048,7 +2053,7 @@
           </div>
         </section>
 
-        <section class="settings-pane hidden" id="messagePane" data-pane-content="message">
+        <section class="settings-pane hidden" id="transferPane" data-pane-content="transfer">
           <div class="section">
             <div class="section-title" id="transferCenterSection">Transfer Center</div>
             <div class="section-subtitle" id="transferCenterHint">Desktop-side file and cache readiness for the upcoming cross-device transfer protocol.</div>
@@ -2686,11 +2691,15 @@
       if (pane === "advanced" || pane === "system") {
         return "runtime";
       }
+      if (pane === "message") {
+        return "transfer";
+      }
       return [
         "overview",
         "connection",
         "project",
-        "message",
+        "workgroup",
+        "transfer",
         "automation",
         "language",
         "launch",
@@ -2709,9 +2718,11 @@
         case "connection":
           return inlineText("Server Connection", "服务器连接");
         case "project":
-          return inlineText("Projects & Workgroups", "项目与协作组");
-        case "message":
-          return inlineText("Messages & Files", "消息与文件");
+          return inlineText("Projects", "项目");
+        case "workgroup":
+          return inlineText("Workgroups", "协作组");
+        case "transfer":
+          return inlineText("File Transfers", "文件传输");
         case "automation":
           return inlineText("Tasks & Automation", "任务与自动化");
         case "language":
@@ -4043,8 +4054,15 @@
         await refreshProjectPaneData();
         return;
       }
-      if (normalizedPane === "message") {
-        await settingsPaneLoaders.loadMessagePaneData({
+      if (normalizedPane === "workgroup") {
+        await settingsPaneLoaders.loadWorkgroupPaneData({
+          loadProjects,
+          loadWorkgroups,
+        });
+        return;
+      }
+      if (normalizedPane === "transfer") {
+        await settingsPaneLoaders.loadTransferPaneData({
           refreshLocalDataMetrics,
           loadProjects,
           loadWorkgroups,
@@ -4076,7 +4094,6 @@
 
     async function refreshProjectPaneData(force = false) {
       await loadProjects({ force });
-      await loadWorkgroups({ force, skipProjectRefresh: true });
     }
 
     function clearProjectPaneRefreshTimer() {
@@ -4089,13 +4106,18 @@
     function scheduleProjectPaneRefresh(force = false) {
       paneLoadState.projectsDirty = true;
       paneLoadState.workgroupsDirty = true;
+      paneLoadState.transfersDirty = true;
       clearProjectPaneRefreshTimer();
-      if (!["project", "overview"].includes(activeSettingsPane)) {
+      if (!["project", "overview", "workgroup", "transfer"].includes(activeSettingsPane)) {
         return;
       }
       projectPaneRefreshTimer = setTimeout(() => {
         projectPaneRefreshTimer = null;
-        void refreshProjectPaneData(force);
+        if (activeSettingsPane === "workgroup" || activeSettingsPane === "transfer") {
+          void ensurePaneDataLoaded(activeSettingsPane);
+        } else {
+          void refreshProjectPaneData(force);
+        }
       }, PROJECT_PANE_REFRESH_DEBOUNCE_MS);
     }
 
@@ -4177,8 +4199,9 @@
       document.getElementById("savedText").textContent = msg("settings.saved.short", "Saved");
       document.getElementById("overviewMenuItem").textContent = inlineText("Overview", "总览");
       document.getElementById("connectionMenuItem").textContent = inlineText("Server Connection", "服务器连接");
-      document.getElementById("projectMenuItem").textContent = inlineText("Projects & Workgroups", "项目与协作组");
-      document.getElementById("messageMenuItem").textContent = inlineText("Messages & Files", "消息与文件");
+      document.getElementById("projectMenuItem").textContent = inlineText("Projects", "项目");
+      document.getElementById("workgroupMenuItem").textContent = inlineText("Workgroups", "协作组");
+      document.getElementById("transferMenuItem").textContent = inlineText("File Transfers", "文件传输");
       document.getElementById("automationMenuItem").textContent = inlineText("Automation", "自动化");
       document.getElementById("languageMenuItem").textContent = inlineText("Language", "语言");
       document.getElementById("launchMenuItem").textContent = inlineText("Launch", "启动");
@@ -7352,7 +7375,7 @@
       api.onWorkgroupsChanged(() => {
         paneLoadState.workgroupsDirty = true;
         clearProjectPaneRefreshTimer();
-        if (activeSettingsPane === "project" || activeSettingsPane === "overview") {
+        if (activeSettingsPane === "workgroup" || activeSettingsPane === "overview" || activeSettingsPane === "transfer") {
           projectPaneRefreshTimer = setTimeout(() => {
             projectPaneRefreshTimer = null;
             void loadWorkgroups({ force: true });

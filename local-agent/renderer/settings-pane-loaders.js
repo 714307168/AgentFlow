@@ -70,15 +70,16 @@
     ]);
   }
 
-  async function loadMessagePaneData(deps, options = {}) {
+  async function loadWorkgroupPaneData(deps, options = {}) {
     const force = options.force === true;
-    await Promise.all([
-      (async () => {
-        await deps.loadProjects({ force });
-        await deps.loadWorkgroups({ force, skipProjectRefresh: true });
-      })(),
-      refreshTransferPaneData(deps, { force, includeLocalData: true }),
-    ]);
+    await deps.loadProjects({ force });
+    await deps.loadWorkgroups({ force, skipProjectRefresh: true });
+  }
+
+  async function loadTransferPaneData(deps, options = {}) {
+    const force = options.force === true;
+    await loadWorkgroupPaneData(deps, { force });
+    await refreshTransferPaneData(deps, { force, includeLocalData: true });
   }
 
   async function loadAutomationPaneData(deps, options = {}) {
@@ -90,8 +91,10 @@
   return {
     applyTransferFilterChange,
     loadAutomationPaneData,
-    loadMessagePaneData,
+    loadMessagePaneData: loadTransferPaneData,
     loadOverviewPaneData,
+    loadTransferPaneData,
+    loadWorkgroupPaneData,
     refreshTransferPaneData,
     requestTransferRefresh,
   };

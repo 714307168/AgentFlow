@@ -6,6 +6,8 @@ const {
   loadAutomationPaneData,
   loadMessagePaneData,
   loadOverviewPaneData,
+  loadTransferPaneData,
+  loadWorkgroupPaneData,
   refreshTransferPaneData,
   requestTransferRefresh,
 } = require("../renderer/settings-pane-loaders.js");
@@ -123,11 +125,34 @@ test("applyTransferFilterChange syncs fields when provided, marks transfers dirt
   ]);
 });
 
-test("loadMessagePaneData loads projects before workgroups and skips the duplicate project refresh inside workgroups", async () => {
+test("loadWorkgroupPaneData loads only project catalog and workgroup controls", async () => {
   const calls = [];
   let projectsResolved = false;
 
-  await loadMessagePaneData({
+  await loadWorkgroupPaneData({
+    loadProjects: async (options = {}) => {
+      calls.push(`projects:${JSON.stringify(options)}`);
+      await Promise.resolve();
+      projectsResolved = true;
+    },
+    loadWorkgroups: async (options = {}) => {
+      calls.push(`workgroups:${JSON.stringify(options)}`);
+      assert.equal(projectsResolved, true);
+      assert.equal(options.skipProjectRefresh, true);
+    },
+  }, { force: true });
+
+  assert.deepEqual(calls, [
+    "projects:{\"force\":true}",
+    "workgroups:{\"force\":true,\"skipProjectRefresh\":true}",
+  ]);
+});
+
+test("loadTransferPaneData loads transfer dependencies without using the project pane loader", async () => {
+  const calls = [];
+  let projectsResolved = false;
+
+  await loadTransferPaneData({
     refreshLocalDataMetrics: async (options = {}) => {
       calls.push(`localData:${JSON.stringify(options)}:start`);
       await Promise.resolve();
@@ -153,11 +178,41 @@ test("loadMessagePaneData loads projects before workgroups and skips the duplica
 
   assert.deepEqual(calls, [
     "projects:{\"force\":true}",
+    "workgroups:{\"force\":true,\"skipProjectRefresh\":true}",
     "localData:{\"force\":true}:start",
     "devices:{\"force\":true}",
     "transfers:{\"force\":true}",
     "localData:{\"force\":true}:done",
+  ]);
+});
+
+test("loadMessagePaneData remains a compatibility alias for the transfer pane", async () => {
+  const calls = [];
+
+  await loadMessagePaneData({
+    refreshLocalDataMetrics: async (options = {}) => {
+      calls.push(`localData:${JSON.stringify(options)}`);
+    },
+    loadProjects: async (options = {}) => {
+      calls.push(`projects:${JSON.stringify(options)}`);
+    },
+    loadWorkgroups: async (options = {}) => {
+      calls.push(`workgroups:${JSON.stringify(options)}`);
+    },
+    loadRelayDevices: async (options = {}) => {
+      calls.push(`devices:${JSON.stringify(options)}`);
+    },
+    refreshRelayTransfers: async (options = {}) => {
+      calls.push(`transfers:${JSON.stringify(options)}`);
+    },
+  }, { force: true });
+
+  assert.deepEqual(calls, [
+    "projects:{\"force\":true}",
     "workgroups:{\"force\":true,\"skipProjectRefresh\":true}",
+    "localData:{\"force\":true}",
+    "devices:{\"force\":true}",
+    "transfers:{\"force\":true}",
   ]);
 });
 

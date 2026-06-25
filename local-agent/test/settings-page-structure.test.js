@@ -10,7 +10,8 @@ test("settings page splits system settings into standalone panes", () => {
     "overview",
     "connection",
     "project",
-    "message",
+    "workgroup",
+    "transfer",
     "automation",
     "language",
     "launch",
@@ -28,4 +29,8 @@ test("settings page splits system settings into standalone panes", () => {
 
   assert.doesNotMatch(settingsHtml, /data-pane="advanced"/);
   assert.doesNotMatch(settingsHtml, /data-pane-content="advanced"/);
+  assert.doesNotMatch(settingsHtml, /data-pane="message"/);
+  assert.doesNotMatch(settingsHtml, /data-pane-content="message"/);
+  assert.doesNotMatch(settingsHtml, /Projects & Workgroups/);
+  assert.doesNotMatch(settingsHtml, /Messages & Files/);
 });

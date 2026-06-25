@@ -244,7 +244,8 @@ type SettingsPane =
   | "overview"
   | "connection"
   | "project"
-  | "message"
+  | "workgroup"
+  | "transfer"
   | "automation"
   | "language"
   | "launch"
@@ -2112,11 +2113,15 @@ function normalizeSettingsPane(pane?: string | null): SettingsPane {
   if (pane === "advanced" || pane === "system") {
     return "runtime";
   }
+  if (pane === "message") {
+    return "transfer";
+  }
   if (
     pane === "overview"
     || pane === "connection"
     || pane === "project"
-    || pane === "message"
+    || pane === "workgroup"
+    || pane === "transfer"
     || pane === "automation"
     || pane === "language"
     || pane === "launch"
@@ -2152,8 +2157,10 @@ function getSettingsPaneTitle(pane: SettingsPane): string {
       return "Server Connection";
     case "project":
       return "Project Settings";
-    case "message":
-      return "Messages & Files";
+    case "workgroup":
+      return "Workgroup Settings";
+    case "transfer":
+      return "File Transfers";
     case "automation":
       return "Tasks & Automation";
     case "language":
