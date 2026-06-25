@@ -31,7 +31,7 @@ win:
         - x64
 
 nsis:
-  include: build/installer.nsh
+  include: assets/installer.nsh
   oneClick: false
   allowToChangeInstallationDirectory: true
 

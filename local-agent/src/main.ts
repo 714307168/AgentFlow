@@ -92,6 +92,7 @@ import {
 import { createLocalCommandGateway, defineLocalCommand, type LocalCommandDescriptor } from "./local-command-gateway";
 import { buildGitHubCommandEnvironment } from "./github-command-env";
 import { applyDesktopStartupModePlan, buildDesktopStartupModePlan } from "./desktop-startup-mode";
+import { buildLoginItemArgs, shouldShowWorkspaceOnStartup } from "./desktop-launch-mode";
 import {
   CACHED_SECRET_PLACEHOLDER,
   normalizeSecretInputForSave,
@@ -384,6 +385,11 @@ const desktopStartupModePlan = buildDesktopStartupModePlan({
 });
 applyDesktopStartupModePlan(app, desktopStartupModePlan);
 
+const singleInstanceLock = app.requestSingleInstanceLock();
+if (!singleInstanceLock) {
+  app.quit();
+}
+
 let tray: Tray | null = null;
 let mainWindow: BrowserWindow | null = null;
 let workspaceWindow: BrowserWindow | null = null;
@@ -479,6 +485,15 @@ const cliProviderRuntimeStatusCache = createTimedAsyncCache<Record<CliProvider, 
   ttlMs: CLI_PROVIDER_RUNTIME_STATUS_CACHE_TTL_MS,
   load: getCliProviderRuntimeStatuses,
 });
+
+function syncLoginItemSettings(): void {
+  const autoStart = appSettingsStore.get("autoStart") as boolean;
+  const silentLaunch = appSettingsStore.get("silentLaunch") as boolean;
+  app.setLoginItemSettings({
+    openAtLogin: autoStart,
+    args: buildLoginItemArgs(silentLaunch),
+  });
+}
 const remoteProjectSyncGate = createRequestGate({
   minIntervalMs: ACTIVE_REMOTE_PROJECT_SYNC_MIN_INTERVAL_MS,
   pendingTimeoutMs: REMOTE_PROJECT_SYNC_PENDING_TIMEOUT_MS,
@@ -3610,6 +3625,18 @@ function loadConfig(): AgentConfig {
   };
 }
 
+function revealPrimaryWindow(): void {
+  if (workspaceWindow && !workspaceWindow.isDestroyed()) {
+    revealWindow(workspaceWindow);
+    return;
+  }
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    revealWindow(mainWindow);
+    return;
+  }
+  showWorkspaceWindow();
+}
+
 function getPublicConfig(): Omit<AgentConfig, "encryptedToken" | "encryptedPassword" | "encryptedOpenaiApiKey" | "encryptedAnthropicApiKey" | "encryptedGithubToken"> {
   const config = loadConfig();
   const encryptedPassword = (configStore.get("encryptedPassword") as string) || "";
@@ -5589,10 +5616,12 @@ ipcMain.handle("create-relay-transfer", async (event, options?: RelayTransferCre
 ipcMain.handle("set-app-settings", (_event, settings: Partial<AppSettings>) => {
   if (settings.autoStart !== undefined) {
     appSettingsStore.set("autoStart", settings.autoStart);
-    app.setLoginItemSettings({ openAtLogin: settings.autoStart });
   }
   if (settings.silentLaunch !== undefined) {
     appSettingsStore.set("silentLaunch", settings.silentLaunch);
+  }
+  if (settings.autoStart !== undefined || settings.silentLaunch !== undefined) {
+    syncLoginItemSettings();
   }
   if (settings.completionSound !== undefined) {
     appSettingsStore.set("completionSound", settings.completionSound);
@@ -6775,6 +6804,7 @@ app.whenReady().then(async () => {
       osRelease: os.release(),
     });
   }
+  syncLoginItemSettings();
   tray = createTray();
   await refreshAgentToken(false);
   await refreshControllerToken(false);
@@ -6815,12 +6845,18 @@ app.whenReady().then(async () => {
     }
   }));
 
-  // Open workspace window unless silent launch is configured
   const silentLaunch = appSettingsStore.get("silentLaunch") as boolean;
-  const launchedFromUpdate = process.argv.some((entry) => entry === "--updated");
-  if (launchedFromUpdate || !silentLaunch) {
+  if (shouldShowWorkspaceOnStartup({ silentLaunch, argv: process.argv })) {
     showWorkspaceWindow();
   }
+});
+
+app.on("second-instance", () => {
+  app.whenReady().then(revealPrimaryWindow).catch((error) => {
+    appLogger.warn("app", "Failed to reveal existing instance window.", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  });
 });
 
 app.on("window-all-closed", (_event: Electron.Event) => {

@@ -1,9 +1,9 @@
 !include "getProcessInfo.nsh"
 
-Var pid
+Var currentPid
 
 !macro customCheckAppRunning
-  ${GetProcessInfo} 0 $pid $1 $2 $3 $4
+  ${GetProcessInfo} 0 $currentPid $1 $2 $3 $4
   ${if} $3 != "${APP_EXECUTABLE_FILENAME}"
     ${if} ${isUpdated}
       Sleep 300
@@ -20,7 +20,7 @@ Var pid
       Quit
 
       doStopProcess:
-      DetailPrint `Closing running "${PRODUCT_NAME}"...`
+      DetailPrint "Closing running ${PRODUCT_NAME}..."
 
       StrCpy $R1 0
 
@@ -28,9 +28,9 @@ Var pid
         IntOp $R1 $R1 + 1
 
         !ifdef INSTALL_MODE_PER_ALL_USERS
-          nsExec::Exec `taskkill /t /im "${APP_EXECUTABLE_FILENAME}" /fi "PID ne $pid"`
+          nsExec::Exec 'taskkill /t /im "${APP_EXECUTABLE_FILENAME}" /fi "PID ne $currentPid"'
         !else
-          nsExec::Exec `%SYSTEMROOT%\System32\cmd.exe /c taskkill /t /im "${APP_EXECUTABLE_FILENAME}" /fi "PID ne $pid" /fi "USERNAME eq %USERNAME%"`
+          nsExec::Exec '%SYSTEMROOT%\\System32\\cmd.exe /c taskkill /t /im "${APP_EXECUTABLE_FILENAME}" /fi "PID ne $currentPid" /fi "USERNAME eq %USERNAME%"'
         !endif
         Sleep 1200
 
@@ -40,9 +40,9 @@ Var pid
         ${endif}
 
         !ifdef INSTALL_MODE_PER_ALL_USERS
-          nsExec::Exec `taskkill /f /t /im "${APP_EXECUTABLE_FILENAME}" /fi "PID ne $pid"`
+          nsExec::Exec 'taskkill /f /t /im "${APP_EXECUTABLE_FILENAME}" /fi "PID ne $currentPid"'
         !else
-          nsExec::Exec `%SYSTEMROOT%\System32\cmd.exe /c taskkill /f /t /im "${APP_EXECUTABLE_FILENAME}" /fi "PID ne $pid" /fi "USERNAME eq %USERNAME%"`
+          nsExec::Exec '%SYSTEMROOT%\\System32\\cmd.exe /c taskkill /f /t /im "${APP_EXECUTABLE_FILENAME}" /fi "PID ne $currentPid" /fi "USERNAME eq %USERNAME%"'
         !endif
         Sleep 1800
 
@@ -52,14 +52,21 @@ Var pid
         ${endif}
 
         ${if} $R1 < 4
-          DetailPrint `Waiting for "${PRODUCT_NAME}" to close.`
+          DetailPrint "Waiting for ${PRODUCT_NAME} to close..."
           Goto close_loop
         ${endif}
 
-        MessageBox MB_OK|MB_ICONSTOP "Unable to close ${PRODUCT_NAME} automatically.$\r$\n$\r$\n请先关闭正在运行的程序，然后重新打开安装包。"
+        MessageBox MB_OK|MB_ICONSTOP "Unable to close ${PRODUCT_NAME} automatically. Please close it manually and run the installer again."
         Quit
 
       not_running:
     ${endIf}
   ${endIf}
+!macroend
+
+!macro customInstall
+  ${if} ${Silent}
+    Sleep 1500
+    Exec '"$INSTDIR\\${APP_EXECUTABLE_FILENAME}" --updated'
+  ${endif}
 !macroend

@@ -66,17 +66,12 @@ jobs:
         run: |
           npm run dist:win 2>&1 | Tee-Object -FilePath windows-build.log
           if ($LASTEXITCODE -ne 0) {
-            "NSIS installer build failed with exit code $LASTEXITCODE; falling back to portable Windows package." |
-              Tee-Object -FilePath windows-build.log -Append
-            npm run dist:win:portable 2>&1 | Tee-Object -FilePath windows-build.log -Append
-            if ($LASTEXITCODE -ne 0) {
-              Write-Error "Windows portable package build failed with exit code $LASTEXITCODE"
-              exit $LASTEXITCODE
-            }
+            Write-Error "Windows installer build failed with exit code $LASTEXITCODE"
+            exit $LASTEXITCODE
           }
           Get-ChildItem -Path release -File | Sort-Object Name | Format-Table Name,Length
-          if (-not (Get-ChildItem -Path release -Filter *.exe -File -ErrorAction SilentlyContinue)) {
-            Write-Error "Windows package was not generated under local-agent/release."
+          if (-not (Get-ChildItem -Path release -Filter *-setup.exe -File -ErrorAction SilentlyContinue)) {
+            Write-Error "Windows installer was not generated under local-agent/release."
             exit 1
           }
 
@@ -91,8 +86,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: agentflow-windows
-          path: |
-            local-agent/release/*.exe
+          path: local-agent/release/*-setup.exe
           if-no-files-found: error
 
   macos:
