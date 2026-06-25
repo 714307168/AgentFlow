@@ -63,7 +63,24 @@ jobs:
         run: npm ci
 
       - name: Build Windows installer
-        run: npm run dist:win
+        run: |
+          npm run dist:win 2>&1 | Tee-Object -FilePath windows-build.log
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Windows installer build failed with exit code $LASTEXITCODE"
+            exit $LASTEXITCODE
+          }
+          Get-ChildItem -Path release -File | Sort-Object Name | Format-Table Name,Length
+          if (-not (Get-ChildItem -Path release -Filter *.exe -File -ErrorAction SilentlyContinue)) {
+            Write-Error "Windows installer was not generated under local-agent/release."
+            exit 1
+          }
+
+      - name: Upload Windows build log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-release-build-log
+          path: local-agent/windows-build.log
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
@@ -204,7 +221,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: agentflow-android
-          path: android-app/app/build/outputs/apk/release/*.apk
+          path: android-app/build/app/outputs/apk/release/*.apk
           if-no-files-found: error
 
   github-release:
