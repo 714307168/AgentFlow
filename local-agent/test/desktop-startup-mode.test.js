@@ -34,6 +34,10 @@ test("desktop startup mode enables safe graphics on legacy Windows builds", () =
   assert.deepEqual(plan.switches, [
     { name: "disable-gpu" },
     { name: "disable-gpu-compositing" },
+    { name: "disable-accelerated-2d-canvas" },
+    { name: "disable-accelerated-video-decode" },
+    { name: "disable-gpu-memory-buffer-video-frames" },
+    { name: "disable-zero-copy" },
     { name: "disable-features", value: "CalculateNativeWinOcclusion" },
   ]);
 });
@@ -52,9 +56,17 @@ test("desktop startup mode enables Linux compatibility by default", () => {
   assert.deepEqual(plan.switches, [
     { name: "disable-gpu" },
     { name: "disable-gpu-compositing" },
-    { name: "disable-features", value: "CalculateNativeWinOcclusion" },
+    { name: "disable-accelerated-2d-canvas" },
+    { name: "disable-accelerated-video-decode" },
+    { name: "disable-gpu-memory-buffer-video-frames" },
+    { name: "disable-zero-copy" },
+    {
+      name: "disable-features",
+      value: "CalculateNativeWinOcclusion,UseOzonePlatform,VizDisplayCompositor,WaylandWindowDecorations",
+    },
     { name: "no-sandbox" },
     { name: "disable-dev-shm-usage" },
+    { name: "ozone-platform", value: "x11" },
   ]);
 });
 
@@ -121,6 +133,10 @@ test("applyDesktopStartupModePlan appends switches only when safe mode is enable
   assert.deepEqual(appended, [
     { name: "disable-gpu" },
     { name: "disable-gpu-compositing" },
+    { name: "disable-accelerated-2d-canvas" },
+    { name: "disable-accelerated-video-decode" },
+    { name: "disable-gpu-memory-buffer-video-frames" },
+    { name: "disable-zero-copy" },
     { name: "disable-features", value: "CalculateNativeWinOcclusion" },
   ]);
 });

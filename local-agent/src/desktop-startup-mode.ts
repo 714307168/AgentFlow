@@ -29,12 +29,26 @@ interface AppLike {
 const SAFE_GRAPHICS_SWITCHES: DesktopStartupSwitch[] = [
   { name: "disable-gpu" },
   { name: "disable-gpu-compositing" },
-  { name: "disable-features", value: "CalculateNativeWinOcclusion" },
+  { name: "disable-accelerated-2d-canvas" },
+  { name: "disable-accelerated-video-decode" },
+  { name: "disable-gpu-memory-buffer-video-frames" },
+  { name: "disable-zero-copy" },
+];
+
+const SAFE_GRAPHICS_DISABLED_FEATURES = [
+  "CalculateNativeWinOcclusion",
 ];
 
 const LINUX_COMPATIBILITY_SWITCHES: DesktopStartupSwitch[] = [
   { name: "no-sandbox" },
   { name: "disable-dev-shm-usage" },
+  { name: "ozone-platform", value: "x11" },
+];
+
+const LINUX_COMPATIBILITY_DISABLED_FEATURES = [
+  "UseOzonePlatform",
+  "VizDisplayCompositor",
+  "WaylandWindowDecorations",
 ];
 
 function normalizeBooleanFlag(value: string | undefined): boolean {
@@ -97,6 +111,19 @@ function shouldEnableLinuxCompatibilityMode(
   return !normalizeBooleanFlag(env?.AGENTFLOW_DISABLE_LINUX_COMPATIBILITY_MODE);
 }
 
+function buildStartupSwitches(enableLinuxCompatibilityMode: boolean): DesktopStartupSwitch[] {
+  const disabledFeatures = [
+    ...SAFE_GRAPHICS_DISABLED_FEATURES,
+    ...(enableLinuxCompatibilityMode ? LINUX_COMPATIBILITY_DISABLED_FEATURES : []),
+  ];
+
+  return [
+    ...SAFE_GRAPHICS_SWITCHES,
+    { name: "disable-features", value: disabledFeatures.join(",") },
+    ...(enableLinuxCompatibilityMode ? LINUX_COMPATIBILITY_SWITCHES : []),
+  ].map((entry) => ({ ...entry }));
+}
+
 export function buildDesktopStartupModePlan(options: DesktopStartupModeOptions = {}): DesktopStartupModePlan {
   const platform = options.platform ?? process.platform;
   const osRelease = options.osRelease ?? null;
@@ -126,10 +153,7 @@ export function buildDesktopStartupModePlan(options: DesktopStartupModeOptions =
   return {
     safeGraphics: true,
     disableHardwareAcceleration: true,
-    switches: [
-      ...SAFE_GRAPHICS_SWITCHES,
-      ...(reasons.includes("linux-compatibility-mode") ? LINUX_COMPATIBILITY_SWITCHES : []),
-    ].map((entry) => ({ ...entry })),
+    switches: buildStartupSwitches(reasons.includes("linux-compatibility-mode")),
     reasons,
   };
 }
