@@ -34,3 +34,12 @@ test("settings page splits system settings into standalone panes", () => {
   assert.doesNotMatch(settingsHtml, /Projects & Workgroups/);
   assert.doesNotMatch(settingsHtml, /Messages & Files/);
 });
+
+test("settings page presents settings panes through a modal launcher", () => {
+  assert.match(settingsHtml, /id="settingsModal"/);
+  assert.match(settingsHtml, /class="settings-main settings-modal hidden"/);
+  assert.match(settingsHtml, /id="settingsModalBody"/);
+  assert.match(settingsHtml, /id="settingsModalCloseBtn"/);
+  assert.match(settingsHtml, /function preloadSettingsPaneData\(\)/);
+  assert.match(settingsHtml, /await ensurePaneDataLoaded\(activeSettingsPane\)/);
+});
