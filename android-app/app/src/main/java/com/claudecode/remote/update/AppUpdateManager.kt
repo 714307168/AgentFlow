@@ -20,6 +20,9 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import java.io.File
 import java.io.FileOutputStream
 import java.security.MessageDigest
@@ -53,6 +56,7 @@ class AppUpdateManager(
     private val tokenStore: TokenStore,
     private val relayApiProvider: () -> RelayApi
 ) {
+    private val json = Json { ignoreUnknownKeys = true }
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(5, TimeUnit.MINUTES)
@@ -80,15 +84,9 @@ class AppUpdateManager(
         }
 
         return try {
-            val response = relayApiProvider().checkForUpdate(
-                platform = "android",
-                channel = "stable",
-                arch = "",
-                version = BuildConfig.VERSION_NAME,
-                build = BuildConfig.VERSION_CODE
-            )
+            val update = checkGitHubReleaseForUpdate()
 
-            if (!response.available || (response.downloadUrl ?: response.url).isNullOrBlank()) {
+            if (update == null) {
                 _state.update {
                     it.copy(
                         status = AppUpdateStatus.UP_TO_DATE,
@@ -107,16 +105,16 @@ class AppUpdateManager(
                 _state.update {
                     it.copy(
                         status = AppUpdateStatus.AVAILABLE,
-                        latestVersion = response.latestVersion,
-                        notes = response.notes.orEmpty(),
-                        mandatory = response.mandatory == true,
-                        downloadUrl = response.downloadUrl ?: response.url,
-                        sha256 = response.sha256,
-                        filename = response.filename,
+                        latestVersion = update.latestVersion,
+                        notes = update.notes,
+                        mandatory = false,
+                        downloadUrl = update.downloadUrl,
+                        sha256 = update.sha256,
+                        filename = update.filename,
                         downloadedApkPath = null,
                         message = text(
                             R.string.update_message_available,
-                            response.latestVersion ?: BuildConfig.VERSION_NAME
+                            update.latestVersion
                         )
                     )
                 }
@@ -135,6 +133,85 @@ class AppUpdateManager(
             }
             state.value
         }
+    }
+
+    private suspend fun checkGitHubReleaseForUpdate(): GitHubUpdateCandidate? = withContext(Dispatchers.IO) {
+        val request = Request.Builder()
+            .url(GITHUB_RELEASE_API_URL)
+            .header("Accept", "application/vnd.github+json")
+            .header("User-Agent", "AgentFlow-Android-Updater")
+            .build()
+
+        httpClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                throw IllegalStateException(text(R.string.update_error_download_status, response.code))
+            }
+            val body = response.body?.string() ?: throw IllegalStateException(text(R.string.update_error_empty_body))
+            val release = json.decodeFromString(GitHubReleaseResponse.serializer(), body)
+            if (release.draft || release.prerelease) {
+                return@withContext null
+            }
+
+            val latestVersion = normalizeReleaseVersion(release.tagName ?: release.name)
+                ?: return@withContext null
+            if (!isNewerVersion(BuildConfig.VERSION_NAME, latestVersion)) {
+                return@withContext null
+            }
+
+            val asset = release.assets
+                .filter { asset ->
+                    val name = asset.name.trim().lowercase()
+                    name.endsWith(".apk") && !name.contains("unsigned") && asset.browserDownloadUrl.isNotBlank()
+                }
+                .sortedByDescending { asset -> scoreAndroidAsset(asset.name) }
+                .firstOrNull()
+                ?: return@withContext null
+
+            GitHubUpdateCandidate(
+                latestVersion = latestVersion,
+                downloadUrl = asset.browserDownloadUrl,
+                filename = asset.name,
+                sha256 = parseGitHubAssetSha256(asset.digest),
+                notes = release.body.orEmpty()
+            )
+        }
+    }
+
+    private fun normalizeReleaseVersion(raw: String?): String? {
+        val value = raw?.trim()?.removePrefix("v")?.removePrefix("V").orEmpty()
+        if (value.isBlank()) {
+            return null
+        }
+        return Regex("\\d+(?:\\.\\d+){1,3}").find(value)?.value ?: value
+    }
+
+    private fun isNewerVersion(current: String, latest: String): Boolean {
+        val currentParts = normalizeReleaseVersion(current)?.split(".")?.mapNotNull { it.toIntOrNull() }.orEmpty()
+        val latestParts = normalizeReleaseVersion(latest)?.split(".")?.mapNotNull { it.toIntOrNull() }.orEmpty()
+        val maxSize = maxOf(currentParts.size, latestParts.size)
+        for (index in 0 until maxSize) {
+            val left = currentParts.getOrElse(index) { 0 }
+            val right = latestParts.getOrElse(index) { 0 }
+            if (left != right) {
+                return right > left
+            }
+        }
+        return false
+    }
+
+    private fun scoreAndroidAsset(name: String): Int {
+        val normalized = name.lowercase()
+        return when {
+            normalized.contains("release") -> 100
+            normalized.endsWith(".apk") -> 50
+            else -> 0
+        }
+    }
+
+    private fun parseGitHubAssetSha256(digest: String?): String? {
+        val value = digest?.trim().orEmpty()
+        val match = Regex("^sha256:([a-fA-F0-9]{64})$").find(value) ?: return null
+        return match.groupValues[1].lowercase()
     }
 
     suspend fun downloadLatestUpdate(): AppUpdateState = withContext(Dispatchers.IO) {
@@ -161,10 +238,15 @@ class AppUpdateManager(
         }
 
         try {
-            val request = Request.Builder()
-                .url(downloadUrl)
-                .applyRelayApiHeaders()
-                .build()
+            val requestBuilder = Request.Builder().url(downloadUrl)
+            if (isGitHubDownloadUrl(downloadUrl)) {
+                requestBuilder
+                    .header("Accept", "application/octet-stream")
+                    .header("User-Agent", "AgentFlow-Android-Updater")
+            } else {
+                requestBuilder.applyRelayApiHeaders()
+            }
+            val request = requestBuilder.build()
             val targetDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: context.cacheDir
             if (!targetDir.exists()) {
                 targetDir.mkdirs()
@@ -274,6 +356,11 @@ class AppUpdateManager(
         return true
     }
 
+    private fun isGitHubDownloadUrl(downloadUrl: String): Boolean = runCatching {
+        val host = Uri.parse(downloadUrl).host?.lowercase().orEmpty()
+        host == "github.com" || host.endsWith(".github.com") || host.endsWith(".githubusercontent.com")
+    }.getOrDefault(false)
+
     private fun clearOldUpdatePackages(targetDir: File) {
         val files = targetDir.listFiles() ?: return
         files.forEach { file ->
@@ -289,3 +376,32 @@ class AppUpdateManager(
         }
     }
 }
+
+private const val GITHUB_RELEASE_API_URL = "https://api.github.com/repos/714307168/AgentFlow/releases/latest"
+
+private data class GitHubUpdateCandidate(
+    val latestVersion: String,
+    val downloadUrl: String,
+    val filename: String,
+    val sha256: String?,
+    val notes: String
+)
+
+@Serializable
+private data class GitHubReleaseResponse(
+    val id: Long? = null,
+    @SerialName("tag_name") val tagName: String? = null,
+    val name: String? = null,
+    val body: String? = null,
+    val prerelease: Boolean = false,
+    val draft: Boolean = false,
+    val assets: List<GitHubReleaseAsset> = emptyList()
+)
+
+@Serializable
+private data class GitHubReleaseAsset(
+    val name: String = "",
+    @SerialName("browser_download_url") val browserDownloadUrl: String = "",
+    val size: Long? = null,
+    val digest: String? = null
+)

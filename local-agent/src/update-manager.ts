@@ -6,6 +6,12 @@ import * as fs from "fs";
 import * as path from "path";
 import { getLang } from "./i18n";
 import { buildRelayApiHeaders } from "./api-version";
+import {
+  buildGitHubApiHeaders,
+  buildGitHubUpdateCandidate,
+  getGitHubReleaseApiUrl,
+  type GitHubReleasePayload,
+} from "./github-update-source";
 
 type UpdateStatus = "idle" | "checking" | "available" | "downloading" | "downloaded" | "up_to_date" | "error";
 
@@ -126,7 +132,7 @@ class UpdateManager extends EventEmitter {
 
     try {
       const response = await fetch(this.latestRelease.downloadUrl, {
-        headers: buildRelayApiHeaders(),
+        headers: this.buildDownloadHeaders(this.latestRelease.downloadUrl),
       });
       if (!response.ok) {
         throw new Error(`Download failed with status ${response.status}`);
@@ -242,77 +248,17 @@ class UpdateManager extends EventEmitter {
   }
 
   private async performCheck(manual: boolean): Promise<void> {
-    const baseUrl = this.normalizeBaseUrl(this.options.getServerUrl());
-    if (!baseUrl) {
-      this.setState({
-        status: "error",
-        message: this.text("Relay Server URL is not configured.", "尚未配置 Relay 服务器地址。"),
-      });
-      return;
-    }
-
     this.setState({
       status: "checking",
       message: null,
     });
 
     try {
-      const query = new URLSearchParams({
-        platform: process.platform === "win32" ? "desktop-win" : `desktop-${process.platform}`,
-        channel: "stable",
-        arch: process.arch,
-        version: app.getVersion(),
-        build: "0",
-      });
-      const response = await fetch(`${baseUrl}/api/update/check?${query.toString()}`, {
-        headers: buildRelayApiHeaders(),
-      });
-      if (!response.ok) {
-        throw new Error(this.text(
-          `Update check failed with status ${response.status}`,
-          `更新检查失败，状态码 ${response.status}`,
-        ));
-      }
-
-      const payload = await response.json() as {
-        available?: boolean;
-        releaseId?: number;
-        latestVersion?: string;
-        build?: number;
-        downloadUrl?: string;
-        url?: string;
-        filename?: string;
-        sha256?: string;
-        size?: number;
-        notes?: string;
-        mandatory?: boolean;
-      };
-
-      if (!payload.available || !payload.latestVersion || !(payload.downloadUrl || payload.url)) {
-        this.latestRelease = null;
-        this.setState({
-          status: "up_to_date",
-          latestVersion: null,
-          notes: "",
-          mandatory: false,
-          downloadedPath: null,
-          message: null,
-          lastCheckedAt: Date.now(),
-        });
+      this.latestRelease = await this.fetchUpdateReleaseInfo();
+      if (!this.latestRelease) {
+        this.markUpToDate();
         return;
       }
-
-      this.latestRelease = {
-        releaseId: payload.releaseId ?? 0,
-        latestVersion: payload.latestVersion,
-        build: payload.build ?? 0,
-        downloadUrl: payload.downloadUrl || payload.url || "",
-        filename: payload.filename,
-        sha256: payload.sha256,
-        size: payload.size,
-        notes: payload.notes,
-        mandatory: payload.mandatory,
-      };
 
       this.setState({
         status: "available",
@@ -340,6 +286,110 @@ class UpdateManager extends EventEmitter {
         lastCheckedAt: Date.now(),
       });
     }
+  }
+
+  private async fetchUpdateReleaseInfo(): Promise<UpdateReleaseInfo | null> {
+    if (process.env.AGENTFLOW_UPDATE_SOURCE?.trim().toLowerCase() === "relay") {
+      return this.fetchRelayUpdateReleaseInfo();
+    }
+    return this.fetchGitHubUpdateReleaseInfo();
+  }
+
+  private async fetchGitHubUpdateReleaseInfo(): Promise<UpdateReleaseInfo | null> {
+    const response = await fetch(getGitHubReleaseApiUrl(), {
+      headers: buildGitHubApiHeaders(),
+    });
+    if (!response.ok) {
+      throw new Error(this.text(
+        `GitHub update check failed with status ${response.status}`,
+        `GitHub 更新检查失败，状态码 ${response.status}`,
+      ));
+    }
+
+    const payload = await response.json() as GitHubReleasePayload;
+    const candidate = buildGitHubUpdateCandidate(payload, app.getVersion(), process.platform, process.arch);
+    if (!candidate) {
+      return null;
+    }
+
+    return {
+      releaseId: candidate.releaseId,
+      latestVersion: candidate.latestVersion,
+      build: 0,
+      downloadUrl: candidate.downloadUrl,
+      filename: candidate.filename,
+      sha256: candidate.sha256,
+      size: candidate.size,
+      notes: candidate.notes,
+      mandatory: false,
+    };
+  }
+
+  private async fetchRelayUpdateReleaseInfo(): Promise<UpdateReleaseInfo | null> {
+    const baseUrl = this.normalizeBaseUrl(this.options.getServerUrl());
+    if (!baseUrl) {
+      throw new Error(this.text("Relay Server URL is not configured.", "尚未配置 Relay 服务器地址。"));
+    }
+
+    const query = new URLSearchParams({
+      platform: process.platform === "win32" ? "desktop-win" : `desktop-${process.platform}`,
+      channel: "stable",
+      arch: process.arch,
+      version: app.getVersion(),
+      build: "0",
+    });
+    const response = await fetch(`${baseUrl}/api/update/check?${query.toString()}`, {
+      headers: buildRelayApiHeaders(),
+    });
+    if (!response.ok) {
+      throw new Error(this.text(
+        `Update check failed with status ${response.status}`,
+        `更新检查失败，状态码 ${response.status}`,
+      ));
+    }
+
+    const payload = await response.json() as {
+      available?: boolean;
+      releaseId?: number;
+      latestVersion?: string;
+      build?: number;
+      downloadUrl?: string;
+      url?: string;
+      filename?: string;
+      sha256?: string;
+      size?: number;
+      notes?: string;
+      mandatory?: boolean;
+    };
+
+    if (!payload.available || !payload.latestVersion || !(payload.downloadUrl || payload.url)) {
+      return null;
+    }
+
+    return {
+      releaseId: payload.releaseId ?? 0,
+      latestVersion: payload.latestVersion,
+      build: payload.build ?? 0,
+      downloadUrl: payload.downloadUrl || payload.url || "",
+      filename: payload.filename,
+      sha256: payload.sha256,
+      size: payload.size,
+      notes: payload.notes,
+      mandatory: payload.mandatory,
+    };
+  }
+
+  private markUpToDate(): void {
+    this.latestRelease = null;
+    this.setState({
+      status: "up_to_date",
+      latestVersion: null,
+      notes: "",
+      mandatory: false,
+      downloadedPath: null,
+      message: null,
+      lastCheckedAt: Date.now(),
+    });
   }
 
   private async promptToDownload(): Promise<void> {
@@ -459,6 +509,25 @@ class UpdateManager extends EventEmitter {
       return trimmed.replace(/\/ws$/u, "");
     }
     return `http://${trimmed.replace(/\/ws$/u, "")}`;
+  }
+
+  private buildDownloadHeaders(downloadUrl: string): Record<string, string> {
+    if (this.isGitHubDownloadUrl(downloadUrl)) {
+      return {
+        Accept: "application/octet-stream",
+        "User-Agent": "AgentFlow-Desktop-Updater",
+      };
+    }
+    return buildRelayApiHeaders();
+  }
+
+  private isGitHubDownloadUrl(downloadUrl: string): boolean {
+    try {
+      const host = new URL(downloadUrl).hostname.toLowerCase();
+      return host === "github.com" || host.endsWith(".github.com") || host.endsWith(".githubusercontent.com");
+    } catch {
+      return false;
+    }
   }
 
   private clearOldUpdatePackages(downloadDir: string): void {

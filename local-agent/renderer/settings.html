@@ -2434,7 +2434,7 @@
                   <label id="autoUpdateCheckLabel" for="autoUpdateCheckToggle">Automatically check for updates</label>
                   <span class="setting-scope" id="autoUpdateCheckScope">Local Only</span>
                 </div>
-                <div class="toggle-help" id="autoUpdateCheckHint">When enabled, the desktop app checks the relay update center on launch and every few hours.</div>
+                <div class="toggle-help" id="autoUpdateCheckHint">When enabled, the desktop app checks GitHub Releases on launch and every few hours.</div>
               </div>
               <div class="toggle">
                 <input type="checkbox" id="autoUpdateCheckToggle">
@@ -4510,8 +4510,8 @@
       document.getElementById("autoUpdateCheckLabel").textContent = inlineText("Automatically check for updates", "自动检查更新");
       document.getElementById("autoUpdateCheckScope").textContent = inlineText("Local Only", "仅本机");
       document.getElementById("autoUpdateCheckHint").textContent = inlineText(
-        "When enabled, the desktop app checks the relay update center on launch and every few hours.",
-        "开启后，桌面端会在启动时和后续间隔内自动检查 relay 更新中心。"
+        "When enabled, the desktop app checks GitHub Releases on launch and every few hours.",
+        "开启后，桌面端会在启动时和后续间隔内自动检查 GitHub Releases。"
       );
       document.getElementById("autoUpdateDownloadLabel").textContent = inlineText("Automatically download new installers", "自动下载新安装包");
       document.getElementById("autoUpdateDownloadScope").textContent = inlineText("Local Only", "仅本机");

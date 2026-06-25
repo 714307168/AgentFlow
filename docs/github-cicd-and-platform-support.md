@@ -35,6 +35,8 @@ Build artifacts:
 
 On push releases, the workflow resolves the desktop version from `local-agent/package.json`, refreshes the matching `v*` tag, downloads all artifacts, and publishes them to the matching GitHub Release.
 
+Desktop and Android automatic update checks now use the latest GitHub Release by default. The desktop client keeps the Relay update center as an explicit compatibility mode by launching with `AGENTFLOW_UPDATE_SOURCE=relay`; otherwise it does not require the configured Relay Server URL to check for app updates.
+
 The workflow does not publish to the private update center by default. That step needs repository secrets and a server-side publishing command, otherwise CI would have to embed deployment credentials. Keep update-center publishing as a separate protected step until those secrets are configured.
 
 Android release signing secrets:
