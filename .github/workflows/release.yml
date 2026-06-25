@@ -43,7 +43,7 @@ concurrency:
 jobs:
   windows:
     name: Windows installer
-    runs-on: windows-latest
+    runs-on: windows-2022
     if: github.event_name == 'push' || inputs.build_windows
     defaults:
       run:
@@ -230,7 +230,9 @@ jobs:
     if: >-
       ${{ always() &&
           (github.event_name == 'push' || inputs.publish_release) &&
-          !contains(needs.*.result, 'failure') &&
+          (needs.macos.result == 'success' || needs.macos.result == 'skipped') &&
+          (needs.linux.result == 'success' || needs.linux.result == 'skipped') &&
+          (needs.android.result == 'success' || needs.android.result == 'skipped') &&
           !contains(needs.*.result, 'cancelled') }}
     needs:
       - windows
