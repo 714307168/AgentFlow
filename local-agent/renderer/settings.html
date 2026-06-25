@@ -983,6 +983,8 @@
     .settings-nav {
       top: 14px;
       height: fit-content;
+      max-height: calc(100vh - 112px);
+      overflow-y: auto;
       padding: 14px;
       border: 1px solid rgba(216, 225, 236, 0.86);
       border-radius: 26px;
@@ -1028,7 +1030,13 @@
     .settings-nav-item[data-pane="project"]::before { content: "▦"; }
     .settings-nav-item[data-pane="message"]::before { content: "✉"; }
     .settings-nav-item[data-pane="automation"]::before { content: "⏱"; }
-    .settings-nav-item[data-pane="advanced"]::before { content: "⚙"; }
+    .settings-nav-item[data-pane="language"]::before { content: "文"; }
+    .settings-nav-item[data-pane="launch"]::before { content: "▶"; }
+    .settings-nav-item[data-pane="storage"]::before { content: "□"; }
+    .settings-nav-item[data-pane="schedule"]::before { content: "⏰"; }
+    .settings-nav-item[data-pane="updates"]::before { content: "↑"; }
+    .settings-nav-item[data-pane="runtime"]::before { content: "⌘"; }
+    .settings-nav-item[data-pane="security"]::before { content: "🔒"; }
     .settings-nav-item:hover {
       background: rgba(31, 122, 140, 0.09);
       border-color: rgba(31, 122, 140, 0.18);
@@ -1523,6 +1531,8 @@
         position: static;
         flex-direction: row;
         flex-wrap: wrap;
+        max-height: none;
+        overflow-y: visible;
         border-radius: 22px;
       }
       .settings-nav::before { display: none; }
@@ -1592,7 +1602,13 @@
         <button class="settings-nav-item" id="projectMenuItem" type="button" data-pane="project">Projects & Workgroups</button>
         <button class="settings-nav-item" id="messageMenuItem" type="button" data-pane="message">Messages & Files</button>
         <button class="settings-nav-item" id="automationMenuItem" type="button" data-pane="automation">Automation</button>
-        <button class="settings-nav-item" id="advancedMenuItem" type="button" data-pane="advanced">Advanced</button>
+        <button class="settings-nav-item" id="languageMenuItem" type="button" data-pane="language">Language</button>
+        <button class="settings-nav-item" id="launchMenuItem" type="button" data-pane="launch">Launch</button>
+        <button class="settings-nav-item" id="runtimeMenuItem" type="button" data-pane="runtime">Runtime</button>
+        <button class="settings-nav-item" id="updatesMenuItem" type="button" data-pane="updates">Updates</button>
+        <button class="settings-nav-item" id="storageMenuItem" type="button" data-pane="storage">Local Files</button>
+        <button class="settings-nav-item" id="scheduleMenuItem" type="button" data-pane="schedule">Scheduled Tasks</button>
+        <button class="settings-nav-item" id="securityMenuItem" type="button" data-pane="security">Security</button>
       </aside>
 
       <div class="settings-main">
@@ -2149,7 +2165,7 @@
               <button class="btn-secondary" id="messageRefreshTransfersBtn">Refresh Transfers</button>
               <button class="btn-secondary" id="messageOpenFilesBtn">Open Data Folder</button>
               <button class="btn-secondary" id="messageUploadLogsBtn">Upload Latest Logs</button>
-              <button class="btn-secondary" id="messageOpenAdvancedBtn">Open Advanced Settings</button>
+              <button class="btn-secondary" id="messageOpenAdvancedBtn">Open Local Files</button>
             </div>
             <div class="btn-row" style="margin-top: 10px;">
               <button class="btn-secondary" id="messageClearAttachmentCacheBtn">Clear Attachment Cache</button>
@@ -2166,7 +2182,7 @@
         <section class="settings-pane hidden" id="automationPane" data-pane-content="automation">
           <div class="section">
             <div class="section-title" id="automationOverviewSection">Automation Overview</div>
-            <div class="section-subtitle" id="automationOverviewHint">A lighter control layer for the scheduler while the full task editor remains in advanced settings.</div>
+            <div class="section-subtitle" id="automationOverviewHint">A lighter control layer for the scheduler while the full task editor lives in Scheduled Tasks.</div>
             <div class="overview-grid">
               <div class="overview-card">
                 <div class="overview-card-label" id="automationTotalLabel">Total Tasks</div>
@@ -2191,12 +2207,12 @@
             </div>
             <div class="btn-row" style="margin-top: 14px;">
               <button class="btn-secondary" id="automationRefreshBtn">Refresh Task Snapshot</button>
-              <button class="btn-secondary" id="automationOpenAdvancedBtn">Open Advanced Scheduler</button>
+              <button class="btn-secondary" id="automationOpenAdvancedBtn">Open Scheduled Tasks</button>
             </div>
           </div>
         </section>
 
-        <section class="settings-pane hidden" id="advancedPane" data-pane-content="advanced">
+        <section class="settings-pane hidden" id="languagePane" data-pane-content="language">
           <div class="section" id="generalSectionCard">
             <div class="section-title" id="langSection">Language</div>
             <div class="field">
@@ -2210,7 +2226,9 @@
               </select>
             </div>
           </div>
+        </section>
 
+        <section class="settings-pane hidden" id="launchPane" data-pane-content="launch">
           <div class="section">
             <div class="section-title" id="launchSection">Launch</div>
             <div class="toggle-row">
@@ -2247,7 +2265,9 @@
               </div>
             </div>
           </div>
+        </section>
 
+        <section class="settings-pane hidden" id="storagePane" data-pane-content="storage">
           <div class="section">
             <div class="section-title" id="diagnosticsSection">Local Files</div>
             <div class="field">
@@ -2296,7 +2316,9 @@
               <button class="btn-danger" id="clearHistoryCacheBtn">Clear Local History Cache</button>
             </div>
           </div>
+        </section>
 
+        <section class="settings-pane hidden" id="schedulePane" data-pane-content="schedule">
           <div class="section">
             <div class="section-title" id="scheduledTasksSection">Scheduled Tasks</div>
             <div class="section-subtitle" id="scheduledTasksHint">Run a saved prompt on this desktop for a local project. V1 supports one-time, delay, every-N-hours, daily, and weekly schedules.</div>
@@ -2396,7 +2418,9 @@
               </div>
             </div>
           </div>
+        </section>
 
+        <section class="settings-pane hidden" id="updatesPane" data-pane-content="updates">
           <div class="section">
             <div class="section-title" id="updatesSection">Updates</div>
             <div class="toggle-row">
@@ -2456,7 +2480,9 @@
               <button class="btn-primary" id="installUpdateBtn">Install Downloaded Update</button>
             </div>
           </div>
+        </section>
 
+        <section class="settings-pane hidden" id="runtimePane" data-pane-content="runtime">
           <div class="section">
             <div class="section-title" id="runtimeSection">Runtime</div>
             <div class="section-subtitle" id="runtimeSectionHint">Set provider defaults here. Leave the per-project model blank to use these defaults.</div>
@@ -2515,7 +2541,9 @@
               </div>
             </div>
           </div>
+        </section>
 
+        <section class="settings-pane hidden" id="securityPane" data-pane-content="security">
           <div class="section" id="securitySectionCard">
             <div class="section-title" id="e2eSection">End-to-End Encryption</div>
             <div class="toggle-row">
@@ -2655,7 +2683,23 @@
     }
 
     function normalizeSettingsPane(pane) {
-      return ["overview", "connection", "project", "message", "automation", "advanced"].includes(pane) ? pane : "overview";
+      if (pane === "advanced" || pane === "system") {
+        return "runtime";
+      }
+      return [
+        "overview",
+        "connection",
+        "project",
+        "message",
+        "automation",
+        "language",
+        "launch",
+        "storage",
+        "schedule",
+        "updates",
+        "runtime",
+        "security",
+      ].includes(pane) ? pane : "overview";
     }
 
     function getSettingsPaneTitle(pane = activeSettingsPane) {
@@ -2670,8 +2714,22 @@
           return inlineText("Messages & Files", "消息与文件");
         case "automation":
           return inlineText("Tasks & Automation", "任务与自动化");
+        case "language":
+          return inlineText("Interface Language", "界面语言");
+        case "launch":
+          return inlineText("Launch Settings", "启动设置");
+        case "storage":
+          return inlineText("Local Files", "本地文件");
+        case "schedule":
+          return inlineText("Scheduled Tasks", "定时任务");
+        case "updates":
+          return inlineText("Updates", "版本更新");
+        case "runtime":
+          return inlineText("Runtime Settings", "运行时设置");
+        case "security":
+          return inlineText("Security", "安全加密");
         default:
-          return inlineText("Advanced Settings", "高级设置");
+          return inlineText("Settings Overview", "设置总览");
       }
     }
 
@@ -4002,6 +4060,14 @@
         });
         return;
       }
+      if (normalizedPane === "storage") {
+        await refreshLocalDataMetrics();
+        return;
+      }
+      if (normalizedPane === "schedule") {
+        await loadScheduledTasks();
+        return;
+      }
       await Promise.all([
         refreshLocalDataMetrics(),
         loadScheduledTasks(),
@@ -4114,7 +4180,13 @@
       document.getElementById("projectMenuItem").textContent = inlineText("Projects & Workgroups", "项目与协作组");
       document.getElementById("messageMenuItem").textContent = inlineText("Messages & Files", "消息与文件");
       document.getElementById("automationMenuItem").textContent = inlineText("Automation", "自动化");
-      document.getElementById("advancedMenuItem").textContent = inlineText("Advanced", "高级");
+      document.getElementById("languageMenuItem").textContent = inlineText("Language", "语言");
+      document.getElementById("launchMenuItem").textContent = inlineText("Launch", "启动");
+      document.getElementById("runtimeMenuItem").textContent = inlineText("Runtime", "运行时");
+      document.getElementById("updatesMenuItem").textContent = inlineText("Updates", "更新");
+      document.getElementById("storageMenuItem").textContent = inlineText("Local Files", "本地文件");
+      document.getElementById("scheduleMenuItem").textContent = inlineText("Scheduled Tasks", "定时任务");
+      document.getElementById("securityMenuItem").textContent = inlineText("Security", "安全");
       document.getElementById("overviewSection").textContent = inlineText("Overview", "总览");
       document.getElementById("overviewSectionHint").textContent = inlineText(
         "See the current desktop connection, update, storage, and automation health before diving into detailed settings.",
@@ -4292,7 +4364,7 @@
       document.getElementById("messageRefreshTransfersBtn").textContent = inlineText("Refresh Transfers", "刷新传输记录");
       document.getElementById("messageOpenFilesBtn").textContent = inlineText("Open Data Folder", "打开数据目录");
       document.getElementById("messageUploadLogsBtn").textContent = inlineText("Upload Latest Logs", "上传最近日志");
-      document.getElementById("messageOpenAdvancedBtn").textContent = inlineText("Open Advanced Settings", "打开高级设置");
+      document.getElementById("messageOpenAdvancedBtn").textContent = inlineText("Open Local Files", "打开本地文件设置");
       document.getElementById("messageClearAttachmentCacheBtn").textContent = inlineText("Clear Attachment Cache", "清理附件缓存");
       document.getElementById("messageClearUpdateCacheBtn").textContent = inlineText("Clear Update Cache", "清理更新包缓存");
       document.getElementById("messageClearTransferCacheBtn").textContent = inlineText("Clear All Transfer Cache", "清理全部传输缓存");
@@ -4309,15 +4381,15 @@
       renderTransferControlOptions();
       document.getElementById("automationOverviewSection").textContent = inlineText("Automation Overview", "自动化总览");
       document.getElementById("automationOverviewHint").textContent = inlineText(
-        "A lighter control layer for the scheduler while the full task editor remains in advanced settings.",
-        "先提供更轻量的调度总览与操作入口，完整任务编辑器暂时保留在高级设置里。"
+        "A lighter control layer for the scheduler while the full task editor lives in Scheduled Tasks.",
+        "先提供更轻量的调度总览与操作入口，完整任务编辑器放在定时任务设置里。"
       );
       document.getElementById("automationTotalLabel").textContent = inlineText("Total Tasks", "任务总数");
       document.getElementById("automationActiveLabel").textContent = inlineText("Enabled Tasks", "启用任务");
       document.getElementById("automationBusyLabel").textContent = inlineText("Queued / Running", "排队 / 运行中");
       document.getElementById("automationFailedLabel").textContent = inlineText("Failures", "失败任务");
       document.getElementById("automationRefreshBtn").textContent = inlineText("Refresh Task Snapshot", "刷新任务快照");
-      document.getElementById("automationOpenAdvancedBtn").textContent = inlineText("Open Advanced Scheduler", "打开高级调度设置");
+      document.getElementById("automationOpenAdvancedBtn").textContent = inlineText("Open Scheduled Tasks", "打开定时任务设置");
       document.getElementById("launchSection").textContent = msg("settings.launch", "Launch");
       document.getElementById("autoStartLabel").textContent = msg("settings.autoStart", "Start on Boot");
       document.getElementById("silentLaunchLabel").textContent = msg("settings.silentLaunch", "Silent Launch (minimize to tray)");
@@ -7105,7 +7177,7 @@
     document.getElementById("overviewOpenFilesBtn").addEventListener("click", () => { document.getElementById("openLocalDataRootBtn").click(); });
     document.getElementById("messageOpenFilesBtn").addEventListener("click", () => { document.getElementById("openLocalDataRootBtn").click(); });
     document.getElementById("messageUploadLogsBtn").addEventListener("click", () => { document.getElementById("uploadDesktopLogsBtn").click(); });
-    document.getElementById("messageOpenAdvancedBtn").addEventListener("click", () => { setActiveSettingsPane("advanced"); });
+    document.getElementById("messageOpenAdvancedBtn").addEventListener("click", () => { setActiveSettingsPane("storage"); });
     document.getElementById("messageClearAttachmentCacheBtn").addEventListener("click", async () => {
       await clearTransferCache("attachments", "messageClearAttachmentCacheBtn");
     });
@@ -7238,7 +7310,7 @@
       await loadScheduledTasks({ force: true });
       flashSaved();
     });
-    document.getElementById("automationOpenAdvancedBtn").addEventListener("click", () => { setActiveSettingsPane("advanced"); });
+    document.getElementById("automationOpenAdvancedBtn").addEventListener("click", () => { setActiveSettingsPane("schedule"); });
 
     document.querySelectorAll("[data-pane]").forEach((item) => {
       item.addEventListener("click", () => {
@@ -7256,7 +7328,7 @@
       api.onProjectsChanged(() => {
         scheduleProjectPaneRefresh(true);
         paneLoadState.scheduledTasksDirty = true;
-        if (activeSettingsPane === "automation" || activeSettingsPane === "overview" || activeSettingsPane === "advanced") {
+        if (activeSettingsPane === "automation" || activeSettingsPane === "overview" || activeSettingsPane === "schedule") {
           void loadScheduledTasks({ force: true });
         }
       });

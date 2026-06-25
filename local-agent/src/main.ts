@@ -240,7 +240,19 @@ interface AccessGrantRevokeOptions {
   targetAgentId?: string | null;
 }
 
-type SettingsPane = "overview" | "connection" | "project" | "message" | "automation" | "advanced";
+type SettingsPane =
+  | "overview"
+  | "connection"
+  | "project"
+  | "message"
+  | "automation"
+  | "language"
+  | "launch"
+  | "storage"
+  | "schedule"
+  | "updates"
+  | "runtime"
+  | "security";
 
 interface PersistedWindowState {
   x?: number;
@@ -2097,13 +2109,22 @@ async function executeScheduledTask(
 }
 
 function normalizeSettingsPane(pane?: string | null): SettingsPane {
+  if (pane === "advanced" || pane === "system") {
+    return "runtime";
+  }
   if (
     pane === "overview"
     || pane === "connection"
     || pane === "project"
     || pane === "message"
     || pane === "automation"
-    || pane === "advanced"
+    || pane === "language"
+    || pane === "launch"
+    || pane === "storage"
+    || pane === "schedule"
+    || pane === "updates"
+    || pane === "runtime"
+    || pane === "security"
   ) {
     return pane;
   }
@@ -2135,8 +2156,20 @@ function getSettingsPaneTitle(pane: SettingsPane): string {
       return "Messages & Files";
     case "automation":
       return "Tasks & Automation";
-    case "advanced":
-      return "Advanced Settings";
+    case "language":
+      return "Interface Language";
+    case "launch":
+      return "Launch Settings";
+    case "storage":
+      return "Local Files";
+    case "schedule":
+      return "Scheduled Tasks";
+    case "updates":
+      return "Updates";
+    case "runtime":
+      return "Runtime Settings";
+    case "security":
+      return "Security";
     default:
       return "System Settings";
   }
