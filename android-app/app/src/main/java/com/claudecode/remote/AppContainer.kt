@@ -81,8 +81,7 @@ class AppContainer(private val appContext: Context) {
 
     val appUpdateManager = AppUpdateManager(
         context = appContext,
-        tokenStore = tokenStore,
-        relayApiProvider = { relayApi }
+        tokenStore = tokenStore
     )
 
     val mobileLogRepository = MobileLogRepository(

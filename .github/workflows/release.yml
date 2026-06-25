@@ -261,6 +261,25 @@ jobs:
             "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose "$apk"
           done
 
+      - name: Stage Android release artifacts
+        run: |
+          version_name="$(grep -E 'versionName\s*=' app/build.gradle.kts | sed -E 's/.*"([^"]+)".*/\1/' | head -n 1)"
+          version_code="$(grep -E 'versionCode\s*=' app/build.gradle.kts | sed -E 's/.*=\s*([0-9]+).*/\1/' | head -n 1)"
+          if [ -z "$version_name" ] || [ -z "$version_code" ]; then
+            echo "::error title=Android version missing::Could not read versionName/versionCode from app/build.gradle.kts."
+            exit 1
+          fi
+
+          mkdir -p build/release-assets
+          mapfile -t signed_apks < <(find build/app/outputs/apk/release -maxdepth 1 -type f -name '*-release.apk' | sort)
+          for index in "${!signed_apks[@]}"; do
+            suffix=""
+            if [ "${#signed_apks[@]}" -gt 1 ]; then
+              suffix="-$((index + 1))"
+            fi
+            cp "${signed_apks[$index]}" "build/release-assets/AgentFlow-android-${version_name}-${version_code}${suffix}-release.apk"
+          done
+
       - name: Upload Android build log
         if: failure()
         uses: actions/upload-artifact@v4
@@ -272,7 +291,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: agentflow-android
-          path: android-app/build/app/outputs/apk/release/*-release.apk
+          path: android-app/build/release-assets/*-release.apk
           if-no-files-found: error
 
   github-release:

@@ -11,7 +11,6 @@ import com.claudecode.remote.BuildConfig
 import com.claudecode.remote.R
 import com.claudecode.remote.data.local.TokenStore
 import com.claudecode.remote.data.remote.applyRelayApiHeaders
-import com.claudecode.remote.data.remote.RelayApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -53,8 +52,7 @@ data class AppUpdateState(
 
 class AppUpdateManager(
     private val context: Context,
-    private val tokenStore: TokenStore,
-    private val relayApiProvider: () -> RelayApi
+    private val tokenStore: TokenStore
 ) {
     private val json = Json { ignoreUnknownKeys = true }
     private val httpClient = OkHttpClient.Builder()
@@ -152,12 +150,6 @@ class AppUpdateManager(
                 return@withContext null
             }
 
-            val latestVersion = normalizeReleaseVersion(release.tagName ?: release.name)
-                ?: return@withContext null
-            if (!isNewerVersion(BuildConfig.VERSION_NAME, latestVersion)) {
-                return@withContext null
-            }
-
             val asset = release.assets
                 .filter { asset ->
                     val name = asset.name.trim().lowercase()
@@ -166,6 +158,13 @@ class AppUpdateManager(
                 .sortedByDescending { asset -> scoreAndroidAsset(asset.name) }
                 .firstOrNull()
                 ?: return@withContext null
+
+            val latestVersion = extractAndroidAssetVersion(asset.name)
+                ?: normalizeReleaseVersion(release.tagName ?: release.name)
+                ?: return@withContext null
+            if (!isNewerVersion(BuildConfig.VERSION_NAME, latestVersion)) {
+                return@withContext null
+            }
 
             GitHubUpdateCandidate(
                 latestVersion = latestVersion,
@@ -184,6 +183,13 @@ class AppUpdateManager(
         }
         return Regex("\\d+(?:\\.\\d+){1,3}").find(value)?.value ?: value
     }
+
+    private fun extractAndroidAssetVersion(name: String): String? =
+        Regex("""(?i)(?:android|apk)[^0-9]*(\d+(?:\.\d+){1,3})""")
+            .find(name)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?: Regex("""\d+(?:\.\d+){1,3}""").find(name)?.value
 
     private fun isNewerVersion(current: String, latest: String): Boolean {
         val currentParts = normalizeReleaseVersion(current)?.split(".")?.mapNotNull { it.toIntOrNull() }.orEmpty()
