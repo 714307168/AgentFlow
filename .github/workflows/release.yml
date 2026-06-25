@@ -29,8 +29,9 @@ on:
         type: boolean
         default: true
   push:
-    tags:
-      - 'v*'
+    branches:
+      - main
+      - master
 
 permissions:
   contents: write
@@ -233,14 +234,10 @@ jobs:
         env:
           REQUESTED_TAG: ${{ inputs.release_tag }}
         run: |
-          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
-            tag="$GITHUB_REF_NAME"
-          else
-            tag="$(printf '%s' "$REQUESTED_TAG" | xargs)"
-            if [ -z "$tag" ]; then
-              version="$(node -p "require('./local-agent/package.json').version")"
-              tag="v$version"
-            fi
+          tag="$(printf '%s' "$REQUESTED_TAG" | xargs)"
+          if [ -z "$tag" ]; then
+            version="$(node -p "require('./local-agent/package.json').version")"
+            tag="v$version"
           fi
 
           case "$tag" in
@@ -251,10 +248,8 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git fetch --tags --force
-          if ! git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
-            git tag "$tag" "$GITHUB_SHA"
-            git push origin "refs/tags/$tag"
-          fi
+          git tag -f "$tag" "$GITHUB_SHA"
+          git push origin "refs/tags/$tag" --force
 
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
