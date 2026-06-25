@@ -44,7 +44,7 @@ The workflow does not publish to the private update center by default. That step
 | Windows desktop | Supported | Existing NSIS installer flow remains the primary desktop release path. |
 | Android | Supported | Existing Gradle project can build debug and release APKs. Release signing requires local or GitHub secret-backed keystore config. |
 | macOS desktop | Build pipeline added | Electron Builder has DMG config. Real distribution still needs Developer ID signing, notarization, and mac update-center entries. |
-| Linux desktop | Build pipeline added | AppImage and Arch Linux pacman packages are produced. Need runtime verification on common distributions before treating Linux as a fully supported release. |
+| Linux desktop | Build pipeline added | AppImage and Arch Linux pacman packages are produced. The pacman package uses an explicit Arch dependency list so removed upstream packages such as `http-parser` are not emitted by Electron Builder defaults. Need runtime verification on common distributions before treating Linux as a fully supported release. |
 | iPhone / iOS | Planned, not implemented | There is no Xcode/Swift iOS project in the repository yet. CI can only be added after the app target exists and Apple signing secrets are prepared. |
 | WeChat Mini Program | Planned, not implemented | Existing docs define the Lite boundary, but no mini-program project exists yet. |
 

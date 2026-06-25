@@ -52,3 +52,20 @@ linux:
     - target: pacman
       arch:
         - x64
+
+pacman:
+  depends:
+    - c-ares
+    - ffmpeg
+    - gtk3
+    - libevent
+    - libvpx
+    - libxslt
+    - libxss
+    - llhttp
+    - minizip
+    - nspr
+    - nss
+    - re2
+    - snappy
+    - libnotify
