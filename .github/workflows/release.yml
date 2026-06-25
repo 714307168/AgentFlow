@@ -195,6 +195,42 @@ jobs:
       - name: Make Gradle executable
         run: chmod +x ./gradlew
 
+      - name: Configure release signing
+        env:
+          ANDROID_RELEASE_KEYSTORE_BASE64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}
+          ANDROID_RELEASE_STORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_STORE_PASSWORD }}
+          ANDROID_RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
+          ANDROID_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
+        run: |
+          mkdir -p release-signing
+
+          if [ -n "${ANDROID_RELEASE_KEYSTORE_BASE64:-}" ]; then
+            missing=0
+            for name in ANDROID_RELEASE_STORE_PASSWORD ANDROID_RELEASE_KEY_ALIAS ANDROID_RELEASE_KEY_PASSWORD; do
+              if [ -z "${!name:-}" ]; then
+                echo "::error title=Android signing secret missing::$name is required when ANDROID_RELEASE_KEYSTORE_BASE64 is set."
+                missing=1
+              fi
+            done
+            if [ "$missing" -ne 0 ]; then
+              exit 1
+            fi
+            printf '%s' "$ANDROID_RELEASE_KEYSTORE_BASE64" | base64 --decode > release-signing/agentflow-release.jks
+          else
+            echo "::notice title=Android public install signing::ANDROID_RELEASE_KEYSTORE_BASE64 is not configured; using the repository public install key for sideload releases."
+            cp ci-signing/agentflow-public-install.jks release-signing/agentflow-release.jks
+            ANDROID_RELEASE_STORE_PASSWORD="agentflow-public-install"
+            ANDROID_RELEASE_KEY_ALIAS="agentflow-public-install"
+            ANDROID_RELEASE_KEY_PASSWORD="agentflow-public-install"
+          fi
+
+          {
+            printf 'storeFile=%s\n' 'release-signing/agentflow-release.jks'
+            printf 'storePassword=%s\n' "$ANDROID_RELEASE_STORE_PASSWORD"
+            printf 'keyAlias=%s\n' "$ANDROID_RELEASE_KEY_ALIAS"
+            printf 'keyPassword=%s\n' "$ANDROID_RELEASE_KEY_PASSWORD"
+          } > keystore.properties
+
       - name: Build release APK
         run: |
           set +e
@@ -209,6 +245,22 @@ jobs:
             exit "$status"
           fi
 
+      - name: Verify signed release APK
+        run: |
+          mapfile -t signed_apks < <(find build/app/outputs/apk/release -maxdepth 1 -type f -name '*-release.apk' | sort)
+          if [ "${#signed_apks[@]}" -eq 0 ]; then
+            echo "::error title=Signed APK missing::Release build did not produce a signed installable APK. Check Android signing configuration."
+            find build/app/outputs/apk/release -maxdepth 1 -type f -name '*.apk' -print
+            exit 1
+          fi
+          for apk in "${signed_apks[@]}"; do
+            if echo "$apk" | grep -q 'unsigned'; then
+              echo "::error title=Unsigned APK rejected::$apk"
+              exit 1
+            fi
+            "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose "$apk"
+          done
+
       - name: Upload Android build log
         if: failure()
         uses: actions/upload-artifact@v4
@@ -220,7 +272,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: agentflow-android
-          path: android-app/build/app/outputs/apk/release/*.apk
+          path: android-app/build/app/outputs/apk/release/*-release.apk
           if-no-files-found: error
 
   github-release:
@@ -285,6 +337,7 @@ jobs:
             esac
             base_name="$(basename "$file")"
             case "$base_name" in
+              *unsigned*.apk) continue ;;
               *.apk|*.dmg|*.AppImage|*.deb|*.pacman|*.pkg.tar.*|*-setup.exe) ;;
               *) continue ;;
             esac
@@ -307,6 +360,7 @@ jobs:
             gh release view "$TAG_NAME" --json assets --jq '.assets[].name' |
               while IFS= read -r asset_name; do
                 case "$asset_name" in
+                  *unsigned*.apk) gh release delete-asset "$TAG_NAME" "$asset_name" -y ;;
                   *.apk|*.dmg|*.AppImage|*.deb|*.pacman|*.pkg.tar.*|*-setup.exe) ;;
                   *) gh release delete-asset "$TAG_NAME" "$asset_name" -y ;;
                 esac

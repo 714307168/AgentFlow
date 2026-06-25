@@ -37,12 +37,22 @@ On push releases, the workflow resolves the desktop version from `local-agent/pa
 
 The workflow does not publish to the private update center by default. That step needs repository secrets and a server-side publishing command, otherwise CI would have to embed deployment credentials. Keep update-center publishing as a separate protected step until those secrets are configured.
 
+Android release signing secrets:
+
+- ANDROID_RELEASE_KEYSTORE_BASE64: base64-encoded JKS/keystore file.
+- ANDROID_RELEASE_STORE_PASSWORD: keystore password.
+- ANDROID_RELEASE_KEY_ALIAS: release key alias.
+- ANDROID_RELEASE_KEY_PASSWORD: release key password.
+- If ANDROID_RELEASE_KEYSTORE_BASE64 is configured, the other three signing secrets are required.
+- If signing secrets are not configured, Release CI uses the repository public install key at android-app/ci-signing/agentflow-public-install.jks so sideload APKs remain installable. This public key is not suitable for app-store distribution.
+- Release CI verifies the APK signature and rejects unsigned APK files before publishing.
+
 ## 3. Current Platform Status
 
 | Platform | Current status | Notes |
 | --- | --- | --- |
 | Windows desktop | Supported | Existing NSIS installer flow remains the primary desktop release path. |
-| Android | Supported | Existing Gradle project can build debug and release APKs. Release signing requires local or GitHub secret-backed keystore config. |
+| Android | Supported | Existing Gradle project can build debug and signed release APKs. GitHub release builds use private signing secrets when configured, otherwise fall back to the public install key, and reject unsigned APKs so published packages are installable. |
 | macOS desktop | Build pipeline added | Electron Builder has DMG config. Real distribution still needs Developer ID signing, notarization, and mac update-center entries. |
 | Linux desktop | Build pipeline added | AppImage, Debian-compatible `.deb`, and Arch Linux pacman packages are produced for x86_64. The `.deb` package is the preferred candidate for Debian-family desktops such as UOS/UnionTech and Kylin x86_64; non-x86 architectures such as arm64, loongarch, and mips still need separate Electron and native dependency validation. The pacman package uses an explicit Arch dependency list so removed upstream packages such as `http-parser` are not emitted by Electron Builder defaults. Need runtime verification on common distributions before treating Linux as a fully supported release. |
 | iPhone / iOS | Planned, not implemented | There is no Xcode/Swift iOS project in the repository yet. CI can only be added after the app target exists and Apple signing secrets are prepared. |
