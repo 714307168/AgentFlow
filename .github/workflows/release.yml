@@ -21,7 +21,7 @@ on:
         type: boolean
         default: true
       build_linux:
-        description: Build Linux AppImage and Arch package
+        description: Build Linux AppImage, Debian package, and Arch package
         type: boolean
         default: true
       build_android:
@@ -122,7 +122,7 @@ jobs:
           if-no-files-found: error
 
   linux:
-    name: Linux AppImage and Arch package
+    name: Linux AppImage, Debian package, and Arch package
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || inputs.build_linux
     defaults:
@@ -157,6 +157,7 @@ jobs:
           name: agentflow-linux
           path: |
             local-agent/release/*.AppImage
+            local-agent/release/*.deb
             local-agent/release/*.pacman
             local-agent/release/*.pkg.tar.*
           if-no-files-found: error
@@ -284,7 +285,7 @@ jobs:
             esac
             base_name="$(basename "$file")"
             case "$base_name" in
-              *.apk|*.dmg|*.AppImage|*.pacman|*.pkg.tar.*|*-setup.exe) ;;
+              *.apk|*.dmg|*.AppImage|*.deb|*.pacman|*.pkg.tar.*|*-setup.exe) ;;
               *) continue ;;
             esac
             cp "$file" "release-assets/${artifact_name}-${base_name}"
@@ -306,7 +307,7 @@ jobs:
             gh release view "$TAG_NAME" --json assets --jq '.assets[].name' |
               while IFS= read -r asset_name; do
                 case "$asset_name" in
-                  *.apk|*.dmg|*.AppImage|*.pacman|*.pkg.tar.*|*-setup.exe) ;;
+                  *.apk|*.dmg|*.AppImage|*.deb|*.pacman|*.pkg.tar.*|*-setup.exe) ;;
                   *) gh release delete-asset "$TAG_NAME" "$asset_name" -y ;;
                 esac
               done
