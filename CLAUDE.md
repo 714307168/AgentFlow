@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-This repository contains a three-part remote control system for Claude Code:
+This repository contains the AgentFlow remote control system:
 
 - `local-agent/`: Electron desktop agent
 - `relay-server/`: Go relay server and update center
@@ -58,7 +58,7 @@ cd android-app
 Important files:
 
 - `src/main.ts`: Electron entrypoint, tray, windows, IPC, updater wiring
-- `src/runtime-manager.ts`: Claude Code runtime coordination
+- `src/runtime-manager.ts`: AI provider runtime coordination
 - `src/message-router.ts`: WebSocket event routing
 - `src/session-history-store.ts`: structured per-project history persistence
 - `src/session-sync-payload.ts`: incremental sync payload builder

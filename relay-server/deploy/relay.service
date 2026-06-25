@@ -1,5 +1,5 @@
 [Unit]
-Description=Claude Code Relay Server
+Description=AgentFlow Relay Server
 After=network.target
 
 [Service]

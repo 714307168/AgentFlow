@@ -105,5 +105,5 @@ git remote set-url origin https://github.com/<owner>/AgentFlow.git
 If your local folder name also needs to match, rename it manually outside the running workspace:
 
 ```powershell
-Rename-Item 'D:\path\to\claude-code-remote-app-spec' 'AgentFlow'
+Rename-Item 'D:\path\to\old-project-folder' 'AgentFlow'
 ```
