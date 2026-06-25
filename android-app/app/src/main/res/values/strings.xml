@@ -109,6 +109,8 @@
     <string name="settings_auto_check_updates_hint">Check the relay update center on launch and when the app returns to the foreground.</string>
     <string name="settings_auto_download_updates">Automatically download update packages</string>
     <string name="settings_auto_download_updates_hint">Download the APK in the background after a new version is found. Installation still needs your confirmation.</string>
+    <string name="settings_auto_download_wifi_only">Only auto-download on Wi-Fi</string>
+    <string name="settings_auto_download_wifi_only_hint">When enabled, mobile data will only show the update prompt. Manual downloads are not restricted.</string>
     <string name="settings_update_status">Update status</string>
     <string name="settings_check_updates">Check for updates</string>
     <string name="settings_download_update">Download update</string>

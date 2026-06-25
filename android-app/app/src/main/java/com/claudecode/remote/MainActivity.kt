@@ -438,6 +438,7 @@ class MainActivity : ComponentActivity() {
                                     language = tokenStore.getLanguage(),
                                     autoUpdateCheckEnabled = tokenStore.isAutoUpdateCheckEnabled(),
                                     autoUpdateDownloadEnabled = tokenStore.isAutoUpdateDownloadEnabled(),
+                                    autoUpdateDownloadWifiOnly = tokenStore.isAutoUpdateDownloadWifiOnly(),
                                     crashLogsEnabled = tokenStore.isCrashLogsEnabled(),
                                     updateState = updateState,
                                     isLoggedIn = tokenStore.hasSavedSession()
@@ -461,6 +462,9 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onAutoUpdateDownloadChange = { enabled ->
                                     tokenStore.saveAutoUpdateDownloadEnabled(enabled)
+                                },
+                                onAutoUpdateDownloadWifiOnlyChange = { enabled ->
+                                    tokenStore.saveAutoUpdateDownloadWifiOnly(enabled)
                                 },
                                 onCrashLogsEnabledChange = { enabled ->
                                     tokenStore.saveCrashLogsEnabled(enabled)

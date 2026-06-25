@@ -2,6 +2,8 @@ package com.claudecode.remote.update
 
 import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -116,7 +118,12 @@ class AppUpdateManager(
                         )
                     )
                 }
-                if (tokenStore.isAutoUpdateDownloadEnabled()) {
+                if (shouldAutoDownloadUpdate(
+                        autoDownloadEnabled = tokenStore.isAutoUpdateDownloadEnabled(),
+                        wifiOnly = tokenStore.isAutoUpdateDownloadWifiOnly(),
+                        isWifiConnected = isWifiConnected()
+                    )
+                ) {
                     downloadLatestUpdate()
                 } else {
                     state.value
@@ -345,6 +352,14 @@ class AppUpdateManager(
         host == "github.com" || host.endsWith(".github.com") || host.endsWith(".githubusercontent.com")
     }.getOrDefault(false)
 
+    private fun isWifiConnected(): Boolean {
+        val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            ?: return false
+        val network = connectivityManager.activeNetwork ?: return false
+        val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
+        return capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+    }
+
     private fun clearOldUpdatePackages(targetDir: File) {
         val files = targetDir.listFiles() ?: return
         files.forEach { file ->
@@ -362,6 +377,12 @@ class AppUpdateManager(
 }
 
 private const val GITHUB_RELEASE_API_URL = "https://api.github.com/repos/714307168/AgentFlow/releases/latest"
+
+internal fun shouldAutoDownloadUpdate(
+    autoDownloadEnabled: Boolean,
+    wifiOnly: Boolean,
+    isWifiConnected: Boolean
+): Boolean = autoDownloadEnabled && (!wifiOnly || isWifiConnected)
 
 internal fun selectBestAndroidReleaseAsset(assets: List<GitHubReleaseAsset>): GitHubReleaseAsset? =
     assets

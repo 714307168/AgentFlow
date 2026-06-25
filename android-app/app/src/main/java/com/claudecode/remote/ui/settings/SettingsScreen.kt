@@ -96,6 +96,7 @@ data class SettingsState(
     val language: String = "en",
     val autoUpdateCheckEnabled: Boolean = true,
     val autoUpdateDownloadEnabled: Boolean = false,
+    val autoUpdateDownloadWifiOnly: Boolean = true,
     val crashLogsEnabled: Boolean = true,
     val updateState: AppUpdateState = AppUpdateState(),
     val isSaving: Boolean = false,
@@ -115,6 +116,7 @@ fun SettingsScreen(
     onE2EEnabledChange: (Boolean) -> Unit,
     onAutoUpdateCheckChange: (Boolean) -> Unit,
     onAutoUpdateDownloadChange: (Boolean) -> Unit,
+    onAutoUpdateDownloadWifiOnlyChange: (Boolean) -> Unit,
     onCrashLogsEnabledChange: (Boolean) -> Unit,
     onCheckForUpdates: () -> Unit,
     onDownloadUpdate: () -> Unit,
@@ -130,6 +132,7 @@ fun SettingsScreen(
     var selectedLang by remember(initialState.language) { mutableStateOf(initialState.language) }
     var autoUpdateCheckEnabled by remember(initialState.autoUpdateCheckEnabled) { mutableStateOf(initialState.autoUpdateCheckEnabled) }
     var autoUpdateDownloadEnabled by remember(initialState.autoUpdateDownloadEnabled) { mutableStateOf(initialState.autoUpdateDownloadEnabled) }
+    var autoUpdateDownloadWifiOnly by remember(initialState.autoUpdateDownloadWifiOnly) { mutableStateOf(initialState.autoUpdateDownloadWifiOnly) }
     var crashLogsEnabled by remember(initialState.crashLogsEnabled) { mutableStateOf(initialState.crashLogsEnabled) }
     var showLogDialog by remember { mutableStateOf(false) }
     var bannerMessage by remember(initialState.message) { mutableStateOf(initialState.message) }
@@ -315,6 +318,33 @@ fun SettingsScreen(
                                 autoUpdateDownloadEnabled = it
                                 onAutoUpdateDownloadChange(it)
                             }
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = stringResource(R.string.settings_auto_download_wifi_only),
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                            Text(
+                                text = stringResource(R.string.settings_auto_download_wifi_only_hint),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Switch(
+                            checked = autoUpdateDownloadWifiOnly,
+                            onCheckedChange = {
+                                autoUpdateDownloadWifiOnly = it
+                                onAutoUpdateDownloadWifiOnlyChange(it)
+                            },
+                            enabled = autoUpdateDownloadEnabled
                         )
                     }
 

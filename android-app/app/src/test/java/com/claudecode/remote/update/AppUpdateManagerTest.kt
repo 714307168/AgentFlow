@@ -1,7 +1,9 @@
 package com.claudecode.remote.update
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AppUpdateManagerTest {
@@ -41,5 +43,37 @@ class AppUpdateManagerTest {
         )
 
         assertNull(selected)
+    }
+
+    @Test
+    fun `shouldAutoDownloadUpdate honors wifi only policy`() {
+        assertFalse(
+            shouldAutoDownloadUpdate(
+                autoDownloadEnabled = false,
+                wifiOnly = false,
+                isWifiConnected = true
+            )
+        )
+        assertFalse(
+            shouldAutoDownloadUpdate(
+                autoDownloadEnabled = true,
+                wifiOnly = true,
+                isWifiConnected = false
+            )
+        )
+        assertTrue(
+            shouldAutoDownloadUpdate(
+                autoDownloadEnabled = true,
+                wifiOnly = true,
+                isWifiConnected = true
+            )
+        )
+        assertTrue(
+            shouldAutoDownloadUpdate(
+                autoDownloadEnabled = true,
+                wifiOnly = false,
+                isWifiConnected = false
+            )
+        )
     }
 }

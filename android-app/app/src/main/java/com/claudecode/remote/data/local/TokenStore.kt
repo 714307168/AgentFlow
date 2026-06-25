@@ -116,6 +116,12 @@ class TokenStore(context: Context) {
 
     fun isAutoUpdateDownloadEnabled(): Boolean = prefs.getBoolean(KEY_AUTO_UPDATE_DOWNLOAD, false)
 
+    fun saveAutoUpdateDownloadWifiOnly(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_AUTO_UPDATE_DOWNLOAD_WIFI_ONLY, enabled).apply()
+    }
+
+    fun isAutoUpdateDownloadWifiOnly(): Boolean = prefs.getBoolean(KEY_AUTO_UPDATE_DOWNLOAD_WIFI_ONLY, true)
+
     fun saveCrashLogsEnabled(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_CRASH_LOGS_ENABLED, enabled).apply()
     }
@@ -232,6 +238,7 @@ class TokenStore(context: Context) {
         private const val KEY_PASSWORD = "password"
         private const val KEY_AUTO_UPDATE_CHECK = "auto_update_check"
         private const val KEY_AUTO_UPDATE_DOWNLOAD = "auto_update_download"
+        private const val KEY_AUTO_UPDATE_DOWNLOAD_WIFI_ONLY = "auto_update_download_wifi_only"
         private const val KEY_CRASH_LOGS_ENABLED = "crash_logs_enabled"
         private const val KEY_COLLAPSED_SESSION_GROUPS = "collapsed_session_groups"
         private const val KEY_COLLAPSED_AGENT_GROUPS = "collapsed_agent_groups"
