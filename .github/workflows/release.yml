@@ -3,6 +3,15 @@ name: Release Artifacts
 on:
   workflow_dispatch:
     inputs:
+      publish_release:
+        description: Publish artifacts to GitHub Releases
+        type: boolean
+        default: true
+      release_tag:
+        description: Release tag, defaults to local-agent package version
+        type: string
+        required: false
+        default: ''
       build_windows:
         description: Build Windows installer
         type: boolean
@@ -194,29 +203,76 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: agentflow-android
-          path: android-app/build/app/outputs/apk/release/*.apk
+          path: android-app/app/build/outputs/apk/release/*.apk
           if-no-files-found: error
 
   github-release:
     name: Publish GitHub Release
     runs-on: ubuntu-latest
-    if: github.event_name == 'push'
+    if: >-
+      ${{ always() &&
+          (github.event_name == 'push' || inputs.publish_release) &&
+          !contains(needs.*.result, 'failure') &&
+          !contains(needs.*.result, 'cancelled') }}
     needs:
       - windows
       - macos
       - linux
       - android
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           path: dist-artifacts
 
+      - name: Resolve release tag
+        id: release-meta
+        env:
+          REQUESTED_TAG: ${{ inputs.release_tag }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            tag="$GITHUB_REF_NAME"
+          else
+            tag="$(printf '%s' "$REQUESTED_TAG" | xargs)"
+            if [ -z "$tag" ]; then
+              version="$(node -p "require('./local-agent/package.json').version")"
+              tag="v$version"
+            fi
+          fi
+
+          case "$tag" in
+            v*) ;;
+            *) tag="v$tag" ;;
+          esac
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch --tags --force
+          if ! git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            git tag "$tag" "$GITHUB_SHA"
+            git push origin "refs/tags/$tag"
+          fi
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG_NAME: ${{ github.ref_name }}
+          TAG_NAME: ${{ steps.release-meta.outputs.tag }}
         run: |
-          gh release create "$TAG_NAME" dist-artifacts/**/* \
-            --title "AgentFlow $TAG_NAME" \
-            --notes "Automated multi-platform build artifacts."
+          mapfile -t files < <(find dist-artifacts -type f | sort)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "::error title=Release assets missing::No artifact files were downloaded for release publishing."
+            exit 1
+          fi
+
+          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            gh release upload "$TAG_NAME" "${files[@]}" --clobber
+          else
+            gh release create "$TAG_NAME" "${files[@]}" \
+              --title "AgentFlow $TAG_NAME" \
+              --notes "Automated multi-platform build artifacts."
+          fi
