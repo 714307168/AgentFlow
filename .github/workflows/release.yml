@@ -66,12 +66,17 @@ jobs:
         run: |
           npm run dist:win 2>&1 | Tee-Object -FilePath windows-build.log
           if ($LASTEXITCODE -ne 0) {
-            Write-Error "Windows installer build failed with exit code $LASTEXITCODE"
-            exit $LASTEXITCODE
+            "NSIS installer build failed with exit code $LASTEXITCODE; falling back to portable Windows package." |
+              Tee-Object -FilePath windows-build.log -Append
+            npm run dist:win:portable 2>&1 | Tee-Object -FilePath windows-build.log -Append
+            if ($LASTEXITCODE -ne 0) {
+              Write-Error "Windows portable package build failed with exit code $LASTEXITCODE"
+              exit $LASTEXITCODE
+            }
           }
           Get-ChildItem -Path release -File | Sort-Object Name | Format-Table Name,Length
           if (-not (Get-ChildItem -Path release -Filter *.exe -File -ErrorAction SilentlyContinue)) {
-            Write-Error "Windows installer was not generated under local-agent/release."
+            Write-Error "Windows package was not generated under local-agent/release."
             exit 1
           }
 
@@ -88,8 +93,6 @@ jobs:
           name: agentflow-windows
           path: |
             local-agent/release/*.exe
-            local-agent/release/*.blockmap
-            local-agent/release/*.yml
           if-no-files-found: error
 
   macos:
@@ -122,8 +125,6 @@ jobs:
           name: agentflow-macos
           path: |
             local-agent/release/*.dmg
-            local-agent/release/*.blockmap
-            local-agent/release/*.yml
           if-no-files-found: error
 
   linux:
@@ -157,10 +158,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: agentflow-linux
-          path: |
-            local-agent/release/*.AppImage
-            local-agent/release/*.blockmap
-            local-agent/release/*.yml
+          path: local-agent/release/*.AppImage
           if-no-files-found: error
 
   android:
@@ -284,6 +282,10 @@ jobs:
               *build-log*) continue ;;
             esac
             base_name="$(basename "$file")"
+            case "$base_name" in
+              *.apk|*.dmg|*.AppImage|*.exe) ;;
+              *) continue ;;
+            esac
             cp "$file" "release-assets/${artifact_name}-${base_name}"
           done < <(find dist-artifacts -type f -print0 | sort -z)
 
@@ -294,6 +296,13 @@ jobs:
           fi
 
           if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            gh release view "$TAG_NAME" --json assets --jq '.assets[].name' |
+              while IFS= read -r asset_name; do
+                case "$asset_name" in
+                  *.apk|*.dmg|*.AppImage|*.exe) ;;
+                  *) gh release delete-asset "$TAG_NAME" "$asset_name" -y ;;
+                esac
+              done
             gh release upload "$TAG_NAME" "${files[@]}" --clobber
           else
             gh release create "$TAG_NAME" "${files[@]}" \
