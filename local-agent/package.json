@@ -10,12 +10,13 @@
     "start": "electron dist/src/main.js",
     "dev": "tsc --watch",
     "rebuild": "electron-rebuild",
-    "generate-icons": "powershell -ExecutionPolicy Bypass -File .\\scripts\\generate-icons.ps1",
-    "dist": "npm run build && npm run generate-icons && electron-builder --publish never",
-    "dist:win": "npm run build && npm run generate-icons && electron-builder --win nsis --publish never",
+    "generate-icons": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\generate-icons.ps1",
+    "ensure-icons": "node scripts/ensure-icons.js",
+    "dist": "npm run build && npm run ensure-icons && electron-builder --publish never",
+    "dist:win": "npm run build && npm run ensure-icons && electron-builder --win nsis --publish never",
     "dist:mac": "npm run build && electron-builder --mac dmg --publish never",
     "dist:linux": "npm run build && electron-builder --linux AppImage --publish never",
-    "dist:win:portable": "npm run build && npm run generate-icons && electron-builder --config electron-builder.portable.yml --publish never"
+    "dist:win:portable": "npm run build && npm run ensure-icons && electron-builder --config electron-builder.portable.yml --publish never"
   },
   "dependencies": {
     "electron-store": "^8.1.0",
