@@ -380,7 +380,7 @@ jobs:
               while IFS= read -r asset_name; do
                 case "$asset_name" in
                   *unsigned*.apk) gh release delete-asset "$TAG_NAME" "$asset_name" -y ;;
-                  *.apk|*.dmg|*.AppImage|*.deb|*.pacman|*.pkg.tar.*|*-setup.exe) ;;
+                  *.apk|*.dmg|*.AppImage|*.deb|*.pacman|*.pkg.tar.*|*-setup.exe) gh release delete-asset "$TAG_NAME" "$asset_name" -y ;;
                   *) gh release delete-asset "$TAG_NAME" "$asset_name" -y ;;
                 esac
               done
