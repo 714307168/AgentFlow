@@ -11,6 +11,7 @@ import androidx.core.content.FileProvider
 import androidx.room.withTransaction
 import com.claudecode.remote.data.local.AppDatabase
 import com.claudecode.remote.data.local.MessageEntity
+import com.claudecode.remote.data.local.SessionEntity
 import com.claudecode.remote.data.local.TokenStore
 import com.claudecode.remote.data.model.Envelope
 import com.claudecode.remote.data.model.Events
@@ -59,6 +60,23 @@ import java.security.MessageDigest
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
+internal data class IncomingSessionRuntime(
+    val provider: String,
+    val model: String?,
+    val isRunning: Boolean,
+    val queuedCount: Int,
+    val currentPrompt: String?,
+    val queuePreview: String?,
+    val queueJson: String?,
+    val currentStartedAt: Long?,
+    val activeConversationId: String?,
+    val activeConversationTitle: String?,
+    val conversationsJson: String?,
+    val snapshotRevision: String?,
+    val projectSignature: String?,
+    val syncBucket: String?
+)
+
 class MessageRepository(
     private val webSocket: RelayWebSocket,
     private val relayApiProvider: () -> RelayApi,
@@ -106,23 +124,6 @@ class MessageRepository(
     private data class AppliedSyncWindow(
         val earliestSeq: Long?,
         val highestSeq: Long
-    )
-
-    private data class IncomingSessionRuntime(
-        val provider: String,
-        val model: String?,
-        val isRunning: Boolean,
-        val queuedCount: Int,
-        val currentPrompt: String?,
-        val queuePreview: String?,
-        val queueJson: String?,
-        val currentStartedAt: Long?,
-        val activeConversationId: String?,
-        val activeConversationTitle: String?,
-        val conversationsJson: String?,
-        val snapshotRevision: String?,
-        val projectSignature: String?,
-        val syncBucket: String?
     )
 
     private data class PendingDownloadRequest(
@@ -1457,13 +1458,7 @@ class MessageRepository(
         timestamp: Long
     ) {
         val currentSession = sessionDao.getSessionByProjectId(projectId)
-        if (
-            currentSession != null &&
-            runtime.snapshotRevision != null &&
-            runtime.snapshotRevision == currentSession.snapshotRevision &&
-            (runtime.projectSignature == null || runtime.projectSignature == currentSession.projectSignature) &&
-            (runtime.syncBucket == null || runtime.syncBucket == currentSession.syncBucket)
-        ) {
+        if (currentSession != null && shouldSkipRuntimeSnapshotUpdate(currentSession, runtime)) {
             return
         }
 
@@ -2428,4 +2423,31 @@ class MessageRepository(
         }
         return -1
     }
+}
+
+internal fun shouldSkipRuntimeSnapshotUpdate(
+    currentSession: SessionEntity,
+    runtime: IncomingSessionRuntime
+): Boolean {
+    if (runtime.snapshotRevision == null || runtime.snapshotRevision != currentSession.snapshotRevision) {
+        return false
+    }
+    if (runtime.projectSignature != null && runtime.projectSignature != currentSession.projectSignature) {
+        return false
+    }
+    if (runtime.syncBucket != null && runtime.syncBucket != currentSession.syncBucket) {
+        return false
+    }
+
+    return currentSession.cliProvider == runtime.provider &&
+        currentSession.cliModel == runtime.model &&
+        currentSession.isRunning == runtime.isRunning &&
+        currentSession.queuedCount == runtime.queuedCount &&
+        currentSession.currentPrompt == runtime.currentPrompt &&
+        currentSession.queuePreview == runtime.queuePreview &&
+        currentSession.queueJson == runtime.queueJson &&
+        currentSession.currentStartedAt == runtime.currentStartedAt &&
+        currentSession.activeConversationId == runtime.activeConversationId &&
+        currentSession.activeConversationTitle == runtime.activeConversationTitle &&
+        currentSession.conversationsJson == runtime.conversationsJson
 }
