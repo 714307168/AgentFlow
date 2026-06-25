@@ -150,13 +150,7 @@ class AppUpdateManager(
                 return@withContext null
             }
 
-            val asset = release.assets
-                .filter { asset ->
-                    val name = asset.name.trim().lowercase()
-                    name.endsWith(".apk") && !name.contains("unsigned") && asset.browserDownloadUrl.isNotBlank()
-                }
-                .sortedByDescending { asset -> scoreAndroidAsset(asset.name) }
-                .firstOrNull()
+            val asset = selectBestAndroidReleaseAsset(release.assets)
                 ?: return@withContext null
 
             val latestVersion = extractAndroidAssetVersion(asset.name)
@@ -184,13 +178,6 @@ class AppUpdateManager(
         return Regex("\\d+(?:\\.\\d+){1,3}").find(value)?.value ?: value
     }
 
-    private fun extractAndroidAssetVersion(name: String): String? =
-        Regex("""(?i)(?:android|apk)[^0-9]*(\d+(?:\.\d+){1,3})""")
-            .find(name)
-            ?.groupValues
-            ?.getOrNull(1)
-            ?: Regex("""\d+(?:\.\d+){1,3}""").find(name)?.value
-
     private fun isNewerVersion(current: String, latest: String): Boolean {
         val currentParts = normalizeReleaseVersion(current)?.split(".")?.mapNotNull { it.toIntOrNull() }.orEmpty()
         val latestParts = normalizeReleaseVersion(latest)?.split(".")?.mapNotNull { it.toIntOrNull() }.orEmpty()
@@ -203,15 +190,6 @@ class AppUpdateManager(
             }
         }
         return false
-    }
-
-    private fun scoreAndroidAsset(name: String): Int {
-        val normalized = name.lowercase()
-        return when {
-            normalized.contains("release") -> 100
-            normalized.endsWith(".apk") -> 50
-            else -> 0
-        }
     }
 
     private fun parseGitHubAssetSha256(digest: String?): String? {
@@ -385,6 +363,48 @@ class AppUpdateManager(
 
 private const val GITHUB_RELEASE_API_URL = "https://api.github.com/repos/714307168/AgentFlow/releases/latest"
 
+internal fun selectBestAndroidReleaseAsset(assets: List<GitHubReleaseAsset>): GitHubReleaseAsset? =
+    assets
+        .filter { asset ->
+            val name = asset.name.trim().lowercase()
+            name.endsWith(".apk") && !name.contains("unsigned") && asset.browserDownloadUrl.isNotBlank()
+        }
+        .sortedWith(
+            compareByDescending<GitHubReleaseAsset> { asset -> scoreAndroidAsset(asset.name) }
+                .thenByDescending { asset -> versionSortValue(extractAndroidAssetVersion(asset.name)) }
+                .thenByDescending { asset -> asset.size ?: 0L }
+                .thenBy { asset -> asset.name.lowercase() }
+        )
+        .firstOrNull()
+
+internal fun extractAndroidAssetVersion(name: String): String? =
+    Regex("""(?i)(?:android|apk)[^0-9]*(\d+(?:\.\d+){1,3})""")
+        .find(name)
+        ?.groupValues
+        ?.getOrNull(1)
+        ?: Regex("""\d+(?:\.\d+){1,3}""").find(name)?.value
+
+private fun scoreAndroidAsset(name: String): Int {
+    val normalized = name.lowercase()
+    return when {
+        normalized.contains("release") -> 100
+        normalized.endsWith(".apk") -> 50
+        else -> 0
+    }
+}
+
+private fun versionSortValue(version: String?): Long {
+    val parts = version
+        ?.split(".")
+        ?.map { value -> value.toIntOrNull()?.coerceIn(0, 9999) ?: 0 }
+        .orEmpty()
+    var sortValue = 0L
+    for (index in 0 until 4) {
+        sortValue = sortValue * 10_000L + parts.getOrElse(index) { 0 }
+    }
+    return sortValue
+}
+
 private data class GitHubUpdateCandidate(
     val latestVersion: String,
     val downloadUrl: String,
@@ -405,7 +425,7 @@ private data class GitHubReleaseResponse(
 )
 
 @Serializable
-private data class GitHubReleaseAsset(
+internal data class GitHubReleaseAsset(
     val name: String = "",
     @SerialName("browser_download_url") val browserDownloadUrl: String = "",
     val size: Long? = null,
