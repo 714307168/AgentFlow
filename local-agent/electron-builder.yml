@@ -57,6 +57,8 @@ linux:
         - x64
 
 deb:
+  afterInstall: assets/linux-after-install.sh
+  afterRemove: assets/linux-after-remove.sh
   depends:
     - libgtk-3-0
     - libnotify4
@@ -71,6 +73,8 @@ deb:
     - libasound2
 
 pacman:
+  afterInstall: assets/linux-after-install.sh
+  afterRemove: assets/linux-after-remove.sh
   depends:
     - c-ares
     - ffmpeg
