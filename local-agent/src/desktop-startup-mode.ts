@@ -46,8 +46,6 @@ const LINUX_COMPATIBILITY_SWITCHES: DesktopStartupSwitch[] = [
 ];
 
 const LINUX_COMPATIBILITY_DISABLED_FEATURES = [
-  "UseOzonePlatform",
-  "VizDisplayCompositor",
   "WaylandWindowDecorations",
 ];
 
@@ -111,15 +109,15 @@ function shouldEnableLinuxCompatibilityMode(
   return !normalizeBooleanFlag(env?.AGENTFLOW_DISABLE_LINUX_COMPATIBILITY_MODE);
 }
 
-function buildStartupSwitches(enableLinuxCompatibilityMode: boolean): DesktopStartupSwitch[] {
+function buildStartupSwitches(enableSafeGraphics: boolean, enableLinuxCompatibilityMode: boolean): DesktopStartupSwitch[] {
   const disabledFeatures = [
-    ...SAFE_GRAPHICS_DISABLED_FEATURES,
+    ...(enableSafeGraphics ? SAFE_GRAPHICS_DISABLED_FEATURES : []),
     ...(enableLinuxCompatibilityMode ? LINUX_COMPATIBILITY_DISABLED_FEATURES : []),
   ];
 
   return [
-    ...SAFE_GRAPHICS_SWITCHES,
-    { name: "disable-features", value: disabledFeatures.join(",") },
+    ...(enableSafeGraphics ? SAFE_GRAPHICS_SWITCHES : []),
+    ...(disabledFeatures.length > 0 ? [{ name: "disable-features", value: disabledFeatures.join(",") }] : []),
     ...(enableLinuxCompatibilityMode ? LINUX_COMPATIBILITY_SWITCHES : []),
   ].map((entry) => ({ ...entry }));
 }
@@ -149,11 +147,12 @@ export function buildDesktopStartupModePlan(options: DesktopStartupModeOptions =
       reasons: [],
     };
   }
+  const enableSafeGraphics = reasons.includes("manual-safe-mode") || reasons.includes("legacy-windows-build");
 
   return {
     safeGraphics: true,
-    disableHardwareAcceleration: true,
-    switches: buildStartupSwitches(reasons.includes("linux-compatibility-mode")),
+    disableHardwareAcceleration: enableSafeGraphics,
+    switches: buildStartupSwitches(enableSafeGraphics, reasons.includes("linux-compatibility-mode")),
     reasons,
   };
 }

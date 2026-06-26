@@ -54,8 +54,6 @@ export LIBGL_ALWAYS_SOFTWARE="\${LIBGL_ALWAYS_SOFTWARE:-1}"
 exec "\$APP_EXECUTABLE" \
   --no-sandbox \
   --disable-dev-shm-usage \
-  --disable-gpu \
-  --disable-gpu-compositing \
   --ozone-platform=x11 \
   "\$@" >> "\$LOG_FILE" 2>&1
 EOF

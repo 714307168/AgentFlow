@@ -53,18 +53,12 @@ test("desktop startup mode enables Linux compatibility by default", () => {
   });
 
   assert.equal(plan.safeGraphics, true);
-  assert.equal(plan.disableHardwareAcceleration, true);
+  assert.equal(plan.disableHardwareAcceleration, false);
   assert.deepEqual(plan.reasons, ["linux-compatibility-mode"]);
   assert.deepEqual(plan.switches, [
-    { name: "disable-gpu" },
-    { name: "disable-gpu-compositing" },
-    { name: "disable-accelerated-2d-canvas" },
-    { name: "disable-accelerated-video-decode" },
-    { name: "disable-gpu-memory-buffer-video-frames" },
-    { name: "disable-zero-copy" },
     {
       name: "disable-features",
-      value: "CalculateNativeWinOcclusion,UseOzonePlatform,VizDisplayCompositor,WaylandWindowDecorations",
+      value: "WaylandWindowDecorations",
     },
     { name: "no-sandbox" },
     { name: "disable-dev-shm-usage" },
@@ -145,11 +139,19 @@ test("applyDesktopStartupModePlan appends switches only when safe mode is enable
 
 test("desktop windows keep load diagnostics for packaged Linux black screen failures", () => {
   const mainSource = fs.readFileSync(path.join(__dirname, "../src/main.ts"), "utf8");
+  const workspaceCss = fs.readFileSync(path.join(__dirname, "../renderer/styles.css"), "utf8");
+  const settingsHtml = fs.readFileSync(path.join(__dirname, "../renderer/settings.html"), "utf8");
 
   assert.match(mainSource, /function bindWindowDiagnostics/);
   assert.match(mainSource, /did-fail-load/);
   assert.match(mainSource, /render-process-gone/);
   assert.match(mainSource, /Window did not become ready-to-show within 8 seconds/);
+  assert.match(mainSource, /const useNativeWindowFrame = process\.platform === "linux"/);
+  assert.match(mainSource, /frame: useNativeWindowFrame/);
+  assert.match(mainSource, /markNativeWindowFrame\(mainWindow\)/);
+  assert.match(mainSource, /markNativeWindowFrame\(win\)/);
   assert.match(mainSource, /bindWindowDiagnostics\(mainWindow, "settingsWindow"/);
   assert.match(mainSource, /bindWindowDiagnostics\(win, "workspaceWindow"/);
+  assert.match(workspaceCss, /\.native-window-frame \.titlebar\s*\{\s*display: none;/);
+  assert.match(settingsHtml, /\.native-window-frame \.titlebar\s*\{\s*display: none;/);
 });

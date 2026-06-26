@@ -60,6 +60,10 @@ body {
   padding: 6px 12px;
 }
 
+.native-window-frame .titlebar {
+  display: none;
+}
+
 .titlebar-copy {
   display: flex;
   flex: 1;

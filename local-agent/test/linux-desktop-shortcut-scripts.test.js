@@ -27,6 +27,8 @@ test("linux package scripts create desktop shortcuts for desktop environments", 
   assert.match(installScript, /ln -sfn/);
   assert.match(installScript, /--ozone-platform=x11/);
   assert.match(installScript, /LIBGL_ALWAYS_SOFTWARE/);
+  assert.doesNotMatch(installScript, /--disable-gpu/);
+  assert.doesNotMatch(installScript, /--disable-gpu-compositing/);
   assert.doesNotMatch(installScript, /disable-software-rasterizer/);
   assert.match(installScript, /metadata::trusted/);
   assert.match(installScript, /update-desktop-database/);
