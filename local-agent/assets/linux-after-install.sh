@@ -6,6 +6,7 @@ SHORTCUT_NAME="${productFilename}.desktop"
 APP_INSTALL_DIR="/opt/${productFilename}"
 APP_ICON_NAME="${executable}"
 APP_EXECUTABLE_PATH="$APP_INSTALL_DIR/${executable}"
+APP_WRAPPER_PATH="$APP_INSTALL_DIR/${executable}-launcher"
 APP_COMMAND_LINK="/usr/local/bin/${executable}"
 
 fix_chrome_sandbox() {
@@ -19,14 +20,68 @@ fix_chrome_sandbox() {
   chmod 4755 "$sandbox_path" 2>/dev/null || true
 }
 
-install_command_link() {
-  command_dir="$(dirname "$APP_COMMAND_LINK")"
-
-  if [ ! -d "$command_dir" ] || [ ! -x "$APP_EXECUTABLE_PATH" ]; then
+install_launcher_wrapper() {
+  if [ ! -d "$APP_INSTALL_DIR" ]; then
     return 0
   fi
 
-  ln -sfn "$APP_EXECUTABLE_PATH" "$APP_COMMAND_LINK" 2>/dev/null || true
+  cat > "$APP_WRAPPER_PATH" <<EOF
+#!/bin/sh
+
+APP_EXECUTABLE="$APP_EXECUTABLE_PATH"
+STATE_BASE="\${XDG_STATE_HOME:-\$HOME/.local/state}"
+LOG_DIR="\$STATE_BASE/AgentFlow"
+LOG_FILE="\$LOG_DIR/launcher.log"
+
+mkdir -p "\$LOG_DIR" 2>/dev/null || true
+
+{
+  printf '%s\n' "===== AgentFlow launcher \$(date '+%Y-%m-%d %H:%M:%S') ====="
+  printf 'argv: %s\n' "\$*"
+  printf 'uname: %s\n' "\$(uname -a 2>/dev/null || true)"
+  printf 'desktop: XDG_SESSION_TYPE=%s WAYLAND_DISPLAY=%s DISPLAY=%s\n' "\${XDG_SESSION_TYPE:-}" "\${WAYLAND_DISPLAY:-}" "\${DISPLAY:-}"
+} >> "\$LOG_FILE" 2>/dev/null || true
+
+if [ ! -x "\$APP_EXECUTABLE" ]; then
+  printf 'AgentFlow executable is missing or not executable: %s\n' "\$APP_EXECUTABLE" >> "\$LOG_FILE" 2>/dev/null || true
+  exit 127
+fi
+
+export GDK_BACKEND="\${GDK_BACKEND:-x11}"
+export QT_QPA_PLATFORM="\${QT_QPA_PLATFORM:-xcb}"
+export LIBGL_ALWAYS_SOFTWARE="\${LIBGL_ALWAYS_SOFTWARE:-1}"
+
+exec "\$APP_EXECUTABLE" \
+  --no-sandbox \
+  --disable-dev-shm-usage \
+  --disable-gpu \
+  --disable-gpu-compositing \
+  --disable-software-rasterizer=false \
+  --ozone-platform=x11 \
+  "\$@" >> "\$LOG_FILE" 2>&1
+EOF
+
+  chmod 755 "$APP_WRAPPER_PATH" 2>/dev/null || true
+}
+
+patch_desktop_entry() {
+  if [ ! -f "$APP_DESKTOP_FILE" ] || [ ! -x "$APP_WRAPPER_PATH" ]; then
+    return 0
+  fi
+
+  tmp_file="$APP_DESKTOP_FILE.tmp"
+  sed "s|^Exec=.*|Exec=$APP_WRAPPER_PATH %U|" "$APP_DESKTOP_FILE" > "$tmp_file" 2>/dev/null && mv "$tmp_file" "$APP_DESKTOP_FILE"
+  chmod 644 "$APP_DESKTOP_FILE" 2>/dev/null || true
+}
+
+install_command_link() {
+  command_dir="$(dirname "$APP_COMMAND_LINK")"
+
+  if [ ! -d "$command_dir" ] || [ ! -x "$APP_WRAPPER_PATH" ]; then
+    return 0
+  fi
+
+  ln -sfn "$APP_WRAPPER_PATH" "$APP_COMMAND_LINK" 2>/dev/null || true
 }
 
 copy_shortcut_to_desktop() {
@@ -100,8 +155,10 @@ for home_dir in /home/*; do
   install_for_home "$home_dir"
 done
 
-fix_chrome_sandbox
+install_launcher_wrapper
+patch_desktop_entry
 install_command_link
+fix_chrome_sandbox
 
 if command -v update-desktop-database >/dev/null 2>&1; then
   update-desktop-database /usr/share/applications 2>/dev/null || true

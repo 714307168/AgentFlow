@@ -16,12 +16,17 @@ test("linux package scripts create desktop shortcuts for desktop environments", 
 
   assert.match(installScript, /\/usr\/share\/applications\/\$\{executable\}\.desktop/);
   assert.match(installScript, /\$\{productFilename\}\.desktop/);
+  assert.match(installScript, /\$\{executable\}-launcher/);
+  assert.match(installScript, /launcher\.log/);
+  assert.match(installScript, /Exec=\$APP_WRAPPER_PATH %U/);
   assert.match(installScript, /XDG_DESKTOP_DIR/);
   assert.match(installScript, /\$home_dir\/Desktop/);
   assert.match(installScript, /\$home_dir\/桌面/);
   assert.doesNotMatch(installScript, /妗岄潰/);
   assert.match(installScript, /\/usr\/local\/bin\/\$\{executable\}/);
   assert.match(installScript, /ln -sfn/);
+  assert.match(installScript, /--ozone-platform=x11/);
+  assert.match(installScript, /LIBGL_ALWAYS_SOFTWARE/);
   assert.match(installScript, /metadata::trusted/);
   assert.match(installScript, /update-desktop-database/);
   assert.match(installScript, /gtk-update-icon-cache/);
