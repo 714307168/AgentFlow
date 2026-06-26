@@ -4,6 +4,7 @@ set -eu
 APP_DESKTOP_FILE="/usr/share/applications/${executable}.desktop"
 SHORTCUT_NAME="${productFilename}.desktop"
 APP_INSTALL_DIR="/opt/${productFilename}"
+APP_ICON_NAME="${executable}"
 
 fix_chrome_sandbox() {
   sandbox_path="$APP_INSTALL_DIR/chrome-sandbox"
@@ -27,6 +28,10 @@ copy_shortcut_to_desktop() {
   shortcut_path="$desktop_dir/$SHORTCUT_NAME"
   cp "$APP_DESKTOP_FILE" "$shortcut_path"
   chmod 755 "$shortcut_path"
+
+  if command -v gio >/dev/null 2>&1; then
+    gio set "$shortcut_path" metadata::trusted true 2>/dev/null || true
+  fi
 
   if command -v stat >/dev/null 2>&1; then
     owner="$(stat -c '%u:%g' "$home_dir" 2>/dev/null || true)"
@@ -84,5 +89,17 @@ for home_dir in /home/*; do
 done
 
 fix_chrome_sandbox
+
+if command -v update-desktop-database >/dev/null 2>&1; then
+  update-desktop-database /usr/share/applications 2>/dev/null || true
+fi
+
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+  gtk-update-icon-cache -q -t -f /usr/share/icons/hicolor 2>/dev/null || true
+fi
+
+if command -v xdg-icon-resource >/dev/null 2>&1 && [ -f "/usr/share/icons/hicolor/256x256/apps/$APP_ICON_NAME.png" ]; then
+  xdg-icon-resource forceupdate 2>/dev/null || true
+fi
 
 exit 0

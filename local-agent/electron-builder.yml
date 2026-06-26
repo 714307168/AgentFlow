@@ -44,7 +44,7 @@ mac:
         - arm64
 
 linux:
-  icon: app-icon.png
+  icon: icons
   category: Development
   target:
     - target: AppImage
