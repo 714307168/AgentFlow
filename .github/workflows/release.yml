@@ -69,9 +69,18 @@ jobs:
             Write-Error "Windows installer build failed with exit code $LASTEXITCODE"
             exit $LASTEXITCODE
           }
+          npm run dist:win:portable 2>&1 | Tee-Object -FilePath windows-portable-build.log
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Windows portable build failed with exit code $LASTEXITCODE"
+            exit $LASTEXITCODE
+          }
           Get-ChildItem -Path release -File | Sort-Object Name | Format-Table Name,Length
           if (-not (Get-ChildItem -Path release -Filter *-setup.exe -File -ErrorAction SilentlyContinue)) {
             Write-Error "Windows installer was not generated under local-agent/release."
+            exit 1
+          }
+          if (-not (Get-ChildItem -Path release -Filter *-portable.exe -File -ErrorAction SilentlyContinue)) {
+            Write-Error "Windows portable package was not generated under local-agent/release."
             exit 1
           }
 
@@ -80,13 +89,17 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: windows-release-build-log
-          path: local-agent/windows-build.log
+          path: |
+            local-agent/windows-build.log
+            local-agent/windows-portable-build.log
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
           name: agentflow-windows
-          path: local-agent/release/*-setup.exe
+          path: |
+            local-agent/release/*-setup.exe
+            local-agent/release/*-portable.exe
           if-no-files-found: error
 
   macos:
@@ -357,7 +370,7 @@ jobs:
             base_name="$(basename "$file")"
             case "$base_name" in
               *unsigned*.apk) continue ;;
-              *.apk|*.dmg|*.AppImage|*.deb|*.pacman|*.pkg.tar.*|*-setup.exe) ;;
+              *.apk|*.dmg|*.AppImage|*.deb|*.pacman|*.pkg.tar.*|*-setup.exe|*-portable.exe) ;;
               *) continue ;;
             esac
             cp "$file" "release-assets/${artifact_name}-${base_name}"
@@ -380,7 +393,7 @@ jobs:
               while IFS= read -r asset_name; do
                 case "$asset_name" in
                   *unsigned*.apk) gh release delete-asset "$TAG_NAME" "$asset_name" -y ;;
-                  *.apk|*.dmg|*.AppImage|*.deb|*.pacman|*.pkg.tar.*|*-setup.exe) gh release delete-asset "$TAG_NAME" "$asset_name" -y ;;
+                  *.apk|*.dmg|*.AppImage|*.deb|*.pacman|*.pkg.tar.*|*-setup.exe|*-portable.exe) gh release delete-asset "$TAG_NAME" "$asset_name" -y ;;
                   *) gh release delete-asset "$TAG_NAME" "$asset_name" -y ;;
                 esac
               done

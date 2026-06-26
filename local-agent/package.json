@@ -1,6 +1,6 @@
 {
   "name": "agentflow-desktop",
-  "version": "1.1.150",
+  "version": "1.1.151",
   "description": "Desktop agent for AgentFlow remote control",
   "author": "AgentFlow contributors <noreply@agentflow.local>",
   "license": "MIT",
@@ -21,11 +21,15 @@
     "ensure-icons": "node scripts/ensure-icons.js",
     "dist": "npm run build && npm run ensure-icons && electron-builder --publish never",
     "dist:win": "npm run build && npm run ensure-icons && electron-builder --win nsis --publish never",
+    "dist:win:x64": "npm run build && npm run ensure-icons && electron-builder --win nsis --x64 --publish never",
+    "dist:win:x86": "npm run build && npm run ensure-icons && electron-builder --win nsis --ia32 --publish never",
     "dist:mac": "npm run build && electron-builder --mac dmg --publish never",
     "dist:linux": "npm run build && electron-builder --linux AppImage deb pacman --publish never",
     "dist:linux:deb": "npm run build && electron-builder --linux deb --publish never",
     "dist:linux:arch": "npm run build && electron-builder --linux pacman --publish never",
-    "dist:win:portable": "npm run build && npm run ensure-icons && electron-builder --config electron-builder.portable.yml --publish never"
+    "dist:win:portable": "npm run build && npm run ensure-icons && electron-builder --config electron-builder.portable.yml --publish never",
+    "dist:win:portable:x64": "npm run build && npm run ensure-icons && electron-builder --config electron-builder.portable.yml --x64 --publish never",
+    "dist:win:portable:x86": "npm run build && npm run ensure-icons && electron-builder --config electron-builder.portable.yml --ia32 --publish never"
   },
   "dependencies": {
     "electron-store": "^8.1.0",

@@ -5,8 +5,12 @@
 - `npm start`: run Electron from `dist/src/main.js`
 - `npm run build`: compile TypeScript and refresh renderer assets
 - `npm run doctor`: print a local runtime and environment health report for this desktop host
-- `npm run dist:win`: build the Windows NSIS installer
-- `npm run dist:win:portable`: build a Windows portable package without the NSIS installer
+- `npm run dist:win`: build the Windows NSIS installers for x64 and x86
+- `npm run dist:win:x64`: build only the Windows x64 NSIS installer
+- `npm run dist:win:x86`: build only the Windows x86 NSIS installer
+- `npm run dist:win:portable`: build Windows portable packages for x64 and x86 without the NSIS installer
+- `npm run dist:win:portable:x64`: build only the Windows x64 portable package
+- `npm run dist:win:portable:x86`: build only the Windows x86 portable package
 - `npm run dist`: build the default `electron-builder` targets
 
 ## User Data Directory
@@ -110,8 +114,13 @@ Expected outputs:
 
 - `release/AgentFlow-<version>-x64-setup.exe`
 - `release/AgentFlow-<version>-x64-setup.exe.blockmap`
+- `release/AgentFlow-<version>-ia32-setup.exe`
+- `release/AgentFlow-<version>-ia32-setup.exe.blockmap`
 - `release/AgentFlow-<version>-x64-portable.exe`
+- `release/AgentFlow-<version>-ia32-portable.exe`
 - `release/win-unpacked/AgentFlow.exe`
+
+Linux desktop packages are currently built for x64 only. Electron 29 does not publish a `linux-ia32` runtime archive, so enabling 32-bit Linux packaging would fail during CI before package creation.
 
 ## Legacy Windows / Server Startup
 

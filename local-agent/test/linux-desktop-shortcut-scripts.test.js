@@ -41,6 +41,24 @@ test("linux package scripts create desktop shortcuts for desktop environments", 
   assert.equal((builderConfig.match(/afterRemove: assets\/linux-after-remove\.sh/g) || []).length, 2);
 });
 
+test("windows packages include x64 and x86 targets", () => {
+  const builderConfig = readProjectFile("electron-builder.yml");
+  const portableConfig = readProjectFile("electron-builder.portable.yml");
+
+  assert.match(builderConfig, /target: nsis\n\s+arch:\n\s+- x64\n\s+- ia32/);
+  assert.match(portableConfig, /target: portable\n\s+arch:\n\s+- x64\n\s+- ia32/);
+  assert.match(builderConfig, /\$\{productName\}-\$\{version\}-\$\{arch\}-setup\.\$\{ext\}/);
+  assert.match(portableConfig, /\$\{productName\}-\$\{version\}-\$\{arch\}-portable\.\$\{ext\}/);
+});
+
+test("linux packages stay on x64 because current Electron releases do not provide linux ia32", () => {
+  const builderConfig = readProjectFile("electron-builder.yml");
+  const linuxSection = builderConfig.split("\nlinux:\n")[1].split("\ndeb:\n")[0];
+
+  assert.match(linuxSection, /- x64/);
+  assert.doesNotMatch(linuxSection, /- ia32/);
+});
+
 test("linux package includes hicolor icon theme assets", () => {
   for (const size of [16, 32, 48, 64, 128, 256, 512]) {
     const builderIconPath = path.join(projectRoot, "assets", "icons", size + "x" + size + ".png");
