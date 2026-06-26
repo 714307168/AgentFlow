@@ -145,17 +145,17 @@ install_for_home() {
   copy_shortcut_to_desktop "$home_dir" "$home_dir/桌面"
 }
 
+install_launcher_wrapper
+patch_desktop_entry
+install_command_link
+fix_chrome_sandbox
+
 install_for_home "/root"
 
 for home_dir in /home/*; do
   [ -d "$home_dir" ] || continue
   install_for_home "$home_dir"
 done
-
-install_launcher_wrapper
-patch_desktop_entry
-install_command_link
-fix_chrome_sandbox
 
 if command -v update-desktop-database >/dev/null 2>&1; then
   update-desktop-database /usr/share/applications 2>/dev/null || true
