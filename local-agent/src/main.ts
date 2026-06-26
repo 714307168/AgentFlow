@@ -3741,25 +3741,6 @@ function bindWindowDiagnostics(
   });
 }
 
-function markNativeWindowFrame(win: BrowserWindow): void {
-  if (!useNativeWindowFrame) {
-    return;
-  }
-  win.webContents.on("did-finish-load", () => {
-    if (win.isDestroyed()) {
-      return;
-    }
-    void win.webContents.executeJavaScript(
-      "document.documentElement.classList.add('native-window-frame')",
-      true,
-    ).catch((error) => {
-      logWindowDiagnostic("warn", "nativeFrame", "Failed to mark native window frame.", {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    });
-  });
-}
-
 function loadConfig(): AgentConfig {
   const legacyToken = configStore.get("token") as string;
   const encryptedToken = (configStore.get("encryptedToken") as string) || "";
@@ -4669,7 +4650,6 @@ function showMainWindow(parentWindow?: BrowserWindow | null): void {
   }));
   bindWindowStatePersistence("settingsWindow", mainWindow);
   bindWindowDiagnostics(mainWindow, "settingsWindow", "Settings Window Load Failed");
-  markNativeWindowFrame(mainWindow);
   mainWindow.loadFile(path.join(__dirname, "..", "..", "renderer", "settings.html"));
   mainWindow.webContents.on("did-finish-load", () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -4709,7 +4689,6 @@ function createWorkspaceWindow(): BrowserWindow {
   }));
   bindWindowStatePersistence("workspaceWindow", win);
   bindWindowDiagnostics(win, "workspaceWindow", "Workspace Window Load Failed");
-  markNativeWindowFrame(win);
 
   win.loadFile(path.join(__dirname, "..", "..", "renderer", "index.html"));
   win.once("ready-to-show", () => {
@@ -6979,6 +6958,9 @@ ipcMain.on("close-window", (event) => {
 });
 
 app.whenReady().then(async () => {
+  if (useNativeWindowFrame) {
+    Menu.setApplicationMenu(null);
+  }
   if (desktopStartupModePlan.safeGraphics) {
     appLogger.info("app", "Applied desktop safe startup mode.", {
       reasons: desktopStartupModePlan.reasons,
