@@ -413,7 +413,6 @@ let relayClient: RelayClient | null = null;
 let controllerRelayClient: RelayClient | null = null;
 let remoteSessionStore: RemoteSessionStore | null = null;
 let remoteWorkgroupStore: RemoteWorkgroupStore | null = null;
-const useNativeWindowFrame = process.platform === "linux";
 const lastBroadcastSyncSeqByProject = new Map<string, number>();
 const updateManager = new UpdateManager({
   getServerUrl: () => loadConfig().serverUrl,
@@ -4635,7 +4634,7 @@ function showMainWindow(parentWindow?: BrowserWindow | null): void {
   mainWindow = new BrowserWindow(buildWindowOptions("settingsWindow", {
     title: getSettingsWindowTitle(activeSettingsPane),
     icon: createAppIcon(256),
-    frame: useNativeWindowFrame,
+    frame: false,
     transparent: false,
     backgroundColor: "#eef2f7",
     minWidth: 980,
@@ -4676,7 +4675,7 @@ function createWorkspaceWindow(): BrowserWindow {
   const win = new BrowserWindow(buildWindowOptions("workspaceWindow", {
     title: getWorkspaceWindowTitle(activeWorkspaceProjectId),
     icon: createAppIcon(256),
-    frame: useNativeWindowFrame,
+    frame: false,
     transparent: false,
     resizable: true,
     webPreferences: {
@@ -6958,9 +6957,6 @@ ipcMain.on("close-window", (event) => {
 });
 
 app.whenReady().then(async () => {
-  if (useNativeWindowFrame) {
-    Menu.setApplicationMenu(null);
-  }
   if (desktopStartupModePlan.safeGraphics) {
     appLogger.info("app", "Applied desktop safe startup mode.", {
       reasons: desktopStartupModePlan.reasons,

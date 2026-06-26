@@ -144,9 +144,8 @@ test("desktop windows keep load diagnostics for packaged Linux black screen fail
   assert.match(mainSource, /did-fail-load/);
   assert.match(mainSource, /render-process-gone/);
   assert.match(mainSource, /Window did not become ready-to-show within 8 seconds/);
-  assert.match(mainSource, /const useNativeWindowFrame = process\.platform === "linux"/);
-  assert.match(mainSource, /frame: useNativeWindowFrame/);
-  assert.match(mainSource, /Menu\.setApplicationMenu\(null\)/);
+  assert.match(mainSource, /frame: false/);
+  assert.doesNotMatch(mainSource, /useNativeWindowFrame/);
   assert.match(mainSource, /bindWindowDiagnostics\(mainWindow, "settingsWindow"/);
   assert.match(mainSource, /bindWindowDiagnostics\(win, "workspaceWindow"/);
 });
