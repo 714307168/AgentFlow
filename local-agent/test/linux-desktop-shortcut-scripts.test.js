@@ -41,6 +41,10 @@ test("linux package scripts create desktop shortcuts for desktop environments", 
   assert.match(removeScript, /update-desktop-database/);
   assert.match(removeScript, /gtk-update-icon-cache/);
   assert.match(builderConfig, /linux:\n  icon: icons/);
+  assert.match(builderConfig, /mac:\n  artifactName: "\$\{productName\}-\$\{version\}-\$\{arch\}\.\$\{ext\}"/);
+  assert.match(builderConfig, /linux:[\s\S]*artifactName: "\$\{productName\}-\$\{version\}-\$\{arch\}\.\$\{ext\}"/);
+  assert.match(builderConfig, /deb:\n  artifactName: "\$\{productName\}-\$\{version\}-\$\{arch\}\.\$\{ext\}"/);
+  assert.match(builderConfig, /pacman:\n  artifactName: "\$\{productName\}-\$\{version\}-\$\{arch\}\.\$\{ext\}"/);
 
   assert.equal((builderConfig.match(/afterInstall: assets\/linux-after-install\.sh/g) || []).length, 2);
   assert.equal((builderConfig.match(/afterRemove: assets\/linux-after-remove\.sh/g) || []).length, 2);
@@ -54,6 +58,13 @@ test("windows packages include x64 and x86 targets", () => {
   assert.match(portableConfig, /target: portable\n\s+arch:\n\s+- x64\n\s+- ia32/);
   assert.match(builderConfig, /\$\{productName\}-\$\{version\}-\$\{arch\}-setup\.\$\{ext\}/);
   assert.match(portableConfig, /\$\{productName\}-\$\{version\}-\$\{arch\}-portable\.\$\{ext\}/);
+});
+
+test("release workflow preserves package artifact filenames", () => {
+  const releaseWorkflow = fs.readFileSync(path.join(projectRoot, "..", ".github", "workflows", "release.yml"), "utf8");
+
+  assert.match(releaseWorkflow, /cp "\$file" "release-assets\/\$\{base_name\}"/);
+  assert.doesNotMatch(releaseWorkflow, /release-assets\/\$\{artifact_name\}-\$\{base_name\}/);
 });
 
 test("linux packages stay on x64 because current Electron releases do not provide linux ia32", () => {

@@ -373,7 +373,7 @@ jobs:
               *.apk|*.dmg|*.AppImage|*.deb|*.pacman|*.pkg.tar.*|*-setup.exe|*-portable.exe) ;;
               *) continue ;;
             esac
-            cp "$file" "release-assets/${artifact_name}-${base_name}"
+            cp "$file" "release-assets/${base_name}"
           done < <(find dist-artifacts -type f -print0 | sort -z)
 
           mapfile -t files < <(find release-assets -type f | sort)

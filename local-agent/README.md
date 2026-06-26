@@ -118,6 +118,11 @@ Expected outputs:
 - `release/AgentFlow-<version>-ia32-setup.exe.blockmap`
 - `release/AgentFlow-<version>-x64-portable.exe`
 - `release/AgentFlow-<version>-ia32-portable.exe`
+- `release/AgentFlow-<version>-x64.AppImage`
+- `release/AgentFlow-<version>-amd64.deb`
+- `release/AgentFlow-<version>-x86_64.pacman`
+- `release/AgentFlow-<version>-x64.dmg`
+- `release/AgentFlow-<version>-arm64.dmg`
 - `release/win-unpacked/AgentFlow.exe`
 
 Linux desktop packages are currently built for x64 only. Electron 29 does not publish a `linux-ia32` runtime archive, so enabling 32-bit Linux packaging would fail during CI before package creation.
