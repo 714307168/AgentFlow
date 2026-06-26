@@ -571,6 +571,9 @@ class UpdateManager extends EventEmitter {
   }
 
   private async tryInstallSilently(): Promise<boolean> {
+    if (process.platform !== "win32") {
+      return false;
+    }
     if (!this.options.getSilentInstallEnabled()) {
       return false;
     }

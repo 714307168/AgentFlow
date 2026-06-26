@@ -19,6 +19,9 @@ test("linux package scripts create desktop shortcuts for desktop environments", 
   assert.match(installScript, /\$\{executable\}-launcher/);
   assert.match(installScript, /launcher\.log/);
   assert.match(installScript, /Exec=\$APP_WRAPPER_PATH %U/);
+  assert.match(installScript, /resolve_app_icon_value/);
+  assert.match(installScript, /\/usr\/share\/icons\/hicolor\/256x256\/apps\/\$APP_ICON_NAME\.png/);
+  assert.match(installScript, /Icon=\$icon_value/);
   assert.match(installScript, /XDG_DESKTOP_DIR/);
   assert.match(installScript, /\$home_dir\/Desktop/);
   assert.match(installScript, /\$home_dir\/桌面/);
@@ -111,6 +114,12 @@ test("linux package includes hicolor icon theme assets", () => {
     assert.equal(fs.existsSync(iconPath), true, iconPath + " should exist");
     assert.ok(fs.statSync(iconPath).size > 0, iconPath + " should not be empty");
   }
+});
+
+test("non-windows updates do not try to run silent NSIS installers", () => {
+  const updateManager = readProjectFile("src/update-manager.ts");
+
+  assert.match(updateManager, /private async tryInstallSilently\(\): Promise<boolean> \{\n\s+if \(process\.platform !== "win32"\) \{\n\s+return false;/);
 });
 
 test("arch package keeps electron runtime dependencies installable", () => {

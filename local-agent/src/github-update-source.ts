@@ -1,4 +1,5 @@
 import { compareSemanticVersions, extractSemanticVersion } from "./cli-version";
+import * as fs from "fs";
 
 export const DEFAULT_GITHUB_UPDATE_REPO = "714307168/AgentFlow";
 export const DEFAULT_GITHUB_RELEASE_API_URL = `https://api.github.com/repos/${DEFAULT_GITHUB_UPDATE_REPO}/releases/latest`;
@@ -29,6 +30,8 @@ export interface GitHubUpdateCandidate {
   sha256?: string;
   notes?: string;
 }
+
+export type LinuxPackageFamily = "arch" | "debian" | "appimage";
 
 export function getGitHubReleaseApiUrl(): string {
   const configured = process.env.AGENTFLOW_GITHUB_UPDATE_API_URL?.trim();
@@ -63,6 +66,10 @@ export function selectGitHubReleaseAsset(
   platform: NodeJS.Platform,
   arch: string,
 ): GitHubReleaseAsset | null {
+  if (platform === "linux") {
+    return selectGitHubReleaseAssetForLinuxFamily(assets, arch, detectLinuxPackageFamily());
+  }
+
   const candidates = (assets ?? []).filter((asset) => {
     const name = asset.name?.trim() ?? "";
     return name.length > 0 && Boolean(asset.browser_download_url?.trim());
@@ -77,6 +84,21 @@ export function selectGitHubReleaseAsset(
   const archMatches = platformMatches.filter((asset) => matchesArch(asset.name ?? "", normalizedArch));
   const searchSpace = archMatches.length > 0 ? archMatches : platformMatches;
   return searchSpace.sort((left, right) => scoreAsset(right.name ?? "", platform) - scoreAsset(left.name ?? "", platform))[0] ?? null;
+}
+
+export function selectGitHubReleaseAssetForLinuxFamily(
+  assets: GitHubReleaseAsset[] | null | undefined,
+  arch: string,
+  linuxFamily: LinuxPackageFamily,
+): GitHubReleaseAsset | null {
+  const candidates = (assets ?? []).filter((asset) => {
+    const name = asset.name?.trim() ?? "";
+    return name.length > 0 && Boolean(asset.browser_download_url?.trim()) && matchesPlatform(name, "linux");
+  });
+  const normalizedArch = normalizeArch(arch);
+  const archMatches = candidates.filter((asset) => matchesArch(asset.name ?? "", normalizedArch));
+  const searchSpace = archMatches.length > 0 ? archMatches : candidates;
+  return searchSpace.sort((left, right) => scoreLinuxAsset(right.name ?? "", linuxFamily) - scoreLinuxAsset(left.name ?? "", linuxFamily))[0] ?? null;
 }
 
 export function buildGitHubUpdateCandidate(
@@ -168,14 +190,47 @@ function scoreAsset(name: string, platform: NodeJS.Platform): number {
   if (platform === "darwin" && normalized.endsWith(".dmg")) {
     return 100;
   }
-  if (platform === "linux" && normalized.endsWith(".appimage")) {
-    return 100;
+  if (platform === "linux") {
+    return scoreLinuxAsset(name, detectLinuxPackageFamily());
   }
-  if (platform === "linux" && normalized.endsWith(".deb")) {
-    return 80;
+  return 0;
+}
+
+export function detectLinuxPackageFamily(osReleaseContent?: string | null): LinuxPackageFamily {
+  const content = osReleaseContent ?? (process.platform === "linux" ? readOsRelease() : "");
+  const normalized = content.toLowerCase();
+  if (/\b(id|id_like)=.*(arch|manjaro|endeavouros|garuda)/u.test(normalized)) {
+    return "arch";
   }
-  if (platform === "linux" && (normalized.endsWith(".pacman") || normalized.includes(".pkg.tar."))) {
-    return 70;
+  if (/\b(id|id_like)=.*(debian|ubuntu|kylin|uos|deepin|linuxmint)/u.test(normalized)) {
+    return "debian";
   }
+  return "appimage";
+}
+
+function readOsRelease(): string {
+  try {
+    return fs.readFileSync("/etc/os-release", "utf8");
+  } catch {
+    return "";
+  }
+}
+
+function scoreLinuxAsset(name: string, linuxFamily: LinuxPackageFamily): number {
+  const normalized = name.toLowerCase();
+  const isPacman = normalized.endsWith(".pacman") || normalized.includes(".pkg.tar.");
+  if (linuxFamily === "arch") {
+    if (isPacman) return 120;
+    if (normalized.endsWith(".appimage")) return 80;
+    if (normalized.endsWith(".deb")) return 10;
+  }
+  if (linuxFamily === "debian") {
+    if (normalized.endsWith(".deb")) return 120;
+    if (normalized.endsWith(".appimage")) return 80;
+    if (isPacman) return 10;
+  }
+  if (normalized.endsWith(".appimage")) return 120;
+  if (normalized.endsWith(".deb")) return 80;
+  if (isPacman) return 70;
   return 0;
 }

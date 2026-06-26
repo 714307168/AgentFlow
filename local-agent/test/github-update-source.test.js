@@ -3,8 +3,10 @@ const assert = require("node:assert/strict");
 
 const {
   buildGitHubUpdateCandidate,
+  detectLinuxPackageFamily,
   parseGitHubAssetSha256,
   selectGitHubReleaseAsset,
+  selectGitHubReleaseAssetForLinuxFamily,
 } = require("../dist/src/github-update-source.js");
 
 test("buildGitHubUpdateCandidate selects the Windows setup asset from GitHub releases", () => {
@@ -53,6 +55,26 @@ test("selectGitHubReleaseAsset chooses platform-specific packages", () => {
   assert.equal(selectGitHubReleaseAsset(assets, "linux", "x64")?.name, "linux-AgentFlow-1.1.146-x64.AppImage");
   assert.equal(selectGitHubReleaseAsset(assets, "darwin", "arm64")?.name, "mac-AgentFlow-1.1.146-arm64.dmg");
   assert.equal(selectGitHubReleaseAsset(assets, "win32", "x64")?.name, "windows-AgentFlow-1.1.146-x64-setup.exe");
+});
+
+test("selectGitHubReleaseAssetForLinuxFamily prefers distro-native packages", () => {
+  const assets = [
+    { name: "AgentFlow-1.1.161-x64.AppImage", browser_download_url: "https://example.test/appimage" },
+    { name: "AgentFlow-1.1.161-amd64.deb", browser_download_url: "https://example.test/deb" },
+    { name: "AgentFlow-1.1.161-x64.pkg.tar.zst", browser_download_url: "https://example.test/pkg" },
+  ];
+
+  assert.equal(selectGitHubReleaseAssetForLinuxFamily(assets, "x64", "arch")?.name, "AgentFlow-1.1.161-x64.pkg.tar.zst");
+  assert.equal(selectGitHubReleaseAssetForLinuxFamily(assets, "x64", "debian")?.name, "AgentFlow-1.1.161-amd64.deb");
+  assert.equal(selectGitHubReleaseAssetForLinuxFamily(assets, "x64", "appimage")?.name, "AgentFlow-1.1.161-x64.AppImage");
+});
+
+test("detectLinuxPackageFamily recognizes common Arch and Debian-like distributions", () => {
+  assert.equal(detectLinuxPackageFamily('ID=arch\nNAME="Arch Linux"'), "arch");
+  assert.equal(detectLinuxPackageFamily('ID=manjaro\nID_LIKE=arch'), "arch");
+  assert.equal(detectLinuxPackageFamily('ID=kylin\nID_LIKE="debian ubuntu"'), "debian");
+  assert.equal(detectLinuxPackageFamily('ID=uos\nID_LIKE=debian'), "debian");
+  assert.equal(detectLinuxPackageFamily('ID=fedora'), "appimage");
 });
 
 test("parseGitHubAssetSha256 accepts only GitHub sha256 digest values", () => {

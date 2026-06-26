@@ -9,6 +9,16 @@ APP_EXECUTABLE_PATH="$APP_INSTALL_DIR/${executable}"
 APP_WRAPPER_PATH="$APP_INSTALL_DIR/${executable}-launcher"
 APP_COMMAND_LINK="/usr/local/bin/${executable}"
 
+resolve_app_icon_value() {
+  icon_path="/usr/share/icons/hicolor/256x256/apps/$APP_ICON_NAME.png"
+  if [ -f "$icon_path" ]; then
+    printf '%s\n' "$icon_path"
+    return 0
+  fi
+
+  printf '%s\n' "$APP_ICON_NAME"
+}
+
 fix_chrome_sandbox() {
   sandbox_path="$APP_INSTALL_DIR/chrome-sandbox"
 
@@ -66,8 +76,12 @@ patch_desktop_entry() {
     return 0
   fi
 
+  icon_value="$(resolve_app_icon_value)"
   tmp_file="$APP_DESKTOP_FILE.tmp"
-  sed "s|^Exec=.*|Exec=$APP_WRAPPER_PATH %U|" "$APP_DESKTOP_FILE" > "$tmp_file" 2>/dev/null && mv "$tmp_file" "$APP_DESKTOP_FILE"
+  sed \
+    -e "s|^Exec=.*|Exec=$APP_WRAPPER_PATH %U|" \
+    -e "s|^Icon=.*|Icon=$icon_value|" \
+    "$APP_DESKTOP_FILE" > "$tmp_file" 2>/dev/null && mv "$tmp_file" "$APP_DESKTOP_FILE"
   chmod 644 "$APP_DESKTOP_FILE" 2>/dev/null || true
 }
 
