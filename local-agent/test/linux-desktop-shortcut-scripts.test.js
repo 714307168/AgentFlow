@@ -60,6 +60,24 @@ test("windows packages include x64 and x86 targets", () => {
   assert.match(portableConfig, /\$\{productName\}-\$\{version\}-\$\{arch\}-portable\.\$\{ext\}/);
 });
 
+test("desktop packages unpack node-pty native modules inside the app", () => {
+  const builderConfig = readProjectFile("electron-builder.yml");
+  const portableConfig = readProjectFile("electron-builder.portable.yml");
+
+  for (const config of [builderConfig, portableConfig]) {
+    assert.match(config, /asarUnpack:\n\s+- "node_modules\/node-pty\/\*\*\/\*"/);
+    assert.match(config, /- "node_modules\/\*\*\/\*\.node"/);
+    assert.match(config, /files:[\s\S]*- "node_modules\/node-pty\/\*\*\/\*"/);
+    assert.doesNotMatch(config, /from: node_modules\/node-pty/);
+  }
+});
+
+test("linux release rebuilds native dependencies before packaging", () => {
+  const releaseWorkflow = fs.readFileSync(path.join(projectRoot, "..", ".github", "workflows", "release.yml"), "utf8");
+
+  assert.match(releaseWorkflow, /electron-builder install-app-deps --platform linux --arch x64/);
+});
+
 test("release workflow preserves package artifact filenames", () => {
   const releaseWorkflow = fs.readFileSync(path.join(projectRoot, "..", ".github", "workflows", "release.yml"), "utf8");
 

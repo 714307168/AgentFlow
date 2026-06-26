@@ -1,6 +1,9 @@
 appId: com.claudecode.agent
 productName: "AgentFlow"
 asar: true
+asarUnpack:
+  - "node_modules/node-pty/**/*"
+  - "node_modules/**/*.node"
 publish:
   provider: generic
   url: "https://relay.liuyg.cn/downloads/desktop"
@@ -10,6 +13,7 @@ files:
   - "dist/**/*"
   - "renderer/**/*"
   - "assets/**/*"
+  - "node_modules/node-pty/**/*"
   - "package.json"
 
 directories:
@@ -17,8 +21,6 @@ directories:
   buildResources: assets
 
 extraResources:
-  - from: node_modules/node-pty
-    to: node_modules/node-pty
   - from: assets/sounds
     to: sounds
 
