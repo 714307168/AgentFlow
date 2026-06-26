@@ -1,5 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 
 const {
   applyDesktopStartupModePlan,
@@ -139,4 +141,15 @@ test("applyDesktopStartupModePlan appends switches only when safe mode is enable
     { name: "disable-zero-copy" },
     { name: "disable-features", value: "CalculateNativeWinOcclusion" },
   ]);
+});
+
+test("desktop windows keep load diagnostics for packaged Linux black screen failures", () => {
+  const mainSource = fs.readFileSync(path.join(__dirname, "../src/main.ts"), "utf8");
+
+  assert.match(mainSource, /function bindWindowDiagnostics/);
+  assert.match(mainSource, /did-fail-load/);
+  assert.match(mainSource, /render-process-gone/);
+  assert.match(mainSource, /Window did not become ready-to-show within 8 seconds/);
+  assert.match(mainSource, /bindWindowDiagnostics\(mainWindow, "settingsWindow"/);
+  assert.match(mainSource, /bindWindowDiagnostics\(win, "workspaceWindow"/);
 });

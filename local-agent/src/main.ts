@@ -3630,6 +3630,116 @@ function revealWindow(win: BrowserWindow): void {
   }, 1200);
 }
 
+function logWindowDiagnostic(
+  level: "info" | "warn" | "error",
+  windowName: string,
+  message: string,
+  meta: Record<string, unknown> = {},
+): void {
+  const payload = { windowName, ...meta };
+  appLogger[level]("window", message, payload);
+  const line = "[AgentFlow window:" + level + "] " + windowName + " " + message + " " + JSON.stringify(meta);
+  if (level === "error") {
+    console.error(line);
+  } else if (level === "warn") {
+    console.warn(line);
+  } else {
+    console.log(line);
+  }
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"]/g, (char) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+  }[char] || char));
+}
+
+function buildWindowLoadFailureHtml(title: string, detail: string): string {
+  return [
+    "<!doctype html>",
+    "<meta charset=\"utf-8\">",
+    "<style>",
+    "body{margin:0;padding:32px;background:#0d1117;color:#c9d1d9;font:14px/1.6 sans-serif}",
+    ".card{max-width:760px;margin:12vh auto;padding:24px;border:1px solid #30363d;border-radius:16px;background:#161b22}",
+    "h1{margin:0 0 12px;font-size:22px;color:#fff}",
+    "pre{white-space:pre-wrap;background:#0b1220;border-radius:10px;padding:14px;color:#fca5a5}",
+    "</style>",
+    "<div class=\"card\"><h1>" + escapeHtml(title) + "</h1><p>AgentFlow could not load this desktop window.</p><pre>" + escapeHtml(detail) + "</pre></div>",
+  ].join("");
+}
+
+function bindWindowDiagnostics(
+  win: BrowserWindow,
+  windowName: string,
+  fallbackTitle: string,
+): void {
+  let readyToShow = false;
+  let failurePageLoaded = false;
+  const loadTimeout = setTimeout(() => {
+    if (win.isDestroyed() || readyToShow) {
+      return;
+    }
+    logWindowDiagnostic("warn", windowName, "Window did not become ready-to-show within 8 seconds.", {
+      url: win.webContents.getURL(),
+      loading: win.webContents.isLoading(),
+    });
+    revealWindow(win);
+  }, 8000);
+
+  win.once("ready-to-show", () => {
+    readyToShow = true;
+    clearTimeout(loadTimeout);
+    logWindowDiagnostic("info", windowName, "Window became ready to show.", {
+      url: win.webContents.getURL(),
+    });
+  });
+
+  win.webContents.on("did-finish-load", () => {
+    logWindowDiagnostic("info", windowName, "Window finished loading.", {
+      url: win.webContents.getURL(),
+    });
+  });
+
+  win.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL) => {
+    logWindowDiagnostic("error", windowName, "Window failed to load.", {
+      errorCode,
+      errorDescription,
+      validatedURL,
+    });
+    if (failurePageLoaded || win.isDestroyed()) {
+      return;
+    }
+    failurePageLoaded = true;
+    void win.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(buildWindowLoadFailureHtml(
+      fallbackTitle,
+      String(errorCode) + ": " + errorDescription + "\n" + validatedURL,
+    )));
+  });
+
+  win.webContents.on("render-process-gone", (_event, details) => {
+    logWindowDiagnostic("error", windowName, "Renderer process exited.", details as unknown as Record<string, unknown>);
+  });
+
+  win.on("unresponsive", () => {
+    logWindowDiagnostic("warn", windowName, "Window became unresponsive.");
+  });
+
+  win.webContents.on("console-message", (_event, level, message, line, sourceId) => {
+    if (level < 2) {
+      return;
+    }
+    logWindowDiagnostic(level >= 3 ? "error" : "warn", windowName, "Renderer console message.", {
+      level,
+      message,
+      line,
+      sourceId,
+    });
+  });
+}
+
 function loadConfig(): AgentConfig {
   const legacyToken = configStore.get("token") as string;
   const encryptedToken = (configStore.get("encryptedToken") as string) || "";
@@ -4538,6 +4648,7 @@ function showMainWindow(parentWindow?: BrowserWindow | null): void {
     },
   }));
   bindWindowStatePersistence("settingsWindow", mainWindow);
+  bindWindowDiagnostics(mainWindow, "settingsWindow", "Settings Window Load Failed");
   mainWindow.loadFile(path.join(__dirname, "..", "..", "renderer", "settings.html"));
   mainWindow.webContents.on("did-finish-load", () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -4576,6 +4687,7 @@ function createWorkspaceWindow(): BrowserWindow {
     backgroundColor: "#0d1117",
   }));
   bindWindowStatePersistence("workspaceWindow", win);
+  bindWindowDiagnostics(win, "workspaceWindow", "Workspace Window Load Failed");
 
   win.loadFile(path.join(__dirname, "..", "..", "renderer", "index.html"));
   win.once("ready-to-show", () => {
