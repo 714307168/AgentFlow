@@ -5,6 +5,8 @@ APP_DESKTOP_FILE="/usr/share/applications/${executable}.desktop"
 SHORTCUT_NAME="${productFilename}.desktop"
 APP_INSTALL_DIR="/opt/${productFilename}"
 APP_ICON_NAME="${executable}"
+APP_EXECUTABLE_PATH="$APP_INSTALL_DIR/${executable}"
+APP_COMMAND_LINK="/usr/local/bin/${executable}"
 
 fix_chrome_sandbox() {
   sandbox_path="$APP_INSTALL_DIR/chrome-sandbox"
@@ -15,6 +17,16 @@ fix_chrome_sandbox() {
 
   chown root:root "$sandbox_path" 2>/dev/null || true
   chmod 4755 "$sandbox_path" 2>/dev/null || true
+}
+
+install_command_link() {
+  command_dir="$(dirname "$APP_COMMAND_LINK")"
+
+  if [ ! -d "$command_dir" ] || [ ! -x "$APP_EXECUTABLE_PATH" ]; then
+    return 0
+  fi
+
+  ln -sfn "$APP_EXECUTABLE_PATH" "$APP_COMMAND_LINK" 2>/dev/null || true
 }
 
 copy_shortcut_to_desktop() {
@@ -89,6 +101,7 @@ for home_dir in /home/*; do
 done
 
 fix_chrome_sandbox
+install_command_link
 
 if command -v update-desktop-database >/dev/null 2>&1; then
   update-desktop-database /usr/share/applications 2>/dev/null || true

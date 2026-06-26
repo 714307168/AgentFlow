@@ -19,6 +19,9 @@ test("linux package scripts create desktop shortcuts for desktop environments", 
   assert.match(installScript, /XDG_DESKTOP_DIR/);
   assert.match(installScript, /\$home_dir\/Desktop/);
   assert.match(installScript, /\$home_dir\/桌面/);
+  assert.doesNotMatch(installScript, /妗岄潰/);
+  assert.match(installScript, /\/usr\/local\/bin\/\$\{executable\}/);
+  assert.match(installScript, /ln -sfn/);
   assert.match(installScript, /metadata::trusted/);
   assert.match(installScript, /update-desktop-database/);
   assert.match(installScript, /gtk-update-icon-cache/);
@@ -27,6 +30,9 @@ test("linux package scripts create desktop shortcuts for desktop environments", 
   assert.match(installScript, /chown root:root/);
   assert.match(removeScript, /Exec=\.\*\$EXECUTABLE_NAME/);
   assert.match(removeScript, /\$home_dir\/桌面/);
+  assert.doesNotMatch(removeScript, /妗岄潰/);
+  assert.match(removeScript, /\/usr\/local\/bin\/\$\{executable\}/);
+  assert.match(removeScript, /readlink/);
   assert.match(removeScript, /update-desktop-database/);
   assert.match(removeScript, /gtk-update-icon-cache/);
   assert.match(builderConfig, /linux:\n  icon: icons/);

@@ -3,6 +3,8 @@ set -eu
 
 SHORTCUT_NAME="${productFilename}.desktop"
 EXECUTABLE_NAME="${executable}"
+APP_INSTALL_DIR="/opt/${productFilename}"
+APP_COMMAND_LINK="/usr/local/bin/${executable}"
 
 remove_shortcut_from_desktop() {
   desktop_dir="$1"
@@ -15,6 +17,19 @@ remove_shortcut_from_desktop() {
   if grep -q "Exec=.*$EXECUTABLE_NAME" "$shortcut_path" 2>/dev/null; then
     rm -f "$shortcut_path"
   fi
+}
+
+remove_command_link() {
+  if [ ! -L "$APP_COMMAND_LINK" ]; then
+    return 0
+  fi
+
+  link_target="$(readlink "$APP_COMMAND_LINK" 2>/dev/null || true)"
+  case "$link_target" in
+    "$APP_INSTALL_DIR"/*)
+      rm -f "$APP_COMMAND_LINK" 2>/dev/null || true
+      ;;
+  esac
 }
 
 resolve_xdg_desktop_dir() {
@@ -63,6 +78,8 @@ for home_dir in /home/*; do
   [ -d "$home_dir" ] || continue
   remove_for_home "$home_dir"
 done
+
+remove_command_link
 
 if command -v update-desktop-database >/dev/null 2>&1; then
   update-desktop-database /usr/share/applications 2>/dev/null || true
