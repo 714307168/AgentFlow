@@ -137,6 +137,8 @@ jobs:
   linux:
     name: Linux AppImage, Debian package, and Arch package
     runs-on: ubuntu-latest
+    container:
+      image: node:20-bullseye
     if: github.event_name == 'push' || inputs.build_linux
     defaults:
       run:
@@ -145,18 +147,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-          cache-dependency-path: local-agent/package-lock.json
-
       - name: Install system packages
         run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential libarchive-tools rpm ruby ruby-dev
-          sudo gem install --no-document fpm
+          apt-get update
+          apt-get install -y --no-install-recommends build-essential ca-certificates git libarchive-tools python3 rpm ruby ruby-dev
+          gem install --no-document fpm
+
+      - name: Verify Linux build ABI baseline
+        run: |
+          ldd --version | head -n 1
+          node --version
+          npm --version
 
       - name: Install dependencies
         run: npm ci
