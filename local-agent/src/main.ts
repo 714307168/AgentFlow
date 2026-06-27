@@ -67,9 +67,13 @@ import {
 } from "./user-data-bootstrap";
 import { playSystemNotificationSound } from "./desktop-sound";
 import { getCliProviderRuntimeStatuses, probeCliProviderRuntime, type CliProviderRuntimeStatus } from "./cli-runtime-status";
-import { installCliProvider, upgradeCliProvider } from "./cli-updater";
+import { upgradeCliProvider } from "./cli-updater";
 import { resolvePreferredNpmRegistry } from "./npm-network";
 import { selectProviderRuntime, type ProviderRuntimeSelection } from "./provider-runtime";
+import {
+  shouldAutoMaintainManagedProviderSdk,
+  shouldPrepareManagedProviderSdkRuntime,
+} from "./provider-runtime-maintenance";
 import {
   generateProviderSdkImage,
   isProviderSdkConfigured,
@@ -543,12 +547,8 @@ function canAutoUpgradeCliProvider(status: CliProviderRuntimeStatus | null | und
   );
 }
 
-function canAutoInstallCliProvider(status: CliProviderRuntimeStatus | null | undefined): status is CliProviderRuntimeStatus {
-  return Boolean(status && !status.installed);
-}
-
 async function maybeAutoMaintainCliProvider(status: CliProviderRuntimeStatus): Promise<CliProviderRuntimeStatus> {
-  if (!canAutoUpgradeCliProvider(status) && !canAutoInstallCliProvider(status)) {
+  if (!canAutoUpgradeCliProvider(status)) {
     return status;
   }
 
@@ -567,25 +567,18 @@ async function maybeAutoMaintainCliProvider(status: CliProviderRuntimeStatus): P
     const version = status.version;
     const installMethod = status.installMethod;
     lastCliProviderAutoMaintainAt.set(provider, Date.now());
-    const shouldUpgrade = canAutoUpgradeCliProvider(status);
-    const action = shouldUpgrade ? "upgrade" : "install";
-    const commandPreview = shouldUpgrade
-      ? status.upgrade.commandPreview
-      : null;
-    appLogger.info("runtime", `Attempting automatic CLI ${action}.`, {
+    appLogger.info("runtime", "Attempting automatic CLI upgrade.", {
       provider,
       version,
       installMethod,
-      command: commandPreview,
-      reason: shouldUpgrade ? status.upgrade.reason : "CLI is unavailable and the desktop is preparing a managed provider runtime.",
+      command: status.upgrade.commandPreview,
+      reason: status.upgrade.reason,
       npmRegistry: resolvePreferredNpmRegistry(),
     });
 
-    const result = shouldUpgrade
-      ? await upgradeCliProvider(provider, installMethod)
-      : await installCliProvider(provider);
+    const result = await upgradeCliProvider(provider, installMethod);
     if (!result.success) {
-      appLogger.warn("runtime", `Automatic CLI ${action} failed.`, {
+      appLogger.warn("runtime", "Automatic CLI upgrade failed.", {
         provider,
         command: result.commandPreview,
         error: result.error,
@@ -595,7 +588,7 @@ async function maybeAutoMaintainCliProvider(status: CliProviderRuntimeStatus): P
       return status;
     }
 
-    appLogger.info("runtime", `Automatic CLI ${action} completed.`, {
+    appLogger.info("runtime", "Automatic CLI upgrade completed.", {
       provider,
       command: result.commandPreview,
       output: result.output,
@@ -628,11 +621,15 @@ async function getCliProviderRuntimeStatus(
   return await maybeAutoMaintainCliProvider(status);
 }
 
-function canAutoMaintainManagedProviderSdk(status: Awaited<ReturnType<typeof probeManagedProviderSdk>>): boolean {
-  return !status.installed || status.upgradeAvailable;
-}
+async function maybeAutoMaintainProviderSdk(
+  provider: CliProvider,
+  cliStatus: CliProviderRuntimeStatus | null | undefined,
+  sdkConfigured: boolean,
+): Promise<void> {
+  if (!shouldPrepareManagedProviderSdkRuntime({ cliStatus, sdkConfigured })) {
+    return;
+  }
 
-async function maybeAutoMaintainProviderSdk(provider: CliProvider): Promise<void> {
   const pendingMaintain = pendingProviderSdkAutoMaintains.get(provider);
   if (pendingMaintain) {
     await pendingMaintain;
@@ -646,7 +643,7 @@ async function maybeAutoMaintainProviderSdk(provider: CliProvider): Promise<void
 
   const maintainPromise = (async () => {
     const status = await probeManagedProviderSdk(provider);
-    if (!canAutoMaintainManagedProviderSdk(status)) {
+    if (!shouldAutoMaintainManagedProviderSdk({ cliStatus, sdkStatus: status, sdkConfigured })) {
       return;
     }
 
@@ -717,8 +714,8 @@ async function resolveProviderRuntime(projectId: string, provider: CliProvider):
     cliStatus,
     sdkConfigured: isProviderSdkConfigured(sdkConfig),
   });
-  if (runtime.kind === "sdk" && runtime.sdkConfigured) {
-    void maybeAutoMaintainProviderSdk(provider);
+  if (shouldPrepareManagedProviderSdkRuntime({ cliStatus, sdkConfigured: runtime.sdkConfigured })) {
+    void maybeAutoMaintainProviderSdk(provider, cliStatus, runtime.sdkConfigured);
   }
   appLogger.info("runtime", "Resolved provider runtime.", {
     projectId,
@@ -6994,8 +6991,8 @@ app.whenReady().then(async () => {
         cliStatus,
         sdkConfigured: isProviderSdkConfigured(sdkConfig),
       });
-      if (runtime.kind === "sdk" && runtime.sdkConfigured) {
-        await maybeAutoMaintainProviderSdk(provider);
+      if (shouldPrepareManagedProviderSdkRuntime({ cliStatus, sdkConfigured: runtime.sdkConfigured })) {
+        await maybeAutoMaintainProviderSdk(provider, cliStatus, runtime.sdkConfigured);
       }
     } catch (error) {
       appLogger.warn("runtime", "Failed to warm provider runtime status.", {
