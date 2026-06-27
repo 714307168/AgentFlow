@@ -284,7 +284,6 @@ class UpdateManager extends EventEmitter {
 
     try {
       const child = spawn(plan.command, plan.args, {
-        detached: true,
         stdio: "ignore",
         windowsHide: true,
       });
@@ -296,7 +295,28 @@ class UpdateManager extends EventEmitter {
           ),
         });
       });
-      child.unref();
+      child.on("close", (code) => {
+        if (code === 0) {
+          this.setState({
+            message: this.text(
+              "Update installed. AgentFlow is restarting.",
+              "更新已安装，AgentFlow 正在重启。",
+            ),
+          });
+          setTimeout(() => {
+            app.relaunch();
+            app.exit(0);
+          }, 500);
+          return;
+        }
+
+        this.setState({
+          message: this.text(
+            `Update package installer exited with code ${code ?? "unknown"}. Open a terminal and run: ${buildLinuxDesktopPackageInstallCommand(downloadedPath)}`,
+            `更新包安装器退出，状态码：${code ?? "unknown"}。请在终端执行：${buildLinuxDesktopPackageInstallCommand(downloadedPath)}`,
+          ),
+        });
+      });
       this.setState({
         message: this.text(
           `System installer started. Authorize the prompt to install the update: ${plan.commandPreview}`,

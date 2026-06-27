@@ -122,6 +122,16 @@ test("non-windows updates do not try to run silent NSIS installers", () => {
   assert.match(updateManager, /private async tryInstallSilently\(\): Promise<boolean> \{\n\s+if \(process\.platform !== "win32"\) \{\n\s+return false;/);
 });
 
+test("linux package updates restart the app after the package manager completes", () => {
+  const updateManager = readProjectFile("src/update-manager.ts");
+
+  assert.match(updateManager, /child\.on\("close", \(code\) => \{/);
+  assert.match(updateManager, /if \(code === 0\) \{/);
+  assert.match(updateManager, /app\.relaunch\(\)/);
+  assert.match(updateManager, /app\.exit\(0\)/);
+  assert.doesNotMatch(updateManager, /spawn\(plan\.command, plan\.args, \{\n\s+detached: true,/);
+});
+
 test("arch package keeps electron runtime dependencies installable", () => {
   const builderConfig = readProjectFile("electron-builder.yml");
 
