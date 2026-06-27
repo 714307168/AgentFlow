@@ -194,103 +194,27 @@ class SessionViewModel(
 
     fun syncFromDesktop() {
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true) }
-            val deviceId = tokenStore.getDeviceId()?.trim().orEmpty()
-            val previousToken = tokenStore.getToken()?.trim().orEmpty()
-            var tokenChanged = false
-
-            if (deviceId.isNotEmpty() && tokenStore.hasSavedCredentials()) {
-                authSessionManager.ensureValidToken(
-                    clientId = deviceId,
-                    forceRefresh = true
-                ).onSuccess { refreshedToken ->
-                    val normalized = refreshedToken.trim()
-                    tokenChanged = normalized.isNotEmpty() && normalized != previousToken
-                }.onFailure { error ->
-                    _uiState.update { it.copy(error = error.message ?: "Failed to refresh relay token") }
-                }
-            }
-
-            if (deviceId.isNotEmpty()) {
-                try {
-                    if (tokenChanged || webSocket.connectionState.value != RelayWebSocket.ConnectionState.CONNECTED) {
-                        webSocket.forceReconnect("manual-session-refresh")
-                    } else {
-                        webSocket.ensureHealthyConnection(
-                            reason = "manual-session-refresh",
-                            staleTimeoutMs = RESUME_STALE_CONNECTION_TIMEOUT_MS
-                        )
-                    }
-                } catch (error: Exception) {
-                    _uiState.update { it.copy(error = error.message ?: "Failed to reconnect relay") }
-                }
-            }
-
-            var waitedMs = 0L
-            while (
-                waitedMs < MANUAL_REFRESH_CONNECTION_WAIT_MS &&
-                webSocket.connectionState.value != RelayWebSocket.ConnectionState.CONNECTED
-            ) {
-                delay(MANUAL_REFRESH_CONNECTION_POLL_MS)
-                waitedMs += MANUAL_REFRESH_CONNECTION_POLL_MS
-            }
-
-            if (webSocket.connectionState.value == RelayWebSocket.ConnectionState.CONNECTED) {
-                webSocket.send(
-                    Envelope(
-                        id = UUID.randomUUID().toString(),
-                        event = Events.PROJECT_LIST_REQUEST,
-                        ts = System.currentTimeMillis()
-                    )
-                )
-                delay(400)
-            }
-            repository.syncFromServer(force = true).fold(
-                onSuccess = {
-                    if (webSocket.connectionState.value == RelayWebSocket.ConnectionState.CONNECTED) {
-                        val sessions = repository.getSessions()
-                        messageRepository.requestSessionShellSyncs(
-                            sessions = sessions,
-                            bypassDedupe = true,
-                            maxProjects = sessions.size
-                        )
-                        refreshWorkgroups(showLoading = false, force = true)
-                    }
-                    _uiState.update { it.copy(isLoading = false) }
-                },
-                onFailure = { e -> _uiState.update { it.copy(isLoading = false, error = e.message) } }
+            recoverRelayAndSyncSessions(
+                reason = "manual-session-refresh",
+                forceTokenRefresh = true,
+                forceSessionSync = true,
+                forceWorkgroups = true,
+                showLoading = true,
+                reportErrors = true
             )
         }
     }
 
     fun onResume() {
         viewModelScope.launch {
-            try {
-                webSocket.ensureHealthyConnection(
-                    reason = "session-list-resume",
-                    staleTimeoutMs = RESUME_STALE_CONNECTION_TIMEOUT_MS
-                )
-            } catch (_: Exception) {
-            }
-
-            if (webSocket.connectionState.value == RelayWebSocket.ConnectionState.CONNECTED) {
-                webSocket.send(
-                    Envelope(
-                        id = UUID.randomUUID().toString(),
-                        event = Events.PROJECT_LIST_REQUEST,
-                        ts = System.currentTimeMillis()
-                    )
-                )
-                val sessions = repository.getSessions()
-                messageRepository.requestSessionShellSyncs(
-                    sessions = sessions,
-                    bypassDedupe = true,
-                    maxProjects = sessions.size
-                )
-                refreshWorkgroups(showLoading = false)
-            } else if (latestSessions.isEmpty()) {
-                repository.syncFromServer(force = true)
-            }
+            recoverRelayAndSyncSessions(
+                reason = "session-list-resume",
+                forceTokenRefresh = false,
+                forceSessionSync = true,
+                forceWorkgroups = false,
+                showLoading = false,
+                reportErrors = false
+            )
         }
     }
 
@@ -334,6 +258,102 @@ class SessionViewModel(
             _uiState.update { it.copy(isLoading = true) }
         }
         workgroupRepository.refresh(trackedAgentIds, force = force)
+    }
+
+    private suspend fun recoverRelayAndSyncSessions(
+        reason: String,
+        forceTokenRefresh: Boolean,
+        forceSessionSync: Boolean,
+        forceWorkgroups: Boolean,
+        showLoading: Boolean,
+        reportErrors: Boolean
+    ) {
+        if (showLoading) {
+            _uiState.update { it.copy(isLoading = true) }
+        }
+        try {
+            val deviceId = tokenStore.getDeviceId()?.trim().orEmpty()
+            val previousToken = tokenStore.getToken()?.trim().orEmpty()
+            var tokenChanged = false
+
+            if (deviceId.isNotEmpty() && tokenStore.hasSavedCredentials()) {
+                authSessionManager.ensureValidToken(
+                    clientId = deviceId,
+                    forceRefresh = forceTokenRefresh
+                ).onSuccess { refreshedToken ->
+                    val normalized = refreshedToken.trim()
+                    tokenChanged = normalized.isNotEmpty() && normalized != previousToken
+                }.onFailure { error ->
+                    if (reportErrors) {
+                        _uiState.update { it.copy(error = error.message ?: "Failed to refresh relay token") }
+                    }
+                }
+            }
+
+            if (deviceId.isNotEmpty()) {
+                runCatching {
+                    if (tokenChanged || webSocket.connectionState.value != RelayWebSocket.ConnectionState.CONNECTED) {
+                        webSocket.forceReconnect(reason)
+                    } else {
+                        webSocket.ensureHealthyConnection(
+                            reason = reason,
+                            staleTimeoutMs = RESUME_STALE_CONNECTION_TIMEOUT_MS
+                        )
+                    }
+                }.onFailure { error ->
+                    if (reportErrors) {
+                        _uiState.update { it.copy(error = error.message ?: "Failed to reconnect relay") }
+                    }
+                }
+            }
+
+            waitForRelayConnection()
+
+            if (webSocket.connectionState.value == RelayWebSocket.ConnectionState.CONNECTED) {
+                webSocket.send(
+                    Envelope(
+                        id = UUID.randomUUID().toString(),
+                        event = Events.PROJECT_LIST_REQUEST,
+                        ts = System.currentTimeMillis()
+                    )
+                )
+                delay(400)
+            }
+
+            repository.syncFromServer(force = forceSessionSync).fold(
+                onSuccess = {
+                    val sessions = repository.getSessions()
+                    if (webSocket.connectionState.value == RelayWebSocket.ConnectionState.CONNECTED) {
+                        messageRepository.requestSessionShellSyncs(
+                            sessions = sessions,
+                            bypassDedupe = true,
+                            maxProjects = sessions.size
+                        )
+                        refreshWorkgroups(showLoading = false, force = forceWorkgroups)
+                    }
+                },
+                onFailure = { error ->
+                    if (reportErrors) {
+                        _uiState.update { it.copy(error = error.message) }
+                    }
+                }
+            )
+        } finally {
+            if (showLoading) {
+                _uiState.update { it.copy(isLoading = false) }
+            }
+        }
+    }
+
+    private suspend fun waitForRelayConnection() {
+        var waitedMs = 0L
+        while (
+            waitedMs < MANUAL_REFRESH_CONNECTION_WAIT_MS &&
+            webSocket.connectionState.value != RelayWebSocket.ConnectionState.CONNECTED
+        ) {
+            delay(MANUAL_REFRESH_CONNECTION_POLL_MS)
+            waitedMs += MANUAL_REFRESH_CONNECTION_POLL_MS
+        }
     }
 
     private fun rebuildSessionItems(queryOverride: String? = null) {
