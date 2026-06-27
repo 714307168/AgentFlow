@@ -78,28 +78,14 @@ test("formatProviderSdkInstallCommand quotes whitespace safely", () => {
   );
 });
 
-test("maintainManagedProviderSdk skips npm install when package manager is unavailable and HTTP fallback is configured", async () => {
+test("maintainManagedProviderSdk skips npm install when package manager is unavailable", async () => {
   const installRoot = fs.mkdtempSync(path.join(os.tmpdir(), "agentflow-provider-sdk-no-npm-"));
   const result = await maintainManagedProviderSdk("codex", installRoot, {
-    sdkConfigured: true,
-    packageManagerAvailable: false,
-  });
-
-  assert.equal(result.success, true);
-  assert.equal(result.skipped, true);
-  assert.equal(result.fallbackAvailable, true);
-  assert.match(result.output, /HTTP API runtime/i);
-});
-
-test("maintainManagedProviderSdk reports unavailable when npm and API credentials are both missing", async () => {
-  const installRoot = fs.mkdtempSync(path.join(os.tmpdir(), "agentflow-provider-sdk-no-runtime-"));
-  const result = await maintainManagedProviderSdk("claude", installRoot, {
-    sdkConfigured: false,
     packageManagerAvailable: false,
   });
 
   assert.equal(result.success, false);
   assert.equal(result.skipped, true);
-  assert.equal(result.fallbackAvailable, false);
+  assert.match(result.output, /npm is not available/i);
   assert.match(result.error, /npm is not available/i);
 });

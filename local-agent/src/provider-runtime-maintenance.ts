@@ -13,6 +13,12 @@ export function shouldPrepareManagedProviderSdkRuntime(options: {
   return options.sdkConfigured && cliStatus.capabilities.promptExecution !== true;
 }
 
+export function shouldMaintainManagedProviderSdkPackage(options: {
+  sdkStatus: ProviderSdkPackageStatus;
+}): boolean {
+  return !options.sdkStatus.installed || options.sdkStatus.upgradeAvailable;
+}
+
 export function shouldAutoMaintainManagedProviderSdk(options: {
   cliStatus: CliProviderRuntimeStatus | null | undefined;
   sdkStatus: ProviderSdkPackageStatus;

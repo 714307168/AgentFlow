@@ -72,6 +72,7 @@ import { resolvePreferredNpmRegistry } from "./npm-network";
 import { selectProviderRuntime, type ProviderRuntimeSelection } from "./provider-runtime";
 import {
   shouldAutoMaintainManagedProviderSdk,
+  shouldMaintainManagedProviderSdkPackage,
   shouldPrepareManagedProviderSdkRuntime,
 } from "./provider-runtime-maintenance";
 import {
@@ -642,8 +643,9 @@ async function maybeAutoMaintainProviderSdk(
   provider: CliProvider,
   cliStatus: CliProviderRuntimeStatus | null | undefined,
   sdkConfigured: boolean,
+  options: { forcePackageMaintenance?: boolean } = {},
 ): Promise<void> {
-  if (!shouldPrepareManagedProviderSdkRuntime({ cliStatus, sdkConfigured })) {
+  if (!options.forcePackageMaintenance && !shouldPrepareManagedProviderSdkRuntime({ cliStatus, sdkConfigured })) {
     return;
   }
 
@@ -660,7 +662,10 @@ async function maybeAutoMaintainProviderSdk(
 
   const maintainPromise = (async () => {
     const status = await probeManagedProviderSdk(provider);
-    if (!shouldAutoMaintainManagedProviderSdk({ cliStatus, sdkStatus: status, sdkConfigured })) {
+    const shouldMaintain = options.forcePackageMaintenance
+      ? shouldMaintainManagedProviderSdkPackage({ sdkStatus: status })
+      : shouldAutoMaintainManagedProviderSdk({ cliStatus, sdkStatus: status, sdkConfigured });
+    if (!shouldMaintain) {
       return;
     }
 
@@ -678,13 +683,12 @@ async function maybeAutoMaintainProviderSdk(
       installRoot: status.installRoot,
     });
 
-    const result = await maintainManagedProviderSdk(provider, status.installRoot, { sdkConfigured });
+    const result = await maintainManagedProviderSdk(provider, status.installRoot);
     if (result.skipped) {
       appLogger.warn("runtime", "Skipped automatic managed SDK maintenance.", {
         provider,
         command: result.commandPreview,
         reason: result.output,
-        fallbackAvailable: result.fallbackAvailable === true,
         npmRegistry: resolvePreferredNpmRegistry(),
         installRoot: status.installRoot,
       });
@@ -7020,9 +7024,9 @@ app.whenReady().then(async () => {
         cliStatus,
         sdkConfigured: isProviderSdkConfigured(sdkConfig),
       });
-      if (shouldPrepareManagedProviderSdkRuntime({ cliStatus, sdkConfigured: runtime.sdkConfigured })) {
-        await maybeAutoMaintainProviderSdk(provider, cliStatus, runtime.sdkConfigured);
-      }
+      await maybeAutoMaintainProviderSdk(provider, cliStatus, runtime.sdkConfigured, {
+        forcePackageMaintenance: true,
+      });
     } catch (error) {
       appLogger.warn("runtime", "Failed to warm provider runtime status.", {
         provider,

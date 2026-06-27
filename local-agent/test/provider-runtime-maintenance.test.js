@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 
 const {
   shouldAutoMaintainManagedProviderSdk,
+  shouldMaintainManagedProviderSdkPackage,
   shouldPrepareManagedProviderSdkRuntime,
 } = require("../dist/src/provider-runtime-maintenance.js");
 
@@ -76,5 +77,19 @@ test("managed provider SDK auto maintenance installs or upgrades only when SDK r
     cliStatus: createCliStatus(),
     sdkConfigured: true,
     sdkStatus: createSdkStatus({ installed: false }),
+  }), false);
+});
+
+test("managed provider SDK package maintenance ignores API credential state", () => {
+  assert.equal(shouldMaintainManagedProviderSdkPackage({
+    sdkStatus: createSdkStatus({ installed: false }),
+  }), true);
+
+  assert.equal(shouldMaintainManagedProviderSdkPackage({
+    sdkStatus: createSdkStatus({ installed: true, version: "1.0.0", upgradeAvailable: true }),
+  }), true);
+
+  assert.equal(shouldMaintainManagedProviderSdkPackage({
+    sdkStatus: createSdkStatus({ installed: true, version: "1.0.0", upgradeAvailable: false }),
   }), false);
 });

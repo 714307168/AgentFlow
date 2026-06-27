@@ -35,7 +35,6 @@ export interface ProviderSdkMaintainResult {
   commandPreview: string;
   error?: string;
   skipped?: boolean;
-  fallbackAvailable?: boolean;
 }
 
 const PROVIDER_SDK_DIRECTORY = "provider-sdk-runtime";
@@ -173,23 +172,19 @@ export async function probeManagedProviderSdk(
 export async function maintainManagedProviderSdk(
   provider: CliProvider,
   installRoot = resolveManagedProviderSdkInstallRoot(provider),
-  options: { sdkConfigured?: boolean; packageManagerAvailable?: boolean } = {},
+  options: { packageManagerAvailable?: boolean } = {},
 ): Promise<ProviderSdkMaintainResult> {
   const command = buildProviderSdkInstallCommand(provider, installRoot);
   const commandPreview = formatProviderSdkInstallCommand(command);
   const packageManagerAvailable = options.packageManagerAvailable
     ?? await isProviderSdkPackageManagerAvailable();
   if (!packageManagerAvailable) {
-    const fallbackAvailable = options.sdkConfigured === true;
     return {
-      success: fallbackAvailable,
+      success: false,
       skipped: true,
-      fallbackAvailable,
-      output: fallbackAvailable
-        ? "npm is not available. Managed SDK installation was skipped; the built-in HTTP API runtime will be used."
-        : "npm is not available. Managed SDK installation was skipped, and no API credentials are configured.",
+      output: "npm is not available. Managed SDK installation was skipped.",
       commandPreview,
-      error: fallbackAvailable ? undefined : "npm is not available in PATH.",
+      error: "npm is not available in PATH.",
     };
   }
   try {
