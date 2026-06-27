@@ -4,6 +4,7 @@ import * as path from "path";
 import { createRequire } from "module";
 import { parseNpmLatestVersion } from "./cli-latest-version";
 import { buildNpmCommandEnvironment, resolvePreferredNpmRegistry } from "./npm-network";
+import { getNpmCommand, isNpmCommandAvailable } from "./npm-package-manager";
 import { getPersistedLocalDataRoot } from "./user-data-bootstrap";
 import { compareSemanticVersions, extractSemanticVersion, shouldRecommendVersionUpgrade } from "./cli-version";
 import type { CliProvider } from "./runtime-types";
@@ -46,7 +47,7 @@ const PROVIDER_SDK_VERSION_QUERY_MAX_BUFFER = 128 * 1024;
 export function getProviderSdkPackageManagerCommand(
   platform: NodeJS.Platform = process.platform,
 ): string {
-  return platform === "win32" ? "npm.cmd" : "npm";
+  return getNpmCommand(platform);
 }
 
 export function getProviderSdkPackageName(provider: CliProvider): string {
@@ -120,18 +121,7 @@ export async function detectProviderSdkLatestVersion(
 export async function isProviderSdkPackageManagerAvailable(
   platform: NodeJS.Platform = process.platform,
 ): Promise<boolean> {
-  try {
-    await runCommand(
-      getProviderSdkPackageManagerCommand(platform),
-      ["--version"],
-      buildNpmCommandEnvironment(),
-      PROVIDER_SDK_VERSION_QUERY_TIMEOUT_MS,
-      PROVIDER_SDK_VERSION_QUERY_MAX_BUFFER,
-    );
-    return true;
-  } catch {
-    return false;
-  }
+  return await isNpmCommandAvailable(platform);
 }
 
 export function readInstalledProviderSdkVersion(

@@ -67,7 +67,7 @@ import {
 } from "./user-data-bootstrap";
 import { playSystemNotificationSound } from "./desktop-sound";
 import { getCliProviderRuntimeStatuses, probeCliProviderRuntime, type CliProviderRuntimeStatus } from "./cli-runtime-status";
-import { upgradeCliProvider } from "./cli-updater";
+import { installCliProvider, upgradeCliProvider } from "./cli-updater";
 import { resolvePreferredNpmRegistry } from "./npm-network";
 import { selectProviderRuntime, type ProviderRuntimeSelection } from "./provider-runtime";
 import {
@@ -547,8 +547,12 @@ function canAutoUpgradeCliProvider(status: CliProviderRuntimeStatus | null | und
   );
 }
 
+function canAutoInstallCliProvider(status: CliProviderRuntimeStatus | null | undefined): status is CliProviderRuntimeStatus {
+  return Boolean(status && !status.installed);
+}
+
 async function maybeAutoMaintainCliProvider(status: CliProviderRuntimeStatus): Promise<CliProviderRuntimeStatus> {
-  if (!canAutoUpgradeCliProvider(status)) {
+  if (!canAutoInstallCliProvider(status) && !canAutoUpgradeCliProvider(status)) {
     return status;
   }
 
@@ -567,18 +571,31 @@ async function maybeAutoMaintainCliProvider(status: CliProviderRuntimeStatus): P
     const version = status.version;
     const installMethod = status.installMethod;
     lastCliProviderAutoMaintainAt.set(provider, Date.now());
-    appLogger.info("runtime", "Attempting automatic CLI upgrade.", {
+    const action = status.installed ? "upgrade" : "install";
+    appLogger.info("runtime", `Attempting automatic CLI ${action}.`, {
       provider,
       version,
       installMethod,
-      command: status.upgrade.commandPreview,
-      reason: status.upgrade.reason,
+      command: status.installed ? status.upgrade.commandPreview : null,
+      reason: status.installed ? status.upgrade.reason : "CLI is missing.",
       npmRegistry: resolvePreferredNpmRegistry(),
     });
 
-    const result = await upgradeCliProvider(provider, installMethod);
+    const result = status.installed
+      ? await upgradeCliProvider(provider, installMethod)
+      : await installCliProvider(provider);
+    if (result.skipped) {
+      appLogger.warn("runtime", `Skipped automatic CLI ${action}.`, {
+        provider,
+        command: result.commandPreview,
+        error: result.error,
+        output: result.output,
+        npmRegistry: resolvePreferredNpmRegistry(),
+      });
+      return status;
+    }
     if (!result.success) {
-      appLogger.warn("runtime", "Automatic CLI upgrade failed.", {
+      appLogger.warn("runtime", `Automatic CLI ${action} failed.`, {
         provider,
         command: result.commandPreview,
         error: result.error,
@@ -588,7 +605,7 @@ async function maybeAutoMaintainCliProvider(status: CliProviderRuntimeStatus): P
       return status;
     }
 
-    appLogger.info("runtime", "Automatic CLI upgrade completed.", {
+    appLogger.info("runtime", `Automatic CLI ${action} completed.`, {
       provider,
       command: result.commandPreview,
       output: result.output,

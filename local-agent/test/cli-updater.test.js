@@ -6,6 +6,7 @@ const {
   buildCliInstallCommand,
   buildCliUpgradeCommand,
   formatCliUpgradeCommandPreview,
+  maintainCliProvider,
 } = require("../dist/src/cli-updater.js");
 
 test("detectCliInstallMethod recognizes common install sources", () => {
@@ -65,4 +66,14 @@ test("formatCliUpgradeCommandPreview quotes whitespace safely", () => {
     }),
     'powershell.exe -File "C:/Program Files/Agent Flow/upgrade.ps1"',
   );
+});
+
+test("maintainCliProvider skips npm installs when npm is unavailable", async () => {
+  const result = await maintainCliProvider("codex", "npm", "install", {
+    packageManagerAvailable: false,
+  });
+
+  assert.equal(result.success, false);
+  assert.equal(result.skipped, true);
+  assert.match(result.error, /requires npm/i);
 });

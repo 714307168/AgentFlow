@@ -2,6 +2,7 @@ import { execFile } from "child_process";
 import { getProviderInstallTargets } from "./provider-registry";
 import type { CliProvider } from "./runtime-types";
 import { appendNpmRegistryArgs, buildNpmCommandEnvironment } from "./npm-network";
+import { getNpmCommand, isNpmCommandAvailable } from "./npm-package-manager";
 
 export type CliInstallMethod = "npm" | "brew" | "scoop" | "winget" | "unknown";
 export type CliMaintenanceAction = "install" | "upgrade";
@@ -20,6 +21,14 @@ export interface CliUpgradePlan {
   commandPreview: string | null;
   reason: string | null;
   latestVersion: string | null;
+}
+
+export interface CliMaintenanceResult {
+  success: boolean;
+  output: string;
+  commandPreview: string | null;
+  error?: string;
+  skipped?: boolean;
 }
 
 const CLI_UPGRADE_TIMEOUT_MS = 10 * 60 * 1000;
@@ -88,7 +97,7 @@ export function buildCliMaintenanceCommand(
 
   if (installMethod === "npm") {
     return {
-      command: platform === "win32" ? "npm.cmd" : "npm",
+      command: getNpmCommand(platform),
       args: appendNpmRegistryArgs(["install", "-g", getCliPackageName(provider)]),
       env: buildNpmCommandEnvironment(),
     };
@@ -160,13 +169,13 @@ export function formatCliUpgradeCommandPreview(command: CliUpgradeCommand | null
 export async function upgradeCliProvider(
   provider: CliProvider,
   installMethod: CliInstallMethod | null,
-): Promise<{ success: boolean; output: string; commandPreview: string | null; error?: string }> {
+): Promise<CliMaintenanceResult> {
   return await maintainCliProvider(provider, installMethod, "upgrade");
 }
 
 export async function installCliProvider(
   provider: CliProvider,
-): Promise<{ success: boolean; output: string; commandPreview: string | null; error?: string }> {
+): Promise<CliMaintenanceResult> {
   return await maintainCliProvider(provider, "npm", "install");
 }
 
@@ -174,7 +183,8 @@ export async function maintainCliProvider(
   provider: CliProvider,
   installMethod: CliInstallMethod | null,
   action: CliMaintenanceAction,
-): Promise<{ success: boolean; output: string; commandPreview: string | null; error?: string }> {
+  options: { packageManagerAvailable?: boolean } = {},
+): Promise<CliMaintenanceResult> {
   const command = buildCliMaintenanceCommand(provider, installMethod, action);
   const commandPreview = formatCliUpgradeCommandPreview(command);
   if (!command) {
@@ -183,6 +193,17 @@ export async function maintainCliProvider(
       output: "",
       commandPreview,
       error: `Automatic CLI ${action} is not supported for this installation source.`,
+    };
+  }
+  const packageManagerAvailable = options.packageManagerAvailable
+    ?? await isNpmCommandAvailable();
+  if (installMethod === "npm" && !packageManagerAvailable) {
+    return {
+      success: false,
+      skipped: true,
+      output: "",
+      commandPreview,
+      error: `Automatic CLI ${action} requires npm, but npm is not available in PATH.`,
     };
   }
 
