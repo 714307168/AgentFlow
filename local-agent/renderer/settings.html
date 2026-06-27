@@ -866,6 +866,80 @@
       position: relative;
       z-index: 1;
     }
+    .skill-catalog-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+    }
+    .skill-catalog-meta {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .skill-catalog-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 12px;
+    }
+    .skill-card {
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: linear-gradient(145deg, rgba(255,255,255,0.04), rgba(88,166,255,0.08));
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      min-height: 190px;
+    }
+    .skill-card-head {
+      display: flex;
+      gap: 8px;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+    .skill-card-title {
+      font-weight: 700;
+      color: var(--text);
+      line-height: 1.35;
+    }
+    .skill-card-source {
+      color: var(--muted);
+      font-size: 11px;
+      white-space: nowrap;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 3px 8px;
+    }
+    .skill-card-desc,
+    .skill-card-hint {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .skill-card-zh {
+      border-left: 3px solid rgba(63, 185, 80, 0.65);
+      padding-left: 10px;
+      color: var(--text);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+    .skill-tag-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: auto;
+    }
+    .skill-tag {
+      color: var(--muted);
+      font-size: 11px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 2px 7px;
+      background: rgba(0,0,0,0.12);
+    }
     .pubkey.multiline {
       max-height: 180px;
       overflow: auto;
@@ -1145,6 +1219,7 @@
     .settings-nav-item[data-pane="schedule"]::before { content: "⏰"; }
     .settings-nav-item[data-pane="updates"]::before { content: "↑"; }
     .settings-nav-item[data-pane="runtime"]::before { content: "⌘"; }
+    .settings-nav-item[data-pane="skills"]::before { content: "✦"; }
     .settings-nav-item[data-pane="security"]::before { content: "🔒"; }
     .settings-nav-item:hover {
       background: rgba(31, 122, 140, 0.09);
@@ -1739,6 +1814,7 @@
         <button class="settings-nav-item" id="automationMenuItem" type="button" data-pane="automation">Automation</button>
         <button class="settings-nav-item" id="languageMenuItem" type="button" data-pane="language">Language</button>
         <button class="settings-nav-item" id="launchMenuItem" type="button" data-pane="launch">Launch</button>
+        <button class="settings-nav-item" id="skillsMenuItem" type="button" data-pane="skills">Skills</button>
         <button class="settings-nav-item" id="runtimeMenuItem" type="button" data-pane="runtime">Runtime</button>
         <button class="settings-nav-item" id="updatesMenuItem" type="button" data-pane="updates">Updates</button>
         <button class="settings-nav-item" id="storageMenuItem" type="button" data-pane="storage">Local Files</button>
@@ -2630,6 +2706,22 @@
           </div>
         </section>
 
+        <section class="settings-pane hidden" id="skillsPane" data-pane-content="skills">
+          <div class="section">
+            <div class="section-title" id="skillsSection">Skills</div>
+            <div class="section-subtitle" id="skillsSectionHint">Collect built-in and local skills, then translate names and descriptions when a model API is configured.</div>
+            <div class="skill-catalog-toolbar">
+              <div class="skill-catalog-meta" id="skillCatalogSummary">No skill catalog loaded yet.</div>
+              <div class="btn-row">
+                <button class="btn-secondary btn-small" id="refreshSkillCatalogBtn">Refresh Skills</button>
+                <button class="btn-primary btn-small" id="translateSkillCatalogBtn">Translate to Chinese</button>
+              </div>
+            </div>
+            <div class="skill-catalog-meta" id="skillCatalogStatus">Waiting for scan.</div>
+            <div class="skill-catalog-grid" id="skillCatalogList" data-empty-message="No skills found."></div>
+          </div>
+        </section>
+
         <section class="settings-pane hidden" id="runtimePane" data-pane-content="runtime">
           <div class="section">
             <div class="section-title" id="runtimeSection">Runtime</div>
@@ -2747,6 +2839,7 @@
     let latestRelayTransfers = [];
     let latestRelayDevices = [];
     let latestLocalCommands = [];
+    let latestSkillCatalog = null;
     let latestProjectCatalog = [];
     let latestScheduledTasks = [];
     let scheduledTaskFilter = "all";
@@ -2798,6 +2891,9 @@
       transferDevicesLoaded: false,
       transferDevicesDirty: true,
       transferDevicesPromise: null,
+      skillsLoaded: false,
+      skillsDirty: true,
+      skillsPromise: null,
       projectsLoaded: false,
       projectsDirty: true,
       projectsPromise: null,
@@ -2850,6 +2946,7 @@
         "automation",
         "language",
         "launch",
+        "skills",
         "storage",
         "schedule",
         "updates",
@@ -2876,6 +2973,8 @@
           return inlineText("Interface Language", "界面语言");
         case "launch":
           return inlineText("Launch Settings", "启动设置");
+        case "skills":
+          return inlineText("Skill Library", "技能库");
         case "storage":
           return inlineText("Local Files", "本地文件");
         case "schedule":
@@ -2950,6 +3049,107 @@
         latestLocalCommands = [];
       }
       return latestLocalCommands;
+    }
+
+    async function loadSkillCatalog(options = {}) {
+      const force = options.force === true;
+      const translateToZh = options.translateToZh === true;
+      if (!api.listSkillCatalog) {
+        latestSkillCatalog = {
+          items: [],
+          scannedRoots: [],
+          translationMode: "none",
+          translatedAt: null,
+          error: inlineText("Skill catalog API is unavailable.", "技能库 API 不可用。"),
+        };
+        renderSkillCatalog();
+        return latestSkillCatalog;
+      }
+      if (!force && !translateToZh && paneLoadState.skillsPromise) {
+        await paneLoadState.skillsPromise;
+        return latestSkillCatalog;
+      }
+      if (!force && !translateToZh && paneLoadState.skillsLoaded && !paneLoadState.skillsDirty) {
+        renderSkillCatalog();
+        return latestSkillCatalog;
+      }
+      document.getElementById("skillCatalogStatus").textContent = translateToZh
+        ? inlineText("Translating with the configured model...", "正在使用已配置模型翻译...")
+        : inlineText("Scanning skill catalog...", "正在扫描技能库...");
+      paneLoadState.skillsPromise = (async () => {
+        latestSkillCatalog = await api.listSkillCatalog({ translateToZh });
+        paneLoadState.skillsLoaded = true;
+        paneLoadState.skillsDirty = false;
+        renderSkillCatalog();
+        return latestSkillCatalog;
+      })();
+      try {
+        return await paneLoadState.skillsPromise;
+      } catch (error) {
+        document.getElementById("skillCatalogStatus").textContent = getErrorMessage(error);
+        throw error;
+      } finally {
+        paneLoadState.skillsPromise = null;
+      }
+    }
+
+    function renderSkillCatalog() {
+      const list = document.getElementById("skillCatalogList");
+      const summary = document.getElementById("skillCatalogSummary");
+      const status = document.getElementById("skillCatalogStatus");
+      if (!list || !summary || !status) {
+        return;
+      }
+      const snapshot = latestSkillCatalog || {
+        items: [],
+        scannedRoots: [],
+        translationMode: "none",
+        translatedAt: null,
+        error: null,
+      };
+      const items = Array.isArray(snapshot.items) ? snapshot.items : [];
+      const localCount = items.filter((item) => item && item.source === "local").length;
+      const builtInCount = items.filter((item) => item && item.source === "built-in").length;
+      summary.textContent = inlineText(
+        items.length + " skills · " + builtInCount + " built-in · " + localCount + " local",
+        items.length + " 个技能 · " + builtInCount + " 个内置 · " + localCount + " 个本机"
+      );
+      const modeText = snapshot.translationMode === "model"
+        ? inlineText("Chinese translation generated by configured model.", "中文翻译已由配置的模型生成。")
+        : (snapshot.translationMode === "fallback"
+          ? inlineText("Showing built-in Chinese fallback translations.", "正在显示内置中文翻译兜底。")
+          : inlineText("Open Runtime settings and configure a model API, then click Translate to Chinese.", "在运行时设置里配置模型 API 后，点击翻译成中文。"));
+      const rootText = Array.isArray(snapshot.scannedRoots) && snapshot.scannedRoots.length
+        ? inlineText("Scanned roots: " + snapshot.scannedRoots.join(" | "), "扫描目录：" + snapshot.scannedRoots.join(" | "))
+        : inlineText("No local skill roots scanned.", "未扫描到本机技能目录。");
+      status.textContent = snapshot.error ? modeText + " " + snapshot.error : modeText + " " + rootText;
+      if (!items.length) {
+        list.innerHTML = "<div class=\"empty\">" + escapeHtml(list.getAttribute("data-empty-message") || "No skills found.") + "</div>";
+        return;
+      }
+      list.innerHTML = items.map((item) => {
+        const safeName = escapeHtml(item.name || item.id || "Skill");
+        const title = item.zhName
+          ? escapeHtml(item.zhName) + " <span class=\"muted\">/ " + safeName + "</span>"
+          : safeName;
+        const zhBlock = item.zhDescription
+          ? "<div class=\"skill-card-zh\">" + escapeHtml(item.zhDescription) + "</div>"
+          : "";
+        const tags = Array.isArray(item.tags) ? item.tags : [];
+        const tagHtml = tags.map((tag) => "<span class=\"skill-tag\">" + escapeHtml(tag) + "</span>").join("");
+        return [
+          "<article class=\"skill-card\">",
+          "<div class=\"skill-card-head\">",
+          "<div class=\"skill-card-title\">" + title + "</div>",
+          "<div class=\"skill-card-source\">" + escapeHtml(item.sourceLabel || item.source || "") + "</div>",
+          "</div>",
+          zhBlock,
+          "<div class=\"skill-card-desc\">" + escapeHtml(item.description || "") + "</div>",
+          "<div class=\"skill-card-hint\">" + escapeHtml(item.installHint || item.path || "") + "</div>",
+          "<div class=\"skill-tag-row\">" + tagHtml + "</div>",
+          "</article>",
+        ].join("");
+      }).join("");
     }
 
     async function invokeLocalCommand(commandId, payload, fallback) {
@@ -4225,6 +4425,10 @@
         });
         return;
       }
+      if (normalizedPane === "skills") {
+        await loadSkillCatalog();
+        return;
+      }
       if (normalizedPane === "storage") {
         await refreshLocalDataMetrics();
         return;
@@ -4346,6 +4550,7 @@
         "automation",
         "language",
         "launch",
+        "skills",
         "runtime",
         "updates",
         "storage",
@@ -4431,6 +4636,7 @@
       document.getElementById("automationMenuItem").textContent = inlineText("Automation", "自动化");
       document.getElementById("languageMenuItem").textContent = inlineText("Language", "语言");
       document.getElementById("launchMenuItem").textContent = inlineText("Launch", "启动");
+      document.getElementById("skillsMenuItem").textContent = inlineText("Skills", "技能库");
       document.getElementById("runtimeMenuItem").textContent = inlineText("Runtime", "运行时");
       document.getElementById("updatesMenuItem").textContent = inlineText("Updates", "更新");
       document.getElementById("storageMenuItem").textContent = inlineText("Local Files", "本地文件");
@@ -4655,6 +4861,15 @@
         "Play a desktop notification sound after a task completes successfully.",
         "当任务成功完成后，播放桌面提示音。"
       );
+      document.getElementById("skillsSection").textContent = inlineText("Skill Library", "技能库");
+      document.getElementById("skillsSectionHint").textContent = inlineText(
+        "Collect built-in and local skills, then translate names and descriptions when a model API is configured.",
+        "自动收集内置和本机 skills；如果已配置模型 API，可把技能名称和介绍翻译成中文。"
+      );
+      document.getElementById("refreshSkillCatalogBtn").textContent = inlineText("Refresh Skills", "刷新技能库");
+      document.getElementById("translateSkillCatalogBtn").textContent = inlineText("Translate to Chinese", "翻译成中文");
+      document.getElementById("skillCatalogList").setAttribute("data-empty-message", inlineText("No skills found.", "没有找到技能。"));
+      renderSkillCatalog();
       document.getElementById("diagnosticsSection").textContent = inlineText("Local Files", "本地文件");
       document.getElementById("localDataRootLabel").textContent = inlineText("Data Folder", "数据目录");
       document.getElementById("localDataRootScope").textContent = inlineText("Local Only", "仅本机");
@@ -7459,6 +7674,16 @@
     document.getElementById("overviewUploadLogsBtn").addEventListener("click", () => { document.getElementById("uploadDesktopLogsBtn").click(); });
     document.getElementById("overviewCheckUpdatesBtn").addEventListener("click", () => { document.getElementById("checkUpdatesBtn").click(); });
     document.getElementById("overviewOpenFilesBtn").addEventListener("click", () => { document.getElementById("openLocalDataRootBtn").click(); });
+    document.getElementById("refreshSkillCatalogBtn").addEventListener("click", async () => {
+      paneLoadState.skillsDirty = true;
+      await loadSkillCatalog({ force: true });
+      flashSaved();
+    });
+    document.getElementById("translateSkillCatalogBtn").addEventListener("click", async () => {
+      paneLoadState.skillsDirty = true;
+      await loadSkillCatalog({ force: true, translateToZh: true });
+      flashSaved();
+    });
     document.getElementById("messageOpenFilesBtn").addEventListener("click", () => { document.getElementById("openLocalDataRootBtn").click(); });
     document.getElementById("messageUploadLogsBtn").addEventListener("click", () => { document.getElementById("uploadDesktopLogsBtn").click(); });
     document.getElementById("messageOpenAdvancedBtn").addEventListener("click", () => { void setActiveSettingsPane("storage"); });

@@ -13,6 +13,7 @@ test("settings page splits system settings into standalone panes", () => {
     "workgroup",
     "transfer",
     "automation",
+    "skills",
     "language",
     "launch",
     "runtime",
@@ -51,4 +52,13 @@ test("settings update status card renders download progress as a background bar"
   assert.match(settingsHtml, /function normalizeUpdateProgressPercent\(state\)/);
   assert.match(settingsHtml, /updateStatusEl\.style\.setProperty\("--update-progress", `\$\{progressPercent\}%`\)/);
   assert.match(settingsHtml, /updateStatusEl\.classList\.toggle\("update-progress-active", normalized\.status === "downloading"\)/);
+});
+
+test("settings page exposes a skill catalog pane", () => {
+  assert.match(settingsHtml, /id="skillsMenuItem"[^>]+data-pane="skills"/);
+  assert.match(settingsHtml, /id="skillsPane"[^>]+data-pane-content="skills"/);
+  assert.match(settingsHtml, /id="skillCatalogList"/);
+  assert.match(settingsHtml, /function loadSkillCatalog\(options = \{\}\)/);
+  assert.match(settingsHtml, /api\.listSkillCatalog\(\{ translateToZh \}\)/);
+  assert.match(settingsHtml, /id="translateSkillCatalogBtn"/);
 });

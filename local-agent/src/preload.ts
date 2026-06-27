@@ -189,6 +189,7 @@ contextBridge.exposeInMainWorld('claudeAgent', {
   },
   getAppSettings: () => ipcRenderer.invoke('get-app-settings'),
   getCliProviderRuntimeStatus: (options?: { force?: boolean }) => ipcRenderer.invoke('get-cli-provider-runtime-status', options ?? null),
+  listSkillCatalog: (options?: { translateToZh?: boolean }) => ipcRenderer.invoke('list-skill-catalog', options ?? null),
   getLocalDataMetrics: () => ipcRenderer.invoke('get-local-data-metrics'),
   clearLocalDataSegment: (target: 'attachments' | 'updates' | 'all') => ipcRenderer.invoke('clear-local-data-segment', target),
   listRelayTransfers: (options?: number | {

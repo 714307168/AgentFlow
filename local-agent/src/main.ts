@@ -76,10 +76,12 @@ import {
   shouldPrepareManagedProviderSdkRuntime,
 } from "./provider-runtime-maintenance";
 import {
+  executeProviderSdkRun,
   generateProviderSdkImage,
   isProviderSdkConfigured,
   type ProviderSdkConfig,
 } from "./provider-sdk";
+import { buildSkillCatalogSnapshot } from "./skill-catalog";
 import {
   buildProviderSdkInstallCommand,
   formatProviderSdkInstallCommand,
@@ -536,6 +538,25 @@ function getProviderSdkConfig(provider: CliProvider): ProviderSdkConfig | null {
     baseUrl: getProviderSdkConfigValue(config, provider, "baseUrl"),
     defaultModel: getProviderSdkConfigValue(config, provider, "defaultModel"),
   };
+}
+
+function selectSkillCatalogTranslationProvider(config: AgentConfig): CliProvider | null {
+  const candidates: CliProvider[] = [
+    normalizeRegisteredCliProvider(config.cliProvider, "codex"),
+    "codex",
+    "claude",
+  ];
+  for (const provider of candidates) {
+    const sdkConfig = {
+      apiKey: getProviderSdkConfigValue(config, provider, "apiKey"),
+      baseUrl: getProviderSdkConfigValue(config, provider, "baseUrl"),
+      defaultModel: getProviderSdkConfigValue(config, provider, "defaultModel"),
+    };
+    if (isProviderSdkConfigured(sdkConfig)) {
+      return provider;
+    }
+  }
+  return null;
 }
 
 function canAutoUpgradeCliProvider(status: CliProviderRuntimeStatus | null | undefined): status is CliProviderRuntimeStatus {
@@ -5734,6 +5755,28 @@ ipcMain.handle("get-cli-provider-runtime-status", async (_event, options?: { for
   return await getCliProviderRuntimeStatusSnapshot({
     force: options?.force === true,
     allowAutoUpgrade: true,
+  });
+});
+
+ipcMain.handle("list-skill-catalog", async (_event, options?: { translateToZh?: boolean } | null) => {
+  const translateToZh = options?.translateToZh === true;
+  const provider = translateToZh ? selectSkillCatalogTranslationProvider(loadConfig()) : null;
+  const sdkConfig = provider ? getProviderSdkConfig(provider) : null;
+  const canTranslateToZh = Boolean(provider && sdkConfig && isProviderSdkConfigured(sdkConfig));
+  return await buildSkillCatalogSnapshot({
+    translateToZh: canTranslateToZh,
+    provider: provider ?? undefined,
+    translator: canTranslateToZh && provider && sdkConfig
+      ? async (input) => {
+        const result = await executeProviderSdkRun({
+          provider: input.provider,
+          config: sdkConfig,
+          model: null,
+          prompt: input.prompt,
+        });
+        return result.text;
+      }
+      : null,
   });
 });
 
