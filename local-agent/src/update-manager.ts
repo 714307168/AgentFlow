@@ -7,6 +7,10 @@ import * as path from "path";
 import { getLang } from "./i18n";
 import { buildRelayApiHeaders } from "./api-version";
 import {
+  buildLinuxDesktopPackageInstallCommand,
+  isLinuxDesktopPackage,
+} from "./update-package-install";
+import {
   buildGitHubApiHeaders,
   buildGitHubUpdateCandidate,
   getGitHubReleaseApiUrl,
@@ -226,7 +230,24 @@ class UpdateManager extends EventEmitter {
       }
     }
 
-    const errorMessage = await shell.openPath(downloadedPath);
+    if (isLinuxDesktopPackage(downloadedPath)) {
+      shell.showItemInFolder(downloadedPath);
+      const installCommand = buildLinuxDesktopPackageInstallCommand(downloadedPath);
+      this.setState({
+        message: this.text(
+          `Update package downloaded. Open a terminal and run: ${installCommand}`,
+          `更新包已下载。请在终端执行：${installCommand}`,
+        ),
+      });
+      return true;
+    }
+
+    let errorMessage = "";
+    try {
+      errorMessage = await shell.openPath(downloadedPath);
+    } catch (error) {
+      errorMessage = this.formatError(error);
+    }
     if (errorMessage) {
       this.setState({
         status: "error",
