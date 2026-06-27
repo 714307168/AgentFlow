@@ -23,14 +23,21 @@ Module._load = function patchedLoad(request, parent, isMain) {
 
 const {
   getProviderSdkPackageName,
+  getProviderSdkPackageManagerCommand,
   resolveManagedProviderSdkInstallRoot,
   buildProviderSdkInstallCommand,
   formatProviderSdkInstallCommand,
+  maintainManagedProviderSdk,
 } = require("../dist/src/provider-sdk-manager.js");
 
 test("getProviderSdkPackageName maps providers to managed SDK packages", () => {
   assert.equal(getProviderSdkPackageName("codex"), "openai");
   assert.equal(getProviderSdkPackageName("claude"), "@anthropic-ai/sdk");
+});
+
+test("getProviderSdkPackageManagerCommand resolves platform npm command", () => {
+  assert.equal(getProviderSdkPackageManagerCommand("win32"), "npm.cmd");
+  assert.equal(getProviderSdkPackageManagerCommand("linux"), "npm");
 });
 
 test("resolveManagedProviderSdkInstallRoot nests packages under provider-sdk-runtime", () => {
@@ -69,4 +76,30 @@ test("formatProviderSdkInstallCommand quotes whitespace safely", () => {
     }),
     'npm.cmd install --prefix "C:/Program Files/Agent Flow/sdk-runtime" openai@latest',
   );
+});
+
+test("maintainManagedProviderSdk skips npm install when package manager is unavailable and HTTP fallback is configured", async () => {
+  const installRoot = fs.mkdtempSync(path.join(os.tmpdir(), "agentflow-provider-sdk-no-npm-"));
+  const result = await maintainManagedProviderSdk("codex", installRoot, {
+    sdkConfigured: true,
+    packageManagerAvailable: false,
+  });
+
+  assert.equal(result.success, true);
+  assert.equal(result.skipped, true);
+  assert.equal(result.fallbackAvailable, true);
+  assert.match(result.output, /HTTP API runtime/i);
+});
+
+test("maintainManagedProviderSdk reports unavailable when npm and API credentials are both missing", async () => {
+  const installRoot = fs.mkdtempSync(path.join(os.tmpdir(), "agentflow-provider-sdk-no-runtime-"));
+  const result = await maintainManagedProviderSdk("claude", installRoot, {
+    sdkConfigured: false,
+    packageManagerAvailable: false,
+  });
+
+  assert.equal(result.success, false);
+  assert.equal(result.skipped, true);
+  assert.equal(result.fallbackAvailable, false);
+  assert.match(result.error, /npm is not available/i);
 });

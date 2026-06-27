@@ -33,6 +33,8 @@ export interface ProviderSdkMaintainResult {
   output: string;
   commandPreview: string;
   error?: string;
+  skipped?: boolean;
+  fallbackAvailable?: boolean;
 }
 
 const PROVIDER_SDK_DIRECTORY = "provider-sdk-runtime";
@@ -40,6 +42,12 @@ const PROVIDER_SDK_TIMEOUT_MS = 10 * 60 * 1000;
 const PROVIDER_SDK_MAX_BUFFER = 256 * 1024;
 const PROVIDER_SDK_VERSION_QUERY_TIMEOUT_MS = 8_000;
 const PROVIDER_SDK_VERSION_QUERY_MAX_BUFFER = 128 * 1024;
+
+export function getProviderSdkPackageManagerCommand(
+  platform: NodeJS.Platform = process.platform,
+): string {
+  return platform === "win32" ? "npm.cmd" : "npm";
+}
 
 export function getProviderSdkPackageName(provider: CliProvider): string {
   return provider === "codex" ? "openai" : "@anthropic-ai/sdk";
@@ -71,7 +79,7 @@ export function buildProviderSdkInstallCommand(
 ): ProviderSdkInstallCommand {
   ensureManagedProviderSdkProject(provider, installRoot);
   return {
-    command: platform === "win32" ? "npm.cmd" : "npm",
+    command: getProviderSdkPackageManagerCommand(platform),
     args: [
       "install",
       "--no-save",
@@ -97,7 +105,7 @@ export async function detectProviderSdkLatestVersion(
 ): Promise<string | null> {
   try {
     const result = await runCommand(
-      platform === "win32" ? "npm.cmd" : "npm",
+      getProviderSdkPackageManagerCommand(platform),
       ["view", getProviderSdkPackageName(provider), "version", "--json", "--registry", resolvePreferredNpmRegistry()],
       buildNpmCommandEnvironment(),
       PROVIDER_SDK_VERSION_QUERY_TIMEOUT_MS,
@@ -106,6 +114,23 @@ export async function detectProviderSdkLatestVersion(
     return parseNpmLatestVersion(result.stdout, result.stderr);
   } catch {
     return null;
+  }
+}
+
+export async function isProviderSdkPackageManagerAvailable(
+  platform: NodeJS.Platform = process.platform,
+): Promise<boolean> {
+  try {
+    await runCommand(
+      getProviderSdkPackageManagerCommand(platform),
+      ["--version"],
+      buildNpmCommandEnvironment(),
+      PROVIDER_SDK_VERSION_QUERY_TIMEOUT_MS,
+      PROVIDER_SDK_VERSION_QUERY_MAX_BUFFER,
+    );
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -158,9 +183,25 @@ export async function probeManagedProviderSdk(
 export async function maintainManagedProviderSdk(
   provider: CliProvider,
   installRoot = resolveManagedProviderSdkInstallRoot(provider),
+  options: { sdkConfigured?: boolean; packageManagerAvailable?: boolean } = {},
 ): Promise<ProviderSdkMaintainResult> {
   const command = buildProviderSdkInstallCommand(provider, installRoot);
   const commandPreview = formatProviderSdkInstallCommand(command);
+  const packageManagerAvailable = options.packageManagerAvailable
+    ?? await isProviderSdkPackageManagerAvailable();
+  if (!packageManagerAvailable) {
+    const fallbackAvailable = options.sdkConfigured === true;
+    return {
+      success: fallbackAvailable,
+      skipped: true,
+      fallbackAvailable,
+      output: fallbackAvailable
+        ? "npm is not available. Managed SDK installation was skipped; the built-in HTTP API runtime will be used."
+        : "npm is not available. Managed SDK installation was skipped, and no API credentials are configured.",
+      commandPreview,
+      error: fallbackAvailable ? undefined : "npm is not available in PATH.",
+    };
+  }
   try {
     const result = await runCommand(
       command.command,

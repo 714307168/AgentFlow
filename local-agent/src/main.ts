@@ -661,7 +661,19 @@ async function maybeAutoMaintainProviderSdk(
       installRoot: status.installRoot,
     });
 
-    const result = await maintainManagedProviderSdk(provider, status.installRoot);
+    const result = await maintainManagedProviderSdk(provider, status.installRoot, { sdkConfigured });
+    if (result.skipped) {
+      appLogger.warn("runtime", "Skipped automatic managed SDK maintenance.", {
+        provider,
+        command: result.commandPreview,
+        reason: result.output,
+        fallbackAvailable: result.fallbackAvailable === true,
+        npmRegistry: resolvePreferredNpmRegistry(),
+        installRoot: status.installRoot,
+      });
+      return;
+    }
+
     if (!result.success) {
       appLogger.warn("runtime", `Automatic managed SDK ${action} failed.`, {
         provider,
