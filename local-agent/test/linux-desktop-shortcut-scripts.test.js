@@ -97,6 +97,16 @@ test("release workflow preserves package artifact filenames", () => {
   assert.doesNotMatch(releaseWorkflow, /release-assets\/\$\{artifact_name\}-\$\{base_name\}/);
 });
 
+test("release workflow generates dynamic release notes for every publish", () => {
+  const releaseWorkflow = fs.readFileSync(path.join(projectRoot, "..", ".github", "workflows", "release.yml"), "utf8");
+
+  assert.match(releaseWorkflow, /> RELEASE_NOTES\.md/);
+  assert.match(releaseWorkflow, /git log --no-merges/);
+  assert.match(releaseWorkflow, /gh release edit "\$TAG_NAME"[\s\S]*--notes-file RELEASE_NOTES\.md/);
+  assert.match(releaseWorkflow, /gh release create "\$TAG_NAME"[\s\S]*--notes-file RELEASE_NOTES\.md/);
+  assert.doesNotMatch(releaseWorkflow, /Automated multi-platform build artifacts/);
+});
+
 test("linux packages stay on x64 because current Electron releases do not provide linux ia32", () => {
   const builderConfig = readProjectFile("electron-builder.yml");
   const linuxSection = builderConfig.split("\nlinux:\n")[1].split("\ndeb:\n")[0];

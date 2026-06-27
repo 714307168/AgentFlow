@@ -392,6 +392,32 @@ jobs:
             exit 1
           fi
 
+          {
+            echo "## AgentFlow $TAG_NAME"
+            echo
+            echo "### Changes"
+            previous_tag="$(git tag --sort=-creatordate | grep -v "^${TAG_NAME}$" | head -n 1 || true)"
+            if [ -n "$previous_tag" ]; then
+              git log --no-merges --pretty=format:'- %s (%h)' "${previous_tag}..${GITHUB_SHA}" | head -n 30
+            else
+              git log --no-merges --pretty=format:'- %s (%h)' -n 30 "$GITHUB_SHA"
+            fi
+            echo
+            echo
+            echo "### Artifacts"
+            for file in "${files[@]}"; do
+              size_bytes="$(wc -c < "$file" | tr -d ' ')"
+              size_mb="$(awk "BEGIN { printf \"%.1f\", ${size_bytes}/1024/1024 }")"
+              echo "- $(basename "$file") (${size_mb} MB)"
+            done
+            echo
+            echo "### Install Notes"
+            echo '- Windows: use the `*-setup.exe` installer.'
+            echo '- macOS: use the matching `*.dmg` package.'
+            echo '- Linux: use `*.deb`, `*.pkg.tar.*`, or `*.AppImage` for your distribution.'
+            echo '- Android: use the signed `*-release.apk` package.'
+          } > RELEASE_NOTES.md
+
           if gh release view "$TAG_NAME" >/dev/null 2>&1; then
             gh release view "$TAG_NAME" --json assets --jq '.assets[].name' |
               while IFS= read -r asset_name; do
@@ -402,8 +428,11 @@ jobs:
                 esac
               done
             gh release upload "$TAG_NAME" "${files[@]}" --clobber
+            gh release edit "$TAG_NAME" \
+              --title "AgentFlow $TAG_NAME" \
+              --notes-file RELEASE_NOTES.md
           else
             gh release create "$TAG_NAME" "${files[@]}" \
               --title "AgentFlow $TAG_NAME" \
-              --notes "Automated multi-platform build artifacts."
+              --notes-file RELEASE_NOTES.md
           fi
