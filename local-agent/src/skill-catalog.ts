@@ -5,6 +5,13 @@ import type { CliProvider } from "./runtime-types";
 
 export type SkillCatalogSource = "built-in" | "local";
 export type SkillCatalogTranslationMode = "none" | "model" | "fallback";
+export type SkillCatalogSafetyLevel = "safe" | "review" | "risky";
+
+export interface SkillCatalogSafety {
+  level: SkillCatalogSafetyLevel;
+  summary: string;
+  signals: string[];
+}
 
 export interface SkillCatalogEntry {
   id: string;
@@ -17,6 +24,7 @@ export interface SkillCatalogEntry {
   installHint: string | null;
   zhName: string | null;
   zhDescription: string | null;
+  safety: SkillCatalogSafety;
 }
 
 export interface SkillCatalogSnapshot {
@@ -44,6 +52,24 @@ interface BuiltInSkillTemplate {
 
 const MAX_LOCAL_SKILL_FILES = 80;
 const MAX_SKILL_FILE_BYTES = 32 * 1024;
+
+const RISKY_SKILL_PATTERNS: Array<{ pattern: RegExp; signal: string }> = [
+  { pattern: /\brm\s+-rf\b/iu, signal: "destructive delete command" },
+  { pattern: /\bdel\s+\/[sq]\b/iu, signal: "destructive Windows delete command" },
+  { pattern: /\bformat\s+[a-z]:/iu, signal: "disk format command" },
+  { pattern: /\bchmod\s+777\b/iu, signal: "broad file permission change" },
+  { pattern: /\b(private[_ -]?key|id_rsa|ssh key|api key|tokens?|secrets?|passwords?)\b/iu, signal: "credential or secret access" },
+  { pattern: /\b(git\s+push|npm\s+publish|gh\s+release|docker\s+push)\b/iu, signal: "publish or push operation" },
+  { pattern: /\b(curl|wget|irm|iwr)\b[\s\S]{0,120}\b(sh|bash|powershell|pwsh|cmd|iex)\b/iu, signal: "remote script execution" },
+  { pattern: /\b(dangerously-bypass|bypass approvals|no sandbox|disable sandbox|ignore safety)\b/iu, signal: "approval or sandbox bypass" },
+];
+
+const REVIEW_SKILL_PATTERNS: Array<{ pattern: RegExp; signal: string }> = [
+  { pattern: /\b(shell|terminal|command|exec|execute|powershell|bash|cmd)\b/iu, signal: "can run local commands" },
+  { pattern: /\b(write|edit|modify|patch|delete|move|rename)\b/iu, signal: "can change local files" },
+  { pattern: /\b(download|install|network|browser|http|https)\b/iu, signal: "can access network or install assets" },
+  { pattern: /\b(database|mysql|postgres|redis|migration|production)\b/iu, signal: "can affect data or production systems" },
+];
 
 const BUILT_IN_SKILLS: BuiltInSkillTemplate[] = [
   {
@@ -190,6 +216,11 @@ function createBuiltInEntry(template: BuiltInSkillTemplate): SkillCatalogEntry {
     installHint: template.installHint,
     zhName: null,
     zhDescription: null,
+    safety: {
+      level: "safe",
+      summary: "Built-in catalog entry. Review the skill instructions before use.",
+      signals: [],
+    },
   };
 }
 
@@ -247,6 +278,7 @@ function readLocalSkillEntry(root: string, skillFile: string): SkillCatalogEntry
     const relativeDir = path.relative(root, path.dirname(skillFile)) || path.basename(path.dirname(skillFile));
     const name = parseSkillName(content) || path.basename(path.dirname(skillFile));
     const description = parseSkillDescription(content) || "Local skill discovered from SKILL.md.";
+    const safety = analyzeSkillSafety(content, skillFile);
     const id = "local:" + normalizeSkillId(relativeDir || name);
     return {
       id,
@@ -259,10 +291,48 @@ function readLocalSkillEntry(root: string, skillFile: string): SkillCatalogEntry
       installHint: "Installed locally under " + path.dirname(skillFile),
       zhName: null,
       zhDescription: null,
+      safety,
     };
   } catch {
     return null;
   }
+}
+
+export function analyzeSkillSafety(content: string, sourcePath: string | null = null): SkillCatalogSafety {
+  const haystack = [content, sourcePath ?? ""].join("\n");
+  const riskySignals = collectSafetySignals(haystack, RISKY_SKILL_PATTERNS);
+  if (riskySignals.length > 0) {
+    return {
+      level: "risky",
+      summary: "Review before use. This skill mentions high-risk actions or sensitive access.",
+      signals: riskySignals,
+    };
+  }
+
+  const reviewSignals = collectSafetySignals(haystack, REVIEW_SKILL_PATTERNS);
+  if (reviewSignals.length > 0) {
+    return {
+      level: "review",
+      summary: "Review recommended. This skill may run commands, change files, use network access, or touch data systems.",
+      signals: reviewSignals,
+    };
+  }
+
+  return {
+    level: "safe",
+    summary: "No obvious high-risk instruction found in the static scan.",
+    signals: [],
+  };
+}
+
+function collectSafetySignals(
+  haystack: string,
+  checks: Array<{ pattern: RegExp; signal: string }>,
+): string[] {
+  const signals = checks
+    .filter((check) => check.pattern.test(haystack))
+    .map((check) => check.signal);
+  return [...new Set(signals)];
 }
 
 function parseSkillName(content: string): string | null {

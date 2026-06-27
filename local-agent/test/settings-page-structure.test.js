@@ -61,4 +61,8 @@ test("settings page exposes a skill catalog pane", () => {
   assert.match(settingsHtml, /function loadSkillCatalog\(options = \{\}\)/);
   assert.match(settingsHtml, /api\.listSkillCatalog\(\{ translateToZh \}\)/);
   assert.match(settingsHtml, /id="translateSkillCatalogBtn"/);
+  assert.match(settingsHtml, /\.skill-safety-pill/);
+  assert.match(settingsHtml, /"<div class=\\\"skill-safety-pill "/);
+  assert.match(settingsHtml, /function formatSkillSafetyLevel\(level\)/);
+  assert.match(settingsHtml, /riskyCount/);
 });
