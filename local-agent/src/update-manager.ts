@@ -40,6 +40,11 @@ export interface UpdateState {
   notes: string;
   mandatory: boolean;
   downloadedPath: string | null;
+  downloadProgress: {
+    downloadedBytes: number;
+    totalBytes: number | null;
+    percent: number;
+  } | null;
   message: string | null;
   lastCheckedAt: number | null;
 }
@@ -68,6 +73,7 @@ class UpdateManager extends EventEmitter {
     notes: "",
     mandatory: false,
     downloadedPath: null,
+    downloadProgress: null,
     message: null,
     lastCheckedAt: null,
   };
@@ -133,6 +139,12 @@ class UpdateManager extends EventEmitter {
       latestVersion: this.latestRelease.latestVersion,
       notes: this.latestRelease.notes ?? "",
       mandatory: Boolean(this.latestRelease.mandatory),
+      downloadedPath: null,
+      downloadProgress: {
+        downloadedBytes: 0,
+        totalBytes: this.latestRelease.size ?? null,
+        percent: 0,
+      },
       message: null,
     });
 
@@ -144,8 +156,7 @@ class UpdateManager extends EventEmitter {
         throw new Error(`Download failed with status ${response.status}`);
       }
 
-      const arrayBuffer = await response.arrayBuffer();
-      const buffer = Buffer.from(arrayBuffer);
+      const buffer = await this.readDownloadBuffer(response, this.latestRelease.size ?? null);
       const expectedHash = this.latestRelease.sha256?.trim().toLowerCase() ?? "";
       if (expectedHash) {
         const actualHash = createHash("sha256").update(buffer).digest("hex").toLowerCase();
@@ -170,6 +181,11 @@ class UpdateManager extends EventEmitter {
         latestVersion: this.latestRelease.latestVersion,
         notes: this.latestRelease.notes ?? "",
         mandatory: Boolean(this.latestRelease.mandatory),
+        downloadProgress: {
+          downloadedBytes: buffer.length,
+          totalBytes: buffer.length,
+          percent: 100,
+        },
         message: null,
       });
       if (!(await this.tryInstallSilently())) {
@@ -178,6 +194,7 @@ class UpdateManager extends EventEmitter {
     } catch (error) {
       this.setState({
         status: "error",
+        downloadProgress: null,
         message: this.formatError(error),
       });
     }
@@ -343,6 +360,7 @@ class UpdateManager extends EventEmitter {
   private async performCheck(manual: boolean): Promise<void> {
     this.setState({
       status: "checking",
+      downloadProgress: null,
       message: null,
     });
 
@@ -359,6 +377,7 @@ class UpdateManager extends EventEmitter {
         notes: this.latestRelease.notes ?? "",
         mandatory: Boolean(this.latestRelease.mandatory),
         downloadedPath: null,
+        downloadProgress: null,
         message: null,
         lastCheckedAt: Date.now(),
       });
@@ -480,8 +499,66 @@ class UpdateManager extends EventEmitter {
       notes: "",
       mandatory: false,
       downloadedPath: null,
+      downloadProgress: null,
       message: null,
       lastCheckedAt: Date.now(),
+    });
+  }
+
+  private async readDownloadBuffer(response: Response, expectedSize: number | null): Promise<Buffer> {
+    const contentLength = Number(response.headers.get("content-length") ?? "");
+    const totalBytes = Number.isFinite(contentLength) && contentLength > 0
+      ? contentLength
+      : (expectedSize && expectedSize > 0 ? expectedSize : null);
+
+    if (!response.body) {
+      const buffer = Buffer.from(await response.arrayBuffer());
+      this.setDownloadProgress(buffer.length, buffer.length, true);
+      return buffer;
+    }
+
+    const reader = response.body.getReader();
+    const chunks: Buffer[] = [];
+    let downloadedBytes = 0;
+    let lastEmittedAt = 0;
+    let lastEmittedPercent = -1;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      if (!value) {
+        continue;
+      }
+      const chunk = Buffer.from(value);
+      chunks.push(chunk);
+      downloadedBytes += chunk.length;
+      const percent = totalBytes ? Math.min(99, Math.floor((downloadedBytes / totalBytes) * 100)) : 0;
+      const now = Date.now();
+      if (now - lastEmittedAt >= 250 || percent !== lastEmittedPercent) {
+        this.setDownloadProgress(downloadedBytes, totalBytes, false);
+        lastEmittedAt = now;
+        lastEmittedPercent = percent;
+      }
+    }
+
+    const buffer = Buffer.concat(chunks);
+    this.setDownloadProgress(buffer.length, totalBytes ?? buffer.length, true);
+    return buffer;
+  }
+
+  private setDownloadProgress(downloadedBytes: number, totalBytes: number | null, complete: boolean): void {
+    const normalizedTotal = totalBytes && totalBytes > 0 ? totalBytes : null;
+    const percent = complete
+      ? 100
+      : (normalizedTotal ? Math.min(99, Math.max(0, Math.floor((downloadedBytes / normalizedTotal) * 100))) : 0);
+    this.setState({
+      downloadProgress: {
+        downloadedBytes: Math.max(0, downloadedBytes),
+        totalBytes: normalizedTotal,
+        percent,
+      },
     });
   }
 

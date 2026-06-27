@@ -840,6 +840,32 @@
       word-break: break-all;
       font-family: Consolas, monospace;
     }
+    .update-status-card {
+      --update-progress: 0%;
+      position: relative;
+      overflow: hidden;
+      transition: border-color 180ms ease, color 180ms ease, background 180ms ease;
+    }
+    .update-status-card::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      width: var(--update-progress);
+      background: linear-gradient(90deg, rgba(63, 185, 80, 0.26), rgba(88, 166, 255, 0.28));
+      opacity: 0;
+      transition: width 220ms ease, opacity 180ms ease;
+      pointer-events: none;
+    }
+    .update-status-card.update-progress-active {
+      border-color: rgba(88, 166, 255, 0.48);
+      color: var(--text);
+      background: rgba(88, 166, 255, 0.08);
+    }
+    .update-status-card.update-progress-active::before { opacity: 1; }
+    .update-status-card span {
+      position: relative;
+      z-index: 1;
+    }
     .pubkey.multiline {
       max-height: 180px;
       overflow: auto;
@@ -2590,7 +2616,7 @@
             </div>
             <div class="field" style="margin-top: 12px;">
               <label id="updateStatusLabel">Update Status</label>
-              <div class="pubkey" id="updateStatusText">—</div>
+              <div class="pubkey update-status-card" id="updateStatusText"><span>—</span></div>
             </div>
             <div class="field" style="margin-top: 12px;">
               <label id="updateNotesLabel">Release Notes</label>
@@ -4933,6 +4959,28 @@
       return labels[state.status] || labels.idle;
     }
 
+    function normalizeUpdateProgressPercent(state) {
+      const progress = state?.downloadProgress;
+      const rawPercent = Number(progress?.percent);
+      if (!Number.isFinite(rawPercent)) {
+        return state?.status === "downloaded" ? 100 : 0;
+      }
+      return Math.min(100, Math.max(0, Math.round(rawPercent)));
+    }
+
+    function formatUpdateStatusText(state) {
+      const text = localizeUpdateStatus(state);
+      if (state?.status !== "downloading") {
+        return text;
+      }
+      const percent = normalizeUpdateProgressPercent(state);
+      const progress = state.downloadProgress;
+      const byteHint = progress?.totalBytes
+        ? ` · ${formatBytes(progress.downloadedBytes || 0)} / ${formatBytes(progress.totalBytes)}`
+        : "";
+      return `${text} ${percent}%${byteHint}`;
+    }
+
     function renderUpdateState(state) {
       latestUpdateState = state || latestUpdateState;
       const normalized = latestUpdateState || {
@@ -4941,10 +4989,18 @@
         latestVersion: null,
         notes: "",
         downloadedPath: null,
+        downloadProgress: null,
         message: null,
       };
       document.getElementById("currentVersionText").textContent = normalized.currentVersion || "—";
-      document.getElementById("updateStatusText").textContent = localizeUpdateStatus(normalized);
+      const updateStatusEl = document.getElementById("updateStatusText");
+      updateStatusEl.querySelector("span").textContent = formatUpdateStatusText(normalized);
+      const progressPercent = normalized.status === "downloading"
+        ? normalizeUpdateProgressPercent(normalized)
+        : (normalized.status === "downloaded" ? 100 : 0);
+      updateStatusEl.style.setProperty("--update-progress", `${progressPercent}%`);
+      updateStatusEl.classList.toggle("update-progress-active", normalized.status === "downloading");
+      updateStatusEl.dataset.status = normalized.status || "idle";
       document.getElementById("updateNotes").textContent = normalized.notes || "—";
       document.getElementById("downloadUpdateBtn").disabled = !["available", "error"].includes(normalized.status);
       document.getElementById("installUpdateBtn").disabled = normalized.status !== "downloaded";

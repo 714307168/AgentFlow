@@ -43,3 +43,12 @@ test("settings page presents settings panes through a modal launcher", () => {
   assert.match(settingsHtml, /function preloadSettingsPaneData\(\)/);
   assert.match(settingsHtml, /await ensurePaneDataLoaded\(activeSettingsPane\)/);
 });
+
+test("settings update status card renders download progress as a background bar", () => {
+  assert.match(settingsHtml, /class="pubkey update-status-card" id="updateStatusText"><span>/);
+  assert.match(settingsHtml, /--update-progress: 0%/);
+  assert.match(settingsHtml, /\.update-status-card::before[\s\S]*width: var\(--update-progress\)/);
+  assert.match(settingsHtml, /function normalizeUpdateProgressPercent\(state\)/);
+  assert.match(settingsHtml, /updateStatusEl\.style\.setProperty\("--update-progress", `\$\{progressPercent\}%`\)/);
+  assert.match(settingsHtml, /updateStatusEl\.classList\.toggle\("update-progress-active", normalized\.status === "downloading"\)/);
+});
