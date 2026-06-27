@@ -79,6 +79,9 @@ export function buildSlashHelpMessage(provider: CliProvider): string {
     lines.push(
       "",
       "Additional Codex-only commands in this app:",
+      "- /plan [request]: run Codex in plan mode. It inspects context and returns an implementation plan without editing files.",
+      "- /goal <objective>: run Codex in goal mode. It works toward the objective, makes needed changes, and verifies the result.",
+      "- /target <objective>: alias of /goal for target-driven execution.",
       "- /review [options] [instructions]: run `codex review` from this workspace.",
       "- /features [list]: show the current Codex CLI feature flags exposed by `codex features list`.",
       "- /version: show the installed Codex CLI version.",
@@ -95,7 +98,7 @@ export function buildSlashHelpMessage(provider: CliProvider): string {
 export function buildCodexUnsupportedSlashMessage(commandName: string): string {
   return [
     `/${commandName} is not available in headless Codex mode.`,
-    "This workspace currently emulates /help, /tools, /model, /search, /review, /features, /version, /completion, /mcp, /screenshot, /image, and /send-image for Codex projects.",
+    "This workspace currently emulates /help, /tools, /model, /plan, /goal, /target, /search, /review, /features, /version, /completion, /mcp, /screenshot, /image, and /send-image for Codex projects.",
     "Use a normal prompt for the same intent, or run the full interactive Codex CLI if you need native slash commands.",
   ].join("\n");
 }
@@ -114,6 +117,42 @@ export function buildCodexInitPrompt(extraNotes: string): string {
   }
 
   return parts.join("\n");
+}
+
+export function buildCodexPlanPrompt(request: string): string {
+  const parts = [
+    "Run in Codex plan mode for this request.",
+    "Do not modify files, install dependencies, commit code, publish releases, or perform destructive operations.",
+    "Inspect the repository and current context as needed, then produce a concise execution plan.",
+    "Include the intended changes, affected files or modules when identifiable, verification steps, risks, and open questions.",
+    "Stop after the plan unless the user explicitly asks you to implement in a later message.",
+  ];
+
+  if (request.trim()) {
+    parts.push("", `Request: ${request.trim()}`);
+  } else {
+    parts.push("", "Request: inspect the current repository state and propose the next practical implementation plan.");
+  }
+
+  return parts.join("\n");
+}
+
+export function buildCodexGoalPrompt(objective: string): string {
+  const normalized = objective.trim();
+  if (!normalized) {
+    return "";
+  }
+
+  return [
+    "Run in Codex goal mode for this objective.",
+    "Treat the objective as the concrete outcome to complete, not just a question to answer.",
+    "Inspect the repository first, then implement the necessary changes with minimal, maintainable edits.",
+    "Preserve unrelated user changes, avoid large files, reduce duplication, and keep the code structure clean.",
+    "Run the relevant tests or checks before finishing. If verification cannot run, explain the exact blocker.",
+    "When complete, summarize what changed, what was tested, and any remaining risk.",
+    "",
+    `Objective: ${normalized}`,
+  ].join("\n");
 }
 
 export function buildProviderToolsMessage(options: {
@@ -147,6 +186,8 @@ export function buildProviderToolsMessage(options: {
         "- App-side Codex runs still disable Codex tool discovery helpers that are not needed in this desktop flow.",
         "- This app surfaces Codex activity such as command execution, agent messages, and completion events into the chat/activity timeline.",
         `- Web search tool: ${options.codexSearchEnabled ? "enabled" : "disabled"} for subsequent runs. Use /search on|off|toggle to change it.`,
+        "- `/plan [request]` runs a no-edit planning pass for Codex projects.",
+        "- `/goal <objective>` and `/target <objective>` run target-driven Codex execution.",
         "- `/image <prompt>` generates an image asset through the configured OpenAI-compatible API and saves it under `generated-assets/` in the project workspace.",
         "- `/review` runs `codex review` for workspace changes without leaving the app.",
         "- `/features` runs `codex features list` so you can inspect CLI feature flags from the app.",

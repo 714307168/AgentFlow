@@ -14,8 +14,10 @@ import {
   buildCodexCompletionArgs,
   buildCodexFeaturesArgs,
   buildCodexExecArgs,
+  buildCodexGoalPrompt,
   buildCodexInitPrompt,
   buildCodexMcpArgs,
+  buildCodexPlanPrompt,
   buildCodexReviewArgs,
   buildCodexSearchStatusMessage,
   buildCodexSearchUsageMessage,
@@ -1298,6 +1300,35 @@ class RuntimeManager extends EventEmitter {
         };
       }
 
+      if (command.name === "plan") {
+        return this.prepareCodexPromptModeSlashCommand(
+          run,
+          context,
+          buildCodexPlanPrompt(command.args),
+          "Codex plan mode: producing an implementation plan without editing files.",
+        );
+      }
+
+      if (command.name === "goal" || command.name === "target") {
+        const prompt = buildCodexGoalPrompt(command.args);
+        if (!prompt) {
+          const message = `Usage: /${command.name} <objective>`;
+          this.appendAssistantText(state, context, run, message);
+          run.onTextDelta?.(message);
+          return {
+            run,
+            handledLocally: true,
+            completionDetail: `Displayed /${command.name} usage.`,
+          };
+        }
+        return this.prepareCodexPromptModeSlashCommand(
+          run,
+          context,
+          prompt,
+          `Codex ${command.name === "target" ? "target" : "goal"} mode: working toward the requested objective.`,
+        );
+      }
+
       if (command.name === "review") {
         if (runtime.kind !== "cli") {
           return this.handleCliOnlyCodexCommandUnavailable(state, run, context, command.name, runtime.detail);
@@ -1344,6 +1375,27 @@ class RuntimeManager extends EventEmitter {
     }
 
     return { run, handledLocally: false };
+  }
+
+  private prepareCodexPromptModeSlashCommand(
+    run: PendingRun,
+    context: RunContext,
+    prompt: string,
+    statusDetail: string,
+  ): PreparedRunResult {
+    const state = this.ensureState(run.projectId);
+    if (context.runStatusActivityId) {
+      this.updateActivity(state, context.runStatusActivityId, {
+        detail: statusDetail,
+      });
+    }
+    return {
+      run: {
+        ...run,
+        prompt,
+      },
+      handledLocally: false,
+    };
   }
 
   private prepareCodexReviewSlashCommand(

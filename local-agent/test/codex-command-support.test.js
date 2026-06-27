@@ -29,7 +29,9 @@ const {
   buildCodexCompletionArgs,
   buildCodexFeaturesArgs,
   buildCodexExecArgs,
+  buildCodexGoalPrompt,
   buildCodexMcpArgs,
+  buildCodexPlanPrompt,
   buildCodexReviewArgs,
   buildCodexVersionArgs,
 } = require("../dist/src/codex-command-support.js");
@@ -244,6 +246,25 @@ test("buildCodexMcpArgs supports list and get in text or json mode", () => {
   });
 });
 
+test("buildCodexPlanPrompt creates a no-edit planning instruction", () => {
+  const prompt = buildCodexPlanPrompt("redesign the settings page");
+
+  assert.equal(prompt.includes("Codex plan mode"), true);
+  assert.equal(prompt.includes("Do not modify files"), true);
+  assert.equal(prompt.includes("verification steps"), true);
+  assert.equal(prompt.includes("Request: redesign the settings page"), true);
+});
+
+test("buildCodexGoalPrompt creates a target-driven execution instruction", () => {
+  const prompt = buildCodexGoalPrompt("fix Linux package startup");
+
+  assert.equal(prompt.includes("Codex goal mode"), true);
+  assert.equal(prompt.includes("concrete outcome"), true);
+  assert.equal(prompt.includes("Run the relevant tests"), true);
+  assert.equal(prompt.includes("Objective: fix Linux package startup"), true);
+  assert.equal(buildCodexGoalPrompt("   "), "");
+});
+
 test("RuntimeManager handles /search locally for Codex projects", async () => {
   const { runtimeManager, updateCalls } = createRuntimeManager({
     provider: "codex",
@@ -263,6 +284,70 @@ test("RuntimeManager handles /search locally for Codex projects", async () => {
   const snapshot = runtimeManager.getSnapshot("project-codex");
   assert.equal(snapshot.messages.at(-1)?.content.includes("Codex web search is enabled"), true);
   assert.equal(snapshot.messages.at(-1)?.content.includes("`--search` flag"), true);
+
+  runtimeManager.dispose();
+});
+
+test("RuntimeManager prepares /plan as a Codex prompt-mode run", async () => {
+  const { runtimeManager } = createRuntimeManager({
+    provider: "codex",
+  });
+  const state = runtimeManager.ensureState("project-codex");
+
+  const prepared = await runtimeManager.prepareRun(
+    state,
+    createPreparedRun("/plan improve project sync"),
+    createRunContext(),
+  );
+
+  assert.equal(prepared.handledLocally, false);
+  assert.equal(prepared.run.prompt.includes("Codex plan mode"), true);
+  assert.equal(prepared.run.prompt.includes("Do not modify files"), true);
+  assert.equal(prepared.run.prompt.includes("Request: improve project sync"), true);
+
+  runtimeManager.dispose();
+});
+
+test("RuntimeManager prepares /goal and /target as target-driven Codex runs", async () => {
+  const { runtimeManager } = createRuntimeManager({
+    provider: "codex",
+  });
+  const state = runtimeManager.ensureState("project-codex");
+
+  const goalRun = await runtimeManager.prepareRun(
+    state,
+    createPreparedRun("/goal fix update restart"),
+    createRunContext(),
+  );
+  const targetRun = await runtimeManager.prepareRun(
+    state,
+    createPreparedRun("/target ship Linux icon fix"),
+    createRunContext(),
+  );
+
+  assert.equal(goalRun.handledLocally, false);
+  assert.equal(goalRun.run.prompt.includes("Codex goal mode"), true);
+  assert.equal(goalRun.run.prompt.includes("Objective: fix update restart"), true);
+  assert.equal(targetRun.handledLocally, false);
+  assert.equal(targetRun.run.prompt.includes("Objective: ship Linux icon fix"), true);
+
+  runtimeManager.dispose();
+});
+
+test("RuntimeManager shows usage for empty /goal", async () => {
+  const { runtimeManager } = createRuntimeManager({
+    provider: "codex",
+  });
+  const state = runtimeManager.ensureState("project-codex");
+
+  const prepared = await runtimeManager.prepareRun(
+    state,
+    createPreparedRun("/goal"),
+    createRunContext(),
+  );
+
+  assert.equal(prepared.handledLocally, true);
+  assert.equal(runtimeManager.getSnapshot("project-codex").messages.at(-1)?.content, "Usage: /goal <objective>");
 
   runtimeManager.dispose();
 });
@@ -288,6 +373,8 @@ test("RuntimeManager /tools reports current Codex support and search status", as
   assert.equal(message.includes("command execution"), true);
   assert.equal(message.includes("Web search tool: enabled"), true);
   assert.equal(message.includes("/image <prompt>"), true);
+  assert.equal(message.includes("/plan [request]"), true);
+  assert.equal(message.includes("/goal <objective>"), true);
   assert.equal(message.includes("generated-assets"), true);
   assert.equal(message.includes("/mcp list|get"), true);
   assert.equal(message.includes("Not exposed in this app"), true);
