@@ -7,7 +7,9 @@ import * as path from "path";
 import { getLang } from "./i18n";
 import { buildRelayApiHeaders } from "./api-version";
 import {
+  buildLinuxDesktopPackageInstallPlan,
   buildLinuxDesktopPackageInstallCommand,
+  isLinuxAppImage,
   isLinuxDesktopPackage,
 } from "./update-package-install";
 import {
@@ -158,6 +160,9 @@ class UpdateManager extends EventEmitter {
       const targetName = this.latestRelease.filename?.trim() || `agentflow-${this.latestRelease.latestVersion}.exe`;
       const targetPath = path.join(downloadDir, targetName);
       fs.writeFileSync(targetPath, buffer);
+      if (isLinuxAppImage(targetPath)) {
+        fs.chmodSync(targetPath, 0o755);
+      }
 
       this.setState({
         status: "downloaded",
@@ -231,6 +236,9 @@ class UpdateManager extends EventEmitter {
     }
 
     if (isLinuxDesktopPackage(downloadedPath)) {
+      if (this.launchLinuxDesktopPackageInstaller(downloadedPath)) {
+        return true;
+      }
       shell.showItemInFolder(downloadedPath);
       const installCommand = buildLinuxDesktopPackageInstallCommand(downloadedPath);
       this.setState({
@@ -266,6 +274,50 @@ class UpdateManager extends EventEmitter {
       ),
     });
     return true;
+  }
+
+  private launchLinuxDesktopPackageInstaller(downloadedPath: string): boolean {
+    const plan = buildLinuxDesktopPackageInstallPlan(downloadedPath);
+    if (!plan || !this.canUsePkexec()) {
+      return false;
+    }
+
+    try {
+      const child = spawn(plan.command, plan.args, {
+        detached: true,
+        stdio: "ignore",
+        windowsHide: true,
+      });
+      child.on("error", (error) => {
+        this.setState({
+          message: this.text(
+            `Update package downloaded, but the system installer could not be started. Open a terminal and run: ${buildLinuxDesktopPackageInstallCommand(downloadedPath)}. Error: ${error.message}`,
+            `更新包已下载，但无法启动系统安装器。请在终端执行：${buildLinuxDesktopPackageInstallCommand(downloadedPath)}。错误：${error.message}`,
+          ),
+        });
+      });
+      child.unref();
+      this.setState({
+        message: this.text(
+          `System installer started. Authorize the prompt to install the update: ${plan.commandPreview}`,
+          `系统安装器已启动。请在授权提示中确认安装更新：${plan.commandPreview}`,
+        ),
+      });
+      return true;
+    } catch (error) {
+      this.setState({
+        message: this.text(
+          `Update package downloaded, but the system installer could not be started. Open a terminal and run: ${buildLinuxDesktopPackageInstallCommand(downloadedPath)}. Error: ${this.formatError(error)}`,
+          `更新包已下载，但无法启动系统安装器。请在终端执行：${buildLinuxDesktopPackageInstallCommand(downloadedPath)}。错误：${this.formatError(error)}`,
+        ),
+      });
+      return false;
+    }
+  }
+
+  private canUsePkexec(): boolean {
+    return process.platform === "linux"
+      && (fs.existsSync("/usr/bin/pkexec") || fs.existsSync("/bin/pkexec"));
   }
 
   private async performCheck(manual: boolean): Promise<void> {
