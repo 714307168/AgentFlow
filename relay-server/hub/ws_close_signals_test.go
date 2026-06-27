@@ -49,3 +49,32 @@ func TestWSCloseSignalSnapshotAggregatesByClientSourceAndCode(t *testing.T) {
 		t.Fatalf("expected transport_error label for non-close errors, got %+v", second)
 	}
 }
+
+func TestIsUnexpectedWSCloseSignalErrorTreatsCommonDisconnectNoiseAsExpected(t *testing.T) {
+	expectedNoiseCodes := []int{
+		websocket.CloseNormalClosure,
+		websocket.CloseGoingAway,
+		websocket.CloseNoStatusReceived,
+		websocket.CloseAbnormalClosure,
+	}
+
+	for _, code := range expectedNoiseCodes {
+		if IsUnexpectedWSCloseSignalError(&websocket.CloseError{Code: code, Text: "client disconnected"}) {
+			t.Fatalf("close code %d should not be counted as unexpected websocket signal", code)
+		}
+	}
+
+	if IsUnexpectedWSCloseSignalError(errors.New("read tcp: use of closed network connection")) {
+		t.Fatal("transport close noise should not be counted as unexpected websocket signal")
+	}
+}
+
+func TestIsUnexpectedWSCloseSignalErrorFlagsActionableCloseCodes(t *testing.T) {
+	if !IsUnexpectedWSCloseSignalError(&websocket.CloseError{Code: websocket.ClosePolicyViolation, Text: "bad token"}) {
+		t.Fatal("policy violation should be counted as an unexpected websocket signal")
+	}
+
+	if !IsUnexpectedWSCloseSignalError(&websocket.CloseError{Code: websocket.CloseProtocolError, Text: "bad frame"}) {
+		t.Fatal("protocol error should be counted as an unexpected websocket signal")
+	}
+}

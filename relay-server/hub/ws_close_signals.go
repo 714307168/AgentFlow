@@ -87,6 +87,16 @@ func (h *Hub) recordWSCloseSignalForClient(client *Client, source string, err er
 	h.RecordWSCloseSignal(client.Type, source, err, unexpected)
 }
 
+func IsUnexpectedWSCloseSignalError(err error) bool {
+	return websocket.IsUnexpectedCloseError(
+		err,
+		websocket.CloseNormalClosure,
+		websocket.CloseGoingAway,
+		websocket.CloseNoStatusReceived,
+		websocket.CloseAbnormalClosure,
+	)
+}
+
 func (h *Hub) WSCloseSignalSnapshot() []WSCloseSignal {
 	h.closeSignalMu.RLock()
 	items := make([]WSCloseSignal, 0, len(h.closeSignals))

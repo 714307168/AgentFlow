@@ -38,7 +38,7 @@ func WSHandler(h *hub.Hub, cfg *config.Config, st *store.Store) http.HandlerFunc
 		_ = conn.SetReadDeadline(time.Now().Add(15 * time.Second))
 		_, raw, err := conn.ReadMessage()
 		if err != nil {
-			h.RecordWSCloseSignal("", "auth_read", err, websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure))
+			h.RecordWSCloseSignal("", "auth_read", err, hub.IsUnexpectedWSCloseSignalError(err))
 			log.Warn().Err(err).Msg("failed to read auth message")
 			conn.Close()
 			return

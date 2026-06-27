@@ -77,7 +77,7 @@ func (c *Client) ReadPump() {
 	for {
 		_, msg, err := c.conn.ReadMessage()
 		if err != nil {
-			unexpected := websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure)
+			unexpected := IsUnexpectedWSCloseSignalError(err)
 			c.hub.recordWSCloseSignalForClient(c, "read", err, unexpected)
 			if unexpected {
 				log.Warn().Str("client_id", c.ID).Err(err).Msg("unexpected ws close")
@@ -116,7 +116,7 @@ func (c *Client) WritePump() {
 				return
 			}
 			if err := c.conn.WriteMessage(websocket.TextMessage, msg); err != nil {
-				c.hub.recordWSCloseSignalForClient(c, "write", err, websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure))
+				c.hub.recordWSCloseSignalForClient(c, "write", err, IsUnexpectedWSCloseSignalError(err))
 				log.Warn().Str("client_id", c.ID).Err(err).Msg("ws write error")
 				return
 			}
@@ -124,7 +124,7 @@ func (c *Client) WritePump() {
 		case <-ticker.C:
 			_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
-				c.hub.recordWSCloseSignalForClient(c, "ping", err, websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure))
+				c.hub.recordWSCloseSignalForClient(c, "ping", err, IsUnexpectedWSCloseSignalError(err))
 				return
 			}
 		}
