@@ -2,6 +2,7 @@ import { app } from "electron";
 import Store from "electron-store";
 import * as fs from "fs";
 import * as path from "path";
+import { getDesktopDatabase, getSqliteMigrationFlag, setSqliteMigrationFlag } from "./desktop-sqlite-store";
 import type {
   CliTraceEntry,
   RunAttachment,
@@ -123,6 +124,7 @@ interface LegacyRuntimeStoreSchema {
 }
 
 const HISTORY_DIR_NAME = "runtime-history";
+const SQLITE_MIGRATION_KEY = "runtime-history-json-imported";
 const MAX_SYNC_ITEMS = 200;
 const MAX_PERSISTED_ACTIVITY_ENTRIES = 30;
 
@@ -130,21 +132,25 @@ class SessionHistoryStore {
   private readonly historyDir: string;
   private readonly cache = new Map<string, PersistedProjectState>();
   private readonly writeTimers = new Map<string, NodeJS.Timeout>();
+  private readonly db = getDesktopDatabase();
+  private readonly listProjectIdsStatement = this.db.prepare("SELECT project_id FROM runtime_project_states ORDER BY project_id ASC");
+  private readonly getProjectStatement = this.db.prepare("SELECT payload FROM runtime_project_states WHERE project_id = ?");
+  private readonly upsertProjectStatement = this.db.prepare(
+    "INSERT INTO runtime_project_states (project_id, payload, updated_at) VALUES (?, ?, ?) " +
+      "ON CONFLICT(project_id) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at",
+  );
+  private readonly deleteProjectStatement = this.db.prepare("DELETE FROM runtime_project_states WHERE project_id = ?");
 
   constructor() {
     this.historyDir = path.join(app.getPath("userData"), HISTORY_DIR_NAME);
     fs.mkdirSync(this.historyDir, { recursive: true });
     this.migrateLegacyStore();
+    this.migrateJsonHistoryFiles();
   }
 
   listProjectIds(): string[] {
-    try {
-      return fs.readdirSync(this.historyDir)
-        .filter((entry) => entry.endsWith(".json"))
-        .map((entry) => decodeURIComponent(entry.slice(0, -5)));
-    } catch (_error) {
-      return [];
-    }
+    return (this.listProjectIdsStatement.all() as Array<{ project_id: string }>)
+      .map((entry) => entry.project_id);
   }
 
   getAllProjects(): Array<{ projectId: string; state: PersistedProjectState }> {
@@ -164,15 +170,15 @@ class SessionHistoryStore {
       return cached;
     }
 
-    const filePath = this.getProjectFilePath(projectId);
-    if (!fs.existsSync(filePath)) {
+    const row = this.getProjectStatement.get(projectId) as { payload?: string } | undefined;
+    if (!row?.payload) {
       const empty = this.createEmptyState();
       this.cache.set(projectId, empty);
       return empty;
     }
 
     try {
-      const parsed = JSON.parse(fs.readFileSync(filePath, "utf8")) as LegacyPersistedProjectState;
+      const parsed = JSON.parse(row.payload) as LegacyPersistedProjectState;
       const normalized = this.normalizeProjectState(parsed);
       this.cache.set(projectId, normalized);
       return normalized;
@@ -425,10 +431,7 @@ class SessionHistoryStore {
       this.writeTimers.delete(projectId);
     }
     this.cache.delete(projectId);
-    const filePath = this.getProjectFilePath(projectId);
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
-    }
+    this.deleteProjectStatement.run(projectId);
   }
 
   private repairProject(projectId: string): ChatHistoryRepairProjectResult {
@@ -445,12 +448,13 @@ class SessionHistoryStore {
     let backupPath: string | null = null;
     let parsedState: LegacyPersistedProjectState | PersistedProjectState | null = this.cache.get(normalizedProjectId) ?? null;
 
-    if (fs.existsSync(filePath)) {
-      rawText = fs.readFileSync(filePath, "utf8");
+    const row = this.getProjectStatement.get(normalizedProjectId) as { payload?: string } | undefined;
+    if (row?.payload) {
+      rawText = row.payload;
       try {
         parsedState = JSON.parse(rawText) as LegacyPersistedProjectState;
       } catch (_error) {
-        backupPath = this.backupCorruptProjectFile(normalizedProjectId, filePath);
+        backupPath = this.backupCorruptProjectPayload(normalizedProjectId, rawText);
         parsedState = this.createEmptyState();
         reset = true;
       }
@@ -458,10 +462,10 @@ class SessionHistoryStore {
 
     const normalized = this.normalizeProjectState(parsedState ?? this.createEmptyState());
     const nextPayload = JSON.stringify(normalized);
-    const repaired = reset || !fs.existsSync(filePath) || rawText !== nextPayload;
+    const repaired = reset || !row?.payload || rawText !== nextPayload;
 
     this.cache.set(normalizedProjectId, normalized);
-    fs.writeFileSync(filePath, nextPayload, "utf8");
+    this.upsertProjectStatement.run(normalizedProjectId, nextPayload, Date.now());
 
     return {
       projectId: normalizedProjectId,
@@ -528,11 +532,7 @@ class SessionHistoryStore {
       return;
     }
 
-    fs.writeFileSync(
-      this.getProjectFilePath(projectId),
-      JSON.stringify(state),
-      "utf8",
-    );
+    this.upsertProjectStatement.run(projectId, JSON.stringify(state), Date.now());
   }
 
   private resolveConversation(
@@ -709,6 +709,32 @@ class SessionHistoryStore {
       const migrated = this.normalizeProjectState(legacyState);
       this.cache.set(projectId, migrated);
       this.flushProject(projectId);
+    }
+  }
+
+  private migrateJsonHistoryFiles(): void {
+    if (getSqliteMigrationFlag(SQLITE_MIGRATION_KEY) === "1") {
+      return;
+    }
+
+    try {
+      for (const entry of fs.readdirSync(this.historyDir)) {
+        if (!entry.endsWith(".json")) {
+          continue;
+        }
+        const projectId = decodeURIComponent(entry.slice(0, -5));
+        const existing = this.getProjectStatement.get(projectId) as { payload?: string } | undefined;
+        if (existing?.payload) {
+          continue;
+        }
+        const filePath = path.join(this.historyDir, entry);
+        const parsed = JSON.parse(fs.readFileSync(filePath, "utf8")) as LegacyPersistedProjectState;
+        const normalized = this.normalizeProjectState(parsed);
+        this.upsertProjectStatement.run(projectId, JSON.stringify(normalized), Date.now());
+      }
+      setSqliteMigrationFlag(SQLITE_MIGRATION_KEY, "1");
+    } catch (_error) {
+      // Leave the flag unset so the next startup can retry the import.
     }
   }
 
@@ -949,9 +975,9 @@ class SessionHistoryStore {
     return typeof value === "string" ? value.trim() : "";
   }
 
-  private backupCorruptProjectFile(projectId: string, filePath: string): string {
+  private backupCorruptProjectPayload(projectId: string, payload: string): string {
     const backupPath = path.join(this.historyDir, `${encodeURIComponent(projectId)}.corrupt-${Date.now()}.json`);
-    fs.copyFileSync(filePath, backupPath);
+    fs.writeFileSync(backupPath, payload, "utf8");
     return backupPath;
   }
 

@@ -15,6 +15,7 @@ files:
   - "renderer/**/*"
   - "assets/**/*"
   - "node_modules/node-pty/**/*"
+  - "node_modules/better-sqlite3/**/*"
   - "package.json"
 
 directories:

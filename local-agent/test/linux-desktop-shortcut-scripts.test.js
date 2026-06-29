@@ -70,7 +70,7 @@ test("windows packages include x64 and x86 targets", () => {
   assert.match(portableConfig, /\$\{productName\}-\$\{version\}-\$\{arch\}-portable\.\$\{ext\}/);
 });
 
-test("desktop packages unpack node-pty native modules inside the app", () => {
+test("desktop packages include native modules inside the app", () => {
   const builderConfig = readProjectFile("electron-builder.yml");
   const portableConfig = readProjectFile("electron-builder.portable.yml");
 
@@ -78,6 +78,7 @@ test("desktop packages unpack node-pty native modules inside the app", () => {
     assert.match(config, /asarUnpack:\n\s+- "node_modules\/node-pty\/\*\*\/\*"/);
     assert.match(config, /- "node_modules\/\*\*\/\*\.node"/);
     assert.match(config, /files:[\s\S]*- "node_modules\/node-pty\/\*\*\/\*"/);
+    assert.match(config, /files:[\s\S]*- "node_modules\/better-sqlite3\/\*\*\/\*"/);
     assert.doesNotMatch(config, /from: node_modules\/node-pty/);
   }
 });
