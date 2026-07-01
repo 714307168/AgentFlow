@@ -354,6 +354,99 @@
       font-weight: 700;
       margin-bottom: 6px;
     }
+    .model-provider-section {
+      margin-top: 14px;
+    }
+    .model-provider-toolbar {
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) auto;
+      gap: 10px;
+      align-items: end;
+      margin-bottom: 12px;
+    }
+    .model-provider-list {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    }
+    .model-provider-card {
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 14px;
+      background: rgba(255, 255, 255, 0.03);
+      cursor: pointer;
+      transition: border-color 0.15s ease, background 0.15s ease;
+    }
+    .model-provider-card:hover {
+      border-color: rgba(88, 166, 255, 0.4);
+      background: rgba(88, 166, 255, 0.06);
+    }
+    .model-provider-card.active {
+      border-color: rgba(63, 185, 80, 0.48);
+      background: rgba(63, 185, 80, 0.08);
+    }
+    .model-provider-card.editing {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.08);
+    }
+    .model-provider-card-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+    .model-provider-name {
+      font-weight: 800;
+      color: #fff;
+    }
+    .model-provider-protocol {
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-top: 2px;
+    }
+    .model-provider-pill {
+      border-radius: 999px;
+      padding: 3px 8px;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+    .model-provider-pill.ok {
+      border-color: rgba(63, 185, 80, 0.42);
+      color: var(--success);
+      background: var(--success-bg);
+    }
+    .model-provider-meta {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+      word-break: break-all;
+    }
+    .model-provider-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+    }
+    .model-provider-editor {
+      margin-top: 14px;
+      border: 1px solid rgba(88, 166, 255, 0.22);
+      border-radius: 16px;
+      padding: 16px;
+      background: rgba(88, 166, 255, 0.06);
+    }
+    .model-provider-editor.hidden {
+      display: none;
+    }
+    .model-provider-editor-grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    }
     .field-help {
       color: var(--muted);
       font-size: 12px;
@@ -2769,39 +2862,51 @@
                 <button class="btn-secondary" id="refreshRuntimeStatusBtn" type="button">Refresh Runtime Status</button>
               </div>
             </div>
+            <div class="model-provider-section">
+              <div class="runtime-card-title" id="modelProviderSectionTitle">Model Providers</div>
+              <div class="field-help" id="modelProviderSectionHint">Manage API keys, Base URLs, and default models as provider profiles. Select one OpenAI-compatible profile for Codex API fallback.</div>
+              <div class="model-provider-toolbar">
+                <div class="field" style="margin-bottom: 0;">
+                  <label id="modelProviderPresetLabel">Provider Preset</label>
+                  <select id="modelProviderPreset"></select>
+                </div>
+                <button class="btn-secondary" id="addModelProviderBtn" type="button">Add Provider</button>
+              </div>
+              <div class="model-provider-list" id="modelProviderList"></div>
+              <div class="model-provider-editor hidden" id="modelProviderEditor">
+                <div class="model-provider-editor-grid">
+                  <div class="field">
+                    <label id="modelProviderNameLabel">Display Name</label>
+                    <input type="text" id="modelProviderName" placeholder="DeepSeek">
+                  </div>
+                  <div class="field">
+                    <label id="modelProviderProtocolLabel">Protocol</label>
+                    <select id="modelProviderProtocol">
+                      <option value="openai">OpenAI Compatible</option>
+                      <option value="anthropic">Claude Compatible</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label id="modelProviderApiKeyLabel">API Key</label>
+                    <input type="password" id="modelProviderApiKey" placeholder="sk-...">
+                  </div>
+                  <div class="field">
+                    <label id="modelProviderBaseUrlLabel">Base URL</label>
+                    <input type="text" id="modelProviderBaseUrl" placeholder="https://api.example.com">
+                  </div>
+                  <div class="field">
+                    <label id="modelProviderDefaultModelLabel">Default Model</label>
+                    <input type="text" id="modelProviderDefaultModel" placeholder="deepseek-chat">
+                  </div>
+                </div>
+                <div class="btn-row">
+                  <button class="btn-primary" id="saveModelProviderBtn" type="button">Save Provider</button>
+                  <button class="btn-secondary" id="activateModelProviderBtn" type="button">Use This Provider</button>
+                  <button class="btn-secondary" id="deleteModelProviderBtn" type="button">Delete</button>
+                </div>
+              </div>
+            </div>
             <div class="runtime-grid">
-              <div class="runtime-card">
-                <div class="runtime-card-title" id="openaiRuntimeTitle">OpenAI-Compatible</div>
-                <div class="field">
-                  <label id="openaiApiKeyLabel">OpenAI-Compatible API Key</label>
-                  <input type="password" id="openaiApiKey" placeholder="sk-...">
-                </div>
-                <div class="field">
-                  <label id="openaiBaseUrlLabel">OpenAI-Compatible Base URL</label>
-                  <input type="text" id="openaiBaseUrl" placeholder="https://api.openai.com/v1">
-                </div>
-                <div class="field">
-                  <label id="openaiDefaultModelLabel">OpenAI-Compatible Default Model</label>
-                  <input type="text" id="openaiDefaultModel" placeholder="gpt-5.4">
-                  <div class="field-help" id="openaiDefaultModelHint">Used when a Codex project does not set its own model.</div>
-                </div>
-              </div>
-              <div class="runtime-card">
-                <div class="runtime-card-title" id="anthropicRuntimeTitle">Claude-Compatible</div>
-                <div class="field">
-                  <label id="anthropicApiKeyLabel">Claude-Compatible API Key</label>
-                  <input type="password" id="anthropicApiKey" placeholder="sk-ant-...">
-                </div>
-                <div class="field">
-                  <label id="anthropicBaseUrlLabel">Claude-Compatible Base URL</label>
-                  <input type="text" id="anthropicBaseUrl" placeholder="https://api.anthropic.com">
-                </div>
-                <div class="field">
-                  <label id="anthropicDefaultModelLabel">Claude-Compatible Default Model</label>
-                  <input type="text" id="anthropicDefaultModel" placeholder="claude-sonnet-4-5">
-                  <div class="field-help" id="anthropicDefaultModelHint">Used when a Claude project does not set its own model.</div>
-                </div>
-              </div>
               <div class="runtime-card">
                 <div class="runtime-card-title" id="gitAutomationTitle">Git & GitHub</div>
                 <div class="field">
@@ -2854,7 +2959,7 @@
     const settingsAccessGrants = window.SettingsAccessGrants;
     const settingsPaneLoaders = window.SettingsPaneLoaders;
     const CACHED_SECRET_PLACEHOLDER = "__cached__";
-    const SECRET_FIELD_IDS = ["password", "openaiApiKey", "anthropicApiKey", "githubToken"];
+    const SECRET_FIELD_IDS = ["password", "modelProviderApiKey", "githubToken"];
     let currentLang = "en";
     let msgs = {};
     let activeSettingsPane = "overview";
@@ -2871,6 +2976,7 @@
     let latestRelayDevices = [];
     let latestLocalCommands = [];
     let latestSkillCatalog = null;
+    let editingModelProviderId = "";
     let latestProjectCatalog = [];
     let latestScheduledTasks = [];
     let scheduledTaskFilter = "all";
@@ -2936,6 +3042,65 @@
       workgroupsPromise: null,
     };
 
+    const MODEL_PROVIDER_PRESETS = providerUi?.listModelProviderPresets?.() || [
+      {
+        id: "openai",
+        name: "OpenAI",
+        protocol: "openai",
+        baseUrl: "https://api.openai.com",
+        defaultModel: "gpt-5.4",
+        description: "Official OpenAI-compatible API endpoint.",
+      },
+      {
+        id: "deepseek",
+        name: "DeepSeek",
+        protocol: "openai",
+        baseUrl: "https://api.deepseek.com",
+        defaultModel: "deepseek-chat",
+        description: "DeepSeek chat models through an OpenAI-compatible API.",
+      },
+      {
+        id: "zhipu",
+        name: "智谱 GLM",
+        protocol: "openai",
+        baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+        defaultModel: "glm-4.5",
+        description: "Zhipu GLM OpenAI-compatible API mode.",
+      },
+      {
+        id: "minimax-mimo",
+        name: "MiniMax / Mimo",
+        protocol: "openai",
+        baseUrl: "https://api.minimax.chat/v1",
+        defaultModel: "MiniMax-M1",
+        description: "MiniMax and Mimo-style OpenAI-compatible models.",
+      },
+      {
+        id: "hunyuan",
+        name: "腾讯混元",
+        protocol: "openai",
+        baseUrl: "https://api.hunyuan.cloud.tencent.com/v1",
+        defaultModel: "hunyuan-turbos-latest",
+        description: "Tencent Hunyuan OpenAI-compatible API endpoint.",
+      },
+      {
+        id: "aliyun-qwen",
+        name: "阿里通义千问",
+        protocol: "openai",
+        baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        defaultModel: "qwen-plus",
+        description: "Alibaba DashScope OpenAI-compatible API mode.",
+      },
+      {
+        id: "anthropic",
+        name: "Anthropic Claude",
+        protocol: "anthropic",
+        baseUrl: "https://api.anthropic.com",
+        defaultModel: "claude-3-7-sonnet-latest",
+        description: "Official Anthropic Messages API endpoint.",
+      },
+    ];
+
     function isCachedSecretPlaceholder(value) {
       return String(value || "") === CACHED_SECRET_PLACEHOLDER;
     }
@@ -2956,8 +3121,6 @@
 
     function syncCachedSecretFieldDisplays(secretState = {}) {
       applySecretFieldValue("password", secretState.password || "");
-      applySecretFieldValue("openaiApiKey", secretState.openaiApiKey || "");
-      applySecretFieldValue("anthropicApiKey", secretState.anthropicApiKey || "");
       applySecretFieldValue("githubToken", secretState.githubToken || "");
     }
 
@@ -3058,6 +3221,212 @@
 
     function providerLabel(provider) {
       return providerUi?.getProviderLabel?.(provider) || providerRuntimeApi?.getProviderLabel(provider) || (provider === "codex" ? "OpenAI Codex" : "Claude Code");
+    }
+
+    function normalizeModelProviderProtocol(protocol) {
+      return protocol === "anthropic" ? "anthropic" : "openai";
+    }
+
+    function normalizeModelProviderId(value, fallback = "provider") {
+      const normalized = String(value || "")
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 64);
+      return normalized || fallback;
+    }
+
+    function makeUniqueModelProviderId(baseId, profiles, currentId = "") {
+      const usedIds = new Set((profiles || []).map((profile) => profile?.id).filter((id) => id && id !== currentId));
+      const normalizedBaseId = normalizeModelProviderId(baseId);
+      let nextId = normalizedBaseId;
+      let suffix = 2;
+      while (usedIds.has(nextId)) {
+        nextId = normalizedBaseId + "-" + suffix;
+        suffix += 1;
+      }
+      return nextId;
+    }
+
+    function createDefaultModelProviderProfiles(config = {}) {
+      return MODEL_PROVIDER_PRESETS.map((preset) => {
+        const profile = {
+          id: preset.id,
+          name: preset.name,
+          protocol: normalizeModelProviderProtocol(preset.protocol),
+          apiKey: "",
+          baseUrl: preset.baseUrl,
+          defaultModel: preset.defaultModel,
+          enabled: true,
+        };
+        if (preset.id === "openai") {
+          profile.apiKey = config.openaiApiKey || "";
+          profile.baseUrl = config.openaiBaseUrl || preset.baseUrl;
+          profile.defaultModel = config.openaiDefaultModel || preset.defaultModel;
+        } else if (preset.id === "anthropic") {
+          profile.apiKey = config.anthropicApiKey || "";
+          profile.baseUrl = config.anthropicBaseUrl || preset.baseUrl;
+          profile.defaultModel = config.anthropicDefaultModel || preset.defaultModel;
+        }
+        return profile;
+      });
+    }
+
+    function normalizeModelProviderProfilesForUi(config = latestConfig || {}) {
+      const source = Array.isArray(config?.modelProviderProfiles) && config.modelProviderProfiles.length > 0
+        ? config.modelProviderProfiles
+        : createDefaultModelProviderProfiles(config);
+      const normalized = [];
+      for (const profile of source) {
+        const protocol = normalizeModelProviderProtocol(profile?.protocol);
+        const fallbackId = protocol + "-" + (normalized.length + 1);
+        const id = makeUniqueModelProviderId(profile?.id || fallbackId, normalized);
+        normalized.push({
+          id,
+          name: String(profile?.name || id).trim() || id,
+          protocol,
+          apiKey: String(profile?.apiKey || ""),
+          baseUrl: String(profile?.baseUrl || "").trim(),
+          defaultModel: String(profile?.defaultModel || "").trim(),
+          enabled: profile?.enabled !== false,
+        });
+      }
+      return normalized;
+    }
+
+    function normalizeActiveModelProviderMap(config = latestConfig || {}, profiles = normalizeModelProviderProfilesForUi(config)) {
+      const configured = config?.activeModelProviderProfileByProtocol && typeof config.activeModelProviderProfileByProtocol === "object"
+        ? config.activeModelProviderProfileByProtocol
+        : {};
+      const active = {};
+      ["openai", "anthropic"].forEach((protocol) => {
+        const configuredId = String(configured[protocol] || "");
+        const configuredProfile = profiles.find((profile) => profile.id === configuredId && profile.protocol === protocol && profile.enabled !== false);
+        const fallbackProfile = profiles.find((profile) => (profile.protocol === protocol && profile.enabled !== false && String(profile.apiKey || "").trim()))
+          || profiles.find((profile) => profile.protocol === protocol && profile.enabled !== false);
+        const selected = configuredProfile || fallbackProfile;
+        if (selected) {
+          active[protocol] = selected.id;
+        }
+      });
+      return active;
+    }
+
+    function protocolLabel(protocol) {
+      return normalizeModelProviderProtocol(protocol) === "anthropic"
+        ? inlineText("Claude Compatible", "Claude 协议")
+        : inlineText("OpenAI Compatible", "OpenAI 协议");
+    }
+
+    function renderModelProviderPresetOptions() {
+      const select = document.getElementById("modelProviderPreset");
+      if (!select) {
+        return;
+      }
+      const options = MODEL_PROVIDER_PRESETS.map((preset) => "<option value=\"" + escapeHtml(preset.id) + "\">" + escapeHtml(preset.name) + " · " + escapeHtml(protocolLabel(preset.protocol)) + "</option>");
+      options.push("<option value=\"custom\">" + escapeHtml(inlineText("Custom Provider", "自定义服务商")) + "</option>");
+      select.innerHTML = options.join("");
+    }
+
+    function getModelProviderProfiles() {
+      return normalizeModelProviderProfilesForUi(latestConfig || {});
+    }
+
+    function renderModelProviderProfiles() {
+      const list = document.getElementById("modelProviderList");
+      const editor = document.getElementById("modelProviderEditor");
+      if (!list || !editor) {
+        return;
+      }
+      const profiles = getModelProviderProfiles();
+      const activeMap = normalizeActiveModelProviderMap(latestConfig, profiles);
+      if (!editingModelProviderId || !profiles.some((profile) => profile.id === editingModelProviderId)) {
+        editingModelProviderId = profiles[0]?.id || "";
+      }
+      list.innerHTML = profiles.map((profile) => {
+        const isActive = activeMap[profile.protocol] === profile.id;
+        const isEditing = editingModelProviderId === profile.id;
+        const configured = Boolean(String(profile.apiKey || "").trim());
+        const cardClass = "model-provider-card" + (isActive ? " active" : "") + (isEditing ? " editing" : "");
+        const pillText = isActive ? inlineText("Active", "生效中") : (configured ? inlineText("Configured", "已配置") : inlineText("No Key", "未填密钥"));
+        return "<div class=\"" + cardClass + "\" data-provider-id=\"" + escapeHtml(profile.id) + "\">"
+          + "<div class=\"model-provider-card-header\"><div><div class=\"model-provider-name\">" + escapeHtml(profile.name) + "</div>"
+          + "<div class=\"model-provider-protocol\">" + escapeHtml(protocolLabel(profile.protocol)) + "</div></div>"
+          + "<div class=\"model-provider-pill " + (configured ? "ok" : "") + "\">" + escapeHtml(pillText) + "</div></div>"
+          + "<div class=\"model-provider-meta\">" + escapeHtml(profile.baseUrl || inlineText("No Base URL", "未配置 Base URL")) + "</div>"
+          + "<div class=\"model-provider-meta\">" + escapeHtml(profile.defaultModel || inlineText("No default model", "未配置默认模型")) + "</div>"
+          + "<div class=\"model-provider-actions\">"
+          + "<button class=\"btn-secondary btn-small\" type=\"button\" data-model-provider-action=\"edit\" data-provider-id=\"" + escapeHtml(profile.id) + "\">" + escapeHtml(inlineText("Edit", "编辑")) + "</button>"
+          + "<button class=\"btn-secondary btn-small\" type=\"button\" data-model-provider-action=\"activate\" data-provider-id=\"" + escapeHtml(profile.id) + "\">" + escapeHtml(inlineText("Use", "使用")) + "</button>"
+          + "</div></div>";
+      }).join("");
+      const editing = profiles.find((profile) => profile.id === editingModelProviderId) || profiles[0];
+      if (!editing) {
+        editor.classList.add("hidden");
+        return;
+      }
+      editor.classList.remove("hidden");
+      document.getElementById("modelProviderName").value = editing.name || "";
+      document.getElementById("modelProviderProtocol").value = editing.protocol || "openai";
+      document.getElementById("modelProviderApiKey").value = editing.apiKey || "";
+      document.getElementById("modelProviderBaseUrl").value = editing.baseUrl || "";
+      document.getElementById("modelProviderDefaultModel").value = editing.defaultModel || "";
+      document.getElementById("deleteModelProviderBtn").disabled = profiles.length <= 1;
+    }
+
+    function applyEditingModelProviderFromForm({ keepSecretPlaceholder = false } = {}) {
+      const profiles = getModelProviderProfiles();
+      const editingIndex = profiles.findIndex((profile) => profile.id === editingModelProviderId);
+      if (editingIndex < 0) {
+        return profiles;
+      }
+      const current = profiles[editingIndex];
+      const apiKeyInput = document.getElementById("modelProviderApiKey").value;
+      profiles[editingIndex] = {
+        ...current,
+        name: document.getElementById("modelProviderName").value.trim() || current.name,
+        protocol: normalizeModelProviderProtocol(document.getElementById("modelProviderProtocol").value),
+        apiKey: keepSecretPlaceholder && isCachedSecretPlaceholder(apiKeyInput) ? CACHED_SECRET_PLACEHOLDER : apiKeyInput,
+        baseUrl: document.getElementById("modelProviderBaseUrl").value.trim(),
+        defaultModel: document.getElementById("modelProviderDefaultModel").value.trim(),
+        enabled: true,
+      };
+      return profiles;
+    }
+
+    function updateModelProviderState(profiles, activeMap) {
+      const normalizedProfiles = normalizeModelProviderProfilesForUi({ ...(latestConfig || {}), modelProviderProfiles: profiles });
+      latestConfig = {
+        ...(latestConfig || {}),
+        modelProviderProfiles: normalizedProfiles,
+        activeModelProviderProfileByProtocol: normalizeActiveModelProviderMap({ ...(latestConfig || {}), activeModelProviderProfileByProtocol: activeMap }, normalizedProfiles),
+      };
+      renderModelProviderProfiles();
+      renderCliProviderRuntimeStatus();
+    }
+
+    function addModelProviderFromPreset() {
+      const selectedId = document.getElementById("modelProviderPreset").value || "custom";
+      const preset = MODEL_PROVIDER_PRESETS.find((entry) => entry.id === selectedId) || { id: "custom", name: inlineText("Custom Provider", "自定义服务商"), protocol: "openai", baseUrl: "", defaultModel: "" };
+      const profiles = getModelProviderProfiles();
+      const id = makeUniqueModelProviderId(preset.id, profiles);
+      profiles.push({ id, name: preset.name, protocol: normalizeModelProviderProtocol(preset.protocol), apiKey: "", baseUrl: preset.baseUrl || "", defaultModel: preset.defaultModel || "", enabled: true });
+      editingModelProviderId = id;
+      updateModelProviderState(profiles, latestConfig?.activeModelProviderProfileByProtocol || {});
+      setTimeout(() => document.getElementById("modelProviderApiKey")?.focus(), 0);
+    }
+
+    async function saveModelProviderProfiles({ activateEditing = false } = {}) {
+      const profiles = applyEditingModelProviderFromForm({ keepSecretPlaceholder: true });
+      const activeMap = normalizeActiveModelProviderMap(latestConfig, profiles);
+      const editing = profiles.find((profile) => profile.id === editingModelProviderId);
+      if (activateEditing && editing) {
+        activeMap[editing.protocol] = editing.id;
+      }
+      latestConfig = { ...(latestConfig || {}), modelProviderProfiles: profiles, activeModelProviderProfileByProtocol: activeMap };
+      await saveConnectionConfig();
+      renderModelProviderProfiles();
     }
 
     function supportsDesktopCapability(key) {
@@ -5035,22 +5404,23 @@
       document.getElementById("cliProviderLabel").textContent = msg("settings.cliProvider", "CLI Provider");
       document.getElementById("runtimeHint").textContent = msg("settings.runtimeHint", "Both providers run in full-auto mode with no approval prompts or click-throughs.");
       document.getElementById("refreshRuntimeStatusBtn").textContent = inlineText("Refresh Runtime Status", "刷新运行环境状态");
-      document.getElementById("openaiRuntimeTitle").textContent = inlineText("OpenAI-Compatible", "OpenAI 协议");
-      document.getElementById("openaiApiKeyLabel").textContent = inlineText("OpenAI-Compatible API Key", "OpenAI 协议 API Key");
-      document.getElementById("openaiBaseUrlLabel").textContent = inlineText("OpenAI-Compatible Base URL", "OpenAI 协议 Base URL");
-      document.getElementById("openaiDefaultModelLabel").textContent = inlineText("OpenAI-Compatible Default Model", "OpenAI 协议默认模型");
-      document.getElementById("openaiDefaultModelHint").textContent = inlineText(
-        "Used when a Codex project does not set its own model.",
-        "当 Codex 项目未单独设置模型时，使用这里的默认模型。"
+      document.getElementById("modelProviderSectionTitle").textContent = inlineText("Model Providers", "模型服务商");
+      document.getElementById("modelProviderSectionHint").textContent = inlineText(
+        "Manage API keys, Base URLs, and default models as provider profiles. Select one OpenAI-compatible profile for Codex API fallback.",
+        "以服务商列表管理 API Key、Base URL 和默认模型。为 Codex API 回退选择一个 OpenAI 协议服务商。"
       );
-      document.getElementById("anthropicRuntimeTitle").textContent = inlineText("Claude-Compatible", "Claude 协议");
-      document.getElementById("anthropicApiKeyLabel").textContent = inlineText("Claude-Compatible API Key", "Claude 协议 API Key");
-      document.getElementById("anthropicBaseUrlLabel").textContent = inlineText("Claude-Compatible Base URL", "Claude 协议 Base URL");
-      document.getElementById("anthropicDefaultModelLabel").textContent = inlineText("Claude-Compatible Default Model", "Claude 协议默认模型");
-      document.getElementById("anthropicDefaultModelHint").textContent = inlineText(
-        "Used when a Claude project does not set its own model.",
-        "当 Claude 项目未单独设置模型时，使用这里的默认模型。"
-      );
+      document.getElementById("modelProviderPresetLabel").textContent = inlineText("Provider Preset", "服务商预设");
+      document.getElementById("addModelProviderBtn").textContent = inlineText("Add Provider", "添加服务商");
+      document.getElementById("modelProviderNameLabel").textContent = inlineText("Display Name", "显示名称");
+      document.getElementById("modelProviderProtocolLabel").textContent = inlineText("Protocol", "协议");
+      document.getElementById("modelProviderApiKeyLabel").textContent = inlineText("API Key", "API Key");
+      document.getElementById("modelProviderBaseUrlLabel").textContent = inlineText("Base URL", "Base URL");
+      document.getElementById("modelProviderDefaultModelLabel").textContent = inlineText("Default Model", "默认模型");
+      document.getElementById("saveModelProviderBtn").textContent = inlineText("Save Provider", "保存服务商");
+      document.getElementById("activateModelProviderBtn").textContent = inlineText("Use This Provider", "使用这个服务商");
+      document.getElementById("deleteModelProviderBtn").textContent = inlineText("Delete", "删除");
+      renderModelProviderPresetOptions();
+      renderModelProviderProfiles();
       document.getElementById("gitAutomationTitle").textContent = inlineText("Git & GitHub", "Git 与 GitHub");
       document.getElementById("githubTokenLabel").textContent = inlineText("GitHub Token", "GitHub Token");
       document.getElementById("githubTokenHint").textContent = inlineText(
@@ -5106,27 +5476,19 @@
 
     async function saveConnectionConfig() {
       const password = readSecretFieldValue("password");
-      const openaiApiKey = readSecretFieldValue("openaiApiKey");
-      const anthropicApiKey = readSecretFieldValue("anthropicApiKey");
       const githubToken = readSecretFieldValue("githubToken");
+      const modelProviderProfiles = applyEditingModelProviderFromForm({ keepSecretPlaceholder: true });
+      const activeModelProviderProfileByProtocol = normalizeActiveModelProviderMap(latestConfig, modelProviderProfiles);
       const payload = {
         serverUrl: document.getElementById("serverUrl").value.trim(),
         username: document.getElementById("username").value.trim(),
         agentId: document.getElementById("agentId").value.trim(),
-        openaiBaseUrl: document.getElementById("openaiBaseUrl").value.trim(),
-        openaiDefaultModel: document.getElementById("openaiDefaultModel").value.trim(),
-        anthropicBaseUrl: document.getElementById("anthropicBaseUrl").value.trim(),
-        anthropicDefaultModel: document.getElementById("anthropicDefaultModel").value.trim(),
+        modelProviderProfiles,
+        activeModelProviderProfileByProtocol,
         cliProvider: document.getElementById("cliProvider").value,
       };
       if (password !== undefined) {
         payload.password = password;
-      }
-      if (openaiApiKey !== undefined) {
-        payload.openaiApiKey = openaiApiKey;
-      }
-      if (anthropicApiKey !== undefined) {
-        payload.anthropicApiKey = anthropicApiKey;
       }
       if (githubToken !== undefined) {
         payload.githubToken = githubToken;
@@ -5137,15 +5499,13 @@
       latestConfig = {
         ...(latestConfig || {}),
         ...payload,
+        modelProviderProfiles: modelProviderProfiles.map((profile) => ({
+          ...profile,
+          apiKey: String(profile.apiKey || "").trim() ? CACHED_SECRET_PLACEHOLDER : "",
+        })),
         password: password === undefined
           ? (latestConfig?.password || "")
           : (password ? CACHED_SECRET_PLACEHOLDER : ""),
-        openaiApiKey: openaiApiKey === undefined
-          ? (latestConfig?.openaiApiKey || "")
-          : (openaiApiKey ? CACHED_SECRET_PLACEHOLDER : ""),
-        anthropicApiKey: anthropicApiKey === undefined
-          ? (latestConfig?.anthropicApiKey || "")
-          : (anthropicApiKey ? CACHED_SECRET_PLACEHOLDER : ""),
         githubToken: githubToken === undefined
           ? (latestConfig?.githubToken || "")
           : (githubToken ? CACHED_SECRET_PLACEHOLDER : ""),
@@ -7020,11 +7380,9 @@
       document.getElementById("serverUrl").value = config.serverUrl || "";
       document.getElementById("username").value = config.username || "";
       document.getElementById("agentId").value = config.agentId || "";
-      document.getElementById("openaiBaseUrl").value = config.openaiBaseUrl || "";
-      document.getElementById("openaiDefaultModel").value = config.openaiDefaultModel || "";
-      document.getElementById("anthropicBaseUrl").value = config.anthropicBaseUrl || "";
-      document.getElementById("anthropicDefaultModel").value = config.anthropicDefaultModel || "";
       syncCachedSecretFieldDisplays(config);
+      renderModelProviderPresetOptions();
+      renderModelProviderProfiles();
       document.getElementById("cliProvider").value = config.cliProvider || "claude";
       document.getElementById("projectProvider").value = config.cliProvider || "claude";
       document.getElementById("projectModel").value = "";
@@ -7058,8 +7416,59 @@
       rememberCliProviderSelection(event.target);
     });
 
-    ["serverUrl", "username", "password", "agentId", "openaiApiKey", "openaiBaseUrl", "openaiDefaultModel", "anthropicApiKey", "anthropicBaseUrl", "anthropicDefaultModel", "githubToken"].forEach((id) => {
+    ["serverUrl", "username", "password", "agentId", "githubToken"].forEach((id) => {
       document.getElementById(id).addEventListener("blur", () => { void saveConnectionConfig(); });
+    });
+
+    ["modelProviderName", "modelProviderProtocol", "modelProviderApiKey", "modelProviderBaseUrl", "modelProviderDefaultModel"].forEach((id) => {
+      document.getElementById(id).addEventListener("blur", () => { void saveModelProviderProfiles(); });
+    });
+
+    document.getElementById("addModelProviderBtn").addEventListener("click", () => {
+      addModelProviderFromPreset();
+    });
+
+    document.getElementById("saveModelProviderBtn").addEventListener("click", () => {
+      void saveModelProviderProfiles();
+    });
+
+    document.getElementById("activateModelProviderBtn").addEventListener("click", () => {
+      void saveModelProviderProfiles({ activateEditing: true });
+    });
+
+    document.getElementById("deleteModelProviderBtn").addEventListener("click", async () => {
+      const profiles = getModelProviderProfiles();
+      if (profiles.length <= 1) {
+        return;
+      }
+      const nextProfiles = profiles.filter((profile) => profile.id !== editingModelProviderId);
+      editingModelProviderId = nextProfiles[0]?.id || "";
+      const activeMap = normalizeActiveModelProviderMap(latestConfig, nextProfiles);
+      updateModelProviderState(nextProfiles, activeMap);
+      await saveConnectionConfig();
+    });
+
+    document.getElementById("modelProviderList").addEventListener("click", (event) => {
+      const button = event.target.closest("[data-model-provider-action]");
+      const card = event.target.closest("[data-provider-id]");
+      const providerId = button?.dataset.providerId || card?.dataset.providerId || "";
+      if (!providerId) {
+        return;
+      }
+      if (button?.dataset.modelProviderAction === "activate") {
+        const profiles = getModelProviderProfiles();
+        const target = profiles.find((profile) => profile.id === providerId);
+        if (target) {
+          const activeMap = normalizeActiveModelProviderMap(latestConfig, profiles);
+          activeMap[target.protocol] = target.id;
+          editingModelProviderId = providerId;
+          updateModelProviderState(profiles, activeMap);
+          void saveConnectionConfig();
+        }
+        return;
+      }
+      editingModelProviderId = providerId;
+      renderModelProviderProfiles();
     });
 
     SECRET_FIELD_IDS.forEach((id) => {

@@ -90,10 +90,15 @@ import {
 } from "./provider-sdk-manager";
 import {
   buildProviderEnvironment,
+  getActiveModelProviderProfile,
   getProviderDefaultSdkModel,
   getProviderSdkConfigValue,
   hasProviderApiFallback,
   normalizeCliProvider as normalizeRegisteredCliProvider,
+  normalizeActiveModelProviderProfileMap,
+  normalizeModelProviderProfiles,
+  type ModelProviderProfile,
+  type ModelProviderProtocol,
   type ProviderConfigSnapshot,
 } from "./provider-registry";
 import { createLocalCommandGateway, defineLocalCommand, type LocalCommandDescriptor } from "./local-command-gateway";
@@ -136,9 +141,12 @@ interface AgentConfig {
   anthropicApiKey?: string;
   anthropicBaseUrl?: string;
   anthropicDefaultModel?: string;
+  modelProviderProfiles?: ModelProviderProfile[];
+  activeModelProviderProfileByProtocol?: Partial<Record<ModelProviderProtocol, string>>;
   githubToken?: string;
   encryptedOpenaiApiKey?: string;
   encryptedAnthropicApiKey?: string;
+  encryptedModelProviderProfiles?: string;
   encryptedGithubToken?: string;
   cliProvider: CliProvider;
 }
@@ -345,9 +353,12 @@ const configStore = new Store<AgentConfig>({
     anthropicApiKey: "",
     anthropicBaseUrl: "",
     anthropicDefaultModel: "",
+    modelProviderProfiles: [],
+    activeModelProviderProfileByProtocol: {},
     githubToken: "",
     encryptedOpenaiApiKey: "",
     encryptedAnthropicApiKey: "",
+    encryptedModelProviderProfiles: "",
     encryptedGithubToken: "",
     cliProvider: "claude",
   },
@@ -3791,6 +3802,35 @@ function bindWindowDiagnostics(
   });
 }
 
+function decodeModelProviderProfilesFromStore(
+  encryptedProfiles: string,
+  legacyConfig: ProviderConfigSnapshot,
+): ModelProviderProfile[] {
+  const decoded = decodeSecretFromStore(encryptedProfiles);
+  if (!decoded) {
+    return normalizeModelProviderProfiles(null, legacyConfig);
+  }
+  try {
+    return normalizeModelProviderProfiles(JSON.parse(decoded) as ModelProviderProfile[], legacyConfig);
+  } catch (_error) {
+    return normalizeModelProviderProfiles(null, legacyConfig);
+  }
+}
+
+function encodeModelProviderProfilesForStore(
+  profiles: ModelProviderProfile[],
+  previousProfiles: ModelProviderProfile[],
+): string {
+  const previousById = new Map(previousProfiles.map((profile) => [profile.id, profile]));
+  const nextProfiles = normalizeModelProviderProfiles(profiles).map((profile) => ({
+    ...profile,
+    apiKey: profile.apiKey === CACHED_SECRET_PLACEHOLDER
+      ? previousById.get(profile.id)?.apiKey ?? ""
+      : profile.apiKey ?? "",
+  }));
+  return encodeSecretForStore(JSON.stringify(nextProfiles));
+}
+
 function loadConfig(): AgentConfig {
   const legacyToken = configStore.get("token") as string;
   const encryptedToken = (configStore.get("encryptedToken") as string) || "";
@@ -3805,6 +3845,30 @@ function loadConfig(): AgentConfig {
     configStore.set("token", "");
   }
 
+  const legacyProviderConfig: ProviderConfigSnapshot = {
+    openaiApiKey: decodeSecretFromStore(configStore.get("encryptedOpenaiApiKey") as string),
+    openaiBaseUrl: (configStore.get("openaiBaseUrl") as string) || "",
+    openaiDefaultModel: (configStore.get("openaiDefaultModel") as string) || "",
+    anthropicApiKey: decodeSecretFromStore(configStore.get("encryptedAnthropicApiKey") as string),
+    anthropicBaseUrl: (configStore.get("anthropicBaseUrl") as string) || "",
+    anthropicDefaultModel: (configStore.get("anthropicDefaultModel") as string) || "",
+  };
+  const modelProviderProfiles = decodeModelProviderProfilesFromStore(
+    (configStore.get("encryptedModelProviderProfiles") as string) || "",
+    legacyProviderConfig,
+  );
+  const activeModelProviderProfileByProtocol = normalizeActiveModelProviderProfileMap(
+    configStore.get("activeModelProviderProfileByProtocol") as Partial<Record<ModelProviderProtocol, string>> | null,
+    modelProviderProfiles,
+  );
+  const providerConfig: ProviderConfigSnapshot = {
+    ...legacyProviderConfig,
+    modelProviderProfiles,
+    activeModelProviderProfileByProtocol,
+  };
+  const activeOpenaiProfile = getActiveModelProviderProfile(providerConfig, "openai");
+  const activeAnthropicProfile = getActiveModelProviderProfile(providerConfig, "anthropic");
+
   return {
     serverUrl: (process.env.RELAY_SERVER_URL ?? configStore.get("serverUrl")) as string,
     agentId: (process.env.AGENT_ID ?? configStore.get("agentId")) as string,
@@ -3814,12 +3878,14 @@ function loadConfig(): AgentConfig {
     controllerDeviceId: (configStore.get("controllerDeviceId") as string) || "",
     controllerToken: decodeSecretFromStore(configStore.get("encryptedControllerToken") as string),
     controllerTokenExpiresAt: (configStore.get("controllerTokenExpiresAt") as string) || "",
-    openaiApiKey: decodeSecretFromStore(configStore.get("encryptedOpenaiApiKey") as string),
-    openaiBaseUrl: (configStore.get("openaiBaseUrl") as string) || "",
-    openaiDefaultModel: (configStore.get("openaiDefaultModel") as string) || "",
-    anthropicApiKey: decodeSecretFromStore(configStore.get("encryptedAnthropicApiKey") as string),
-    anthropicBaseUrl: (configStore.get("anthropicBaseUrl") as string) || "",
-    anthropicDefaultModel: (configStore.get("anthropicDefaultModel") as string) || "",
+    openaiApiKey: activeOpenaiProfile?.apiKey || legacyProviderConfig.openaiApiKey || "",
+    openaiBaseUrl: activeOpenaiProfile?.baseUrl || legacyProviderConfig.openaiBaseUrl || "",
+    openaiDefaultModel: activeOpenaiProfile?.defaultModel || legacyProviderConfig.openaiDefaultModel || "",
+    anthropicApiKey: activeAnthropicProfile?.apiKey || legacyProviderConfig.anthropicApiKey || "",
+    anthropicBaseUrl: activeAnthropicProfile?.baseUrl || legacyProviderConfig.anthropicBaseUrl || "",
+    anthropicDefaultModel: activeAnthropicProfile?.defaultModel || legacyProviderConfig.anthropicDefaultModel || "",
+    modelProviderProfiles,
+    activeModelProviderProfileByProtocol,
     githubToken: decodeSecretFromStore(configStore.get("encryptedGithubToken") as string),
     tokenExpiresAt: (configStore.get("tokenExpiresAt") as string) || "",
     cliProvider: ((process.env.CLI_PROVIDER ?? configStore.get("cliProvider")) as CliProvider) || "claude",
@@ -3838,12 +3904,16 @@ function revealPrimaryWindow(): void {
   showWorkspaceWindow();
 }
 
-function getPublicConfig(): Omit<AgentConfig, "encryptedToken" | "encryptedPassword" | "encryptedOpenaiApiKey" | "encryptedAnthropicApiKey" | "encryptedGithubToken"> {
+function getPublicConfig(): Omit<AgentConfig, "encryptedToken" | "encryptedPassword" | "encryptedOpenaiApiKey" | "encryptedAnthropicApiKey" | "encryptedModelProviderProfiles" | "encryptedGithubToken"> {
   const config = loadConfig();
   const encryptedPassword = (configStore.get("encryptedPassword") as string) || "";
   const encryptedOpenaiApiKey = (configStore.get("encryptedOpenaiApiKey") as string) || "";
   const encryptedAnthropicApiKey = (configStore.get("encryptedAnthropicApiKey") as string) || "";
   const encryptedGithubToken = (configStore.get("encryptedGithubToken") as string) || "";
+  const publicModelProviderProfiles = normalizeModelProviderProfiles(config.modelProviderProfiles, config).map((profile) => ({
+    ...profile,
+    apiKey: profile.apiKey ? CACHED_SECRET_PLACEHOLDER : "",
+  }));
   return {
     serverUrl: config.serverUrl,
     agentId: config.agentId,
@@ -3859,6 +3929,11 @@ function getPublicConfig(): Omit<AgentConfig, "encryptedToken" | "encryptedPassw
     anthropicApiKey: toPublicSecretFieldValue(encryptedAnthropicApiKey, config.anthropicApiKey),
     anthropicBaseUrl: config.anthropicBaseUrl,
     anthropicDefaultModel: config.anthropicDefaultModel,
+    modelProviderProfiles: publicModelProviderProfiles,
+    activeModelProviderProfileByProtocol: normalizeActiveModelProviderProfileMap(
+      config.activeModelProviderProfileByProtocol,
+      publicModelProviderProfiles,
+    ),
     githubToken: toPublicSecretFieldValue(encryptedGithubToken, config.githubToken),
     tokenExpiresAt: config.tokenExpiresAt,
     cliProvider: config.cliProvider,
@@ -5606,6 +5681,36 @@ ipcMain.handle("save-config", (_event, config: Partial<AgentConfig>) => {
     if (normalized.shouldUpdate) {
       configStore.set("encryptedPassword", encodeSecretForStore(normalized.nextValue));
     }
+  }
+  if (config.modelProviderProfiles !== undefined) {
+    const previousConfig = loadConfig();
+    const encryptedProfiles = encodeModelProviderProfilesForStore(
+      config.modelProviderProfiles,
+      previousConfig.modelProviderProfiles ?? [],
+    );
+    configStore.set("encryptedModelProviderProfiles", encryptedProfiles);
+    const normalizedProfiles = decodeModelProviderProfilesFromStore(encryptedProfiles, previousConfig);
+    const activeMap = normalizeActiveModelProviderProfileMap(
+      config.activeModelProviderProfileByProtocol,
+      normalizedProfiles,
+    );
+    configStore.set("activeModelProviderProfileByProtocol", activeMap);
+    const providerConfig: ProviderConfigSnapshot = {
+      modelProviderProfiles: normalizedProfiles,
+      activeModelProviderProfileByProtocol: activeMap,
+    };
+    const openaiProfile = getActiveModelProviderProfile(providerConfig, "openai");
+    const anthropicProfile = getActiveModelProviderProfile(providerConfig, "anthropic");
+    configStore.set("openaiBaseUrl", openaiProfile?.baseUrl ?? "");
+    configStore.set("openaiDefaultModel", openaiProfile?.defaultModel ?? "");
+    configStore.set("anthropicBaseUrl", anthropicProfile?.baseUrl ?? "");
+    configStore.set("anthropicDefaultModel", anthropicProfile?.defaultModel ?? "");
+  } else if (config.activeModelProviderProfileByProtocol !== undefined) {
+    const previousConfig = loadConfig();
+    configStore.set("activeModelProviderProfileByProtocol", normalizeActiveModelProviderProfileMap(
+      config.activeModelProviderProfileByProtocol,
+      previousConfig.modelProviderProfiles ?? [],
+    ));
   }
   if (config.openaiApiKey !== undefined) {
     const normalized = normalizeSecretInputForSave(config.openaiApiKey);

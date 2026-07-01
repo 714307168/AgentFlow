@@ -66,3 +66,13 @@ test("settings page exposes a skill catalog pane", () => {
   assert.match(settingsHtml, /function formatSkillSafetyLevel\(level\)/);
   assert.match(settingsHtml, /riskyCount/);
 });
+
+test("settings runtime pane manages model credentials through provider profiles", () => {
+  assert.match(settingsHtml, /id="modelProviderList"/);
+  assert.match(settingsHtml, /id="modelProviderEditor"/);
+  assert.match(settingsHtml, /id="modelProviderPreset"/);
+  assert.match(settingsHtml, /function renderModelProviderProfiles()/);
+  assert.match(settingsHtml, /modelProviderProfiles/);
+  assert.doesNotMatch(settingsHtml, /id="openaiApiKey"/);
+  assert.doesNotMatch(settingsHtml, /id="anthropicApiKey"/);
+});

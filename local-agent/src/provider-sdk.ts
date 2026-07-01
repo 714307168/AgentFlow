@@ -136,10 +136,7 @@ async function executeManagedOpenAiChatCompletion(
   options: ProviderSdkExecutionOptions,
 ): Promise<ProviderSdkExecutionResult> {
   const OpenAI = resolveManagedOpenAiClientConstructor();
-  const client = new OpenAI({
-    apiKey: options.config.apiKey!.trim(),
-    baseURL: normalizeText(options.config.baseUrl) || getProviderDefaultSdkBaseUrl("codex"),
-  });
+  const client = new OpenAI(buildManagedOpenAiClientOptions(options.config));
   const messages = await Promise.all(
     buildConversationHistory(options.messages, options.prompt).map(async (message) => ({
       role: message.role,
@@ -185,14 +182,22 @@ async function executeManagedOpenAiChatCompletion(
   };
 }
 
+function buildManagedOpenAiClientOptions(config: ProviderSdkConfig): Record<string, unknown> {
+  const baseURL = normalizeText(config.baseUrl);
+  const clientOptions: Record<string, unknown> = {
+    apiKey: config.apiKey!.trim(),
+  };
+  if (baseURL && baseURL !== getProviderDefaultSdkBaseUrl("codex")) {
+    clientOptions.baseURL = baseURL;
+  }
+  return clientOptions;
+}
+
 async function generateManagedOpenAiImage(
   options: ProviderSdkImageGenerationOptions,
 ): Promise<ProviderSdkImageGenerationResult> {
   const OpenAI = resolveManagedOpenAiClientConstructor();
-  const client = new OpenAI({
-    apiKey: options.config.apiKey!.trim(),
-    baseURL: normalizeText(options.config.baseUrl) || getProviderDefaultSdkBaseUrl("codex"),
-  });
+  const client = new OpenAI(buildManagedOpenAiClientOptions(options.config));
   const payloadModel =
     normalizeText(options.model) || normalizeText(options.config.defaultModel) || getProviderDefaultSdkModel("codex");
   const response = await client.images.generate({
@@ -540,7 +545,12 @@ function resolveManagedAnthropicClientConstructor(): new (options: Record<string
 }
 
 function joinBaseUrl(baseUrl: string, suffix: string): string {
-  return `${baseUrl.replace(/\/+$/u, "")}${suffix}`;
+  const normalizedBaseUrl = baseUrl.replace(/\/+$/u, "");
+  const normalizedSuffix = suffix.replace(/^\/+/, "/");
+  if (/\/v\d+(?:\.\d+)?$/iu.test(normalizedBaseUrl) && /^\/v\d+(?:\.\d+)?\//iu.test(normalizedSuffix)) {
+    return `${normalizedBaseUrl}${normalizedSuffix.replace(/^\/v\d+(?:\.\d+)?/iu, "")}`;
+  }
+  return `${normalizedBaseUrl}${normalizedSuffix}`;
 }
 
 async function normalizeOpenAiGeneratedImageResponse(

@@ -97,6 +97,17 @@ test("hasProviderApiFallback checks provider-specific API keys", () => {
   assert.equal(hasProviderApiFallback({ openaiApiKey: "sk-test" }, "codex"), true);
   assert.equal(hasProviderApiFallback({ anthropicApiKey: "ak-test" }, "claude"), true);
   assert.equal(hasProviderApiFallback({ openaiApiKey: " " }, "codex"), false);
+  assert.equal(hasProviderApiFallback({
+    modelProviderProfiles: [{
+      id: "deepseek",
+      protocol: "openai",
+      apiKey: "__cached__",
+      enabled: true,
+    }],
+    activeModelProviderProfileByProtocol: {
+      openai: "deepseek",
+    },
+  }, "codex"), true);
 });
 
 test("getProviderRuntimeMode prefers a working local CLI and otherwise falls back to API credentials", () => {

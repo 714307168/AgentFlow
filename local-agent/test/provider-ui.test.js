@@ -11,6 +11,14 @@ test("provider ui exposes shared labels and capability labels", () => {
   assert.equal(providerUi.getProviderCapabilityLabel("claude", "nativeTools", "zh"), "原生工具");
 });
 
+test("provider ui exposes model provider presets", () => {
+  const presetIds = providerUi.listModelProviderPresets().map((preset) => preset.id);
+  assert.equal(presetIds.includes("deepseek"), true);
+  assert.equal(presetIds.includes("zhipu"), true);
+  assert.equal(presetIds.includes("hunyuan"), true);
+  assert.equal(presetIds.includes("aliyun-qwen"), true);
+});
+
 test("desktop client capabilities expose attachment and gateway support", () => {
   assert.equal(clientCapabilities.supportsDesktopCapability("localCommandGateway"), true);
   assert.equal(clientCapabilities.supportsDesktopCapability("messageAttachmentImages"), true);

@@ -30,6 +30,29 @@ export interface ProviderConfigSnapshot {
   anthropicApiKey?: string | null;
   anthropicBaseUrl?: string | null;
   anthropicDefaultModel?: string | null;
+  modelProviderProfiles?: ModelProviderProfile[] | null;
+  activeModelProviderProfileByProtocol?: Partial<Record<ModelProviderProtocol, string>> | null;
+}
+
+export type ModelProviderProtocol = "openai" | "anthropic";
+
+export interface ModelProviderProfile {
+  id: string;
+  name: string;
+  protocol: ModelProviderProtocol;
+  apiKey?: string | null;
+  baseUrl?: string | null;
+  defaultModel?: string | null;
+  enabled?: boolean;
+}
+
+export interface ModelProviderPreset {
+  id: string;
+  name: string;
+  protocol: ModelProviderProtocol;
+  baseUrl: string;
+  defaultModel: string;
+  description: string;
 }
 
 interface ProviderRegistryEntry {
@@ -164,6 +187,65 @@ const PROVIDER_REGISTRY: Record<CliProvider, ProviderRegistryEntry> = {
   },
 };
 
+export const MODEL_PROVIDER_PRESETS: ModelProviderPreset[] = [
+  {
+    id: "openai",
+    name: "OpenAI",
+    protocol: "openai",
+    baseUrl: "https://api.openai.com",
+    defaultModel: "gpt-5.4",
+    description: "Official OpenAI-compatible API endpoint.",
+  },
+  {
+    id: "deepseek",
+    name: "DeepSeek",
+    protocol: "openai",
+    baseUrl: "https://api.deepseek.com",
+    defaultModel: "deepseek-chat",
+    description: "DeepSeek chat models through an OpenAI-compatible API.",
+  },
+  {
+    id: "zhipu",
+    name: "智谱 GLM",
+    protocol: "openai",
+    baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+    defaultModel: "glm-4.5",
+    description: "Zhipu GLM OpenAI-compatible API mode.",
+  },
+  {
+    id: "minimax-mimo",
+    name: "MiniMax / Mimo",
+    protocol: "openai",
+    baseUrl: "https://api.minimax.chat/v1",
+    defaultModel: "MiniMax-M1",
+    description: "MiniMax and Mimo-style OpenAI-compatible models.",
+  },
+  {
+    id: "hunyuan",
+    name: "腾讯混元",
+    protocol: "openai",
+    baseUrl: "https://api.hunyuan.cloud.tencent.com/v1",
+    defaultModel: "hunyuan-turbos-latest",
+    description: "Tencent Hunyuan OpenAI-compatible API endpoint.",
+  },
+  {
+    id: "aliyun-qwen",
+    name: "阿里通义千问",
+    protocol: "openai",
+    baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    defaultModel: "qwen-plus",
+    description: "Alibaba DashScope OpenAI-compatible API mode.",
+  },
+  {
+    id: "anthropic",
+    name: "Anthropic Claude",
+    protocol: "anthropic",
+    baseUrl: "https://api.anthropic.com",
+    defaultModel: "claude-3-7-sonnet-latest",
+    description: "Official Anthropic Messages API endpoint.",
+  },
+];
+
 export function listRegisteredProviders(): CliProvider[] {
   return Object.keys(PROVIDER_REGISTRY) as CliProvider[];
 }
@@ -219,6 +301,102 @@ export function getProviderInstallTargets(provider: CliProvider): ProviderRegist
   return PROVIDER_REGISTRY[provider].installTargets;
 }
 
+export function listModelProviderPresets(): ModelProviderPreset[] {
+  return MODEL_PROVIDER_PRESETS.map((preset) => ({ ...preset }));
+}
+
+export function createDefaultModelProviderProfiles(
+  config: ProviderConfigSnapshot | null | undefined = null,
+): ModelProviderProfile[] {
+  return MODEL_PROVIDER_PRESETS.map((preset) => {
+    const profile: ModelProviderProfile = {
+      id: preset.id,
+      name: preset.name,
+      protocol: preset.protocol,
+      apiKey: "",
+      baseUrl: preset.baseUrl,
+      defaultModel: preset.defaultModel,
+      enabled: true,
+    };
+    if (preset.id === "openai") {
+      profile.apiKey = normalizeConfigText(config?.openaiApiKey);
+      profile.baseUrl = normalizeConfigText(config?.openaiBaseUrl) || preset.baseUrl;
+      profile.defaultModel = normalizeConfigText(config?.openaiDefaultModel) || preset.defaultModel;
+    } else if (preset.id === "anthropic") {
+      profile.apiKey = normalizeConfigText(config?.anthropicApiKey);
+      profile.baseUrl = normalizeConfigText(config?.anthropicBaseUrl) || preset.baseUrl;
+      profile.defaultModel = normalizeConfigText(config?.anthropicDefaultModel) || preset.defaultModel;
+    }
+    return profile;
+  });
+}
+
+export function normalizeModelProviderProfiles(
+  profiles: ModelProviderProfile[] | null | undefined,
+  legacyConfig: ProviderConfigSnapshot | null | undefined = null,
+): ModelProviderProfile[] {
+  const source = Array.isArray(profiles) && profiles.length > 0
+    ? profiles
+    : createDefaultModelProviderProfiles(legacyConfig);
+  const usedIds = new Set<string>();
+  const normalized: ModelProviderProfile[] = [];
+  for (const profile of source) {
+    const protocol = profile?.protocol === "anthropic" ? "anthropic" : "openai";
+    const fallbackId = `${protocol}-${normalized.length + 1}`;
+    const baseId = normalizeProfileId(profile?.id) || fallbackId;
+    const id = makeUniqueProfileId(baseId, usedIds);
+    const name = normalizeConfigText(profile?.name) || profileDisplayNameFromId(id);
+    normalized.push({
+      id,
+      name,
+      protocol,
+      apiKey: normalizeConfigText(profile?.apiKey),
+      baseUrl: normalizeConfigText(profile?.baseUrl),
+      defaultModel: normalizeConfigText(profile?.defaultModel),
+      enabled: profile?.enabled !== false,
+    });
+  }
+  return normalized;
+}
+
+export function normalizeActiveModelProviderProfileMap(
+  activeMap: Partial<Record<ModelProviderProtocol, string>> | null | undefined,
+  profiles: ModelProviderProfile[],
+): Partial<Record<ModelProviderProtocol, string>> {
+  const normalized: Partial<Record<ModelProviderProtocol, string>> = {};
+  for (const protocol of ["openai", "anthropic"] as const) {
+    const configured = normalizeConfigText(activeMap?.[protocol]);
+    const configuredProfile = configured
+      ? profiles.find((profile) => profile.id === configured && profile.protocol === protocol && profile.enabled !== false)
+      : null;
+    const fallbackProfile = profiles.find((profile) => (
+      profile.protocol === protocol
+      && profile.enabled !== false
+      && Boolean(normalizeConfigText(profile.apiKey))
+    )) || profiles.find((profile) => profile.protocol === protocol && profile.enabled !== false);
+    const selected = configuredProfile || fallbackProfile;
+    if (selected) {
+      normalized[protocol] = selected.id;
+    }
+  }
+  return normalized;
+}
+
+export function getProviderSdkProtocol(provider: CliProvider): ModelProviderProtocol {
+  return provider === "claude" ? "anthropic" : "openai";
+}
+
+export function getActiveModelProviderProfile(
+  config: ProviderConfigSnapshot | null | undefined,
+  providerOrProtocol: CliProvider | ModelProviderProtocol,
+): ModelProviderProfile | null {
+  const protocol = providerOrProtocol === "claude" || providerOrProtocol === "anthropic" ? "anthropic" : "openai";
+  const profiles = normalizeModelProviderProfiles(config?.modelProviderProfiles, config);
+  const activeMap = normalizeActiveModelProviderProfileMap(config?.activeModelProviderProfileByProtocol, profiles);
+  const activeId = activeMap[protocol];
+  return profiles.find((profile) => profile.id === activeId && profile.protocol === protocol && profile.enabled !== false) ?? null;
+}
+
 export function getProviderSdkConfigValue(
   config: ProviderConfigSnapshot | null | undefined,
   provider: CliProvider,
@@ -226,6 +404,11 @@ export function getProviderSdkConfigValue(
 ): string | null {
   if (!config) {
     return null;
+  }
+  const activeProfile = getActiveModelProviderProfile(config, provider);
+  const profileValue = activeProfile ? activeProfile[field] : null;
+  if (typeof profileValue === "string" && profileValue.trim()) {
+    return profileValue.trim();
   }
   const registry = PROVIDER_REGISTRY[provider].sdk;
   const key = field === "apiKey"
@@ -271,4 +454,35 @@ export function buildProviderEnvironment(
   }
 
   return nextEnv;
+}
+
+function normalizeConfigText(value: string | null | undefined): string {
+  return String(value ?? "").trim();
+}
+
+function normalizeProfileId(value: string | null | undefined): string {
+  return normalizeConfigText(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/gu, "-")
+    .replace(/^-+|-+$/gu, "")
+    .slice(0, 64);
+}
+
+function makeUniqueProfileId(baseId: string, usedIds: Set<string>): string {
+  let id = baseId || "provider";
+  let suffix = 2;
+  while (usedIds.has(id)) {
+    id = `${baseId || "provider"}-${suffix}`;
+    suffix += 1;
+  }
+  usedIds.add(id);
+  return id;
+}
+
+function profileDisplayNameFromId(id: string): string {
+  return id
+    .split(/[-_]+/u)
+    .filter(Boolean)
+    .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1))
+    .join(" ") || "Model Provider";
 }

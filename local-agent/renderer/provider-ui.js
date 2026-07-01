@@ -37,6 +37,65 @@
     },
   ];
 
+  const MODEL_PROVIDER_PRESETS = [
+    {
+      id: "openai",
+      name: "OpenAI",
+      protocol: "openai",
+      baseUrl: "https://api.openai.com",
+      defaultModel: "gpt-5.4",
+      description: "Official OpenAI-compatible API endpoint.",
+    },
+    {
+      id: "deepseek",
+      name: "DeepSeek",
+      protocol: "openai",
+      baseUrl: "https://api.deepseek.com",
+      defaultModel: "deepseek-chat",
+      description: "DeepSeek chat models through an OpenAI-compatible API.",
+    },
+    {
+      id: "zhipu",
+      name: "智谱 GLM",
+      protocol: "openai",
+      baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+      defaultModel: "glm-4.5",
+      description: "Zhipu GLM OpenAI-compatible API mode.",
+    },
+    {
+      id: "minimax-mimo",
+      name: "MiniMax / Mimo",
+      protocol: "openai",
+      baseUrl: "https://api.minimax.chat/v1",
+      defaultModel: "MiniMax-M1",
+      description: "MiniMax and Mimo-style OpenAI-compatible models.",
+    },
+    {
+      id: "hunyuan",
+      name: "腾讯混元",
+      protocol: "openai",
+      baseUrl: "https://api.hunyuan.cloud.tencent.com/v1",
+      defaultModel: "hunyuan-turbos-latest",
+      description: "Tencent Hunyuan OpenAI-compatible API endpoint.",
+    },
+    {
+      id: "aliyun-qwen",
+      name: "阿里通义千问",
+      protocol: "openai",
+      baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      defaultModel: "qwen-plus",
+      description: "Alibaba DashScope OpenAI-compatible API mode.",
+    },
+    {
+      id: "anthropic",
+      name: "Anthropic Claude",
+      protocol: "anthropic",
+      baseUrl: "https://api.anthropic.com",
+      defaultModel: "claude-3-7-sonnet-latest",
+      description: "Official Anthropic Messages API endpoint.",
+    },
+  ];
+
   function normalizeProviderId(provider) {
     return provider === "codex" ? "codex" : "claude";
   }
@@ -82,6 +141,10 @@
     return PROVIDERS.map((entry) => ({ ...entry, capabilityKeys: [...entry.capabilityKeys] }));
   }
 
+  function listModelProviderPresets() {
+    return MODEL_PROVIDER_PRESETS.map((entry) => ({ ...entry }));
+  }
+
   return {
     PROVIDERS,
     normalizeProviderId,
@@ -89,5 +152,6 @@
     getProviderLabel,
     getProviderCapabilityLabel,
     listProviders,
+    listModelProviderPresets,
   };
 });

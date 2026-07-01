@@ -89,6 +89,44 @@ test("executeProviderSdkRun falls back to the HTTP chat endpoint when no managed
   }
 });
 
+test("executeProviderSdkRun does not append duplicate v1 when the base URL already includes it", async () => {
+  const originalFetch = global.fetch;
+  global.fetch = async (input, init) => {
+    assert.equal(String(input), "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions");
+    assert.equal(init?.method, "POST");
+    return {
+      ok: true,
+      async json() {
+        return {
+          model: "qwen-plus",
+          choices: [{
+            message: {
+              content: "Qwen response",
+            },
+          }],
+        };
+      },
+    };
+  };
+
+  try {
+    const result = await executeProviderSdkRun({
+      provider: "codex",
+      config: {
+        apiKey: "test-key",
+        baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        defaultModel: "qwen-plus",
+      },
+      model: null,
+      prompt: "hello",
+    });
+
+    assert.equal(result.text, "Qwen response");
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test("generateProviderSdkImage falls back to the HTTP image endpoint when no managed SDK is installed", async () => {
   const originalFetch = global.fetch;
   global.fetch = async (input, init) => {

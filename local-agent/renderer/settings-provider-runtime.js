@@ -100,6 +100,21 @@
     if (!config || typeof config !== "object") {
       return false;
     }
+    const protocol = normalizeProviderId(provider) === "claude" ? "anthropic" : "openai";
+    const profiles = Array.isArray(config.modelProviderProfiles) ? config.modelProviderProfiles : [];
+    const activeMap = config.activeModelProviderProfileByProtocol && typeof config.activeModelProviderProfileByProtocol === "object"
+      ? config.activeModelProviderProfileByProtocol
+      : {};
+    const activeId = typeof activeMap[protocol] === "string" ? activeMap[protocol] : "";
+    const activeProfile = profiles.find((profile) => (
+      profile
+      && profile.id === activeId
+      && profile.protocol === protocol
+      && profile.enabled !== false
+    ));
+    if (activeProfile && typeof activeProfile.apiKey === "string" && activeProfile.apiKey.trim()) {
+      return true;
+    }
     const apiKeyField = getProviderEntry(provider).apiKeyField;
     const apiKey = config[apiKeyField];
     return Boolean(typeof apiKey === "string" && apiKey.trim());

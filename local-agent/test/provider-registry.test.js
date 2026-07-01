@@ -14,7 +14,10 @@ const {
   getProviderSdkConfigValue,
   getProviderUpgradeMissingCapabilityLabels,
   hasProviderApiFallback,
+  listModelProviderPresets,
   listRegisteredProviders,
+  normalizeActiveModelProviderProfileMap,
+  normalizeModelProviderProfiles,
   normalizeCliProvider,
 } = require("../dist/src/provider-registry.js");
 
@@ -86,4 +89,50 @@ test("provider sdk config and environment helpers reuse registry config keys", (
     OPENAI_API_KEY: "sk-openai",
     OPENAI_BASE_URL: "https://openai.example.com",
   });
+});
+
+test("model provider profiles override legacy sdk config through the active profile", () => {
+  const profiles = normalizeModelProviderProfiles([
+    {
+      id: "deepseek",
+      name: "DeepSeek",
+      protocol: "openai",
+      apiKey: "sk-deepseek",
+      baseUrl: "https://api.deepseek.com",
+      defaultModel: "deepseek-chat",
+    },
+    {
+      id: "anthropic",
+      name: "Anthropic",
+      protocol: "anthropic",
+      apiKey: "sk-ant",
+      baseUrl: "https://api.anthropic.com",
+      defaultModel: "claude-custom",
+    },
+  ]);
+  const activeMap = normalizeActiveModelProviderProfileMap({ openai: "deepseek" }, profiles);
+  const config = {
+    openaiApiKey: "legacy-openai",
+    openaiBaseUrl: "https://legacy.example.com",
+    modelProviderProfiles: profiles,
+    activeModelProviderProfileByProtocol: activeMap,
+  };
+
+  assert.equal(getProviderSdkConfigValue(config, "codex", "apiKey"), "sk-deepseek");
+  assert.equal(getProviderSdkConfigValue(config, "codex", "baseUrl"), "https://api.deepseek.com");
+  assert.equal(getProviderSdkConfigValue(config, "codex", "defaultModel"), "deepseek-chat");
+  assert.equal(hasProviderApiFallback(config, "codex"), true);
+  assert.deepEqual(buildProviderEnvironment(config, "codex"), {
+    OPENAI_API_KEY: "sk-deepseek",
+    OPENAI_BASE_URL: "https://api.deepseek.com",
+  });
+});
+
+test("model provider presets include domestic OpenAI-compatible providers", () => {
+  const presetIds = listModelProviderPresets().map((preset) => preset.id);
+  assert.equal(presetIds.includes("deepseek"), true);
+  assert.equal(presetIds.includes("zhipu"), true);
+  assert.equal(presetIds.includes("minimax-mimo"), true);
+  assert.equal(presetIds.includes("hunyuan"), true);
+  assert.equal(presetIds.includes("aliyun-qwen"), true);
 });
