@@ -75,4 +75,6 @@ test("settings runtime pane manages model credentials through provider profiles"
   assert.match(settingsHtml, /modelProviderProfiles/);
   assert.doesNotMatch(settingsHtml, /id="openaiApiKey"/);
   assert.doesNotMatch(settingsHtml, /id="anthropicApiKey"/);
+  assert.match(settingsHtml, /\.model-provider-name \{[^}]*color: var\(--text\)/);
+  assert.doesNotMatch(settingsHtml, /\.model-provider-name \{[^}]*color: #fff/);
 });
