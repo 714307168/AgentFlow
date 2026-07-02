@@ -18,74 +18,75 @@ import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 
 private val LightColors = lightColorScheme(
-    primary = Color(0xFF0D7A72),
+    primary = Color(0xFF0B7567),
     onPrimary = Color(0xFFFFFFFF),
-    primaryContainer = Color(0xFFD9F4EE),
-    onPrimaryContainer = Color(0xFF00201C),
-    secondary = Color(0xFFC07A2C),
+    primaryContainer = Color(0xFFD7F4EA),
+    onPrimaryContainer = Color(0xFF06261F),
+    secondary = Color(0xFF9E6415),
     onSecondary = Color(0xFFFFFFFF),
-    secondaryContainer = Color(0xFFF7E3C4),
-    onSecondaryContainer = Color(0xFF2B1700),
-    tertiary = Color(0xFF5862D6),
+    secondaryContainer = Color(0xFFFFE2B8),
+    onSecondaryContainer = Color(0xFF2A1700),
+    tertiary = Color(0xFF3E6A86),
     onTertiary = Color(0xFFFFFFFF),
-    tertiaryContainer = Color(0xFFE2E4FF),
-    onTertiaryContainer = Color(0xFF11174F),
-    background = Color(0xFFF5F1E8),
-    onBackground = Color(0xFF1D1B17),
-    surface = Color(0xFFFFFBF4),
-    onSurface = Color(0xFF1D1B17),
-    surfaceVariant = Color(0xFFE6E1D8),
-    onSurfaceVariant = Color(0xFF4B473F),
-    outline = Color(0xFF7C776E),
-    error = Color(0xFFB3261E),
+    tertiaryContainer = Color(0xFFD6ECF6),
+    onTertiaryContainer = Color(0xFF071D28),
+    background = Color(0xFFEFF6F1),
+    onBackground = Color(0xFF0E1B1D),
+    surface = Color(0xFFFBFFFC),
+    onSurface = Color(0xFF0E1B1D),
+    surfaceVariant = Color(0xFFDCE8E1),
+    onSurfaceVariant = Color(0xFF3F514B),
+    outline = Color(0xFF6F837B),
+    error = Color(0xFFB53A2C),
     onError = Color(0xFFFFFFFF),
-    errorContainer = Color(0xFFF9DEDC),
-    onErrorContainer = Color(0xFF410E0B)
+    errorContainer = Color(0xFFFFDAD4),
+    onErrorContainer = Color(0xFF3F0600)
 )
 
 private val DarkColors = darkColorScheme(
-    primary = Color(0xFF7FE1D4),
-    onPrimary = Color(0xFF003731),
-    primaryContainer = Color(0xFF005048),
-    onPrimaryContainer = Color(0xFFD9F4EE),
-    secondary = Color(0xFFF0BE7E),
-    onSecondary = Color(0xFF4C2800),
-    secondaryContainer = Color(0xFF6A3C00),
-    onSecondaryContainer = Color(0xFFF7E3C4),
-    tertiary = Color(0xFFC2C6FF),
-    onTertiary = Color(0xFF272E74),
-    tertiaryContainer = Color(0xFF3E479D),
-    onTertiaryContainer = Color(0xFFE2E4FF),
-    background = Color(0xFF111411),
-    onBackground = Color(0xFFE8E3DA),
-    surface = Color(0xFF171A17),
-    onSurface = Color(0xFFE8E3DA),
-    surfaceVariant = Color(0xFF34312C),
-    onSurfaceVariant = Color(0xFFCBC6BD),
-    outline = Color(0xFF969087),
-    error = Color(0xFFFFB4AB),
-    onError = Color(0xFF690005),
-    errorContainer = Color(0xFF93000A),
-    onErrorContainer = Color(0xFFFFDAD6)
+    primary = Color(0xFF70F0D0),
+    onPrimary = Color(0xFF00382F),
+    primaryContainer = Color(0xFF0B5148),
+    onPrimaryContainer = Color(0xFFD8FFF3),
+    secondary = Color(0xFFF3B75D),
+    onSecondary = Color(0xFF432800),
+    secondaryContainer = Color(0xFF614000),
+    onSecondaryContainer = Color(0xFFFFE2B8),
+    tertiary = Color(0xFF9ED4EF),
+    onTertiary = Color(0xFF083342),
+    tertiaryContainer = Color(0xFF244E63),
+    onTertiaryContainer = Color(0xFFD6ECF6),
+    background = Color(0xFF071016),
+    onBackground = Color(0xFFF1F7EF),
+    surface = Color(0xFF0D1C22),
+    onSurface = Color(0xFFF1F7EF),
+    surfaceVariant = Color(0xFF21343B),
+    onSurfaceVariant = Color(0xFFC0D2CB),
+    outline = Color(0xFF8EA59D),
+    error = Color(0xFFFFB4A8),
+    onError = Color(0xFF650B00),
+    errorContainer = Color(0xFF8F1E12),
+    onErrorContainer = Color(0xFFFFDAD4)
 )
 
 private val AppTypography = Typography(
     headlineSmall = TextStyle(
-        fontWeight = FontWeight.SemiBold,
-        fontSize = 28.sp,
-        lineHeight = 34.sp,
-        letterSpacing = (-0.4).sp
+        fontWeight = FontWeight.ExtraBold,
+        fontSize = 30.sp,
+        lineHeight = 36.sp,
+        letterSpacing = (-0.7).sp
     ),
     titleLarge = TextStyle(
-        fontWeight = FontWeight.SemiBold,
+        fontWeight = FontWeight.Bold,
         fontSize = 22.sp,
         lineHeight = 28.sp,
-        letterSpacing = (-0.2).sp
+        letterSpacing = (-0.35).sp
     ),
     titleMedium = TextStyle(
-        fontWeight = FontWeight.SemiBold,
+        fontWeight = FontWeight.Bold,
         fontSize = 18.sp,
-        lineHeight = 24.sp
+        lineHeight = 24.sp,
+        letterSpacing = (-0.1).sp
     ),
     bodyLarge = TextStyle(
         fontSize = 16.sp,
@@ -98,23 +99,23 @@ private val AppTypography = Typography(
         letterSpacing = 0.1.sp
     ),
     labelLarge = TextStyle(
-        fontWeight = FontWeight.Medium,
+        fontWeight = FontWeight.SemiBold,
         fontSize = 14.sp,
         lineHeight = 20.sp,
         letterSpacing = 0.15.sp
     ),
     labelMedium = TextStyle(
-        fontWeight = FontWeight.Medium,
+        fontWeight = FontWeight.SemiBold,
         fontSize = 12.sp,
         lineHeight = 18.sp,
-        letterSpacing = 0.2.sp
+        letterSpacing = 0.35.sp
     )
 )
 
 private val AppShapes = Shapes(
-    small = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
-    medium = androidx.compose.foundation.shape.RoundedCornerShape(26.dp),
-    large = androidx.compose.foundation.shape.RoundedCornerShape(34.dp)
+    small = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+    medium = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
+    large = androidx.compose.foundation.shape.RoundedCornerShape(32.dp)
 )
 
 @Composable
@@ -127,7 +128,9 @@ fun RemoteTheme(content: @Composable () -> Unit) {
         SideEffect {
             val window = (view.context as Activity).window
             window.statusBarColor = android.graphics.Color.TRANSPARENT
+            window.navigationBarColor = android.graphics.Color.TRANSPARENT
             WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !darkTheme
+            WindowCompat.getInsetsController(window, view).isAppearanceLightNavigationBars = !darkTheme
         }
     }
 

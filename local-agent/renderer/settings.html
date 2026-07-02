@@ -7,20 +7,21 @@
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
-      --bg: #0d1117;
-      --panel: #161b22;
-      --panel-2: #1c2128;
-      --border: #30363d;
-      --text: #c9d1d9;
-      --muted: #8b949e;
-      --accent: #58a6ff;
-      --accent-hover: #79c0ff;
-      --success: #3fb950;
+      --bg: #071016;
+      --panel: rgba(13, 28, 34, 0.88);
+      --panel-2: rgba(18, 40, 48, 0.92);
+      --border: rgba(174, 214, 202, 0.18);
+      --text: #f1f7ef;
+      --muted: #a9bbb3;
+      --accent: #70f0d0;
+      --accent-hover: #9bffe5;
+      --success: #88d66c;
       --success-bg: rgba(63, 185, 80, 0.12);
-      --error: #f85149;
-      --error-bg: rgba(248, 81, 73, 0.12);
-      --warning: #d29922;
-      --shadow: rgba(0, 0, 0, 0.28);
+      --error: #ff7f6e;
+      --error-bg: rgba(255, 127, 110, 0.12);
+      --warning: #f3b75d;
+      --shadow: rgba(0, 0, 0, 0.36);
+      --atlas-line: rgba(112, 240, 208, 0.26);
     }
     html,
     body {
@@ -28,12 +29,28 @@
       overflow: hidden;
     }
     body {
-      background: var(--bg);
+      background:
+        radial-gradient(circle at 8% 8%, rgba(112, 240, 208, 0.2), transparent 28%),
+        radial-gradient(circle at 92% 12%, rgba(243, 183, 93, 0.12), transparent 24%),
+        linear-gradient(135deg, #061016 0%, #0c2028 50%, #13271f 100%);
       color: var(--text);
-      font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      font: 14px/1.5 "Bahnschrift", "Aptos", "Segoe UI", "Microsoft YaHei", sans-serif;
       min-height: 0;
       display: flex;
       flex-direction: column;
+    }
+    body::before {
+      background:
+        linear-gradient(rgba(174, 214, 202, 0.06) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(174, 214, 202, 0.045) 1px, transparent 1px);
+      background-size: 34px 34px;
+      content: "";
+      inset: 0;
+      mask-image: radial-gradient(circle at center, black, transparent 78%);
+      opacity: 0.56;
+      pointer-events: none;
+      position: fixed;
+      z-index: -1;
     }
     .titlebar {
       -webkit-app-region: drag;
@@ -42,7 +59,7 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      background: var(--panel);
+      background: rgba(5, 15, 20, 0.82);
       border-bottom: 1px solid var(--border);
     }
     .titlebar-title {
@@ -150,7 +167,9 @@
       overflow: hidden;
       border: 1px solid var(--border);
       border-radius: 24px;
-      background: var(--panel);
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.045)),
+        var(--panel);
       box-shadow: 0 24px 80px rgba(0, 0, 0, 0.38);
     }
     .settings-modal-header {
@@ -186,7 +205,9 @@
       height: 38px;
       border-radius: 14px;
       border: 1px solid var(--border);
-      background: var(--panel);
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.045)),
+        var(--panel);
       color: var(--text);
       font-size: 22px;
       line-height: 1;
@@ -1902,6 +1923,178 @@
       .add-project-form.visible {
         grid-template-columns: 1fr;
       }
+    }
+    /* Signal Atlas redesign layer for settings. */
+    .settings-nav-item,
+    .section,
+    .overview-card,
+    .runtime-card,
+    .runtime-status-card,
+    .model-provider-card,
+    .model-provider-editor,
+    .skill-card,
+    .access-card,
+    .transfer-card,
+    .scheduled-task-card,
+    .workgroup-card,
+    .pubkey,
+    .empty-state,
+    .settings-modal-panel {
+      backdrop-filter: blur(14px);
+      border-color: var(--border);
+      box-shadow: 0 16px 44px var(--shadow);
+    }
+
+    .section,
+    .overview-card,
+    .runtime-card,
+    .runtime-status-card,
+    .model-provider-card,
+    .skill-card,
+    .access-card,
+    .transfer-card,
+    .scheduled-task-card,
+    .workgroup-card,
+    .pubkey,
+    .empty-state {
+      background:
+        linear-gradient(145deg, rgba(255, 255, 255, 0.105), rgba(255, 255, 255, 0.04)),
+        rgba(13, 28, 34, 0.78);
+    }
+
+    .section {
+      border-radius: 24px;
+      position: relative;
+    }
+
+    .section::before {
+      background: linear-gradient(90deg, transparent, var(--atlas-line), transparent);
+      content: "";
+      height: 1px;
+      left: 22px;
+      opacity: 0.82;
+      position: absolute;
+      right: 22px;
+      top: 0;
+    }
+
+    .section-title,
+    h1,
+    .settings-modal-title,
+    .overview-card-value,
+    .model-provider-name {
+      color: var(--text);
+      font-family: "Bahnschrift", "DIN Condensed", "Aptos Display", "Segoe UI", sans-serif;
+      letter-spacing: -0.015em;
+    }
+
+    .settings-nav-item {
+      background: rgba(255, 255, 255, 0.035);
+      border-radius: 16px;
+    }
+
+    .settings-nav-item:hover {
+      background: rgba(112, 240, 208, 0.1);
+      border-color: rgba(112, 240, 208, 0.28);
+    }
+
+    .settings-nav-item.active,
+    .btn-primary,
+    .model-provider-card.active {
+      background:
+        linear-gradient(135deg, rgba(112, 240, 208, 0.24), rgba(136, 214, 108, 0.13));
+      border-color: rgba(112, 240, 208, 0.44);
+      color: #f6fff8;
+    }
+
+    input[type="text"],
+    input[type="password"],
+    input[type="datetime-local"],
+    input[type="time"],
+    textarea,
+    select {
+      background: rgba(5, 17, 22, 0.76);
+      border-color: var(--border);
+      color: var(--text);
+    }
+
+    input[type="text"]:focus,
+    input[type="password"]:focus,
+    input[type="datetime-local"]:focus,
+    input[type="time"]:focus,
+    textarea:focus,
+    select:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(112, 240, 208, 0.14);
+    }
+
+    button,
+    .btn-primary,
+    .btn-secondary,
+    .settings-modal-close,
+    .titlebar-button {
+      border-radius: 14px;
+    }
+
+    .btn-secondary,
+    .settings-modal-close,
+    .titlebar-button {
+      background: rgba(255, 255, 255, 0.045);
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+
+    .btn-secondary:hover,
+    .settings-modal-close:hover,
+    .titlebar-button:hover {
+      background: rgba(112, 240, 208, 0.1);
+      border-color: rgba(112, 240, 208, 0.34);
+      color: var(--accent-hover);
+    }
+
+    .model-provider-card {
+      border-radius: 20px;
+    }
+
+    .model-provider-card:hover,
+    .model-provider-card.editing {
+      background: rgba(112, 240, 208, 0.1);
+      border-color: rgba(112, 240, 208, 0.38);
+    }
+
+    .model-provider-pill.ok,
+    .save-indicator {
+      background: rgba(136, 214, 108, 0.14);
+      border-color: rgba(136, 214, 108, 0.36);
+      color: #e8ffd8;
+    }
+
+    .scope-pill,
+    .setting-scope,
+    .runtime-status-pill.ok {
+      background: rgba(112, 240, 208, 0.13);
+      border-color: rgba(112, 240, 208, 0.34);
+      color: var(--accent-hover);
+    }
+
+    .runtime-status-pill.warn {
+      background: rgba(243, 183, 93, 0.14);
+      border-color: rgba(243, 183, 93, 0.34);
+      color: #ffe6b7;
+    }
+
+    .runtime-status-pill.error {
+      background: rgba(255, 127, 110, 0.14);
+      border-color: rgba(255, 127, 110, 0.34);
+      color: #ffd8d2;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: rgba(112, 240, 208, 0.28);
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(112, 240, 208, 0.48);
     }
   </style>
 </head>

@@ -145,16 +145,12 @@ class MainActivity : ComponentActivity() {
                     BottomNavItem("agents", R.string.nav_agents, Icons.Default.Dns),
                     BottomNavItem("settings", R.string.settings_title, Icons.Default.Settings),
                 )
-                val bottomBarColor = if (darkTheme) {
-                    lerp(
-                        colorScheme.surface,
-                        colorScheme.surfaceVariant,
-                        0.42f
-                    ).copy(alpha = 0.98f)
-                } else {
-                    colorScheme.surface.copy(alpha = 0.96f)
-                }
-                val bottomBarOutline = colorScheme.outline.copy(alpha = if (darkTheme) 0.24f else 0.12f)
+                val bottomBarColor = lerp(
+                    colorScheme.surface,
+                    colorScheme.primaryContainer,
+                    if (darkTheme) 0.22f else 0.34f
+                ).copy(alpha = if (darkTheme) 0.96f else 0.94f)
+                val bottomBarOutline = colorScheme.primary.copy(alpha = if (darkTheme) 0.28f else 0.2f)
                 val showBottomBar = bottomNavItems.any { item ->
                     currentDestination?.hierarchy?.any { destination -> destination.route == item.route } == true
                 }
@@ -178,11 +174,11 @@ class MainActivity : ComponentActivity() {
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .navigationBarsPadding()
-                                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                                shape = RoundedCornerShape(26.dp),
+                                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                                shape = RoundedCornerShape(30.dp),
                                 color = bottomBarColor,
-                                tonalElevation = 4.dp,
-                                shadowElevation = if (darkTheme) 4.dp else 10.dp,
+                                tonalElevation = 8.dp,
+                                shadowElevation = if (darkTheme) 8.dp else 14.dp,
                                 border = androidx.compose.foundation.BorderStroke(1.dp, bottomBarOutline)
                             ) {
                                 NavigationBar(
@@ -198,9 +194,13 @@ class MainActivity : ComponentActivity() {
                                             colors = NavigationBarItemDefaults.colors(
                                                 selectedIconColor = colorScheme.onPrimaryContainer,
                                                 selectedTextColor = colorScheme.onPrimaryContainer,
-                                                unselectedIconColor = colorScheme.onSurfaceVariant.copy(alpha = if (darkTheme) 0.92f else 0.78f),
-                                                unselectedTextColor = colorScheme.onSurfaceVariant.copy(alpha = if (darkTheme) 0.92f else 0.78f),
-                                                indicatorColor = colorScheme.primaryContainer.copy(alpha = if (darkTheme) 0.72f else 0.9f)
+                                                unselectedIconColor = colorScheme.onSurfaceVariant.copy(alpha = if (darkTheme) 0.84f else 0.74f),
+                                                unselectedTextColor = colorScheme.onSurfaceVariant.copy(alpha = if (darkTheme) 0.84f else 0.74f),
+                                                indicatorColor = lerp(
+                                                    colorScheme.primaryContainer,
+                                                    colorScheme.secondaryContainer,
+                                                    0.18f
+                                                ).copy(alpha = if (darkTheme) 0.82f else 0.92f)
                                             ),
                                             onClick = {
                                                 navController.navigate(item.route) {

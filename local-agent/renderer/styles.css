@@ -2197,3 +2197,251 @@ body.lightbox-open {
     inset: 18px;
   }
 }
+
+/* Signal Atlas redesign layer: one visual system for the desktop workbench. */
+:root {
+  --bg: #071016;
+  --bg-secondary: #0b1d26;
+  --surface: rgba(246, 250, 246, 0.08);
+  --surface-strong: rgba(246, 250, 246, 0.12);
+  --surface-soft: rgba(142, 205, 188, 0.1);
+  --border: rgba(174, 214, 202, 0.18);
+  --border-strong: rgba(142, 205, 188, 0.36);
+  --text: #f1f7ef;
+  --text-muted: #a9bbb3;
+  --text-soft: #7f948c;
+  --accent: #70f0d0;
+  --accent-strong: #26c6a2;
+  --accent-soft: rgba(112, 240, 208, 0.13);
+  --success: #88d66c;
+  --warning: #f3b75d;
+  --danger: #ff7f6e;
+  --shadow: 0 24px 70px rgba(0, 0, 0, 0.42);
+  --atlas-ink: #081216;
+  --atlas-panel: rgba(13, 28, 34, 0.82);
+  --atlas-panel-solid: #10222a;
+  --atlas-line: rgba(112, 240, 208, 0.28);
+  --atlas-amber: #f3b75d;
+}
+
+html,
+body {
+  background:
+    radial-gradient(circle at 8% 8%, rgba(112, 240, 208, 0.2), transparent 28%),
+    radial-gradient(circle at 94% 18%, rgba(243, 183, 93, 0.13), transparent 24%),
+    linear-gradient(135deg, #061016 0%, #0c2028 48%, #13271f 100%);
+  font-family: "Bahnschrift", "Aptos", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+body::before {
+  background:
+    linear-gradient(rgba(174, 214, 202, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(174, 214, 202, 0.045) 1px, transparent 1px);
+  background-size: 34px 34px;
+  content: "";
+  inset: 0;
+  mask-image: radial-gradient(circle at center, black, transparent 78%);
+  opacity: 0.62;
+  pointer-events: none;
+  position: fixed;
+  z-index: -1;
+}
+
+.titlebar {
+  background: rgba(5, 15, 20, 0.82);
+  border-bottom-color: var(--border);
+  min-height: 54px;
+}
+
+.titlebar-title,
+.sidebar-title,
+.panel-title {
+  font-family: "Bahnschrift", "DIN Condensed", "Aptos Display", "Segoe UI", sans-serif;
+  letter-spacing: -0.015em;
+}
+
+.titlebar-title {
+  color: var(--text);
+  font-size: 14px;
+}
+
+.titlebar-pill,
+.titlebar-button,
+.ghost-button,
+.primary-button,
+.danger-button,
+.workbench-tab,
+.sidebar-mode-tab,
+.conversation-select,
+.search-input,
+.composer textarea {
+  border-color: var(--border);
+}
+
+.titlebar-pill.provider,
+.workbench-tab.active,
+.sidebar-mode-tab.active,
+.primary-button {
+  background:
+    linear-gradient(135deg, rgba(112, 240, 208, 0.24), rgba(136, 214, 108, 0.14));
+  border-color: rgba(112, 240, 208, 0.42);
+  color: #f6fff8;
+}
+
+.titlebar-pill.mode {
+  background: rgba(243, 183, 93, 0.13);
+  border-color: rgba(243, 183, 93, 0.32);
+  color: #ffe3ac;
+}
+
+.workspace {
+  gap: 16px;
+  padding: 16px;
+}
+
+.sidebar-panel,
+.conversation-panel,
+.composer,
+.activity-modal-card {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.045)),
+    var(--atlas-panel);
+  border-color: var(--border);
+  box-shadow: var(--shadow);
+}
+
+.sidebar-panel,
+.conversation-panel {
+  border-radius: 26px;
+}
+
+.conversation-panel {
+  position: relative;
+}
+
+.conversation-panel::before {
+  background: linear-gradient(90deg, transparent, var(--atlas-line), transparent);
+  content: "";
+  height: 1px;
+  left: 24px;
+  opacity: 0.8;
+  position: absolute;
+  right: 24px;
+  top: 0;
+}
+
+.search-input,
+.conversation-select,
+.composer textarea {
+  background: rgba(5, 17, 22, 0.76);
+  color: var(--text);
+}
+
+.search-input:focus,
+.conversation-select:focus,
+.composer textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(112, 240, 208, 0.14);
+}
+
+.project-list-item,
+.recent-chat-item,
+.contact-list-item,
+.message-card,
+.activity-card,
+.queue-item,
+.session-overview,
+.overview-stat,
+.cli-panel,
+.queue-panel {
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.105), rgba(255, 255, 255, 0.04));
+  border-color: rgba(174, 214, 202, 0.16);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.22);
+}
+
+.project-list-item,
+.recent-chat-item,
+.contact-list-item {
+  border-radius: 18px;
+}
+
+.project-list-item:hover,
+.recent-chat-item:hover,
+.contact-list-item:hover {
+  background: rgba(112, 240, 208, 0.1);
+  border-color: rgba(112, 240, 208, 0.34);
+  transform: translateY(-1px);
+}
+
+.project-list-item.selected {
+  background:
+    linear-gradient(135deg, rgba(112, 240, 208, 0.18), rgba(243, 183, 93, 0.08));
+  border-color: rgba(112, 240, 208, 0.48);
+}
+
+.message-card.user .message-shell,
+.role-badge.user {
+  background: rgba(112, 240, 208, 0.12);
+  border-color: rgba(112, 240, 208, 0.34);
+}
+
+.message-card.assistant .message-shell,
+.role-badge.assistant {
+  background: rgba(243, 183, 93, 0.1);
+  border-color: rgba(243, 183, 93, 0.28);
+}
+
+.message-card::before {
+  background: var(--accent);
+  box-shadow: 0 0 18px rgba(112, 240, 208, 0.72);
+}
+
+.message-card.assistant::before {
+  background: var(--atlas-amber);
+  box-shadow: 0 0 18px rgba(243, 183, 93, 0.64);
+}
+
+.project-status-pill.running,
+.status-badge.running,
+.workbench-tab-badge[data-tone="running"] {
+  background: rgba(112, 240, 208, 0.16);
+  color: #d8fff2;
+}
+
+.project-status-pill.ready,
+.status-badge.completed {
+  background: rgba(136, 214, 108, 0.15);
+  color: #e8ffd8;
+}
+
+.project-status-pill.queued,
+.kind-badge.tool {
+  background: rgba(243, 183, 93, 0.14);
+  color: #ffe7bc;
+}
+
+.composer {
+  border-top-color: var(--border);
+  border-radius: 22px 22px 0 0;
+}
+
+.primary-button,
+.danger-button,
+.ghost-button {
+  border-radius: 14px;
+}
+
+.primary-button:hover,
+.ghost-button:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(112, 240, 208, 0.28);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(112, 240, 208, 0.48);
+}
