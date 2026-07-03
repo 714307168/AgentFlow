@@ -147,10 +147,10 @@ class MainActivity : ComponentActivity() {
                 )
                 val bottomBarColor = lerp(
                     colorScheme.surface,
-                    colorScheme.primaryContainer,
-                    if (darkTheme) 0.22f else 0.34f
-                ).copy(alpha = if (darkTheme) 0.96f else 0.94f)
-                val bottomBarOutline = colorScheme.primary.copy(alpha = if (darkTheme) 0.28f else 0.2f)
+                    colorScheme.surfaceVariant,
+                    if (darkTheme) 0.28f else 0.22f
+                ).copy(alpha = if (darkTheme) 0.97f else 0.96f)
+                val bottomBarOutline = colorScheme.primary.copy(alpha = if (darkTheme) 0.24f else 0.18f)
                 val showBottomBar = bottomNavItems.any { item ->
                     currentDestination?.hierarchy?.any { destination -> destination.route == item.route } == true
                 }
@@ -175,10 +175,10 @@ class MainActivity : ComponentActivity() {
                                     .fillMaxWidth()
                                     .navigationBarsPadding()
                                     .padding(horizontal = 14.dp, vertical = 10.dp),
-                                shape = RoundedCornerShape(30.dp),
+                                shape = RoundedCornerShape(24.dp),
                                 color = bottomBarColor,
-                                tonalElevation = 8.dp,
-                                shadowElevation = if (darkTheme) 8.dp else 14.dp,
+                                tonalElevation = 5.dp,
+                                shadowElevation = if (darkTheme) 5.dp else 10.dp,
                                 border = androidx.compose.foundation.BorderStroke(1.dp, bottomBarOutline)
                             ) {
                                 NavigationBar(
@@ -199,8 +199,8 @@ class MainActivity : ComponentActivity() {
                                                 indicatorColor = lerp(
                                                     colorScheme.primaryContainer,
                                                     colorScheme.secondaryContainer,
-                                                    0.18f
-                                                ).copy(alpha = if (darkTheme) 0.82f else 0.92f)
+                                                    0.12f
+                                                ).copy(alpha = if (darkTheme) 0.72f else 0.86f)
                                             ),
                                             onClick = {
                                                 navController.navigate(item.route) {

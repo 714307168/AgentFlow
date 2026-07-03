@@ -7,21 +7,22 @@
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
-      --bg: #071016;
-      --panel: rgba(13, 28, 34, 0.88);
-      --panel-2: rgba(18, 40, 48, 0.92);
-      --border: rgba(174, 214, 202, 0.18);
-      --text: #f1f7ef;
-      --muted: #a9bbb3;
-      --accent: #70f0d0;
-      --accent-hover: #9bffe5;
-      --success: #88d66c;
+      --bg: #10141b;
+      --panel: rgba(25, 31, 39, 0.9);
+      --panel-2: rgba(31, 39, 49, 0.94);
+      --border: rgba(217, 209, 191, 0.16);
+      --text: #f5f0e6;
+      --muted: #b7ad9c;
+      --accent: #d9a441;
+      --accent-hover: #f1c96b;
+      --success: #7fbe8b;
       --success-bg: rgba(63, 185, 80, 0.12);
-      --error: #ff7f6e;
-      --error-bg: rgba(255, 127, 110, 0.12);
-      --warning: #f3b75d;
-      --shadow: rgba(0, 0, 0, 0.36);
-      --atlas-line: rgba(112, 240, 208, 0.26);
+      --error: #e07a64;
+      --error-bg: rgba(224, 122, 100, 0.12);
+      --warning: #d9a441;
+      --shadow: rgba(0, 0, 0, 0.34);
+      --ledger-blue: #7ea4c8;
+      --ledger-rail: #d9a441;
     }
     html,
     body {
@@ -30,24 +31,23 @@
     }
     body {
       background:
-        radial-gradient(circle at 8% 8%, rgba(112, 240, 208, 0.2), transparent 28%),
-        radial-gradient(circle at 92% 12%, rgba(243, 183, 93, 0.12), transparent 24%),
-        linear-gradient(135deg, #061016 0%, #0c2028 50%, #13271f 100%);
+        radial-gradient(circle at 15% 12%, rgba(217, 164, 65, 0.13), transparent 30%),
+        radial-gradient(circle at 92% 8%, rgba(126, 164, 200, 0.12), transparent 26%),
+        linear-gradient(135deg, #0e131a 0%, #141b24 52%, #1b2024 100%);
       color: var(--text);
-      font: 14px/1.5 "Bahnschrift", "Aptos", "Segoe UI", "Microsoft YaHei", sans-serif;
+      font: 14px/1.5 "Segoe UI Variable", "Aptos", "Microsoft YaHei UI", sans-serif;
       min-height: 0;
       display: flex;
       flex-direction: column;
     }
     body::before {
       background:
-        linear-gradient(rgba(174, 214, 202, 0.06) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(174, 214, 202, 0.045) 1px, transparent 1px);
-      background-size: 34px 34px;
+        linear-gradient(115deg, transparent 0 46%, rgba(245, 240, 229, 0.035) 46% 47%, transparent 47% 100%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent 34%);
+      background-size: 56px 56px, 100% 100%;
       content: "";
       inset: 0;
-      mask-image: radial-gradient(circle at center, black, transparent 78%);
-      opacity: 0.56;
+      opacity: 0.68;
       pointer-events: none;
       position: fixed;
       z-index: -1;
@@ -59,7 +59,7 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      background: rgba(5, 15, 20, 0.82);
+      background: rgba(14, 19, 26, 0.92);
       border-bottom: 1px solid var(--border);
     }
     .titlebar-title {
@@ -166,11 +166,11 @@
       flex-direction: column;
       overflow: hidden;
       border: 1px solid var(--border);
-      border-radius: 24px;
+      border-radius: 22px;
       background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.045)),
+        linear-gradient(180deg, rgba(245, 240, 229, 0.095), rgba(245, 240, 229, 0.04)),
         var(--panel);
-      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.38);
+      box-shadow: 0 22px 72px rgba(0, 0, 0, 0.34);
     }
     .settings-modal-header {
       display: flex;
@@ -206,7 +206,7 @@
       border-radius: 14px;
       border: 1px solid var(--border);
       background:
-        linear-gradient(180deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.045)),
+        linear-gradient(180deg, rgba(245, 240, 229, 0.095), rgba(245, 240, 229, 0.04)),
         var(--panel);
       color: var(--text);
       font-size: 22px;
@@ -1924,7 +1924,7 @@
         grid-template-columns: 1fr;
       }
     }
-    /* Signal Atlas redesign layer for settings. */
+    /* Command Ledger redesign layer for settings. */
     .settings-nav-item,
     .section,
     .overview-card,
@@ -1942,7 +1942,7 @@
     .settings-modal-panel {
       backdrop-filter: blur(14px);
       border-color: var(--border);
-      box-shadow: 0 16px 44px var(--shadow);
+      box-shadow: 0 14px 38px var(--shadow);
     }
 
     .section,
@@ -1958,21 +1958,21 @@
     .pubkey,
     .empty-state {
       background:
-        linear-gradient(145deg, rgba(255, 255, 255, 0.105), rgba(255, 255, 255, 0.04)),
-        rgba(13, 28, 34, 0.78);
+        linear-gradient(145deg, rgba(245, 240, 229, 0.09), rgba(245, 240, 229, 0.035)),
+        rgba(25, 31, 39, 0.8);
     }
 
     .section {
-      border-radius: 24px;
+      border-radius: 20px;
       position: relative;
     }
 
     .section::before {
-      background: linear-gradient(90deg, transparent, var(--atlas-line), transparent);
+      background: linear-gradient(90deg, transparent, rgba(217, 164, 65, 0.5), transparent);
       content: "";
       height: 1px;
       left: 22px;
-      opacity: 0.82;
+      opacity: 0.72;
       position: absolute;
       right: 22px;
       top: 0;
@@ -1984,27 +1984,27 @@
     .overview-card-value,
     .model-provider-name {
       color: var(--text);
-      font-family: "Bahnschrift", "DIN Condensed", "Aptos Display", "Segoe UI", sans-serif;
-      letter-spacing: -0.015em;
+      font-family: "Segoe UI Variable Display", "Aptos Display", "Microsoft YaHei UI", sans-serif;
+      letter-spacing: -0.02em;
     }
 
     .settings-nav-item {
-      background: rgba(255, 255, 255, 0.035);
-      border-radius: 16px;
+      background: rgba(245, 240, 229, 0.035);
+      border-radius: 14px;
     }
 
     .settings-nav-item:hover {
-      background: rgba(112, 240, 208, 0.1);
-      border-color: rgba(112, 240, 208, 0.28);
+      background: rgba(217, 164, 65, 0.1);
+      border-color: rgba(217, 164, 65, 0.28);
     }
 
     .settings-nav-item.active,
     .btn-primary,
     .model-provider-card.active {
       background:
-        linear-gradient(135deg, rgba(112, 240, 208, 0.24), rgba(136, 214, 108, 0.13));
-      border-color: rgba(112, 240, 208, 0.44);
-      color: #f6fff8;
+        linear-gradient(135deg, rgba(217, 164, 65, 0.24), rgba(126, 164, 200, 0.12));
+      border-color: rgba(217, 164, 65, 0.46);
+      color: #fff8e8;
     }
 
     input[type="text"],
@@ -2013,7 +2013,7 @@
     input[type="time"],
     textarea,
     select {
-      background: rgba(5, 17, 22, 0.76);
+      background: rgba(13, 18, 25, 0.82);
       border-color: var(--border);
       color: var(--text);
     }
@@ -2025,7 +2025,7 @@
     textarea:focus,
     select:focus {
       border-color: var(--accent);
-      box-shadow: 0 0 0 3px rgba(112, 240, 208, 0.14);
+      box-shadow: 0 0 0 3px rgba(217, 164, 65, 0.16);
     }
 
     button,
@@ -2033,13 +2033,13 @@
     .btn-secondary,
     .settings-modal-close,
     .titlebar-button {
-      border-radius: 14px;
+      border-radius: 12px;
     }
 
     .btn-secondary,
     .settings-modal-close,
     .titlebar-button {
-      background: rgba(255, 255, 255, 0.045);
+      background: rgba(245, 240, 229, 0.045);
       border: 1px solid var(--border);
       color: var(--text);
     }
@@ -2047,54 +2047,54 @@
     .btn-secondary:hover,
     .settings-modal-close:hover,
     .titlebar-button:hover {
-      background: rgba(112, 240, 208, 0.1);
-      border-color: rgba(112, 240, 208, 0.34);
+      background: rgba(217, 164, 65, 0.1);
+      border-color: rgba(217, 164, 65, 0.34);
       color: var(--accent-hover);
     }
 
     .model-provider-card {
-      border-radius: 20px;
+      border-radius: 18px;
     }
 
     .model-provider-card:hover,
     .model-provider-card.editing {
-      background: rgba(112, 240, 208, 0.1);
-      border-color: rgba(112, 240, 208, 0.38);
+      background: rgba(217, 164, 65, 0.1);
+      border-color: rgba(217, 164, 65, 0.36);
     }
 
     .model-provider-pill.ok,
     .save-indicator {
-      background: rgba(136, 214, 108, 0.14);
-      border-color: rgba(136, 214, 108, 0.36);
-      color: #e8ffd8;
+      background: rgba(127, 190, 139, 0.14);
+      border-color: rgba(127, 190, 139, 0.34);
+      color: #e2f8e4;
     }
 
     .scope-pill,
     .setting-scope,
     .runtime-status-pill.ok {
-      background: rgba(112, 240, 208, 0.13);
-      border-color: rgba(112, 240, 208, 0.34);
+      background: rgba(126, 164, 200, 0.13);
+      border-color: rgba(126, 164, 200, 0.34);
       color: var(--accent-hover);
     }
 
     .runtime-status-pill.warn {
-      background: rgba(243, 183, 93, 0.14);
-      border-color: rgba(243, 183, 93, 0.34);
-      color: #ffe6b7;
+      background: rgba(217, 164, 65, 0.14);
+      border-color: rgba(217, 164, 65, 0.34);
+      color: #ffe7b4;
     }
 
     .runtime-status-pill.error {
-      background: rgba(255, 127, 110, 0.14);
-      border-color: rgba(255, 127, 110, 0.34);
-      color: #ffd8d2;
+      background: rgba(224, 122, 100, 0.14);
+      border-color: rgba(224, 122, 100, 0.34);
+      color: #ffdcd5;
     }
 
     ::-webkit-scrollbar-thumb {
-      background: rgba(112, 240, 208, 0.28);
+      background: rgba(217, 164, 65, 0.28);
     }
 
     ::-webkit-scrollbar-thumb:hover {
-      background: rgba(112, 240, 208, 0.48);
+      background: rgba(217, 164, 65, 0.48);
     }
   </style>
 </head>

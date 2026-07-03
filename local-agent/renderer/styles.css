@@ -2198,66 +2198,65 @@ body.lightbox-open {
   }
 }
 
-/* Signal Atlas redesign layer: one visual system for the desktop workbench. */
+/* Command Ledger redesign layer: calm desktop workbench visual system. */
 :root {
-  --bg: #071016;
-  --bg-secondary: #0b1d26;
-  --surface: rgba(246, 250, 246, 0.08);
-  --surface-strong: rgba(246, 250, 246, 0.12);
-  --surface-soft: rgba(142, 205, 188, 0.1);
-  --border: rgba(174, 214, 202, 0.18);
-  --border-strong: rgba(142, 205, 188, 0.36);
-  --text: #f1f7ef;
-  --text-muted: #a9bbb3;
-  --text-soft: #7f948c;
-  --accent: #70f0d0;
-  --accent-strong: #26c6a2;
-  --accent-soft: rgba(112, 240, 208, 0.13);
-  --success: #88d66c;
-  --warning: #f3b75d;
-  --danger: #ff7f6e;
-  --shadow: 0 24px 70px rgba(0, 0, 0, 0.42);
-  --atlas-ink: #081216;
-  --atlas-panel: rgba(13, 28, 34, 0.82);
-  --atlas-panel-solid: #10222a;
-  --atlas-line: rgba(112, 240, 208, 0.28);
-  --atlas-amber: #f3b75d;
+  --bg: #10141b;
+  --bg-secondary: #171d25;
+  --surface: rgba(245, 240, 229, 0.07);
+  --surface-strong: rgba(245, 240, 229, 0.11);
+  --surface-soft: rgba(217, 164, 65, 0.1);
+  --border: rgba(217, 209, 191, 0.16);
+  --border-strong: rgba(217, 164, 65, 0.42);
+  --text: #f5f0e6;
+  --text-muted: #b7ad9c;
+  --text-soft: #827a6e;
+  --accent: #d9a441;
+  --accent-strong: #f1c96b;
+  --accent-soft: rgba(217, 164, 65, 0.14);
+  --success: #7fbe8b;
+  --warning: #d9a441;
+  --danger: #e07a64;
+  --shadow: 0 22px 64px rgba(0, 0, 0, 0.34);
+  --ledger-ink: #0f141b;
+  --ledger-panel: rgba(25, 31, 39, 0.9);
+  --ledger-panel-solid: #1b222b;
+  --ledger-rail: #d9a441;
+  --ledger-blue: #7ea4c8;
 }
 
 html,
 body {
   background:
-    radial-gradient(circle at 8% 8%, rgba(112, 240, 208, 0.2), transparent 28%),
-    radial-gradient(circle at 94% 18%, rgba(243, 183, 93, 0.13), transparent 24%),
-    linear-gradient(135deg, #061016 0%, #0c2028 48%, #13271f 100%);
-  font-family: "Bahnschrift", "Aptos", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    radial-gradient(circle at 15% 12%, rgba(217, 164, 65, 0.13), transparent 30%),
+    radial-gradient(circle at 92% 8%, rgba(126, 164, 200, 0.12), transparent 26%),
+    linear-gradient(135deg, #0e131a 0%, #141b24 52%, #1b2024 100%);
+  font-family: "Segoe UI Variable", "Aptos", "Microsoft YaHei UI", "PingFang SC", sans-serif;
 }
 
 body::before {
   background:
-    linear-gradient(rgba(174, 214, 202, 0.06) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(174, 214, 202, 0.045) 1px, transparent 1px);
-  background-size: 34px 34px;
+    linear-gradient(115deg, transparent 0 46%, rgba(245, 240, 229, 0.035) 46% 47%, transparent 47% 100%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent 34%);
+  background-size: 56px 56px, 100% 100%;
   content: "";
   inset: 0;
-  mask-image: radial-gradient(circle at center, black, transparent 78%);
-  opacity: 0.62;
+  opacity: 0.7;
   pointer-events: none;
   position: fixed;
   z-index: -1;
 }
 
 .titlebar {
-  background: rgba(5, 15, 20, 0.82);
+  background: rgba(14, 19, 26, 0.92);
   border-bottom-color: var(--border);
-  min-height: 54px;
+  min-height: 52px;
 }
 
 .titlebar-title,
 .sidebar-title,
 .panel-title {
-  font-family: "Bahnschrift", "DIN Condensed", "Aptos Display", "Segoe UI", sans-serif;
-  letter-spacing: -0.015em;
+  font-family: "Segoe UI Variable Display", "Aptos Display", "Microsoft YaHei UI", sans-serif;
+  letter-spacing: -0.02em;
 }
 
 .titlebar-title {
@@ -2283,15 +2282,15 @@ body::before {
 .sidebar-mode-tab.active,
 .primary-button {
   background:
-    linear-gradient(135deg, rgba(112, 240, 208, 0.24), rgba(136, 214, 108, 0.14));
-  border-color: rgba(112, 240, 208, 0.42);
-  color: #f6fff8;
+    linear-gradient(135deg, rgba(217, 164, 65, 0.24), rgba(126, 164, 200, 0.12));
+  border-color: rgba(217, 164, 65, 0.48);
+  color: #fff8e8;
 }
 
 .titlebar-pill.mode {
-  background: rgba(243, 183, 93, 0.13);
-  border-color: rgba(243, 183, 93, 0.32);
-  color: #ffe3ac;
+  background: rgba(126, 164, 200, 0.13);
+  border-color: rgba(126, 164, 200, 0.28);
+  color: #dbeaff;
 }
 
 .workspace {
@@ -2304,15 +2303,15 @@ body::before {
 .composer,
 .activity-modal-card {
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.045)),
-    var(--atlas-panel);
+    linear-gradient(180deg, rgba(245, 240, 229, 0.095), rgba(245, 240, 229, 0.04)),
+    var(--ledger-panel);
   border-color: var(--border);
   box-shadow: var(--shadow);
 }
 
 .sidebar-panel,
 .conversation-panel {
-  border-radius: 26px;
+  border-radius: 22px;
 }
 
 .conversation-panel {
@@ -2320,11 +2319,11 @@ body::before {
 }
 
 .conversation-panel::before {
-  background: linear-gradient(90deg, transparent, var(--atlas-line), transparent);
+  background: linear-gradient(90deg, transparent, rgba(217, 164, 65, 0.52), transparent);
   content: "";
   height: 1px;
   left: 24px;
-  opacity: 0.8;
+  opacity: 0.72;
   position: absolute;
   right: 24px;
   top: 0;
@@ -2333,7 +2332,7 @@ body::before {
 .search-input,
 .conversation-select,
 .composer textarea {
-  background: rgba(5, 17, 22, 0.76);
+  background: rgba(13, 18, 25, 0.82);
   color: var(--text);
 }
 
@@ -2341,7 +2340,7 @@ body::before {
 .conversation-select:focus,
 .composer textarea:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(112, 240, 208, 0.14);
+  box-shadow: 0 0 0 3px rgba(217, 164, 65, 0.16);
 }
 
 .project-list-item,
@@ -2355,81 +2354,81 @@ body::before {
 .cli-panel,
 .queue-panel {
   background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.105), rgba(255, 255, 255, 0.04));
-  border-color: rgba(174, 214, 202, 0.16);
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.22);
+    linear-gradient(145deg, rgba(245, 240, 229, 0.09), rgba(245, 240, 229, 0.035));
+  border-color: rgba(217, 209, 191, 0.14);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.2);
 }
 
 .project-list-item,
 .recent-chat-item,
 .contact-list-item {
-  border-radius: 18px;
+  border-radius: 16px;
 }
 
 .project-list-item:hover,
 .recent-chat-item:hover,
 .contact-list-item:hover {
-  background: rgba(112, 240, 208, 0.1);
-  border-color: rgba(112, 240, 208, 0.34);
+  background: rgba(217, 164, 65, 0.1);
+  border-color: rgba(217, 164, 65, 0.32);
   transform: translateY(-1px);
 }
 
 .project-list-item.selected {
   background:
-    linear-gradient(135deg, rgba(112, 240, 208, 0.18), rgba(243, 183, 93, 0.08));
-  border-color: rgba(112, 240, 208, 0.48);
+    linear-gradient(135deg, rgba(217, 164, 65, 0.18), rgba(126, 164, 200, 0.08));
+  border-color: rgba(217, 164, 65, 0.46);
 }
 
 .message-card.user .message-shell,
 .role-badge.user {
-  background: rgba(112, 240, 208, 0.12);
-  border-color: rgba(112, 240, 208, 0.34);
+  background: rgba(126, 164, 200, 0.12);
+  border-color: rgba(126, 164, 200, 0.32);
 }
 
 .message-card.assistant .message-shell,
 .role-badge.assistant {
-  background: rgba(243, 183, 93, 0.1);
-  border-color: rgba(243, 183, 93, 0.28);
+  background: rgba(217, 164, 65, 0.11);
+  border-color: rgba(217, 164, 65, 0.3);
 }
 
 .message-card::before {
-  background: var(--accent);
-  box-shadow: 0 0 18px rgba(112, 240, 208, 0.72);
+  background: var(--ledger-blue);
+  box-shadow: 0 0 16px rgba(126, 164, 200, 0.4);
 }
 
 .message-card.assistant::before {
-  background: var(--atlas-amber);
-  box-shadow: 0 0 18px rgba(243, 183, 93, 0.64);
+  background: var(--ledger-rail);
+  box-shadow: 0 0 16px rgba(217, 164, 65, 0.42);
 }
 
 .project-status-pill.running,
 .status-badge.running,
 .workbench-tab-badge[data-tone="running"] {
-  background: rgba(112, 240, 208, 0.16);
-  color: #d8fff2;
+  background: rgba(126, 164, 200, 0.16);
+  color: #e1efff;
 }
 
 .project-status-pill.ready,
 .status-badge.completed {
-  background: rgba(136, 214, 108, 0.15);
-  color: #e8ffd8;
+  background: rgba(127, 190, 139, 0.15);
+  color: #e2f8e4;
 }
 
 .project-status-pill.queued,
 .kind-badge.tool {
-  background: rgba(243, 183, 93, 0.14);
-  color: #ffe7bc;
+  background: rgba(217, 164, 65, 0.15);
+  color: #ffe7b4;
 }
 
 .composer {
   border-top-color: var(--border);
-  border-radius: 22px 22px 0 0;
+  border-radius: 18px 18px 0 0;
 }
 
 .primary-button,
 .danger-button,
 .ghost-button {
-  border-radius: 14px;
+  border-radius: 12px;
 }
 
 .primary-button:hover,
@@ -2439,9 +2438,9 @@ body::before {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(112, 240, 208, 0.28);
+  background: rgba(217, 164, 65, 0.28);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(112, 240, 208, 0.48);
+  background: rgba(217, 164, 65, 0.48);
 }
