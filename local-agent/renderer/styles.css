@@ -2373,17 +2373,6 @@ body::after {
   top: 0;
 }
 
-.panel-header::after,
-.sidebar-header::after {
-  background: linear-gradient(90deg, rgba(124, 92, 252, 0.55), rgba(34, 211, 238, 0.18), transparent);
-  content: "";
-  flex: 0 0 100%;
-  height: 1px;
-  display: block;
-  margin-top: 12px;
-  width: 100%;
-}
-
 .search-input,
 .conversation-select,
 .composer textarea {

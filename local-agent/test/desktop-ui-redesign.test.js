@@ -16,6 +16,8 @@ test("desktop workbench uses the AgentFlow reference redesign layer", () => {
   assert.match(stylesCss, /\.conversation-panel::before/);
   assert.match(stylesCss, /\.conversation-panel::after/);
   assert.match(stylesCss, /\.project-list-item\.selected::before/);
+  assert.doesNotMatch(stylesCss, /\.panel-header::after/);
+  assert.doesNotMatch(stylesCss, /\.sidebar-header::after/);
 });
 
 test("settings window shares the AgentFlow reference visual system", () => {
