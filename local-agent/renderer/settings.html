@@ -2148,6 +2148,74 @@
     ::-webkit-scrollbar-thumb:hover {
       background: var(--af-border-strong);
     }
+
+    /* Final dark guard: keep settings readable even when older pane styles or native controls leak through. */
+    html,
+    body,
+    .content,
+    .settings-shell,
+    .settings-main,
+    .settings-pane,
+    .settings-modal,
+    .settings-modal-panel,
+    .settings-modal-body {
+      background-color: var(--af-bg-base);
+      color: var(--af-text-primary);
+    }
+
+    .settings-modal-panel,
+    .settings-modal-header,
+    .section,
+    .overview-card,
+    .runtime-card,
+    .runtime-status-card,
+    .model-provider-card,
+    .model-provider-editor,
+    .skill-card,
+    .access-card,
+    .transfer-card,
+    .scheduled-task-card,
+    .workgroup-card,
+    .pubkey,
+    .empty-state,
+    .project-item,
+    .workgroup-member-card,
+    .transfer-history-item,
+    .local-data-metric-card {
+      background-color: var(--af-bg-elevated);
+      color: var(--af-text-primary);
+    }
+
+    input,
+    textarea,
+    select,
+    option {
+      background-color: var(--af-bg-elevated);
+      color: var(--af-text-primary);
+      color-scheme: dark;
+    }
+
+    input::placeholder,
+    textarea::placeholder {
+      color: var(--af-text-tertiary);
+      opacity: 1;
+    }
+
+    label,
+    .section-title,
+    .settings-modal-title,
+    .model-provider-name,
+    .overview-card-value {
+      color: var(--af-text-primary);
+    }
+
+    .field-help,
+    .section-subtitle,
+    .settings-modal-loading,
+    .model-provider-meta,
+    .model-provider-protocol {
+      color: var(--af-text-secondary);
+    }
   </style>
 </head>
 <body>
