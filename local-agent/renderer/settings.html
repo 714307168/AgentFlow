@@ -11,6 +11,8 @@
       --af-primary-hover: #6b4fe0;
       --af-primary-muted: rgba(124, 92, 252, 0.15);
       --af-primary-subtle: rgba(124, 92, 252, 0.08);
+      --af-flow: #22d3ee;
+      --af-flow-muted: rgba(34, 211, 238, 0.14);
       --af-bg-base: #09090b;
       --af-bg-surface: #111113;
       --af-bg-elevated: #18181b;
@@ -67,6 +69,16 @@
       position: fixed;
       z-index: -1;
     }
+    body::after {
+      background: linear-gradient(180deg, transparent, rgba(124, 92, 252, 0.42), rgba(34, 211, 238, 0.18), transparent);
+      content: "";
+      inset: 72px auto 32px 14px;
+      opacity: 0.65;
+      pointer-events: none;
+      position: fixed;
+      width: 1px;
+      z-index: -1;
+    }
     .titlebar {
       -webkit-app-region: drag;
       height: 56px;
@@ -80,6 +92,17 @@
     .titlebar-title {
       font-size: 13px;
       font-weight: 600;
+    }
+    .titlebar-title::before {
+      background: linear-gradient(180deg, var(--af-primary), var(--af-flow));
+      border-radius: 999px;
+      box-shadow: 0 0 16px rgba(124, 92, 252, 0.48);
+      content: "";
+      display: inline-block;
+      height: 18px;
+      margin-right: 10px;
+      vertical-align: -4px;
+      width: 3px;
     }
     .titlebar-controls {
       -webkit-app-region: no-drag;
@@ -1935,7 +1958,7 @@
         grid-template-columns: 1fr;
       }
     }
-    /* AgentFlow reference redesign layer for settings. */
+    /* AgentFlow reference redesign layer for settings with a Flow Rail signature. */
     .settings-nav-item,
     .section,
     .overview-card,
@@ -1974,15 +1997,25 @@
 
     .section {
       border-radius: 12px;
+      overflow: hidden;
       position: relative;
     }
 
     .section::before {
-      background: linear-gradient(90deg, transparent, rgba(124, 92, 252, 0.7), transparent);
+      background: linear-gradient(180deg, var(--af-primary), var(--af-flow), transparent);
+      content: "";
+      inset: 0 auto 0 0;
+      opacity: 0.72;
+      position: absolute;
+      width: 2px;
+    }
+
+    .section::after {
+      background: linear-gradient(90deg, transparent, rgba(124, 92, 252, 0.65), rgba(34, 211, 238, 0.22), transparent);
       content: "";
       height: 1px;
       left: 22px;
-      opacity: 0.72;
+      opacity: 0.7;
       position: absolute;
       right: 22px;
       top: 0;
@@ -2011,7 +2044,7 @@
     .settings-nav-item.active,
     .btn-primary,
     .model-provider-card.active {
-      background: var(--af-primary-muted);
+      background: linear-gradient(135deg, var(--af-primary-muted), var(--af-flow-muted));
       border-color: rgba(124, 92, 252, 0.42);
       color: var(--af-text-primary);
     }
@@ -2063,12 +2096,22 @@
 
     .model-provider-card {
       border-radius: 12px;
+      position: relative;
     }
 
     .model-provider-card:hover,
     .model-provider-card.editing {
       background: var(--af-bg-hover);
       border-color: var(--af-border-strong);
+    }
+
+    .model-provider-card.active::before {
+      background: linear-gradient(180deg, var(--af-primary), var(--af-flow));
+      border-radius: 999px;
+      content: "";
+      inset: 10px auto 10px 8px;
+      position: absolute;
+      width: 2px;
     }
 
     .model-provider-pill.ok,

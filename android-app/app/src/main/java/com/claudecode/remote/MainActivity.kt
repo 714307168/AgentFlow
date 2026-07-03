@@ -198,8 +198,8 @@ class MainActivity : ComponentActivity() {
                                                 unselectedTextColor = colorScheme.onSurfaceVariant.copy(alpha = if (darkTheme) 0.84f else 0.74f),
                                                 indicatorColor = lerp(
                                                     colorScheme.primaryContainer,
-                                                    colorScheme.secondaryContainer,
-                                                    0.08f
+                                                    colorScheme.tertiaryContainer,
+                                                    0.18f
                                                 ).copy(alpha = if (darkTheme) 0.78f else 0.9f)
                                             ),
                                             onClick = {
