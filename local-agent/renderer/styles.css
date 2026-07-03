@@ -1211,19 +1211,18 @@ body {
 
 .project-list-top {
   align-items: center;
-  display: flex;
+  display: grid;
   gap: 8px;
-  justify-content: space-between;
-  flex-wrap: nowrap;
+  grid-template-columns: minmax(0, 1fr) auto;
   min-width: 0;
 }
 
 .project-list-name-row {
   align-items: center;
-  display: flex;
+  display: grid;
   flex: 1 1 0;
-  flex-wrap: nowrap;
   gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
   min-width: 0;
   overflow: hidden;
 }
@@ -1265,8 +1264,13 @@ body {
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.04em;
+  max-width: 72px;
+  min-width: 0;
+  overflow: hidden;
   padding: 3px 7px;
+  text-overflow: ellipsis;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .project-origin-pill.local {
@@ -1395,8 +1399,12 @@ body {
 .project-status-pill {
   border: 1px solid transparent;
   flex: 0 0 auto;
+  justify-self: end;
   margin-left: auto;
-  max-width: 100%;
+  max-width: 96px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 

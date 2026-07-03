@@ -16,6 +16,8 @@ test("desktop workbench uses the AgentFlow reference redesign layer", () => {
   assert.match(stylesCss, /\.conversation-panel::before/);
   assert.match(stylesCss, /\.conversation-panel::after/);
   assert.match(stylesCss, /\.project-list-item\.selected::before/);
+  assert.match(stylesCss, /\.project-list-top \{[\s\S]*grid-template-columns: minmax\(0, 1fr\) auto;/);
+  assert.match(stylesCss, /\.project-list-name-row \{[\s\S]*grid-template-columns: minmax\(0, 1fr\) auto;/);
   assert.doesNotMatch(stylesCss, /\.panel-header::after/);
   assert.doesNotMatch(stylesCss, /\.sidebar-header::after/);
 });
