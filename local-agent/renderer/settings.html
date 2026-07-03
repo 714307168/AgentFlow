@@ -7,22 +7,38 @@
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
-      --bg: #10141b;
-      --panel: rgba(25, 31, 39, 0.9);
-      --panel-2: rgba(31, 39, 49, 0.94);
-      --border: rgba(217, 209, 191, 0.16);
-      --text: #f5f0e6;
-      --muted: #b7ad9c;
-      --accent: #d9a441;
-      --accent-hover: #f1c96b;
-      --success: #7fbe8b;
-      --success-bg: rgba(63, 185, 80, 0.12);
-      --error: #e07a64;
-      --error-bg: rgba(224, 122, 100, 0.12);
-      --warning: #d9a441;
-      --shadow: rgba(0, 0, 0, 0.34);
-      --ledger-blue: #7ea4c8;
-      --ledger-rail: #d9a441;
+      --af-primary: #7c5cfc;
+      --af-primary-hover: #6b4fe0;
+      --af-primary-muted: rgba(124, 92, 252, 0.15);
+      --af-primary-subtle: rgba(124, 92, 252, 0.08);
+      --af-bg-base: #09090b;
+      --af-bg-surface: #111113;
+      --af-bg-elevated: #18181b;
+      --af-bg-overlay: #1f1f23;
+      --af-bg-hover: #27272a;
+      --af-bg-active: #2e2e33;
+      --af-border-default: #27272a;
+      --af-border-subtle: #1c1c1f;
+      --af-border-strong: #3f3f46;
+      --af-border-focus: #7c5cfc;
+      --af-text-primary: #fafafa;
+      --af-text-secondary: #a1a1aa;
+      --af-text-tertiary: #71717a;
+      --af-text-muted: #52525b;
+      --bg: var(--af-bg-base);
+      --panel: var(--af-bg-surface);
+      --panel-2: var(--af-bg-elevated);
+      --border: var(--af-border-default);
+      --text: var(--af-text-primary);
+      --muted: var(--af-text-secondary);
+      --accent: var(--af-primary);
+      --accent-hover: #a78bfa;
+      --success: #16a34a;
+      --success-bg: rgba(22, 163, 74, 0.12);
+      --error: #dc2626;
+      --error-bg: rgba(220, 38, 38, 0.12);
+      --warning: #d97706;
+      --shadow: rgba(0, 0, 0, 0.4);
     }
     html,
     body {
@@ -31,23 +47,22 @@
     }
     body {
       background:
-        radial-gradient(circle at 15% 12%, rgba(217, 164, 65, 0.13), transparent 30%),
-        radial-gradient(circle at 92% 8%, rgba(126, 164, 200, 0.12), transparent 26%),
-        linear-gradient(135deg, #0e131a 0%, #141b24 52%, #1b2024 100%);
+        linear-gradient(rgba(255, 255, 255, 0.018) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px),
+        var(--af-bg-base);
+      background-size: 40px 40px, 40px 40px, auto;
       color: var(--text);
-      font: 14px/1.5 "Segoe UI Variable", "Aptos", "Microsoft YaHei UI", sans-serif;
+      font: 14px/1.5 "Inter", "Segoe UI Variable", "Aptos", "Microsoft YaHei UI", sans-serif;
       min-height: 0;
       display: flex;
       flex-direction: column;
     }
     body::before {
       background:
-        linear-gradient(115deg, transparent 0 46%, rgba(245, 240, 229, 0.035) 46% 47%, transparent 47% 100%),
-        linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent 34%);
-      background-size: 56px 56px, 100% 100%;
+        radial-gradient(circle at 22% 12%, rgba(124, 92, 252, 0.14), transparent 28%),
+        radial-gradient(circle at 82% 6%, rgba(37, 99, 235, 0.1), transparent 24%);
       content: "";
       inset: 0;
-      opacity: 0.68;
       pointer-events: none;
       position: fixed;
       z-index: -1;
@@ -59,7 +74,7 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      background: rgba(14, 19, 26, 0.92);
+      background: rgba(17, 17, 19, 0.94);
       border-bottom: 1px solid var(--border);
     }
     .titlebar-title {
@@ -166,11 +181,9 @@
       flex-direction: column;
       overflow: hidden;
       border: 1px solid var(--border);
-      border-radius: 22px;
-      background:
-        linear-gradient(180deg, rgba(245, 240, 229, 0.095), rgba(245, 240, 229, 0.04)),
-        var(--panel);
-      box-shadow: 0 22px 72px rgba(0, 0, 0, 0.34);
+      border-radius: 12px;
+      background: var(--panel);
+      box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5), 0 4px 16px rgba(0, 0, 0, 0.4);
     }
     .settings-modal-header {
       display: flex;
@@ -205,9 +218,7 @@
       height: 38px;
       border-radius: 14px;
       border: 1px solid var(--border);
-      background:
-        linear-gradient(180deg, rgba(245, 240, 229, 0.095), rgba(245, 240, 229, 0.04)),
-        var(--panel);
+      background: var(--panel);
       color: var(--text);
       font-size: 22px;
       line-height: 1;
@@ -1924,7 +1935,7 @@
         grid-template-columns: 1fr;
       }
     }
-    /* Command Ledger redesign layer for settings. */
+    /* AgentFlow reference redesign layer for settings. */
     .settings-nav-item,
     .section,
     .overview-card,
@@ -1942,7 +1953,7 @@
     .settings-modal-panel {
       backdrop-filter: blur(14px);
       border-color: var(--border);
-      box-shadow: 0 14px 38px var(--shadow);
+      box-shadow: 0 8px 32px var(--shadow), 0 2px 8px rgba(0, 0, 0, 0.3);
     }
 
     .section,
@@ -1957,18 +1968,17 @@
     .workgroup-card,
     .pubkey,
     .empty-state {
-      background:
-        linear-gradient(145deg, rgba(245, 240, 229, 0.09), rgba(245, 240, 229, 0.035)),
-        rgba(25, 31, 39, 0.8);
+      background: var(--af-bg-elevated);
+      border-color: var(--af-border-default);
     }
 
     .section {
-      border-radius: 20px;
+      border-radius: 12px;
       position: relative;
     }
 
     .section::before {
-      background: linear-gradient(90deg, transparent, rgba(217, 164, 65, 0.5), transparent);
+      background: linear-gradient(90deg, transparent, rgba(124, 92, 252, 0.7), transparent);
       content: "";
       height: 1px;
       left: 22px;
@@ -1984,27 +1994,26 @@
     .overview-card-value,
     .model-provider-name {
       color: var(--text);
-      font-family: "Segoe UI Variable Display", "Aptos Display", "Microsoft YaHei UI", sans-serif;
-      letter-spacing: -0.02em;
+      font-family: "Space Grotesk", "Inter", "Segoe UI Variable Display", "Microsoft YaHei UI", sans-serif;
+      letter-spacing: -0.025em;
     }
 
     .settings-nav-item {
-      background: rgba(245, 240, 229, 0.035);
-      border-radius: 14px;
+      background: transparent;
+      border-radius: 8px;
     }
 
     .settings-nav-item:hover {
-      background: rgba(217, 164, 65, 0.1);
-      border-color: rgba(217, 164, 65, 0.28);
+      background: var(--af-bg-hover);
+      border-color: var(--af-border-default);
     }
 
     .settings-nav-item.active,
     .btn-primary,
     .model-provider-card.active {
-      background:
-        linear-gradient(135deg, rgba(217, 164, 65, 0.24), rgba(126, 164, 200, 0.12));
-      border-color: rgba(217, 164, 65, 0.46);
-      color: #fff8e8;
+      background: var(--af-primary-muted);
+      border-color: rgba(124, 92, 252, 0.42);
+      color: var(--af-text-primary);
     }
 
     input[type="text"],
@@ -2013,7 +2022,7 @@
     input[type="time"],
     textarea,
     select {
-      background: rgba(13, 18, 25, 0.82);
+      background: var(--af-bg-elevated);
       border-color: var(--border);
       color: var(--text);
     }
@@ -2025,7 +2034,7 @@
     textarea:focus,
     select:focus {
       border-color: var(--accent);
-      box-shadow: 0 0 0 3px rgba(217, 164, 65, 0.16);
+      box-shadow: 0 0 0 3px rgba(124, 92, 252, 0.18);
     }
 
     button,
@@ -2033,13 +2042,13 @@
     .btn-secondary,
     .settings-modal-close,
     .titlebar-button {
-      border-radius: 12px;
+      border-radius: 8px;
     }
 
     .btn-secondary,
     .settings-modal-close,
     .titlebar-button {
-      background: rgba(245, 240, 229, 0.045);
+      background: var(--af-bg-elevated);
       border: 1px solid var(--border);
       color: var(--text);
     }
@@ -2047,54 +2056,54 @@
     .btn-secondary:hover,
     .settings-modal-close:hover,
     .titlebar-button:hover {
-      background: rgba(217, 164, 65, 0.1);
-      border-color: rgba(217, 164, 65, 0.34);
+      background: var(--af-bg-hover);
+      border-color: var(--af-border-strong);
       color: var(--accent-hover);
     }
 
     .model-provider-card {
-      border-radius: 18px;
+      border-radius: 12px;
     }
 
     .model-provider-card:hover,
     .model-provider-card.editing {
-      background: rgba(217, 164, 65, 0.1);
-      border-color: rgba(217, 164, 65, 0.36);
+      background: var(--af-bg-hover);
+      border-color: var(--af-border-strong);
     }
 
     .model-provider-pill.ok,
     .save-indicator {
-      background: rgba(127, 190, 139, 0.14);
-      border-color: rgba(127, 190, 139, 0.34);
-      color: #e2f8e4;
+      background: rgba(22, 163, 74, 0.14);
+      border-color: rgba(22, 163, 74, 0.34);
+      color: #86efac;
     }
 
     .scope-pill,
     .setting-scope,
     .runtime-status-pill.ok {
-      background: rgba(126, 164, 200, 0.13);
-      border-color: rgba(126, 164, 200, 0.34);
+      background: var(--af-primary-subtle);
+      border-color: rgba(124, 92, 252, 0.34);
       color: var(--accent-hover);
     }
 
     .runtime-status-pill.warn {
-      background: rgba(217, 164, 65, 0.14);
-      border-color: rgba(217, 164, 65, 0.34);
-      color: #ffe7b4;
+      background: rgba(217, 119, 6, 0.14);
+      border-color: rgba(217, 119, 6, 0.34);
+      color: #fbbf24;
     }
 
     .runtime-status-pill.error {
-      background: rgba(224, 122, 100, 0.14);
-      border-color: rgba(224, 122, 100, 0.34);
-      color: #ffdcd5;
+      background: rgba(220, 38, 38, 0.14);
+      border-color: rgba(220, 38, 38, 0.34);
+      color: #fca5a5;
     }
 
     ::-webkit-scrollbar-thumb {
-      background: rgba(217, 164, 65, 0.28);
+      background: var(--af-bg-active);
     }
 
     ::-webkit-scrollbar-thumb:hover {
-      background: rgba(217, 164, 65, 0.48);
+      background: var(--af-border-strong);
     }
   </style>
 </head>

@@ -6,19 +6,19 @@ const path = require("node:path");
 const stylesCss = fs.readFileSync(path.join(__dirname, "../renderer/styles.css"), "utf8");
 const settingsHtml = fs.readFileSync(path.join(__dirname, "../renderer/settings.html"), "utf8");
 
-test("desktop workbench uses the Command Ledger redesign layer", () => {
-  assert.match(stylesCss, /Command Ledger redesign layer/);
-  assert.match(stylesCss, /--accent: #d9a441/);
-  assert.match(stylesCss, /--ledger-rail: #d9a441/);
+test("desktop workbench uses the AgentFlow reference redesign layer", () => {
+  assert.match(stylesCss, /AgentFlow reference redesign layer/);
+  assert.match(stylesCss, /--af-primary: #7c5cfc/);
+  assert.match(stylesCss, /--af-bg-base: #09090b/);
   assert.match(stylesCss, /body::before/);
   assert.match(stylesCss, /\.conversation-panel::before/);
   assert.match(stylesCss, /\.message-card\.assistant::before/);
 });
 
-test("settings window shares the Command Ledger visual system", () => {
-  assert.match(settingsHtml, /Command Ledger redesign layer for settings/);
-  assert.match(settingsHtml, /--accent: #d9a441/);
-  assert.match(settingsHtml, /--ledger-rail: #d9a441/);
+test("settings window shares the AgentFlow reference visual system", () => {
+  assert.match(settingsHtml, /AgentFlow reference redesign layer for settings/);
+  assert.match(settingsHtml, /--af-primary: #7c5cfc/);
+  assert.match(settingsHtml, /--af-bg-base: #09090b/);
   assert.match(settingsHtml, /body::before/);
   assert.match(settingsHtml, /\.section::before/);
   assert.match(settingsHtml, /\.model-provider-card\.active/);

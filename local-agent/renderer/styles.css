@@ -2198,65 +2198,78 @@ body.lightbox-open {
   }
 }
 
-/* Command Ledger redesign layer: calm desktop workbench visual system. */
+/* AgentFlow reference redesign layer: Linear/Vercel-inspired product UI. */
 :root {
-  --bg: #10141b;
-  --bg-secondary: #171d25;
-  --surface: rgba(245, 240, 229, 0.07);
-  --surface-strong: rgba(245, 240, 229, 0.11);
-  --surface-soft: rgba(217, 164, 65, 0.1);
-  --border: rgba(217, 209, 191, 0.16);
-  --border-strong: rgba(217, 164, 65, 0.42);
-  --text: #f5f0e6;
-  --text-muted: #b7ad9c;
-  --text-soft: #827a6e;
-  --accent: #d9a441;
-  --accent-strong: #f1c96b;
-  --accent-soft: rgba(217, 164, 65, 0.14);
-  --success: #7fbe8b;
-  --warning: #d9a441;
-  --danger: #e07a64;
-  --shadow: 0 22px 64px rgba(0, 0, 0, 0.34);
-  --ledger-ink: #0f141b;
-  --ledger-panel: rgba(25, 31, 39, 0.9);
-  --ledger-panel-solid: #1b222b;
-  --ledger-rail: #d9a441;
-  --ledger-blue: #7ea4c8;
+  --af-primary: #7c5cfc;
+  --af-primary-hover: #6b4fe0;
+  --af-primary-muted: rgba(124, 92, 252, 0.15);
+  --af-primary-subtle: rgba(124, 92, 252, 0.08);
+  --af-bg-base: #09090b;
+  --af-bg-surface: #111113;
+  --af-bg-elevated: #18181b;
+  --af-bg-overlay: #1f1f23;
+  --af-bg-hover: #27272a;
+  --af-bg-active: #2e2e33;
+  --af-border-default: #27272a;
+  --af-border-subtle: #1c1c1f;
+  --af-border-strong: #3f3f46;
+  --af-border-focus: #7c5cfc;
+  --af-text-primary: #fafafa;
+  --af-text-secondary: #a1a1aa;
+  --af-text-tertiary: #71717a;
+  --af-text-muted: #52525b;
+  --bg: var(--af-bg-base);
+  --bg-secondary: var(--af-bg-surface);
+  --surface: var(--af-bg-elevated);
+  --surface-strong: var(--af-bg-overlay);
+  --surface-soft: var(--af-primary-subtle);
+  --border: var(--af-border-default);
+  --border-strong: var(--af-border-strong);
+  --text: var(--af-text-primary);
+  --text-muted: var(--af-text-secondary);
+  --text-soft: var(--af-text-tertiary);
+  --accent: var(--af-primary);
+  --accent-strong: var(--af-primary-hover);
+  --accent-soft: var(--af-primary-muted);
+  --success: #16a34a;
+  --warning: #d97706;
+  --danger: #dc2626;
+  --shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
 html,
 body {
   background:
-    radial-gradient(circle at 15% 12%, rgba(217, 164, 65, 0.13), transparent 30%),
-    radial-gradient(circle at 92% 8%, rgba(126, 164, 200, 0.12), transparent 26%),
-    linear-gradient(135deg, #0e131a 0%, #141b24 52%, #1b2024 100%);
-  font-family: "Segoe UI Variable", "Aptos", "Microsoft YaHei UI", "PingFang SC", sans-serif;
+    linear-gradient(rgba(255, 255, 255, 0.018) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px),
+    var(--af-bg-base);
+  background-size: 40px 40px, 40px 40px, auto;
+  font-family: "Inter", "Segoe UI Variable", "Aptos", "Microsoft YaHei UI", "PingFang SC", sans-serif;
 }
 
 body::before {
   background:
-    linear-gradient(115deg, transparent 0 46%, rgba(245, 240, 229, 0.035) 46% 47%, transparent 47% 100%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent 34%);
-  background-size: 56px 56px, 100% 100%;
+    radial-gradient(circle at 22% 12%, rgba(124, 92, 252, 0.14), transparent 28%),
+    radial-gradient(circle at 82% 6%, rgba(37, 99, 235, 0.1), transparent 24%);
   content: "";
   inset: 0;
-  opacity: 0.7;
+  opacity: 1;
   pointer-events: none;
   position: fixed;
   z-index: -1;
 }
 
 .titlebar {
-  background: rgba(14, 19, 26, 0.92);
-  border-bottom-color: var(--border);
-  min-height: 52px;
+  background: rgba(17, 17, 19, 0.94);
+  border-bottom-color: var(--af-border-default);
+  min-height: 54px;
 }
 
 .titlebar-title,
 .sidebar-title,
 .panel-title {
-  font-family: "Segoe UI Variable Display", "Aptos Display", "Microsoft YaHei UI", sans-serif;
-  letter-spacing: -0.02em;
+  font-family: "Space Grotesk", "Inter", "Segoe UI Variable Display", "Microsoft YaHei UI", sans-serif;
+  letter-spacing: -0.025em;
 }
 
 .titlebar-title {
@@ -2281,16 +2294,15 @@ body::before {
 .workbench-tab.active,
 .sidebar-mode-tab.active,
 .primary-button {
-  background:
-    linear-gradient(135deg, rgba(217, 164, 65, 0.24), rgba(126, 164, 200, 0.12));
-  border-color: rgba(217, 164, 65, 0.48);
-  color: #fff8e8;
+  background: var(--af-primary-muted);
+  border-color: rgba(124, 92, 252, 0.42);
+  color: var(--af-text-primary);
 }
 
 .titlebar-pill.mode {
-  background: rgba(126, 164, 200, 0.13);
-  border-color: rgba(126, 164, 200, 0.28);
-  color: #dbeaff;
+  background: var(--af-bg-elevated);
+  border-color: var(--af-border-default);
+  color: var(--af-text-secondary);
 }
 
 .workspace {
@@ -2302,16 +2314,14 @@ body::before {
 .conversation-panel,
 .composer,
 .activity-modal-card {
-  background:
-    linear-gradient(180deg, rgba(245, 240, 229, 0.095), rgba(245, 240, 229, 0.04)),
-    var(--ledger-panel);
-  border-color: var(--border);
+  background: var(--af-bg-surface);
+  border-color: var(--af-border-default);
   box-shadow: var(--shadow);
 }
 
 .sidebar-panel,
 .conversation-panel {
-  border-radius: 22px;
+  border-radius: 12px;
 }
 
 .conversation-panel {
@@ -2319,7 +2329,7 @@ body::before {
 }
 
 .conversation-panel::before {
-  background: linear-gradient(90deg, transparent, rgba(217, 164, 65, 0.52), transparent);
+  background: linear-gradient(90deg, transparent, rgba(124, 92, 252, 0.7), transparent);
   content: "";
   height: 1px;
   left: 24px;
@@ -2332,7 +2342,7 @@ body::before {
 .search-input,
 .conversation-select,
 .composer textarea {
-  background: rgba(13, 18, 25, 0.82);
+  background: var(--af-bg-elevated);
   color: var(--text);
 }
 
@@ -2340,7 +2350,7 @@ body::before {
 .conversation-select:focus,
 .composer textarea:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(217, 164, 65, 0.16);
+  box-shadow: 0 0 0 3px rgba(124, 92, 252, 0.18);
 }
 
 .project-list-item,
@@ -2353,82 +2363,80 @@ body::before {
 .overview-stat,
 .cli-panel,
 .queue-panel {
-  background:
-    linear-gradient(145deg, rgba(245, 240, 229, 0.09), rgba(245, 240, 229, 0.035));
-  border-color: rgba(217, 209, 191, 0.14);
-  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.2);
+  background: var(--af-bg-elevated);
+  border-color: var(--af-border-default);
+  box-shadow: none;
 }
 
 .project-list-item,
 .recent-chat-item,
 .contact-list-item {
-  border-radius: 16px;
+  border-radius: 8px;
 }
 
 .project-list-item:hover,
 .recent-chat-item:hover,
 .contact-list-item:hover {
-  background: rgba(217, 164, 65, 0.1);
-  border-color: rgba(217, 164, 65, 0.32);
+  background: var(--af-bg-hover);
+  border-color: var(--af-border-strong);
   transform: translateY(-1px);
 }
 
 .project-list-item.selected {
-  background:
-    linear-gradient(135deg, rgba(217, 164, 65, 0.18), rgba(126, 164, 200, 0.08));
-  border-color: rgba(217, 164, 65, 0.46);
+  background: var(--af-primary-subtle);
+  border-color: rgba(124, 92, 252, 0.42);
 }
 
 .message-card.user .message-shell,
 .role-badge.user {
-  background: rgba(126, 164, 200, 0.12);
-  border-color: rgba(126, 164, 200, 0.32);
+  background: var(--af-primary-subtle);
+  border-color: rgba(124, 92, 252, 0.3);
 }
 
 .message-card.assistant .message-shell,
 .role-badge.assistant {
-  background: rgba(217, 164, 65, 0.11);
-  border-color: rgba(217, 164, 65, 0.3);
+  background: var(--af-bg-elevated);
+  border-color: var(--af-border-default);
 }
 
 .message-card::before {
-  background: var(--ledger-blue);
-  box-shadow: 0 0 16px rgba(126, 164, 200, 0.4);
+  background: var(--af-primary);
+  box-shadow: 0 0 16px rgba(124, 92, 252, 0.45);
 }
 
 .message-card.assistant::before {
-  background: var(--ledger-rail);
-  box-shadow: 0 0 16px rgba(217, 164, 65, 0.42);
+  background: var(--af-text-tertiary);
+  box-shadow: none;
 }
 
 .project-status-pill.running,
 .status-badge.running,
 .workbench-tab-badge[data-tone="running"] {
-  background: rgba(126, 164, 200, 0.16);
-  color: #e1efff;
+  background: var(--af-primary-muted);
+  color: #ddd6fe;
 }
 
 .project-status-pill.ready,
 .status-badge.completed {
-  background: rgba(127, 190, 139, 0.15);
-  color: #e2f8e4;
+  background: rgba(22, 163, 74, 0.14);
+  color: #86efac;
 }
 
 .project-status-pill.queued,
 .kind-badge.tool {
-  background: rgba(217, 164, 65, 0.15);
-  color: #ffe7b4;
+  background: rgba(217, 119, 6, 0.15);
+  color: #fbbf24;
 }
 
 .composer {
   border-top-color: var(--border);
-  border-radius: 18px 18px 0 0;
+  border-radius: 12px 12px 0 0;
 }
 
 .primary-button,
 .danger-button,
 .ghost-button {
-  border-radius: 12px;
+  border-radius: 8px;
 }
 
 .primary-button:hover,
@@ -2438,9 +2446,9 @@ body::before {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(217, 164, 65, 0.28);
+  background: var(--af-bg-active);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(217, 164, 65, 0.48);
+  background: var(--af-border-strong);
 }

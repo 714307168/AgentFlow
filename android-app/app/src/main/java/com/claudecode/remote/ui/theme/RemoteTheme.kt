@@ -18,63 +18,63 @@ import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 
 private val LightColors = lightColorScheme(
-    primary = Color(0xFF825B16),
+    primary = Color(0xFF6D4FED),
     onPrimary = Color(0xFFFFFFFF),
-    primaryContainer = Color(0xFFFFDFA2),
-    onPrimaryContainer = Color(0xFF2A1A00),
-    secondary = Color(0xFF48647C),
+    primaryContainer = Color(0xFFE7E0FF),
+    onPrimaryContainer = Color(0xFF21005D),
+    secondary = Color(0xFF4F46E5),
     onSecondary = Color(0xFFFFFFFF),
-    secondaryContainer = Color(0xFFD4E6F6),
-    onSecondaryContainer = Color(0xFF071E2E),
-    tertiary = Color(0xFF6B624E),
+    secondaryContainer = Color(0xFFE0E7FF),
+    onSecondaryContainer = Color(0xFF111827),
+    tertiary = Color(0xFF2563EB),
     onTertiary = Color(0xFFFFFFFF),
-    tertiaryContainer = Color(0xFFEDE2C9),
-    onTertiaryContainer = Color(0xFF231B0B),
-    background = Color(0xFFF4F0E7),
-    onBackground = Color(0xFF171A1F),
-    surface = Color(0xFFFFFBF2),
-    onSurface = Color(0xFF171A1F),
-    surfaceVariant = Color(0xFFE7DED0),
-    onSurfaceVariant = Color(0xFF4D463B),
-    outline = Color(0xFF83786A),
-    error = Color(0xFFB13B2E),
+    tertiaryContainer = Color(0xFFDBEAFE),
+    onTertiaryContainer = Color(0xFF0F172A),
+    background = Color(0xFFFFFFFF),
+    onBackground = Color(0xFF111827),
+    surface = Color(0xFFFFFFFF),
+    onSurface = Color(0xFF111827),
+    surfaceVariant = Color(0xFFF3F4F6),
+    onSurfaceVariant = Color(0xFF6B7280),
+    outline = Color(0xFFE5E7EB),
+    error = Color(0xFFDC2626),
     onError = Color(0xFFFFFFFF),
-    errorContainer = Color(0xFFFFDAD3),
-    onErrorContainer = Color(0xFF410500)
+    errorContainer = Color(0xFFFEE2E2),
+    onErrorContainer = Color(0xFF7F1D1D)
 )
 
 private val DarkColors = darkColorScheme(
-    primary = Color(0xFFD9A441),
-    onPrimary = Color(0xFF2A1A00),
-    primaryContainer = Color(0xFF62440C),
-    onPrimaryContainer = Color(0xFFFFE2A8),
-    secondary = Color(0xFFAAC9E5),
-    onSecondary = Color(0xFF143349),
-    secondaryContainer = Color(0xFF314B62),
-    onSecondaryContainer = Color(0xFFD4E6F6),
-    tertiary = Color(0xFFD3C5AA),
-    onTertiary = Color(0xFF3A301F),
-    tertiaryContainer = Color(0xFF514735),
-    onTertiaryContainer = Color(0xFFEDE2C9),
-    background = Color(0xFF10141B),
-    onBackground = Color(0xFFF5F0E6),
-    surface = Color(0xFF191F27),
-    onSurface = Color(0xFFF5F0E6),
-    surfaceVariant = Color(0xFF303640),
-    onSurfaceVariant = Color(0xFFCFC6B7),
-    outline = Color(0xFF9B9181),
-    error = Color(0xFFFFB4A8),
-    onError = Color(0xFF690800),
-    errorContainer = Color(0xFF922015),
-    onErrorContainer = Color(0xFFFFDAD3)
+    primary = Color(0xFF7C5CFC),
+    onPrimary = Color(0xFFFFFFFF),
+    primaryContainer = Color(0xFF2E225F),
+    onPrimaryContainer = Color(0xFFEDE9FE),
+    secondary = Color(0xFFA78BFA),
+    onSecondary = Color(0xFF1E1B4B),
+    secondaryContainer = Color(0xFF312E81),
+    onSecondaryContainer = Color(0xFFE0E7FF),
+    tertiary = Color(0xFF60A5FA),
+    onTertiary = Color(0xFF0F172A),
+    tertiaryContainer = Color(0xFF1E3A8A),
+    onTertiaryContainer = Color(0xFFDBEAFE),
+    background = Color(0xFF09090B),
+    onBackground = Color(0xFFFAFAFA),
+    surface = Color(0xFF111113),
+    onSurface = Color(0xFFFAFAFA),
+    surfaceVariant = Color(0xFF18181B),
+    onSurfaceVariant = Color(0xFFA1A1AA),
+    outline = Color(0xFF27272A),
+    error = Color(0xFFF87171),
+    onError = Color(0xFF450A0A),
+    errorContainer = Color(0xFF7F1D1D),
+    onErrorContainer = Color(0xFFFEE2E2)
 )
 
 private val AppTypography = Typography(
     headlineSmall = TextStyle(
         fontWeight = FontWeight.Bold,
-        fontSize = 29.sp,
-        lineHeight = 35.sp,
-        letterSpacing = (-0.55).sp
+        fontSize = 30.sp,
+        lineHeight = 36.sp,
+        letterSpacing = (-0.6).sp
     ),
     titleLarge = TextStyle(
         fontWeight = FontWeight.Bold,
@@ -113,9 +113,9 @@ private val AppTypography = Typography(
 )
 
 private val AppShapes = Shapes(
-    small = androidx.compose.foundation.shape.RoundedCornerShape(14.dp),
-    medium = androidx.compose.foundation.shape.RoundedCornerShape(20.dp),
-    large = androidx.compose.foundation.shape.RoundedCornerShape(28.dp)
+    small = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
+    medium = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+    large = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)
 )
 
 @Composable

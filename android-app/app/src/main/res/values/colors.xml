@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="brand_primary">#825B16</color>
-    <color name="brand_primary_dark">#62440C</color>
-    <color name="brand_secondary">#48647C</color>
-    <color name="brand_secondary_dark">#314B62</color>
-    <color name="brand_surface">#FFFBF2</color>
-    <color name="brand_surface_dark">#191F27</color>
+    <color name="brand_primary">#6D4FED</color>
+    <color name="brand_primary_dark">#7C5CFC</color>
+    <color name="brand_secondary">#4F46E5</color>
+    <color name="brand_secondary_dark">#A78BFA</color>
+    <color name="brand_surface">#FFFFFF</color>
+    <color name="brand_surface_dark">#111113</color>
     <color name="white">#FFFFFFFF</color>
     <color name="black">#FF000000</color>
 </resources>
