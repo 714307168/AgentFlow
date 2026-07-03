@@ -2152,6 +2152,7 @@
     /* Final dark guard: keep settings readable even when older pane styles or native controls leak through. */
     html,
     body,
+    .titlebar,
     .content,
     .settings-shell,
     .settings-main,
@@ -2159,12 +2160,15 @@
     .settings-modal,
     .settings-modal-panel,
     .settings-modal-body {
-      background-color: var(--af-bg-base);
+      background: var(--af-bg-base);
       color: var(--af-text-primary);
     }
 
     .settings-modal-panel,
     .settings-modal-header,
+    .titlebar,
+    .header,
+    .settings-nav,
     .section,
     .overview-card,
     .runtime-card,
@@ -2178,11 +2182,26 @@
     .workgroup-card,
     .pubkey,
     .empty-state,
+    .toggle-row,
+    .project-hub-header,
+    .workgroup-hub-header,
+    .project-hub-body,
+    .workgroup-hub-body,
+    .project-toolbar-card,
     .project-item,
+    .project-item.project-item-form,
+    .project-item.project-item-form .project-info,
+    .project-item-form .project-actions,
+    .project-management-pane .project-edit-field,
+    .project-management-pane .add-project-form .field,
+    .project-management-pane .workgroup-form-grid .field,
+    .add-project-form,
+    .workgroup-hub-body > .workgroup-toolbar,
     .workgroup-member-card,
     .transfer-history-item,
-    .local-data-metric-card {
-      background-color: var(--af-bg-elevated);
+    .local-data-metric-card,
+    .runtime-status-upgrade {
+      background: var(--af-bg-elevated);
       color: var(--af-text-primary);
     }
 
@@ -2190,7 +2209,7 @@
     textarea,
     select,
     option {
-      background-color: var(--af-bg-elevated);
+      background: var(--af-bg-elevated);
       color: var(--af-text-primary);
       color-scheme: dark;
     }
@@ -2202,6 +2221,7 @@
     }
 
     label,
+    .titlebar-title,
     .section-title,
     .settings-modal-title,
     .model-provider-name,
@@ -2212,6 +2232,8 @@
     .field-help,
     .section-subtitle,
     .settings-modal-loading,
+    .project-toolbar-copy,
+    .project-path,
     .model-provider-meta,
     .model-provider-protocol {
       color: var(--af-text-secondary);
