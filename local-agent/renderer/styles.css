@@ -1873,6 +1873,24 @@ body.lightbox-open {
   padding: 0 10px;
 }
 
+.composer-model-button {
+  background: linear-gradient(135deg, rgba(124, 92, 252, 0.18), rgba(34, 211, 238, 0.1));
+  border-color: rgba(124, 92, 252, 0.36);
+  color: var(--text);
+  height: 30px;
+  max-width: 240px;
+  min-width: 126px;
+  overflow: hidden;
+  padding: 0 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-model-button:disabled {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: var(--border);
+}
+
 .attachment-tray {
   display: none;
   flex-wrap: wrap;

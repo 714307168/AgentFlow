@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const stylesCss = fs.readFileSync(path.join(__dirname, "../renderer/styles.css"), "utf8");
+const terminalHtml = fs.readFileSync(path.join(__dirname, "../renderer/index.html"), "utf8");
 const settingsHtml = fs.readFileSync(path.join(__dirname, "../renderer/settings.html"), "utf8");
 
 test("desktop workbench uses the AgentFlow reference redesign layer", () => {
@@ -20,6 +21,14 @@ test("desktop workbench uses the AgentFlow reference redesign layer", () => {
   assert.match(stylesCss, /\.project-list-name-row \{[\s\S]*grid-template-columns: minmax\(0, 1fr\) auto;/);
   assert.doesNotMatch(stylesCss, /\.panel-header::after/);
   assert.doesNotMatch(stylesCss, /\.sidebar-header::after/);
+});
+
+test("desktop composer exposes per-project model switching next to the prompt", () => {
+  assert.match(terminalHtml, /id="composerModelBtn"/);
+  assert.match(terminalHtml, /class="ghost-button composer-model-button"/);
+  assert.match(stylesCss, /\.composer-model-button \{/);
+  assert.match(stylesCss, /max-width: 240px/);
+  assert.match(stylesCss, /text-overflow: ellipsis/);
 });
 
 test("settings window shares the AgentFlow reference visual system", () => {

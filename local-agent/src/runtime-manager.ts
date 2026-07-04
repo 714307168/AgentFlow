@@ -106,6 +106,12 @@ interface PendingRun extends EnqueueMessageOptions {
   queuedAt: number;
 }
 
+interface ModelSessionRef {
+  claudeSessionId: string | null;
+  codexThreadId: string | null;
+  updatedAt: number;
+}
+
 interface ProjectConversationState {
   id: string;
   title?: string;
@@ -116,6 +122,7 @@ interface ProjectConversationState {
   activities: SessionActivity[];
   claudeSessionId: string | null;
   codexThreadId: string | null;
+  modelSessionRefs: Record<string, ModelSessionRef>;
 }
 
 interface ProjectState {
@@ -134,6 +141,7 @@ interface ProjectState {
   activities: SessionActivity[];
   claudeSessionId: string | null;
   codexThreadId: string | null;
+  pendingModelSwitchContext: string | null;
   process: ActiveRunProcessHandle | null;
   pendingStop: PendingStop | null;
 }
@@ -186,6 +194,8 @@ const MAX_ACTIVITY_HISTORY_ENTRIES = 30;
 const SNAPSHOT_EMIT_INTERVAL_MS = 120;
 const CODEX_EXIT_CODE_1_MAX_RETRIES = 3;
 const CODEX_EXIT_CODE_1_RETRY_DELAY_MS = 1_500;
+const MODEL_SWITCH_CONTEXT_MAX_CHARS = 6_000;
+const MODEL_SWITCH_CONTEXT_MESSAGE_LIMIT = 12;
 const CLI_TRACE_NOISE_PATTERNS = [
   /reading prompt from stdin/i,
 ] as const;
@@ -656,6 +666,7 @@ class RuntimeManager extends EventEmitter {
     state.active = true;
     state.provider = this.getResolvedProvider(projectId);
     state.model = this.getResolvedModel(projectId);
+    this.restoreModelSessionRefsForState(state);
     state.currentSource = next.source;
     state.currentPrompt = next.prompt;
     state.currentStartedAt = Date.now();
@@ -2163,6 +2174,80 @@ class RuntimeManager extends EventEmitter {
     return getRegisteredProviderLabel(provider);
   }
 
+  private getModelSessionKey(provider: CliProvider, model: string | null | undefined): string {
+    const normalizedModel = model?.trim().toLowerCase() || "auto";
+    return provider + ":" + normalizedModel;
+  }
+
+  private normalizeModelSessionRefs(input: unknown): Record<string, ModelSessionRef> {
+    if (!input || typeof input !== "object" || Array.isArray(input)) {
+      return {};
+    }
+    const refs: Record<string, ModelSessionRef> = {};
+    for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
+      if (!key || !value || typeof value !== "object" || Array.isArray(value)) {
+        continue;
+      }
+      const record = value as Record<string, unknown>;
+      refs[key] = {
+        claudeSessionId: typeof record.claudeSessionId === "string" && record.claudeSessionId.trim()
+          ? record.claudeSessionId.trim()
+          : null,
+        codexThreadId: typeof record.codexThreadId === "string" && record.codexThreadId.trim()
+          ? record.codexThreadId.trim()
+          : null,
+        updatedAt: Number(record.updatedAt) > 0 ? Number(record.updatedAt) : Date.now(),
+      };
+    }
+    return refs;
+  }
+
+  private storeCurrentModelSessionRefs(
+    state: ProjectState,
+    conversation: ProjectConversationState | null = this.getActiveConversation(state),
+  ): void {
+    if (!conversation) {
+      return;
+    }
+    const key = this.getModelSessionKey(state.provider, state.model);
+    conversation.modelSessionRefs[key] = {
+      claudeSessionId: state.claudeSessionId,
+      codexThreadId: state.codexThreadId,
+      updatedAt: Date.now(),
+    };
+  }
+
+  private restoreModelSessionRefsForState(
+    state: ProjectState,
+    conversation: ProjectConversationState | null = this.getActiveConversation(state),
+  ): boolean {
+    if (!conversation) {
+      state.claudeSessionId = null;
+      state.codexThreadId = null;
+      return false;
+    }
+    const key = this.getModelSessionKey(state.provider, state.model);
+    let refs = conversation.modelSessionRefs[key];
+    if (!refs && Object.keys(conversation.modelSessionRefs).length === 0) {
+      const legacyRef: ModelSessionRef = {
+        claudeSessionId: conversation.claudeSessionId,
+        codexThreadId: conversation.codexThreadId,
+        updatedAt: conversation.updatedAt,
+      };
+      if (legacyRef.claudeSessionId || legacyRef.codexThreadId) {
+        refs = legacyRef;
+        conversation.modelSessionRefs[key] = legacyRef;
+      }
+    }
+    state.claudeSessionId = refs?.claudeSessionId ?? null;
+    state.codexThreadId = refs?.codexThreadId ?? null;
+    return Boolean(
+      state.provider === "claude"
+        ? state.claudeSessionId
+        : state.codexThreadId,
+    );
+  }
+
   private normalizeAttachments(attachments?: RunAttachment[]): RunAttachment[] | undefined {
     if (!attachments || attachments.length === 0) {
       return undefined;
@@ -2205,12 +2290,18 @@ class RuntimeManager extends EventEmitter {
   private buildPromptWithAttachments(run: PendingRun): string {
     const attachments = this.normalizeAttachments(run.attachments);
     const projectPrompt = this.buildProjectPrompt(run.projectId);
+    const state = this.states.get(run.projectId);
+    const modelSwitchContext = state?.pendingModelSwitchContext?.trim() ?? "";
+    if (state) {
+      state.pendingModelSwitchContext = null;
+    }
     if (!attachments || attachments.length === 0) {
-      return [projectPrompt, run.prompt].filter(Boolean).join("\n\n");
+      return [projectPrompt, modelSwitchContext, run.prompt].filter(Boolean).join("\n\n");
     }
 
     const lines = [
       projectPrompt,
+      modelSwitchContext,
       run.prompt.trim() || this.describeAttachmentPrompt(attachments),
       "",
       "Local attachments:",
@@ -2224,6 +2315,58 @@ class RuntimeManager extends EventEmitter {
     }
 
     return lines.join("\n");
+  }
+
+  private buildModelSwitchContext(
+    state: ProjectState,
+    previousModel: string | null,
+    nextModel: string | null,
+  ): string | null {
+    const messages = this.getVisibleProjectMessages(state)
+      .filter((message) => {
+        const content = message.content.trim();
+        return (
+          (message.role === "user" || message.role === "assistant")
+          && content.length > 0
+          && !/^\/model(?:\s|$)/i.test(content)
+        );
+      })
+      .slice(-MODEL_SWITCH_CONTEXT_MESSAGE_LIMIT);
+    if (messages.length === 0) {
+      return null;
+    }
+
+    const header = [
+      "Context handoff for model switch.",
+      `Previous model: ${previousModel?.trim() || "provider default"}`,
+      `New model: ${nextModel?.trim() || "provider default"}`,
+      "Use this as bounded continuity only. Do not assume hidden prior session state exists.",
+      "",
+      "Recent conversation context:",
+    ].join("\n");
+    const parts: string[] = [];
+    let remaining = MODEL_SWITCH_CONTEXT_MAX_CHARS - header.length;
+    for (let index = messages.length - 1; index >= 0 && remaining > 0; index -= 1) {
+      const message = messages[index];
+      const role = message.role === "assistant" ? "Assistant" : "User";
+      const normalized = message.content.replace(/\s+/g, " ").trim();
+      const prefix = `- ${role}: `;
+      const entryBudget = Math.max(0, remaining - prefix.length - 1);
+      if (entryBudget <= 0) {
+        continue;
+      }
+      const body = normalized.length > entryBudget
+        ? normalized.slice(0, Math.max(0, entryBudget - 3)).trimEnd() + "..."
+        : normalized;
+      const entry = prefix + body;
+      parts.unshift(entry);
+      remaining -= entry.length + 1;
+    }
+
+    if (parts.length === 0) {
+      return null;
+    }
+    return [header, ...parts].join("\n");
   }
 
   private buildProjectPrompt(projectId: string): string {
@@ -2276,16 +2419,36 @@ class RuntimeManager extends EventEmitter {
     const nextModel = normalized === "auto" || normalized === "default" || normalized === "reset"
       ? null
       : args;
+    const previousModel = state.model;
+    const previousKey = this.getModelSessionKey(state.provider, previousModel);
+    const nextKey = this.getModelSessionKey(state.provider, nextModel);
+    const modelChanged = previousKey !== nextKey;
 
+    this.storeCurrentModelSessionRefs(state);
     this.getConfig().updateProject(state.projectId, {
       cliModel: nextModel,
     });
     state.model = nextModel;
+    let restoredSession = true;
+    if (modelChanged) {
+      restoredSession = this.restoreModelSessionRefsForState(state);
+      state.pendingModelSwitchContext = restoredSession
+        ? null
+        : this.buildModelSwitchContext(state, previousModel, nextModel);
+    }
     this.getConfig().onProjectConfigChanged?.(state.projectId);
 
-    const message = nextModel
-      ? `Switched ${this.getProviderLabel(state.provider)} to model: ${nextModel}`
-      : `Switched ${this.getProviderLabel(state.provider)} back to the provider default model.`;
+    const message = [
+      nextModel
+        ? `Switched ${this.getProviderLabel(state.provider)} to model: ${nextModel}`
+        : `Switched ${this.getProviderLabel(state.provider)} back to the provider default model.`,
+      modelChanged && !restoredSession
+        ? `The next prompt will include a capped recent-context handoff for the new model.`
+        : null,
+      modelChanged && restoredSession
+        ? `Restored the saved session for this model.`
+        : null,
+    ].filter(Boolean).join("\n");
     this.appendAssistantText(state, context, run, message);
     run.onTextDelta?.(message);
     return message;
@@ -2552,6 +2715,7 @@ class RuntimeManager extends EventEmitter {
       activities: [],
       claudeSessionId: null,
       codexThreadId: null,
+      modelSessionRefs: {},
     };
   }
 
@@ -2593,8 +2757,7 @@ class RuntimeManager extends EventEmitter {
     state.cliTrace = conversation.cliTrace;
     state.messages = conversation.messages;
     state.activities = conversation.activities;
-    state.claudeSessionId = conversation.claudeSessionId;
-    state.codexThreadId = conversation.codexThreadId;
+    this.restoreModelSessionRefsForState(state, conversation);
     conversation.updatedAt = Date.now();
   }
 
@@ -2605,6 +2768,7 @@ class RuntimeManager extends EventEmitter {
     }
     const visibleMessages = this.getVisibleProjectMessages(state);
     const visibleActivities = this.getVisibleProjectActivities(state);
+    this.storeCurrentModelSessionRefs(state, conversation);
     conversation.claudeSessionId = state.claudeSessionId;
     conversation.codexThreadId = state.codexThreadId;
     conversation.updatedAt = Math.max(
@@ -2679,6 +2843,7 @@ class RuntimeManager extends EventEmitter {
         updatedAt: conversation.updatedAt,
         claudeSessionId: conversation.claudeSessionId,
         codexThreadId: conversation.codexThreadId,
+        modelSessionRefs: conversation.modelSessionRefs,
       });
       for (const message of conversation.messages) {
         this.historyStore.upsertMessage(state.projectId, conversation.id, message);
@@ -2732,6 +2897,7 @@ class RuntimeManager extends EventEmitter {
         })),
         claudeSessionId: conversation.claudeSessionId ?? null,
         codexThreadId: conversation.codexThreadId ?? null,
+        modelSessionRefs: this.normalizeModelSessionRefs((conversation as ProjectConversationState).modelSessionRefs),
       }));
       const initialConversation = restoredConversations.find((entry) => entry.id === snapshot.activeConversationId)
         ?? restoredConversations[0]
@@ -2753,6 +2919,7 @@ class RuntimeManager extends EventEmitter {
         activities: initialConversation.activities,
         claudeSessionId: initialConversation.claudeSessionId,
         codexThreadId: initialConversation.codexThreadId,
+        pendingModelSwitchContext: null,
         process: null,
         pendingStop: null,
       });
@@ -2789,6 +2956,7 @@ class RuntimeManager extends EventEmitter {
       activities: [],
       claudeSessionId: null,
       codexThreadId: null,
+      pendingModelSwitchContext: null,
       process: null,
       pendingStop: null,
     };
@@ -2822,6 +2990,7 @@ class RuntimeManager extends EventEmitter {
           activeConversationId: state.activeConversationId,
           claudeSessionId: state.claudeSessionId,
           codexThreadId: state.codexThreadId,
+          modelSessionRefs: activeConversation?.modelSessionRefs,
           conversationCreatedAt: activeConversation?.createdAt ?? null,
           conversationUpdatedAt: activeConversation?.updatedAt ?? Date.now(),
         });

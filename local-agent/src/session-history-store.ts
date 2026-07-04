@@ -42,6 +42,11 @@ export interface PersistedConversationState {
   cliTrace: PersistedCliTraceEntry[];
   claudeSessionId: string | null;
   codexThreadId: string | null;
+  modelSessionRefs?: Record<string, {
+    claudeSessionId: string | null;
+    codexThreadId: string | null;
+    updatedAt: number;
+  }>;
 }
 
 export interface PersistedProjectState {
@@ -117,6 +122,7 @@ interface LegacyConversationState {
   cliTrace?: Array<CliTraceEntry | PersistedCliTraceEntry>;
   claudeSessionId?: string | null;
   codexThreadId?: string | null;
+  modelSessionRefs?: PersistedConversationState["modelSessionRefs"];
 }
 
 interface LegacyRuntimeStoreSchema {
@@ -214,6 +220,7 @@ class SessionHistoryStore {
     activeConversationId: string | null;
     claudeSessionId: string | null;
     codexThreadId: string | null;
+    modelSessionRefs?: PersistedConversationState["modelSessionRefs"];
     conversationCreatedAt?: number | null;
     conversationUpdatedAt?: number | null;
   }): void {
@@ -231,6 +238,9 @@ class SessionHistoryStore {
     state.activeConversationId = activeConversation.id;
     activeConversation.claudeSessionId = meta.claudeSessionId;
     activeConversation.codexThreadId = meta.codexThreadId;
+    if (meta.modelSessionRefs !== undefined) {
+      activeConversation.modelSessionRefs = this.normalizeModelSessionRefs(meta.modelSessionRefs);
+    }
     activeConversation.updatedAt = meta.conversationUpdatedAt ?? Date.now();
     this.scheduleWrite(projectId);
   }
@@ -242,6 +252,7 @@ class SessionHistoryStore {
     updatedAt?: number;
     claudeSessionId?: string | null;
     codexThreadId?: string | null;
+    modelSessionRefs?: PersistedConversationState["modelSessionRefs"];
   }): void {
     const state = this.getProjectState(projectId);
     const conversation = this.ensureConversation(
@@ -257,6 +268,9 @@ class SessionHistoryStore {
     }
     if (meta.codexThreadId !== undefined) {
       conversation.codexThreadId = meta.codexThreadId;
+    }
+    if (meta.modelSessionRefs !== undefined) {
+      conversation.modelSessionRefs = this.normalizeModelSessionRefs(meta.modelSessionRefs);
     }
     this.scheduleWrite(projectId);
   }
@@ -688,7 +702,31 @@ class SessionHistoryStore {
       cliTrace,
       claudeSessionId: input?.claudeSessionId ?? null,
       codexThreadId: input?.codexThreadId ?? null,
+      modelSessionRefs: this.normalizeModelSessionRefs(input?.modelSessionRefs),
     };
+  }
+
+  private normalizeModelSessionRefs(input: unknown): PersistedConversationState["modelSessionRefs"] {
+    if (!input || typeof input !== "object" || Array.isArray(input)) {
+      return {};
+    }
+    const refs: NonNullable<PersistedConversationState["modelSessionRefs"]> = {};
+    for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
+      if (!key || !value || typeof value !== "object" || Array.isArray(value)) {
+        continue;
+      }
+      const record = value as Record<string, unknown>;
+      refs[key] = {
+        claudeSessionId: typeof record.claudeSessionId === "string" && record.claudeSessionId.trim()
+          ? record.claudeSessionId.trim()
+          : null,
+        codexThreadId: typeof record.codexThreadId === "string" && record.codexThreadId.trim()
+          ? record.codexThreadId.trim()
+          : null,
+        updatedAt: Number(record.updatedAt) > 0 ? Number(record.updatedAt) : Date.now(),
+      };
+    }
+    return refs;
   }
 
   private migrateLegacyStore(): void {

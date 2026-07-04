@@ -47,6 +47,12 @@ function createRuntimeManager(options = {}) {
     generateProjectImageAsset: options.generateProjectImageAsset,
     updateProject: (_projectId, updates) => {
       updateCalls.push(updates);
+      if (Object.prototype.hasOwnProperty.call(updates, "cliModel")) {
+        options.model = updates.cliModel;
+      }
+      if (Object.prototype.hasOwnProperty.call(updates, "codexWebSearchEnabled")) {
+        options.codexWebSearchEnabled = updates.codexWebSearchEnabled === true;
+      }
     },
     onProjectConfigChanged: () => {
       options.onProjectConfigChangedCalled = true;
@@ -284,6 +290,85 @@ test("RuntimeManager handles /search locally for Codex projects", async () => {
   const snapshot = runtimeManager.getSnapshot("project-codex");
   assert.equal(snapshot.messages.at(-1)?.content.includes("Codex web search is enabled"), true);
   assert.equal(snapshot.messages.at(-1)?.content.includes("`--search` flag"), true);
+
+  runtimeManager.dispose();
+});
+
+test("RuntimeManager hands off capped context when switching to a model without a saved session", async () => {
+  const { runtimeManager, updateCalls } = createRuntimeManager({
+    provider: "codex",
+    model: "gpt-a",
+  });
+  const state = runtimeManager.ensureState("project-codex");
+  const now = Date.now();
+
+  state.codexThreadId = "thread-gpt-a";
+  state.messages.push(
+    {
+      id: "handoff-user",
+      role: "user",
+      content: "We need the Android sync list sorted by real latest chat time.",
+      source: "desktop",
+      createdAt: now,
+      updatedAt: now,
+      status: "done",
+    },
+    {
+      id: "handoff-assistant",
+      role: "assistant",
+      content: "I fixed the status cache but still need to verify message ordering.",
+      source: "desktop",
+      createdAt: now + 1,
+      updatedAt: now + 1,
+      status: "done",
+    },
+  );
+
+  const preparedSwitch = await runtimeManager.prepareRun(
+    state,
+    createPreparedRun("/model gpt-b"),
+    createRunContext(),
+  );
+
+  assert.equal(preparedSwitch.handledLocally, true);
+  assert.deepEqual(updateCalls, [{ cliModel: "gpt-b" }]);
+  assert.equal(state.model, "gpt-b");
+  assert.equal(state.codexThreadId, null);
+  assert.match(state.pendingModelSwitchContext, /Context handoff for model switch/);
+  assert.match(state.pendingModelSwitchContext, /Previous model: gpt-a/);
+  assert.match(state.pendingModelSwitchContext, /New model: gpt-b/);
+  assert.match(state.pendingModelSwitchContext, /Android sync list/);
+
+  const preparedPrompt = await runtimeManager.prepareRun(
+    state,
+    createPreparedRun("continue implementation"),
+    createRunContext(),
+  );
+  const prompt = runtimeManager.buildPromptWithAttachments(preparedPrompt.run);
+
+  assert.equal(preparedPrompt.handledLocally, false);
+  assert.match(prompt, /Context handoff for model switch/);
+  assert.match(prompt, /continue implementation$/);
+  assert.equal(state.pendingModelSwitchContext, null);
+
+  runtimeManager.dispose();
+});
+
+test("RuntimeManager backfills legacy session refs for the current model", () => {
+  const { runtimeManager } = createRuntimeManager({
+    provider: "codex",
+    model: "gpt-a",
+  });
+  const state = runtimeManager.ensureState("project-codex");
+  const conversation = state.conversations[0];
+
+  state.codexThreadId = null;
+  conversation.codexThreadId = "legacy-thread";
+  conversation.modelSessionRefs = {};
+
+  assert.equal(runtimeManager.restoreModelSessionRefsForState(state, conversation), true);
+  assert.equal(state.codexThreadId, "legacy-thread");
+  assert.equal(conversation.modelSessionRefs["codex:gpt-a"].codexThreadId, "legacy-thread");
 
   runtimeManager.dispose();
 });

@@ -388,6 +388,7 @@ const elements = {
   activityList: document.getElementById("activityList"),
   composerForm: document.getElementById("composerForm") as HTMLFormElement | null,
   composerInput: document.getElementById("composerInput") as HTMLTextAreaElement | null,
+  composerModelBtn: document.getElementById("composerModelBtn") as HTMLButtonElement | null,
   mentionSuggestions: document.getElementById("mentionSuggestions"),
   composerHint: document.getElementById("composerHint"),
   attachImageBtn: document.getElementById("attachImageBtn") as HTMLButtonElement | null,
@@ -3290,6 +3291,12 @@ function renderHeader(): void {
         "直接在群里协作，必要时用 @成员名 提及。",
       );
     }
+    if (elements.composerModelBtn) {
+      elements.composerModelBtn.textContent = inlineText("Shared group", "协作组");
+      elements.composerModelBtn.title = inlineText("Group collaboration does not use per-project model switching", "协作组不使用项目级模型切换");
+      elements.composerModelBtn.disabled = true;
+      elements.composerModelBtn.hidden = false;
+    }
     syncDocumentTitleIfNeeded();
     return;
   }
@@ -3323,6 +3330,15 @@ function renderHeader(): void {
     elements.modelBadge.textContent = `${inlineText("Model", "模型")}: ${modelLabel(model)}`;
     elements.modelBadge.title = inlineText("Switch model", "切换模型");
     elements.modelBadge.disabled = !project;
+  }
+  if (elements.composerModelBtn) {
+    elements.composerModelBtn.textContent = `${inlineText("Model", "模型")}: ${modelLabel(model)}`;
+    elements.composerModelBtn.title = inlineText(
+      "Switch the model for this project. Same-model sessions are reused; new models receive capped recent context.",
+      "切换当前项目模型。同模型会复用会话；新模型会带上截断后的近期上下文。",
+    );
+    elements.composerModelBtn.disabled = !project;
+    elements.composerModelBtn.hidden = false;
   }
   if (elements.modeBadge) {
     elements.modeBadge.textContent = msg("terminal.mode.fullAuto", "Full auto");
@@ -4631,6 +4647,10 @@ elements.workbenchTabs?.addEventListener("click", (event) => {
 });
 
 elements.modelBadge?.addEventListener("click", () => {
+  void promptForModel();
+});
+
+elements.composerModelBtn?.addEventListener("click", () => {
   void promptForModel();
 });
 
