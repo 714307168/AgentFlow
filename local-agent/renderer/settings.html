@@ -2222,20 +2222,53 @@
 
     label,
     .titlebar-title,
+    .titlebar-button,
+    .settings-nav::before,
+    .settings-nav-item,
+    .settings-nav-item:hover,
+    .settings-nav-item.active,
     .section-title,
     .settings-modal-title,
     .model-provider-name,
-    .overview-card-value {
+    .overview-card-value,
+    .settings-modal-panel :is(
+      h1,
+      label,
+      .section-title,
+      .settings-modal-title,
+      .overview-card-value,
+      .project-name,
+      .project-edit-label,
+      .runtime-status-title,
+      .runtime-card-title,
+      .workgroup-card-title,
+      .project-toolbar-copy strong,
+      .section-kicker
+    ) {
       color: var(--af-text-primary);
     }
 
     .field-help,
     .section-subtitle,
     .settings-modal-loading,
+    .overview-card-label,
+    .connection-status-detail,
     .project-toolbar-copy,
     .project-path,
     .model-provider-meta,
-    .model-provider-protocol {
+    .model-provider-protocol,
+    .settings-modal-panel :is(
+      .field-help,
+      .section-subtitle,
+      .settings-modal-loading,
+      .overview-card-label,
+      .connection-status-detail,
+      .project-toolbar-copy,
+      .project-path,
+      .workgroup-subtext,
+      .model-provider-meta,
+      .model-provider-protocol
+    ) {
       color: var(--af-text-secondary);
     }
   </style>

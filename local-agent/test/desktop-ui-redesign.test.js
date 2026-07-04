@@ -35,6 +35,9 @@ test("settings window shares the AgentFlow reference visual system", () => {
   assert.match(settingsHtml, /Final dark guard/);
   assert.match(settingsHtml, /\.settings-modal-body \{[\s\S]*background: var\(--af-bg-base\);/);
   assert.match(settingsHtml, /\.project-item\.project-item-form,[\s\S]*background: var\(--af-bg-elevated\);/);
+  assert.match(settingsHtml, /\.settings-nav-item,[\s\S]*color: var\(--af-text-primary\);/);
+  assert.match(settingsHtml, /\.project-name,[\s\S]*color: var\(--af-text-primary\);/);
+  assert.match(settingsHtml, /\.project-path,[\s\S]*color: var\(--af-text-secondary\);/);
   assert.match(settingsHtml, /option \{/);
   assert.match(settingsHtml, /color-scheme: dark/);
 });
