@@ -1891,6 +1891,41 @@ body.lightbox-open {
   border-color: var(--border);
 }
 
+.composer-mode-select {
+  appearance: none;
+  background:
+    linear-gradient(135deg, rgba(34, 211, 238, 0.12), rgba(124, 92, 252, 0.1)),
+    var(--af-bg-elevated);
+  border: 1px solid rgba(34, 211, 238, 0.28);
+  border-radius: 8px;
+  color: var(--text);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  height: 30px;
+  min-width: 96px;
+  outline: none;
+  padding: 0 28px 0 10px;
+}
+
+.composer-mode-select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(124, 92, 252, 0.18);
+}
+
+.composer-mode-select:disabled {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: var(--border);
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.composer-mode-select option {
+  background: var(--af-bg-elevated);
+  color: var(--text);
+}
+
 .attachment-tray {
   display: none;
   flex-wrap: wrap;

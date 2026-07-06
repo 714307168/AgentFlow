@@ -313,6 +313,8 @@ interface WorkspaceDraftState {
   attachments: AttachmentRef[];
 }
 
+type ComposerRunMode = "normal" | "plan" | "goal";
+
 interface RenderOptions {
   staticI18n?: boolean;
   projectList?: boolean;
@@ -389,6 +391,7 @@ const elements = {
   composerForm: document.getElementById("composerForm") as HTMLFormElement | null,
   composerInput: document.getElementById("composerInput") as HTMLTextAreaElement | null,
   composerModelBtn: document.getElementById("composerModelBtn") as HTMLButtonElement | null,
+  composerRunModeSelect: document.getElementById("composerRunModeSelect") as HTMLSelectElement | null,
   mentionSuggestions: document.getElementById("mentionSuggestions"),
   composerHint: document.getElementById("composerHint"),
   attachImageBtn: document.getElementById("attachImageBtn") as HTMLButtonElement | null,
@@ -431,6 +434,7 @@ const state: {
   messageSearchWorkgroupResults: WorkgroupMessage[] | null;
   messageSearchLoading: boolean;
   pendingAttachments: AttachmentRef[];
+  composerRunMode: ComposerRunMode;
   draftsByWorkspaceKey: Map<string, WorkspaceDraftState>;
   preferredViews: Record<"claude" | "codex", WorkspaceView>;
   groupOrder: string[];
@@ -460,6 +464,7 @@ const state: {
   messageSearchWorkgroupResults: null,
   messageSearchLoading: false,
   pendingAttachments: [],
+  composerRunMode: "normal",
   draftsByWorkspaceKey: new Map<string, WorkspaceDraftState>(),
   preferredViews: {
     claude: "messages",
@@ -648,6 +653,46 @@ function syncAttachmentButtons(): void {
 function modelLabel(model: string | null | undefined): string {
   const value = model?.trim() ?? "";
   return value || inlineText("Auto", "自动");
+}
+
+function isComposerRunMode(value: string | null | undefined): value is ComposerRunMode {
+  return value === "normal" || value === "plan" || value === "goal";
+}
+
+function composerRunModeLabel(mode: ComposerRunMode): string {
+  if (mode === "plan") {
+    return inlineText("Plan", "计划");
+  }
+  if (mode === "goal") {
+    return inlineText("Goal", "目标");
+  }
+  return inlineText("Normal", "普通");
+}
+
+function syncComposerRunModeSelect(enabled: boolean, disabledTitle?: string): void {
+  const select = elements.composerRunModeSelect;
+  if (!select) {
+    return;
+  }
+  const labels: Record<ComposerRunMode, string> = {
+    normal: composerRunModeLabel("normal"),
+    plan: composerRunModeLabel("plan"),
+    goal: composerRunModeLabel("goal"),
+  };
+  for (const option of Array.from(select.options)) {
+    if (isComposerRunMode(option.value)) {
+      option.textContent = labels[option.value];
+    }
+  }
+  if (!enabled) {
+    state.composerRunMode = "normal";
+  }
+  select.value = state.composerRunMode;
+  select.disabled = !enabled;
+  select.hidden = false;
+  select.title = enabled
+    ? inlineText("Choose how the next prompt runs", "选择下一条提示词的运行模式")
+    : (disabledTitle ?? inlineText("Run modes are available for Codex projects", "运行模式仅在 Codex 项目中可用"));
 }
 
 function translateSource(source: "remote" | "desktop" | "workgroup"): string {
@@ -998,6 +1043,16 @@ function buildAttachmentOnlyPrompt(attachments: AttachmentRef[]): string {
   }
 
   return inlineText("Please inspect the attached files.", "请查看我附上的文件。");
+}
+
+function buildComposerPrompt(rawPrompt: string, attachments: AttachmentRef[]): string {
+  const trimmed = rawPrompt.trim();
+  const prompt = trimmed || buildAttachmentOnlyPrompt(attachments);
+  if (!trimmed || prompt.startsWith("/") || state.composerRunMode === "normal") {
+    return prompt;
+  }
+  const command = state.composerRunMode === "plan" ? "/plan" : "/goal";
+  return `${command} ${prompt}`;
 }
 
 function renderDockBlank(): string {
@@ -3297,6 +3352,7 @@ function renderHeader(): void {
       elements.composerModelBtn.disabled = true;
       elements.composerModelBtn.hidden = false;
     }
+    syncComposerRunModeSelect(false, inlineText("Run modes are disabled in collaboration groups", "协作组不使用项目运行模式"));
     syncDocumentTitleIfNeeded();
     return;
   }
@@ -3340,6 +3396,12 @@ function renderHeader(): void {
     elements.composerModelBtn.disabled = !project;
     elements.composerModelBtn.hidden = false;
   }
+  syncComposerRunModeSelect(
+    Boolean(project && provider === "codex"),
+    provider === "codex"
+      ? inlineText("Select a project before choosing a run mode", "先选择项目，再选择运行模式")
+      : inlineText("Plan and goal modes are available for Codex projects", "计划和目标模式仅在 Codex 项目中可用"),
+  );
   if (elements.modeBadge) {
     elements.modeBadge.textContent = msg("terminal.mode.fullAuto", "Full auto");
   }
@@ -4036,7 +4098,7 @@ async function submitPrompt(): Promise<void> {
     setHintMessage("terminal.hint.emptyPrompt", "Prompt cannot be empty.", undefined, true);
     return;
   }
-  const prompt = rawPrompt.trim() ? rawPrompt : buildAttachmentOnlyPrompt(attachments);
+  const prompt = buildComposerPrompt(rawPrompt, attachments);
 
   const session = getCurrentSession();
   setHintText(
@@ -4652,6 +4714,29 @@ elements.modelBadge?.addEventListener("click", () => {
 
 elements.composerModelBtn?.addEventListener("click", () => {
   void promptForModel();
+});
+
+elements.composerRunModeSelect?.addEventListener("change", (event) => {
+  const target = event.target as HTMLSelectElement | null;
+  const nextMode = isComposerRunMode(target?.value) ? target.value : "normal";
+  const project = getCurrentProject();
+  const session = getCurrentSession();
+  const provider = getConfiguredProvider(project, session);
+  const enabled = Boolean(project && provider === "codex" && !state.workgroupId);
+  state.composerRunMode = enabled ? nextMode : "normal";
+  syncComposerRunModeSelect(
+    enabled,
+    inlineText("Plan and goal modes are available for Codex projects", "计划和目标模式仅在 Codex 项目中可用"),
+  );
+  setHintText(
+    state.composerRunMode === "normal"
+      ? inlineText("Normal mode selected.", "已选择普通模式。")
+      : inlineText(
+          `${composerRunModeLabel(state.composerRunMode)} mode selected for the next prompt.`,
+          `下一条提示词将使用${composerRunModeLabel(state.composerRunMode)}模式。`,
+        ),
+    false,
+  );
 });
 
 elements.conversationSelect?.addEventListener("change", async (event) => {
