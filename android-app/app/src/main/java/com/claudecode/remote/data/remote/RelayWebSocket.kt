@@ -64,6 +64,7 @@ class RelayWebSocket(
     private var reconnectAttempts = 0
     private var pingJob: Job? = null
     private var reconnectJob: Job? = null
+    private var authTimeoutJob: Job? = null
     private var e2eEnabled: Boolean = tokenStore.isE2EEnabled()
     @Volatile
     private var isAuthenticated: Boolean = false
@@ -291,6 +292,7 @@ class RelayWebSocket(
                 reconnectJob?.cancel()
                 reconnectJob = null
                 stopPing()
+                stopAuthTimeout()
                 pendingRoomKeyOffers.clear()
                 pendingEncryptedEnvelopes.clear()
                 pendingOutgoingEnvelopes.clear()
@@ -336,12 +338,13 @@ class RelayWebSocket(
             lastInboundAtMs = System.currentTimeMillis()
             isAuthenticated = false
             _errorMessage.value = null
-            setConnectionState(ConnectionState.CONNECTED)
             reconnectAttempts = 0
             recordConnectionEvent(
                 type = "socket-open",
                 detail = "generation=$generation"
             )
+            setConnectionState(ConnectionState.CONNECTING)
+            startAuthTimeout(generation, webSocket)
             authenticate()
             startPing()
         }
@@ -357,6 +360,7 @@ class RelayWebSocket(
 
                 if (envelope.event == Events.AUTH_ERROR) {
                     isAuthenticated = false
+                    stopAuthTimeout()
                     lastSeq = 0
                     _errorMessage.value = "认证失败，请检查 Token 是否正确"
                     setConnectionState(ConnectionState.DISCONNECTED)
@@ -376,6 +380,8 @@ class RelayWebSocket(
                 if (envelope.event == Events.AUTH_OK) {
                     isAuthenticated = true
                     _errorMessage.value = null
+                    stopAuthTimeout()
+                    setConnectionState(ConnectionState.CONNECTED)
                     Log.d(tag, "Authentication successful generation=$generation")
                     CrashLogger.logInfo(
                         tag,
@@ -423,6 +429,7 @@ class RelayWebSocket(
                 detail = "response=${response?.code ?: 0} message=${t.message.orEmpty()}"
             )
             setConnectionState(ConnectionState.RECONNECTING)
+            stopAuthTimeout()
             stopPing()
             scheduleReconnect(generation)
         }
@@ -437,6 +444,7 @@ class RelayWebSocket(
                 "WebSocket closed generation=$generation code=$code reason=${reason.ifBlank { "none" }} queued=${pendingOutgoingQueueSize()}"
             )
             isAuthenticated = false
+            stopAuthTimeout()
             connectionDiagnostics.onClose(code, reason)
             recordConnectionEvent(
                 type = "socket-close",
@@ -546,6 +554,45 @@ class RelayWebSocket(
         pingJob = null
     }
 
+    private fun startAuthTimeout(generation: Long, socket: WebSocket) {
+        authTimeoutJob?.cancel()
+        authTimeoutJob = scope.launch {
+            delay(AUTH_TIMEOUT_MS)
+            connectionMutex.withLock {
+                if (
+                    generation != connectionGeneration ||
+                    webSocket != socket ||
+                    isAuthenticated ||
+                    _connectionState.value == ConnectionState.DISCONNECTED
+                ) {
+                    return@withLock
+                }
+
+                Log.w(tag, "Authentication timed out generation=$generation; reconnecting")
+                CrashLogger.logWarn(
+                    tag,
+                    "Authentication timed out generation=$generation queued=${pendingOutgoingQueueSize()}"
+                )
+                _errorMessage.value = "认证超时，正在重新连接"
+                recordConnectionEvent(
+                    type = "auth-timeout",
+                    detail = "generation=$generation"
+                )
+                isAuthenticated = false
+                stopPing()
+                socket.cancel()
+                webSocket = null
+                setConnectionState(ConnectionState.RECONNECTING)
+                scheduleReconnect(generation)
+            }
+        }
+    }
+
+    private fun stopAuthTimeout() {
+        authTimeoutJob?.cancel()
+        authTimeoutJob = null
+    }
+
     private fun scheduleReconnect(generation: Long) {
         reconnectJob?.cancel()
         reconnectJob = scope.launch {
@@ -641,7 +688,7 @@ class RelayWebSocket(
 
     private fun shouldQueueUntilSocketReady(envelope: Envelope): Boolean {
         if (isAuthEvent(envelope.event)) {
-            return _connectionState.value != ConnectionState.CONNECTED || webSocket == null
+            return webSocket == null || _connectionState.value == ConnectionState.DISCONNECTED
         }
         return _connectionState.value != ConnectionState.CONNECTED || webSocket == null || !isAuthenticated
     }
@@ -839,7 +886,7 @@ class RelayWebSocket(
     }
 
     private fun queueOutgoingEnvelope(envelope: Envelope, targetAgentId: String?) {
-        if (isAuthEvent(envelope.event) && _connectionState.value == ConnectionState.CONNECTED && webSocket != null) {
+        if (isAuthEvent(envelope.event)) {
             return
         }
 
@@ -932,6 +979,7 @@ class RelayWebSocket(
 
     companion object {
         private const val STALE_CONNECTION_TIMEOUT_MS = 75_000L
+        private const val AUTH_TIMEOUT_MS = 15_000L
         private const val MAX_PENDING_OUTGOING_ENVELOPES = 160
         private const val OUTGOING_ENVELOPE_TTL_MS = 90_000L
     }
