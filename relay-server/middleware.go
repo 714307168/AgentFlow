@@ -1,6 +1,9 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
+	"io"
 	"net"
 	"net/http"
 	"runtime/debug"
@@ -63,9 +66,31 @@ func (l *ipRateLimiter) allow(ip string, now time.Time) (bool, time.Duration) {
 }
 
 func rateLimitMiddleware(name string, limiter *ipRateLimiter, next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+	return rateLimitMiddlewareWithKey(name, limiter, func(r *http.Request) rateLimitKey {
 		ip := clientIPFromRequest(r)
-		allowed, retryAfter := limiter.allow(ip, time.Now())
+		return rateLimitKey{key: ip, ip: ip}
+	}, next)
+}
+
+type rateLimitKey struct {
+	key      string
+	ip       string
+	username string
+}
+
+func rateLimitMiddlewareWithKey(
+	name string,
+	limiter *ipRateLimiter,
+	keyFn func(*http.Request) rateLimitKey,
+	next http.HandlerFunc,
+) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		limitKey := keyFn(r)
+		if strings.TrimSpace(limitKey.key) == "" {
+			limitKey.ip = clientIPFromRequest(r)
+			limitKey.key = limitKey.ip
+		}
+		allowed, retryAfter := limiter.allow(limitKey.key, time.Now())
 		if allowed {
 			next(w, r)
 			return
@@ -78,10 +103,49 @@ func rateLimitMiddleware(name string, limiter *ipRateLimiter, next http.HandlerF
 		log.Warn().
 			Str("path", r.URL.Path).
 			Str("limit", name).
-			Str("ip", ip).
+			Str("ip", limitKey.ip).
+			Str("username", limitKey.username).
 			Msg("rate limit exceeded")
 		http.Error(w, "too many requests", http.StatusTooManyRequests)
 	}
+}
+
+func loginRateLimitMiddleware(name string, limiter *ipRateLimiter, next http.HandlerFunc) http.HandlerFunc {
+	return rateLimitMiddlewareWithKey(name, limiter, loginRateLimitKey, next)
+}
+
+func loginRateLimitKey(r *http.Request) rateLimitKey {
+	ip := clientIPFromRequest(r)
+	username := usernameFromJSONBody(r)
+	if username == "" {
+		return rateLimitKey{key: ip, ip: ip}
+	}
+	return rateLimitKey{
+		key:      ip + "|user:" + username,
+		ip:       ip,
+		username: username,
+	}
+}
+
+func usernameFromJSONBody(r *http.Request) string {
+	if r.Body == nil {
+		return ""
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		r.Body = io.NopCloser(bytes.NewReader(nil))
+		return ""
+	}
+	r.Body = io.NopCloser(bytes.NewReader(body))
+
+	var payload struct {
+		Username string `json:"username"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(payload.Username))
 }
 
 func securityHeadersMiddleware(next http.Handler) http.Handler {

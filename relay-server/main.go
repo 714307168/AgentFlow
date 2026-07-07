@@ -67,7 +67,7 @@ func main() {
 
 	// Authentication endpoints
 	mux.HandleFunc("/api/meta/version", apiMetaVersionHandler())
-	mux.HandleFunc("/api/auth/login", rateLimitMiddleware("user-login", loginRateLimiter, handler.LoginHandler(database, cfg)))
+	mux.HandleFunc("/api/auth/login", loginRateLimitMiddleware("user-login", loginRateLimiter, handler.LoginHandler(database, cfg)))
 	mux.HandleFunc("/api/auth/register-client", rateLimitMiddleware("client-register", registerRateLimiter, handler.RegisterClientHandler(database, cfg)))
 	mux.HandleFunc("/api/auth/change-password", rateLimitMiddleware("password-change", changePasswordRateLimiter, handler.ChangePasswordHandler(database)))
 	mux.HandleFunc("/api/access/grants", handler.AccessGrantsHandler(cfg, database))
