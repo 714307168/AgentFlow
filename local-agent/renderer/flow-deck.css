@@ -1,0 +1,546 @@
+/* AgentFlow Flow Deck: shared desktop visual system for workspace and settings. */
+:root {
+  --fd-ink: #f3f7f4;
+  --fd-ink-soft: #c7d1cc;
+  --fd-ink-muted: #87958f;
+  --fd-ink-faint: #5d6a65;
+  --fd-night: #07100f;
+  --fd-deck: rgba(13, 28, 25, 0.96);
+  --fd-deck-solid: #0d1c19;
+  --fd-plate: rgba(19, 39, 35, 0.94);
+  --fd-plate-strong: #18332d;
+  --fd-line: rgba(148, 170, 160, 0.2);
+  --fd-line-strong: rgba(187, 214, 201, 0.34);
+  --fd-cyan: #5eead4;
+  --fd-cyan-soft: rgba(94, 234, 212, 0.14);
+  --fd-amber: #f5b75f;
+  --fd-amber-soft: rgba(245, 183, 95, 0.15);
+  --fd-red: #ff756f;
+  --fd-red-soft: rgba(255, 117, 111, 0.14);
+  --fd-green: #73e2a7;
+  --fd-green-soft: rgba(115, 226, 167, 0.14);
+  --af-primary: var(--fd-cyan);
+  --af-primary-hover: #35cdbd;
+  --af-primary-muted: var(--fd-cyan-soft);
+  --af-primary-subtle: rgba(94, 234, 212, 0.08);
+  --af-flow: var(--fd-amber);
+  --af-flow-muted: var(--fd-amber-soft);
+  --af-bg-base: var(--fd-night);
+  --af-bg-surface: var(--fd-deck-solid);
+  --af-bg-elevated: var(--fd-plate);
+  --af-bg-overlay: var(--fd-plate-strong);
+  --af-bg-hover: #1d3a33;
+  --af-bg-active: #24473f;
+  --af-border-default: var(--fd-line);
+  --af-border-subtle: rgba(148, 170, 160, 0.14);
+  --af-border-strong: var(--fd-line-strong);
+  --af-border-focus: var(--fd-cyan);
+  --af-text-primary: var(--fd-ink);
+  --af-text-secondary: var(--fd-ink-soft);
+  --af-text-tertiary: var(--fd-ink-muted);
+  --af-text-muted: var(--fd-ink-faint);
+  --bg: var(--fd-night);
+  --bg-secondary: #0b1715;
+  --surface: var(--fd-deck);
+  --surface-strong: var(--fd-plate);
+  --surface-soft: rgba(94, 234, 212, 0.08);
+  --panel: var(--fd-deck);
+  --panel-2: var(--fd-plate);
+  --border: var(--fd-line);
+  --border-strong: var(--fd-line-strong);
+  --text: var(--fd-ink);
+  --muted: var(--fd-ink-soft);
+  --text-muted: var(--fd-ink-soft);
+  --text-soft: var(--fd-ink-muted);
+  --accent: var(--fd-cyan);
+  --accent-strong: #35cdbd;
+  --accent-hover: #9ff6ea;
+  --accent-soft: var(--fd-cyan-soft);
+  --success: var(--fd-green);
+  --success-bg: var(--fd-green-soft);
+  --warning: var(--fd-amber);
+  --error: var(--fd-red);
+  --error-bg: var(--fd-red-soft);
+  --danger: var(--fd-red);
+  --shadow: 0 22px 64px rgba(0, 0, 0, 0.34), 0 1px 0 rgba(255, 255, 255, 0.035) inset;
+}
+
+html,
+body {
+  background:
+    radial-gradient(circle at 13% 8%, rgba(94, 234, 212, 0.12), transparent 24%),
+    radial-gradient(circle at 78% 0%, rgba(245, 183, 95, 0.08), transparent 22%),
+    linear-gradient(rgba(148, 170, 160, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 170, 160, 0.03) 1px, transparent 1px),
+    linear-gradient(145deg, #07100f 0%, #0b1615 46%, #071210 100%);
+  background-size: auto, auto, 36px 36px, 36px 36px, auto;
+  color: var(--fd-ink);
+  font-family: "Aptos", "Segoe UI Variable", "Microsoft YaHei UI", "PingFang SC", sans-serif;
+}
+
+body::before {
+  background:
+    linear-gradient(90deg, rgba(94, 234, 212, 0.16), transparent 38%),
+    radial-gradient(circle at 52% 48%, rgba(94, 234, 212, 0.055), transparent 36%);
+  content: "";
+  inset: 0;
+  pointer-events: none;
+  position: fixed;
+  z-index: -1;
+}
+
+body::after {
+  background: linear-gradient(180deg, transparent, var(--fd-cyan), var(--fd-amber), transparent);
+  content: "";
+  inset: 68px auto 28px 12px;
+  opacity: 0.46;
+  pointer-events: none;
+  position: fixed;
+  width: 2px;
+  z-index: -1;
+}
+
+.titlebar {
+  background: rgba(7, 16, 15, 0.92);
+  border-bottom: 1px solid var(--fd-line);
+  min-height: 58px;
+}
+
+.titlebar-title,
+.sidebar-title,
+.panel-title,
+#title,
+.section-title,
+.settings-modal-title,
+.overview-card-value {
+  color: var(--fd-ink);
+  font-family: "Bahnschrift", "Aptos Display", "Segoe UI Variable Display", "Microsoft YaHei UI", sans-serif;
+  letter-spacing: -0.02em;
+}
+
+.titlebar-title::before {
+  background: linear-gradient(180deg, var(--fd-cyan), var(--fd-amber));
+  box-shadow: 0 0 18px rgba(94, 234, 212, 0.32);
+}
+
+.workspace,
+.settings-shell {
+  gap: 18px;
+}
+
+.workspace {
+  padding: 18px;
+}
+
+.sidebar-panel,
+.conversation-panel,
+.composer,
+.activity-modal-card,
+.attachment-lightbox-dialog,
+.header,
+.settings-nav,
+.settings-modal-panel,
+.settings-modal-header,
+.settings-modal-body,
+.section,
+.overview-card,
+.runtime-card,
+.runtime-status-card,
+.model-provider-card,
+.model-provider-editor,
+.skill-card,
+.access-card,
+.transfer-card,
+.scheduled-task-card,
+.workgroup-card,
+.pubkey,
+.empty-state,
+.toggle-row,
+.project-hub-header,
+.workgroup-hub-header,
+.project-hub-body,
+.workgroup-hub-body,
+.project-toolbar-card,
+.project-item,
+.project-item.project-item-form,
+.project-item.project-item-form .project-info,
+.project-item-form .project-actions,
+.project-management-pane .project-edit-field,
+.project-management-pane .add-project-form .field,
+.project-management-pane .workgroup-form-grid .field,
+.add-project-form,
+.workgroup-hub-body > .workgroup-toolbar,
+.workgroup-member-card,
+.transfer-history-item,
+.local-data-metric-card,
+.runtime-status-upgrade {
+  background: var(--fd-plate);
+  border-color: var(--fd-line);
+  color: var(--fd-ink);
+  box-shadow: var(--shadow);
+}
+
+.sidebar-panel,
+.conversation-panel,
+.composer,
+.settings-nav,
+.settings-modal-panel,
+.section,
+.overview-card,
+.runtime-status-card,
+.model-provider-card,
+.skill-card,
+.project-item,
+.workgroup-card,
+.transfer-history-item,
+.local-data-metric-card,
+.header {
+  border-radius: 18px;
+}
+
+.sidebar-panel::before,
+.conversation-panel::before,
+.section::before,
+.overview-card::before,
+.model-provider-card.active::before {
+  background: linear-gradient(180deg, var(--fd-cyan), rgba(245, 183, 95, 0.82), transparent);
+  border-radius: 999px;
+  content: "";
+  opacity: 0.58;
+  position: absolute;
+  width: 2px;
+}
+
+.sidebar-panel::before,
+.conversation-panel::before {
+  inset: 0 auto 0 0;
+}
+
+.section,
+.overview-card,
+.model-provider-card.active {
+  position: relative;
+}
+
+.section::before,
+.overview-card::before,
+.model-provider-card.active::before {
+  inset: 14px auto 14px 0;
+}
+
+.conversation-panel::after {
+  background: linear-gradient(90deg, transparent, rgba(94, 234, 212, 0.62), rgba(245, 183, 95, 0.24), transparent);
+  opacity: 0.56;
+}
+
+.titlebar-meta,
+.panel-inline-summary,
+.composer-hint,
+.project-list-detail,
+.project-list-path,
+.project-list-meta,
+.message-time,
+.activity-time,
+.attachment-meta,
+.mention-suggestion-meta,
+.field-help,
+.section-subtitle,
+.settings-modal-loading,
+.overview-card-label,
+.connection-status-detail,
+.project-path,
+.workgroup-subtext,
+.model-provider-meta,
+.model-provider-protocol,
+.toggle-help,
+.project-toolbar-copy {
+  color: var(--fd-ink-muted);
+}
+
+.search-input,
+.conversation-select,
+.composer textarea,
+.composer-mode-select,
+.mention-suggestions,
+.cli-trace,
+input,
+textarea,
+select,
+option {
+  background: rgba(8, 19, 17, 0.82);
+  border-color: var(--fd-line);
+  color: var(--fd-ink);
+  color-scheme: dark;
+}
+
+.search-input::placeholder,
+.composer textarea::placeholder,
+input::placeholder,
+textarea::placeholder {
+  color: var(--fd-ink-faint);
+  opacity: 1;
+}
+
+.search-input:focus,
+.conversation-select:focus,
+.composer textarea:focus,
+.composer-mode-select:focus,
+input:focus,
+textarea:focus,
+select:focus {
+  border-color: rgba(94, 234, 212, 0.72);
+  box-shadow: 0 0 0 3px rgba(94, 234, 212, 0.14);
+}
+
+.titlebar-pill.provider,
+.workbench-tab.active,
+.sidebar-mode-tab.active,
+.settings-nav-item.active,
+.btn-primary,
+.primary-button,
+.model-provider-card.active {
+  background: linear-gradient(135deg, rgba(94, 234, 212, 0.18), rgba(245, 183, 95, 0.1));
+  border-color: rgba(94, 234, 212, 0.42);
+  color: var(--fd-ink);
+}
+
+.titlebar-pill.mode,
+.ghost-button,
+.titlebar-button,
+.btn-secondary,
+.settings-modal-close {
+  background: rgba(19, 39, 35, 0.72);
+  border-color: var(--fd-line);
+  color: var(--fd-ink-soft);
+}
+
+.ghost-button:hover,
+.titlebar-button:hover,
+.workbench-tab:hover,
+.sidebar-mode-tab:hover,
+.settings-nav-item:hover,
+.message-action-button:hover,
+.btn-secondary:hover,
+.settings-modal-close:hover {
+  background: var(--fd-plate-strong);
+  border-color: var(--fd-line-strong);
+  color: var(--fd-cyan);
+  transform: translateY(-1px);
+}
+
+.danger-button,
+.btn-danger,
+.message-card.error .message-shell,
+.role-badge.error,
+.status-badge.error,
+.project-status-pill.error,
+.connection-status.disconnected,
+.runtime-status-pill.error {
+  background: var(--fd-red-soft);
+  border-color: rgba(255, 117, 111, 0.34);
+  color: #ffd8d5;
+}
+
+.project-list-item,
+.recent-chat-item,
+.contact-list-item,
+.message-card,
+.activity-card,
+.queue-item,
+.session-overview,
+.overview-stat,
+.cli-panel,
+.queue-panel,
+.attachment-card,
+.attachment-chip,
+.mention-suggestion-item {
+  background: rgba(19, 39, 35, 0.72);
+  border-color: var(--fd-line);
+  color: var(--fd-ink);
+}
+
+.project-list-item:hover,
+.recent-chat-item:hover,
+.contact-list-item:hover,
+.mention-suggestion-item:hover,
+.mention-suggestion-item.active {
+  background: var(--fd-plate-strong);
+  border-color: var(--fd-line-strong);
+  transform: translateY(-1px);
+}
+
+.project-list-item.selected,
+.recent-chat-item.selected,
+.contact-list-item.selected {
+  background: linear-gradient(135deg, rgba(94, 234, 212, 0.16), rgba(24, 51, 45, 0.94));
+  border-color: rgba(94, 234, 212, 0.42);
+}
+
+.project-list-item.selected::before,
+.recent-chat-item.selected::before,
+.contact-list-item.selected::before,
+.message-card::before {
+  background: linear-gradient(180deg, var(--fd-cyan), var(--fd-amber));
+  box-shadow: 0 0 16px rgba(94, 234, 212, 0.26);
+}
+
+.message-card.user .message-shell,
+.role-badge.user {
+  background: rgba(94, 234, 212, 0.1);
+  border-color: rgba(94, 234, 212, 0.28);
+}
+
+.message-card.assistant .message-shell,
+.role-badge.assistant,
+.activity-shell {
+  background: rgba(8, 19, 17, 0.64);
+  border-color: var(--fd-line);
+}
+
+.project-status-pill.running,
+.status-badge.running,
+.workbench-tab-badge[data-tone="running"] {
+  background: var(--fd-cyan-soft);
+  border-color: rgba(94, 234, 212, 0.36);
+  color: #c9fff6;
+}
+
+.project-status-pill.ready,
+.status-badge.completed,
+.connection-status.connected,
+.model-provider-pill.ok,
+.save-indicator,
+.runtime-status-pill.ok {
+  background: var(--fd-green-soft);
+  border-color: rgba(115, 226, 167, 0.34);
+  color: #bcffd7;
+}
+
+.project-status-pill.queued,
+.kind-badge.tool,
+.connection-status.connecting,
+.runtime-status-pill.warn {
+  background: var(--fd-amber-soft);
+  border-color: rgba(245, 183, 95, 0.36);
+  color: #ffe3b4;
+}
+
+.scope-pill,
+.setting-scope {
+  background: var(--fd-cyan-soft);
+  border-color: rgba(94, 234, 212, 0.34);
+  color: #c9fff6;
+}
+
+.composer {
+  background: linear-gradient(180deg, rgba(19, 39, 35, 0.96), rgba(11, 23, 21, 0.98));
+  border-top-color: rgba(94, 234, 212, 0.22);
+}
+
+.composer textarea {
+  min-height: 104px;
+}
+
+.settings-modal {
+  background: rgba(4, 10, 9, 0.66);
+  backdrop-filter: blur(14px);
+}
+
+.settings-modal-header {
+  background: linear-gradient(135deg, rgba(13, 28, 25, 0.98), rgba(19, 39, 35, 0.96));
+}
+
+.content {
+  max-width: 1240px;
+  padding: 22px;
+}
+
+.header {
+  border: 1px solid var(--fd-line);
+  margin-bottom: 12px;
+  padding: 18px 20px;
+}
+
+#title {
+  font-size: 28px;
+}
+
+.connection-status-detail {
+  background: rgba(13, 28, 25, 0.72);
+  border: 1px solid var(--fd-line);
+  border-radius: 14px;
+  color: var(--fd-ink-soft);
+  margin-bottom: 16px;
+  padding: 12px 14px;
+}
+
+.settings-shell {
+  grid-template-columns: 250px minmax(0, 1fr);
+}
+
+.settings-nav {
+  border: 1px solid var(--fd-line);
+  padding: 12px;
+}
+
+.settings-nav::before {
+  color: var(--fd-cyan);
+  letter-spacing: 0.18em;
+}
+
+.settings-nav-item {
+  border-radius: 12px;
+  color: var(--fd-ink-soft);
+  min-height: 44px;
+}
+
+.overview-card {
+  min-height: 132px;
+  padding: 18px;
+}
+
+.overview-card-value {
+  font-size: 30px;
+}
+
+.overview-card-note {
+  color: var(--fd-ink-soft);
+}
+
+.project-list,
+.project-picker-list {
+  background: rgba(8, 19, 17, 0.52);
+  border-color: var(--fd-line);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 170, 160, 0.22);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(94, 234, 212, 0.34);
+}
+
+@media (max-width: 900px) {
+  .workspace,
+  .content {
+    gap: 12px;
+    padding: 12px;
+  }
+
+  .sidebar-panel,
+  .conversation-panel,
+  .composer,
+  .settings-nav,
+  .section {
+    border-radius: 14px;
+  }
+
+  .settings-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-nav {
+    position: static;
+  }
+}
