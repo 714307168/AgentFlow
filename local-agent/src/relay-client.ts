@@ -104,6 +104,7 @@ class RelayClient extends EventEmitter {
   private reconnectTimer: NodeJS.Timeout | null = null;
   private intentionalDisconnect: boolean = false;
   private isAuthenticated: boolean = false;
+  private suppressReconnectAfterClose: boolean = false;
   private e2e: E2ECrypto;
   private e2eEnabled: boolean;
   private readonly resolveTargetAgentId?: (env: Envelope) => string | null;
@@ -224,6 +225,7 @@ class RelayClient extends EventEmitter {
   connect(): void {
     this.intentionalDisconnect = false;
     this.isAuthenticated = false;
+    this.suppressReconnectAfterClose = false;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -365,6 +367,7 @@ class RelayClient extends EventEmitter {
           detail: authErrorMessage || "auth.error",
         });
         this.setConnectionState("disconnected");
+        this.suppressReconnectAfterClose = true;
         this.emit("auth-failed", env);
         this.closeSocketAfterAuthFailure(socket);
         return;
@@ -522,10 +525,12 @@ class RelayClient extends EventEmitter {
       closeReason: this.lastCloseReason || null,
       detail: "wasAuthenticated=" + String(this.lastAuthenticatedAt > this.lastSocketOpenAttemptAt),
     });
+    const suppressReconnect = this.suppressReconnectAfterClose;
+    this.suppressReconnectAfterClose = false;
     this.consecutiveFailureCount += this.intentionalDisconnect ? 0 : 1;
     this.setConnectionState("disconnected");
     this.emit("disconnected");
-    if (!this.intentionalDisconnect) {
+    if (!this.intentionalDisconnect && !suppressReconnect) {
       this.scheduleReconnect();
     }
   }

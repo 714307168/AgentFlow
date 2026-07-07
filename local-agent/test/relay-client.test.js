@@ -95,7 +95,8 @@ test("RelayClient closes the socket after relay auth error", async () => {
   assert.equal(snapshot.isConnected, false);
   assert.equal(snapshot.lastErrorMessage, "token expired");
   assert.ok(snapshot.recentEvents.some((entry) => entry.type === "auth-error"));
-  assert.ok(snapshot.recentEvents.some((entry) => entry.type === "reconnect-scheduled"));
+  assert.equal(snapshot.state, "disconnected");
+  assert.equal(snapshot.recentEvents.some((entry) => entry.type === "reconnect-scheduled"), false);
 
   client.disconnect();
   await new Promise((resolve) => wss.close(resolve));

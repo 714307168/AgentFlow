@@ -103,6 +103,7 @@ import {
 } from "./provider-registry";
 import { createLocalCommandGateway, defineLocalCommand, type LocalCommandDescriptor } from "./local-command-gateway";
 import { buildGitHubCommandEnvironment } from "./github-command-env";
+import { shouldReuseExistingTokenAfterRefreshFailure } from "./auth-token-refresh-policy";
 import { applyDesktopStartupModePlan, buildDesktopStartupModePlan } from "./desktop-startup-mode";
 import { buildLoginItemArgs, shouldShowWorkspaceOnStartup } from "./desktop-launch-mode";
 import {
@@ -4624,7 +4625,10 @@ async function refreshAgentToken(force: boolean = false): Promise<boolean> {
 
       if (!response.ok) {
         scheduleTokenRefresh(MIN_TOKEN_REFRESH_DELAY_MS);
-        return Boolean(config.token) && !isTokenExpiringSoon(config.tokenExpiresAt);
+        return shouldReuseExistingTokenAfterRefreshFailure({
+          force,
+          hasUsableExistingToken: Boolean(config.token) && !isTokenExpiringSoon(config.tokenExpiresAt),
+        });
       }
 
       const result = await response.json() as { token: string; expires_at: string; user?: { username?: string } };
@@ -4639,7 +4643,10 @@ async function refreshAgentToken(force: boolean = false): Promise<boolean> {
       return true;
     } catch (_error) {
       scheduleTokenRefresh(MIN_TOKEN_REFRESH_DELAY_MS);
-      return Boolean(config.token) && !isTokenExpiringSoon(config.tokenExpiresAt);
+      return shouldReuseExistingTokenAfterRefreshFailure({
+        force,
+        hasUsableExistingToken: Boolean(config.token) && !isTokenExpiringSoon(config.tokenExpiresAt),
+      });
     }
   })();
 
@@ -4682,7 +4689,10 @@ async function refreshControllerToken(force: boolean = false): Promise<boolean> 
 
       if (!response.ok) {
         scheduleControllerTokenRefresh(MIN_TOKEN_REFRESH_DELAY_MS);
-        return Boolean(config.controllerToken) && !isTokenExpiringSoon(config.controllerTokenExpiresAt);
+        return shouldReuseExistingTokenAfterRefreshFailure({
+          force,
+          hasUsableExistingToken: Boolean(config.controllerToken) && !isTokenExpiringSoon(config.controllerTokenExpiresAt),
+        });
       }
 
       const result = await response.json() as { token: string; expires_at: string };
@@ -4697,7 +4707,10 @@ async function refreshControllerToken(force: boolean = false): Promise<boolean> 
       return true;
     } catch (_error) {
       scheduleControllerTokenRefresh(MIN_TOKEN_REFRESH_DELAY_MS);
-      return Boolean(config.controllerToken) && !isTokenExpiringSoon(config.controllerTokenExpiresAt);
+      return shouldReuseExistingTokenAfterRefreshFailure({
+        force,
+        hasUsableExistingToken: Boolean(config.controllerToken) && !isTokenExpiringSoon(config.controllerTokenExpiresAt),
+      });
     }
   })();
 
