@@ -2272,6 +2272,20 @@
       color: var(--af-text-secondary);
     }
 
+    .settings-modal-panel :is(.project-path, .project-provider-badge, .project-model-badge) {
+      background: rgba(13, 28, 25, 0.92);
+      border-color: rgba(125, 211, 192, 0.24);
+      color: var(--af-text-primary);
+    }
+
+    .settings-modal-panel .project-path {
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    }
+
+    .settings-modal-panel .project-path:first-of-type {
+      color: var(--fd-cyan);
+    }
+
   </style>
   <link rel="stylesheet" href="flow-deck.css">
 </head>
