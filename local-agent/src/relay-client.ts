@@ -40,6 +40,7 @@ export type RelayConnectionEventType =
   | "socket-open"
   | "auth-sent"
   | "authenticated"
+  | "auth-timeout"
   | "auth-error"
   | "health-check-reconnect"
   | "socket-close"
@@ -94,6 +95,7 @@ class RelayClient extends EventEmitter {
   private lastCloseCode: number = 0;
   private lastCloseReason: string = "";
   private pingTimer: NodeJS.Timeout | null = null;
+  private authTimer: NodeJS.Timeout | null = null;
   private clientType: ClientType;
   private agentId: string;
   private deviceId: string;
@@ -146,7 +148,10 @@ class RelayClient extends EventEmitter {
   }
 
   isConnected(): boolean {
-    return this.ws !== null && this.ws.readyState === WebSocket.OPEN;
+    return this.ws !== null
+      && this.ws.readyState === WebSocket.OPEN
+      && this.isAuthenticated
+      && this.connectionState === "connected";
   }
 
   updateAuth(serverUrl: string, agentId: string, token: string, deviceId?: string): void {
@@ -230,6 +235,7 @@ class RelayClient extends EventEmitter {
       this.disposeSocket(previousSocket);
     }
     this.stopPing();
+    this.stopAuthTimer();
     this.lastSocketOpenAttemptAt = Date.now();
     this.setConnectionState(this.reconnectAttemptCount > 0 ? "reconnecting" : "connecting");
     this.recordConnectionEvent("connect-attempt", {
@@ -252,6 +258,7 @@ class RelayClient extends EventEmitter {
     this.isAuthenticated = false;
     this.pendingOutgoingEnvelopes.length = 0;
     this.stopPing();
+    this.stopAuthTimer();
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -329,9 +336,9 @@ class RelayClient extends EventEmitter {
     this.recordConnectionEvent("auth-sent", {
       detail: event === Events.AUTH_RESUME ? "resume lastSeq=" + String(this.lastSeq) : "login",
     });
+    this.startAuthTimer(generation, socket);
     this.send(env);
     this.startPing(generation, socket);
-    this.emit("connected");
   }
 
   private onMessage(generation: number, socket: WebSocket, data: string): void {
@@ -346,6 +353,8 @@ class RelayClient extends EventEmitter {
       }
       if (env.event === Events.AUTH_ERROR) {
         this.isAuthenticated = false;
+        this.stopAuthTimer();
+        this.lastSeq = 0;
         this.stopPing();
         const authErrorMessage = this.extractPayloadMessage(env.payload);
         if (authErrorMessage) {
@@ -355,7 +364,9 @@ class RelayClient extends EventEmitter {
         this.recordConnectionEvent("auth-error", {
           detail: authErrorMessage || "auth.error",
         });
+        this.setConnectionState("disconnected");
         this.emit("auth-failed", env);
+        this.closeSocketAfterAuthFailure(socket);
         return;
       }
       if (env.event === Events.PING) {
@@ -364,6 +375,7 @@ class RelayClient extends EventEmitter {
       }
       if (env.event === Events.AUTH_OK && this.clientType === "device") {
         this.isAuthenticated = true;
+        this.stopAuthTimer();
         this.lastAuthenticatedAt = Date.now();
         this.consecutiveFailureCount = 0;
         this.reconnectAttemptCount = 0;
@@ -377,9 +389,11 @@ class RelayClient extends EventEmitter {
           this.ensureRoomKey(agentId);
         }
         this.flushPendingOutgoingEnvelopes();
+        this.emit("connected");
         this.emit("authenticated", env);
       } else if (env.event === Events.AUTH_OK) {
         this.isAuthenticated = true;
+        this.stopAuthTimer();
         this.lastAuthenticatedAt = Date.now();
         this.consecutiveFailureCount = 0;
         this.reconnectAttemptCount = 0;
@@ -388,6 +402,7 @@ class RelayClient extends EventEmitter {
           detail: "agent",
         });
         this.flushPendingOutgoingEnvelopes();
+        this.emit("connected");
         this.emit("authenticated", env);
       }
       // Handle E2E key exchange
@@ -497,6 +512,7 @@ class RelayClient extends EventEmitter {
     });
     this.isAuthenticated = false;
     this.stopPing();
+    this.stopAuthTimer();
     this.ws = null;
     this.lastDisconnectedAt = Date.now();
     this.lastCloseCode = Number.isFinite(code) ? code : 0;
@@ -521,6 +537,7 @@ class RelayClient extends EventEmitter {
     console.error("[RelayClient] WebSocket error:", err.message);
     this.isAuthenticated = false;
     this.stopPing();
+    this.stopAuthTimer();
     this.lastErrorAt = Date.now();
     this.lastErrorMessage = err.message;
     this.recordConnectionEvent("socket-error", {
@@ -628,6 +645,39 @@ class RelayClient extends EventEmitter {
     }
   }
 
+  private startAuthTimer(generation: number, socket: WebSocket): void {
+    this.stopAuthTimer();
+    this.authTimer = setTimeout(() => {
+      if (
+        !this.isCurrentSocket(generation, socket)
+        || this.isAuthenticated
+        || socket.readyState !== WebSocket.OPEN
+      ) {
+        return;
+      }
+
+      this.lastErrorAt = Date.now();
+      this.lastErrorMessage = "Relay authentication timed out";
+      this.recordConnectionEvent("auth-timeout", {
+        detail: "generation=" + String(generation),
+      });
+      appLogger.warn("RelayClient", "Relay authentication timed out; reconnecting.", {
+        generation,
+        queued: this.pendingOutgoingEnvelopes.length,
+      });
+      this.stopPing();
+      this.setConnectionState("reconnecting");
+      socket.terminate();
+    }, AUTH_TIMEOUT_MS);
+  }
+
+  private stopAuthTimer(): void {
+    if (this.authTimer) {
+      clearTimeout(this.authTimer);
+      this.authTimer = null;
+    }
+  }
+
   private isAuthEvent(event: string): boolean {
     return event === Events.AUTH_LOGIN || event === Events.AUTH_RESUME;
   }
@@ -640,7 +690,7 @@ class RelayClient extends EventEmitter {
   }
 
   private queueOutgoingEnvelope(env: Envelope): void {
-    if (this.isAuthEvent(env.event) && this.ws && this.ws.readyState === WebSocket.OPEN) {
+    if (this.isAuthEvent(env.event)) {
       return;
     }
 
@@ -818,6 +868,20 @@ class RelayClient extends EventEmitter {
     return this.connectionGeneration === generation && this.ws === socket;
   }
 
+  private closeSocketAfterAuthFailure(socket: WebSocket): void {
+    try {
+      if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CLOSING) {
+        socket.close(1008, "auth failed");
+        return;
+      }
+      if (socket.readyState === WebSocket.CONNECTING) {
+        socket.terminate();
+      }
+    } catch {
+      // Ignore shutdown errors while recovering authentication.
+    }
+  }
+
   private getSocketState(): RelaySocketState {
     if (!this.ws) {
       return "missing";
@@ -857,5 +921,7 @@ class RelayClient extends EventEmitter {
     }
   }
 }
+
+const AUTH_TIMEOUT_MS = 15_000;
 
 export default RelayClient;

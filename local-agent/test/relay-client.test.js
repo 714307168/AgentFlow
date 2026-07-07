@@ -16,6 +16,91 @@ function waitForListening(server) {
   });
 }
 
+test("RelayClient reports connected only after relay authentication", async () => {
+  const wss = new WebSocketServer({ port: 0 });
+  await waitForListening(wss);
+  const address = wss.address();
+  if (!address || typeof address === "string") {
+    throw new Error("failed to resolve test websocket address");
+  }
+
+  let authSocket = null;
+  const authMessagePromise = new Promise((resolve) => {
+    wss.on("connection", (socket) => {
+      authSocket = socket;
+      socket.once("message", (raw) => resolve(JSON.parse(raw.toString())));
+    });
+  });
+
+  const client = new RelayClient("ws://127.0.0.1:" + address.port, "agent-test", "token-test", false);
+  client.connect();
+  const authMessage = await authMessagePromise;
+
+  assert.equal(authMessage.event, Events.AUTH_LOGIN);
+  assert.equal(client.isConnected(), false);
+  assert.equal(client.getConnectionSnapshot().state, "authenticating");
+  assert.equal(client.getConnectionSnapshot().isConnected, false);
+
+  const connectedPromise = once(client, "connected");
+  const authenticatedPromise = once(client, "authenticated");
+  authSocket.send(JSON.stringify({
+    id: "auth-ok",
+    event: Events.AUTH_OK,
+    ts: Date.now(),
+    payload: {},
+  }));
+
+  await connectedPromise;
+  await authenticatedPromise;
+  assert.equal(client.isConnected(), true);
+  assert.equal(client.getConnectionSnapshot().state, "connected");
+
+  client.disconnect();
+  await new Promise((resolve) => wss.close(resolve));
+});
+
+test("RelayClient closes the socket after relay auth error", async () => {
+  const wss = new WebSocketServer({ port: 0 });
+  await waitForListening(wss);
+  const address = wss.address();
+  if (!address || typeof address === "string") {
+    throw new Error("failed to resolve test websocket address");
+  }
+
+  wss.on("connection", (socket) => {
+    socket.on("message", (raw) => {
+      const env = JSON.parse(raw.toString());
+      if (env.event !== Events.AUTH_LOGIN) {
+        return;
+      }
+      socket.send(JSON.stringify({
+        id: "auth-error",
+        event: Events.AUTH_ERROR,
+        ts: Date.now(),
+        payload: { message: "token expired" },
+      }));
+    });
+  });
+
+  const client = new RelayClient("ws://127.0.0.1:" + address.port, "agent-test", "token-test", false);
+  const authFailedPromise = once(client, "auth-failed");
+  const disconnectedPromise = once(client, "disconnected");
+
+  client.connect();
+  await authFailedPromise;
+  await disconnectedPromise;
+
+  const snapshot = client.getConnectionSnapshot();
+  assert.equal(snapshot.isAuthenticated, false);
+  assert.equal(snapshot.isConnected, false);
+  assert.equal(snapshot.lastErrorMessage, "token expired");
+  assert.ok(snapshot.recentEvents.some((entry) => entry.type === "auth-error"));
+  assert.ok(snapshot.recentEvents.some((entry) => entry.type === "reconnect-scheduled"));
+
+  client.disconnect();
+  await new Promise((resolve) => wss.close(resolve));
+});
+
 test("RelayClient records close metadata and recent connection events", async () => {
   const wss = new WebSocketServer({ port: 0 });
   await waitForListening(wss);
