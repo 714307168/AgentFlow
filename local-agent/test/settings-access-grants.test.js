@@ -28,7 +28,7 @@ test("filterProjects matches by name path and provider", () => {
 test("buildProjectPickerMarkup renders checked project rows and empty states", () => {
   const projects = [
     { id: "project-a", name: "Alpha", path: "D:/alpha", cliProvider: "claude" },
-    { id: "project-b", name: "Bravo", path: "D:/bravo", cliProvider: "codex" },
+    { id: "project-b", name: "Bravo", path: "D:/bravo", cliProvider: "codex", cliModel: "gpt-5-codex" },
   ];
   const markup = buildProjectPickerMarkup({
     projects,
@@ -41,6 +41,10 @@ test("buildProjectPickerMarkup renders checked project rows and empty states", (
   });
   assert.match(markup, /project-b/);
   assert.match(markup, /checked/);
+  assert.match(markup, /access-project-card is-selected/);
+  assert.match(markup, /access-project-card-provider/);
+  assert.match(markup, /access-project-card-model/);
+  assert.match(markup, /gpt-5-codex/);
   assert.doesNotMatch(markup, /project-a/);
   assert.match(
     buildProjectPickerMarkup({

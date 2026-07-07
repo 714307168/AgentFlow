@@ -2286,6 +2286,110 @@
       color: var(--fd-cyan);
     }
 
+    #shareAccessProjectPicker.project-picker-list {
+      display: grid;
+      gap: 12px;
+      padding: 2px 8px 2px 0;
+    }
+
+    #shareAccessProjectPicker .access-project-card {
+      align-items: center;
+      background: linear-gradient(135deg, rgba(9, 26, 23, 0.96), rgba(13, 39, 34, 0.9));
+      border: 1px solid rgba(125, 211, 192, 0.18);
+      border-radius: 18px;
+      box-shadow: 0 12px 26px rgba(0, 0, 0, 0.18);
+      display: grid;
+      gap: 14px;
+      grid-template-columns: auto minmax(0, 1fr);
+      padding: 14px 16px;
+      transition: background 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
+    }
+
+    #shareAccessProjectPicker .access-project-card:hover,
+    #shareAccessProjectPicker .access-project-card.is-selected {
+      background: linear-gradient(135deg, rgba(14, 45, 39, 0.98), rgba(11, 58, 51, 0.9));
+      border-color: rgba(94, 234, 212, 0.42);
+      box-shadow: 0 16px 34px rgba(0, 0, 0, 0.24);
+      transform: translateY(-1px);
+    }
+
+    #shareAccessProjectPicker .access-project-card-check {
+      accent-color: var(--fd-cyan);
+      height: 18px;
+      width: 18px;
+    }
+
+    #shareAccessProjectPicker .access-project-card-body {
+      display: grid;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    #shareAccessProjectPicker .access-project-card-topline {
+      align-items: center;
+      display: flex;
+      gap: 10px;
+      justify-content: space-between;
+      min-width: 0;
+    }
+
+    #shareAccessProjectPicker .access-project-card-title {
+      color: var(--af-text-primary);
+      font-size: 17px;
+      font-weight: 850;
+      letter-spacing: -0.01em;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    #shareAccessProjectPicker .access-project-card-badges {
+      display: inline-flex;
+      flex: 0 0 auto;
+      flex-wrap: wrap;
+      gap: 6px;
+      justify-content: flex-end;
+    }
+
+    #shareAccessProjectPicker :is(.access-project-card-provider, .access-project-card-model) {
+      border: 1px solid rgba(94, 234, 212, 0.28);
+      border-radius: 999px;
+      color: var(--fd-cyan);
+      font-size: 11px;
+      font-weight: 800;
+      line-height: 1;
+      padding: 6px 9px;
+      white-space: nowrap;
+    }
+
+    #shareAccessProjectPicker .access-project-card-model {
+      border-color: rgba(245, 183, 95, 0.28);
+      color: var(--fd-amber);
+    }
+
+    #shareAccessProjectPicker .access-project-card-path {
+      color: var(--af-text-secondary);
+      font-family: "Cascadia Code", "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+      font-size: 12px;
+      line-height: 1.5;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    @media (max-width: 720px) {
+      #shareAccessProjectPicker .access-project-card-topline {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      #shareAccessProjectPicker .access-project-card-path {
+        white-space: normal;
+        word-break: break-all;
+      }
+    }
+
   </style>
   <link rel="stylesheet" href="flow-deck.css">
 </head>

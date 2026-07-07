@@ -54,6 +54,9 @@ test("settings window shares the AgentFlow reference visual system", () => {
   assert.match(settingsHtml, /\.project-path,[\s\S]*color: var\(--af-text-secondary\);/);
   assert.match(settingsHtml, /\.settings-modal-panel :is\(\.project-path, \.project-provider-badge, \.project-model-badge\) \{[\s\S]*background: rgba\(13, 28, 25, 0\.92\);[\s\S]*color: var\(--af-text-primary\);/);
   assert.match(settingsHtml, /\.settings-modal-panel \.project-path:first-of-type \{[\s\S]*color: var\(--fd-cyan\);/);
+  assert.match(settingsHtml, /#shareAccessProjectPicker \.access-project-card \{[\s\S]*grid-template-columns: auto minmax\(0, 1fr\);/);
+  assert.match(settingsHtml, /#shareAccessProjectPicker \.access-project-card-title \{[\s\S]*text-overflow: ellipsis;/);
+  assert.match(settingsHtml, /#shareAccessProjectPicker \.access-project-card-path \{[\s\S]*font-family: "Cascadia Code"/);
   assert.match(settingsHtml, /option \{/);
   assert.match(settingsHtml, /color-scheme: dark/);
 });

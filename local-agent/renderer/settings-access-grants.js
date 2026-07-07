@@ -61,16 +61,22 @@
       const providerLabel = typeof options.resolveProviderLabel === "function"
         ? options.resolveProviderLabel(project)
         : String(project?.cliProvider || "");
+      const modelLabel = String(project?.cliModel || "").trim();
       const escapeHtml = typeof options.escapeHtml === "function"
         ? options.escapeHtml
         : (value) => String(value || "");
       return `
-        <label class="workgroup-agent-picker-item">
-          <input type="checkbox" data-access-grant-project-id="${escapeHtml(projectId)}" value="${escapeHtml(projectId)}" ${checked ? "checked" : ""}>
-          <div class="project-info">
-            <div class="project-name">${escapeHtml(project?.name || projectId)}</div>
-            <div class="project-path">${escapeHtml(providerLabel)}</div>
-            <div class="project-path">${escapeHtml(project?.path || "")}</div>
+        <label class="workgroup-agent-picker-item access-project-card${checked ? " is-selected" : ""}">
+          <input class="access-project-card-check" type="checkbox" data-access-grant-project-id="${escapeHtml(projectId)}" value="${escapeHtml(projectId)}" ${checked ? "checked" : ""}>
+          <div class="access-project-card-body">
+            <div class="access-project-card-topline">
+              <div class="access-project-card-title">${escapeHtml(project?.name || projectId)}</div>
+              <div class="access-project-card-badges">
+                <span class="access-project-card-provider">${escapeHtml(providerLabel)}</span>
+                ${modelLabel ? `<span class="access-project-card-model">${escapeHtml(modelLabel)}</span>` : ""}
+              </div>
+            </div>
+            <div class="access-project-card-path">${escapeHtml(project?.path || "")}</div>
           </div>
         </label>
       `;
