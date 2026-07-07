@@ -475,23 +475,36 @@ select:focus {
 }
 
 .settings-shell {
-  grid-template-columns: 250px minmax(0, 1fr);
+  align-items: start;
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .settings-nav {
+  align-self: stretch;
   border: 1px solid var(--fd-line);
-  padding: 12px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  max-height: none;
+  overflow: visible;
+  padding: 18px;
+  position: static;
+  width: 100%;
 }
 
 .settings-nav::before {
   color: var(--fd-cyan);
+  grid-column: 1 / -1;
   letter-spacing: 0.18em;
 }
 
 .settings-nav-item {
-  border-radius: 12px;
+  border-radius: 14px;
   color: var(--fd-ink-soft);
-  min-height: 44px;
+  gap: 12px;
+  justify-content: flex-start;
+  min-height: 76px;
+  padding: 0 18px;
 }
 
 .overview-card {

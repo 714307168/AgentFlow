@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const stylesCss = fs.readFileSync(path.join(__dirname, "../renderer/styles.css"), "utf8");
+const flowDeckCss = fs.readFileSync(path.join(__dirname, "../renderer/flow-deck.css"), "utf8");
 const terminalHtml = fs.readFileSync(path.join(__dirname, "../renderer/index.html"), "utf8");
 const settingsHtml = fs.readFileSync(path.join(__dirname, "../renderer/settings.html"), "utf8");
 
@@ -53,4 +54,12 @@ test("settings window shares the AgentFlow reference visual system", () => {
   assert.match(settingsHtml, /\.project-path,[\s\S]*color: var\(--af-text-secondary\);/);
   assert.match(settingsHtml, /option \{/);
   assert.match(settingsHtml, /color-scheme: dark/);
+});
+
+test("settings launcher stays a full-width card grid under the shared theme", () => {
+  assert.match(flowDeckCss, /\.settings-shell \{[\s\S]*grid-template-columns: minmax\(0, 1fr\);/);
+  assert.match(flowDeckCss, /\.settings-nav \{[\s\S]*display: grid;[\s\S]*grid-template-columns: repeat\(auto-fit, minmax\(220px, 1fr\)\);/);
+  assert.match(flowDeckCss, /\.settings-nav \{[\s\S]*position: static;/);
+  assert.match(flowDeckCss, /\.settings-nav-item \{[\s\S]*min-height: 76px;/);
+  assert.doesNotMatch(flowDeckCss, /\.settings-shell \{[\s\S]*grid-template-columns: 250px minmax\(0, 1fr\);/);
 });
