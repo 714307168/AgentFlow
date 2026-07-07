@@ -377,12 +377,7 @@ class RelayClient extends EventEmitter {
         return;
       }
       if (env.event === Events.AUTH_OK && this.clientType === "device") {
-        this.isAuthenticated = true;
-        this.stopAuthTimer();
-        this.lastAuthenticatedAt = Date.now();
-        this.consecutiveFailureCount = 0;
-        this.reconnectAttemptCount = 0;
-        this.setConnectionState("connected");
+        this.markAuthenticated();
         this.recordConnectionEvent("authenticated", {
           detail: "device",
         });
@@ -395,12 +390,7 @@ class RelayClient extends EventEmitter {
         this.emit("connected");
         this.emit("authenticated", env);
       } else if (env.event === Events.AUTH_OK) {
-        this.isAuthenticated = true;
-        this.stopAuthTimer();
-        this.lastAuthenticatedAt = Date.now();
-        this.consecutiveFailureCount = 0;
-        this.reconnectAttemptCount = 0;
-        this.setConnectionState("connected");
+        this.markAuthenticated();
         this.recordConnectionEvent("authenticated", {
           detail: "agent",
         });
@@ -580,6 +570,19 @@ class RelayClient extends EventEmitter {
 
   private resetBackoff(): void {
     this.reconnectDelay = 1000;
+  }
+
+  private markAuthenticated(): void {
+    this.isAuthenticated = true;
+    this.stopAuthTimer();
+    this.lastAuthenticatedAt = Date.now();
+    this.lastErrorMessage = "";
+    this.lastErrorAt = 0;
+    this.lastCloseCode = 0;
+    this.lastCloseReason = "";
+    this.consecutiveFailureCount = 0;
+    this.reconnectAttemptCount = 0;
+    this.setConnectionState("connected");
   }
 
   private setConnectionState(nextState: RelayConnectionState): void {

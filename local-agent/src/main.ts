@@ -5816,8 +5816,8 @@ ipcMain.handle("reconnect-relay", async () => handleReconnectRelayCommand());
 
 async function handleReconnectRelayCommand(): Promise<boolean> {
   clearRelayDeviceListCache();
-  await refreshAgentToken(false);
-  await refreshControllerToken(false);
+  await refreshAgentToken(true);
+  await refreshControllerToken(true);
   clearRelayFollowUpRefreshTimers();
   lastActiveRemoteProjectSyncAt = 0;
   remoteProjectSyncGate.clear();
