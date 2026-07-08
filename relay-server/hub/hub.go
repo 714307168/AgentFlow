@@ -28,6 +28,8 @@ type ProjectInfo struct {
 
 var agentOfflineGracePeriod = 6 * time.Second
 
+const defaultProjectQueueSize = 100
+
 // Hub is the central message router connecting agents and devices.
 type Hub struct {
 	agents              sync.Map // agentID  -> *Client
@@ -177,7 +179,11 @@ func (h *Hub) NextSeq() int64 {
 
 // GetOrCreateQueue returns the Queue for projectID, creating one if absent.
 func (h *Hub) GetOrCreateQueue(projectID string) *Queue {
-	q, _ := h.queues.LoadOrStore(projectID, NewQueue(h.cfg.QueueSize))
+	queueSize := h.cfg.QueueSize
+	if queueSize <= 0 {
+		queueSize = defaultProjectQueueSize
+	}
+	q, _ := h.queues.LoadOrStore(projectID, NewQueue(queueSize))
 	return q.(*Queue)
 }
 
@@ -281,6 +287,9 @@ func (h *Hub) HandleMessage(from *Client, env *model.Envelope) {
 			return
 		}
 		h.BroadcastToDevices(env, env.ProjectID)
+		if env.Event == model.EventMessageDone || env.Event == model.EventMessageError {
+			h.NotifySessionChanged(env.ProjectID, from.AgentID, env.Event)
+		}
 
 	case model.EventTaskStop:
 		if from.Type != model.ClientTypeDevice {
@@ -706,6 +715,79 @@ func (h *Hub) BroadcastToDevices(env *model.Envelope, projectID string) {
 		return
 	}
 	h.broadcastToDevicesByProject(agentID, projectID, env)
+}
+
+func (h *Hub) NotifySessionChanged(projectID, agentID, reason string) {
+	projectID = strings.TrimSpace(projectID)
+	if projectID == "" {
+		return
+	}
+	if strings.TrimSpace(agentID) == "" {
+		resolvedAgentID, ok := h.resolveAgent(projectID)
+		if !ok {
+			return
+		}
+		agentID = resolvedAgentID
+	}
+	payload, err := json.Marshal(model.SessionChangedPayload{
+		AgentID:   agentID,
+		ProjectID: projectID,
+		Reason:    reason,
+		LatestSeq: atomic.LoadInt64(&h.seq),
+	})
+	if err != nil {
+		log.Warn().Err(err).Str("project_id", projectID).Msg("failed to marshal session.changed payload")
+		return
+	}
+	env := &model.Envelope{
+		ID:        newID(),
+		Event:     model.EventSessionChanged,
+		AgentID:   agentID,
+		ProjectID: projectID,
+		Seq:       h.NextSeq(),
+		Timestamp: time.Now().UnixMilli(),
+		Payload:   payload,
+	}
+	h.GetOrCreateQueue(projectID).Push(env)
+	h.broadcastToDevicesByProject(agentID, projectID, env)
+}
+
+func (h *Hub) DrainQueuedDeviceEvents(client *Client, lastSeq int64) {
+	if client == nil || client.Type != model.ClientTypeDevice {
+		return
+	}
+	if !h.refreshDeviceAccess(client, "") {
+		return
+	}
+	h.queues.Range(func(key, value interface{}) bool {
+		projectID, ok := key.(string)
+		if !ok || strings.TrimSpace(projectID) == "" {
+			return true
+		}
+		agentID, ok := h.resolveAgent(projectID)
+		if !ok || !h.deviceCanAccessProject(client, agentID, projectID) {
+			return true
+		}
+		queue, ok := value.(*Queue)
+		if !ok {
+			return true
+		}
+		for _, queued := range queue.DrainFrom(lastSeq) {
+			if queued != nil && isDeviceReplayEvent(queued.Event) {
+				_ = client.Send(queued)
+			}
+		}
+		return true
+	})
+}
+
+func isDeviceReplayEvent(event string) bool {
+	switch event {
+	case model.EventSessionChanged:
+		return true
+	default:
+		return false
+	}
 }
 
 func (h *Hub) broadcastToDevicesByAgent(agentID string, env *model.Envelope) {

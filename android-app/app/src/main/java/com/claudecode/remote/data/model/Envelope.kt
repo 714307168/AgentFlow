@@ -29,6 +29,7 @@ object Events {
     const val PROJECT_LISTED = "project.listed"
     const val SESSION_SYNC_REQUEST = "session.sync.request"
     const val SESSION_SYNC = "session.sync"
+    const val SESSION_CHANGED = "session.changed"
     const val WORKGROUP_LIST_REQUEST = "workgroup.list.request"
     const val WORKGROUP_LIST = "workgroup.list"
     const val WORKGROUP_COMMAND = "workgroup.command"

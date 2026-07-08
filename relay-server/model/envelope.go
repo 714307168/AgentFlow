@@ -19,6 +19,7 @@ const (
 	EventProjectListed                 = "project.listed"
 	EventSessionSyncRequest            = "session.sync.request"
 	EventSessionSync                   = "session.sync"
+	EventSessionChanged                = "session.changed"
 	EventWorkgroupListRequest          = "workgroup.list.request"
 	EventWorkgroupList                 = "workgroup.list"
 	EventWorkgroupCommand              = "workgroup.command"
@@ -126,6 +127,13 @@ type ProjectListItem struct {
 	CLIModel      string `json:"cli_model,omitempty"`
 	ProjectPrompt string `json:"project_prompt,omitempty"`
 	Online        bool   `json:"online"`
+}
+
+type SessionChangedPayload struct {
+	AgentID   string `json:"agent_id,omitempty"`
+	ProjectID string `json:"project_id,omitempty"`
+	Reason    string `json:"reason,omitempty"`
+	LatestSeq int64  `json:"latest_seq,omitempty"`
 }
 
 type ProjectListPayload struct {

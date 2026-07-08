@@ -21,11 +21,16 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import java.util.concurrent.ConcurrentHashMap
 
 class RelayConnectionService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private lateinit var notificationHelper: RelayNotificationHelper
     private val authFollowUpJobs = mutableSetOf<Job>()
+    private val sessionChangedSyncJobs = ConcurrentHashMap<String, Job>()
 
     override fun onCreate() {
         super.onCreate()
@@ -193,6 +198,9 @@ class RelayConnectionService : Service() {
             container.sessionRepository.processEnvelope(envelope)
             container.messageRepository.processEnvelope(envelope)
             container.workgroupRepository.processEnvelope(envelope)
+            if (envelope.event == Events.SESSION_CHANGED) {
+                scheduleSessionChangedSync(container, envelope)
+            }
             val nextSession = envelope.projectId?.let { projectId ->
                 container.sessionRepository.getSessionSnapshot(projectId)
             }
@@ -237,6 +245,67 @@ class RelayConnectionService : Service() {
             }
         }
     }
+
+    private fun scheduleSessionChangedSync(
+        container: com.claudecode.remote.AppContainer,
+        envelope: Envelope
+    ) {
+        val projectId = envelope.projectId?.trim().takeUnless { it.isNullOrEmpty() } ?: return
+        sessionChangedSyncJobs.remove(projectId)?.cancel()
+        val syncJob = serviceScope.launch {
+            delay(SESSION_CHANGED_SYNC_DEBOUNCE_MS)
+            runCatching {
+                val session = container.sessionRepository.getSessionSnapshot(projectId)
+                if (session == null) {
+                    CrashLogger.logInfo(
+                        "RelayConnectionService",
+                        "Ignoring session.changed for unknown projectId=$projectId"
+                    )
+                    return@runCatching
+                }
+                container.messageRepository.requestProjectSync(
+                    projectId = projectId,
+                    agentId = resolveSessionChangedAgentId(envelope) ?: session.agentId,
+                    limit = SESSION_CHANGED_SYNC_LIMIT,
+                    recentOverlapCount = SESSION_CHANGED_SYNC_OVERLAP_COUNT,
+                    shouldWakeAgent = false,
+                    bypassDedupe = true
+                )
+                CrashLogger.logInfo(
+                    "RelayConnectionService",
+                    "Requested project sync from session.changed projectId=$projectId reason=${resolveSessionChangedReason(envelope)}"
+                )
+            }.onFailure { error ->
+                CrashLogger.logError(
+                    "RelayConnectionService",
+                    "Failed to request project sync from session.changed projectId=$projectId",
+                    error as? Exception ?: Exception(error)
+                )
+            }
+        }
+        sessionChangedSyncJobs[projectId] = syncJob
+        syncJob.invokeOnCompletion {
+            sessionChangedSyncJobs.remove(projectId, syncJob)
+        }
+    }
+
+    private fun resolveSessionChangedAgentId(envelope: Envelope): String? =
+        envelope.agentId?.trim().takeUnless { it.isNullOrEmpty() }
+            ?: envelope.payload?.jsonObject
+                ?.get("agent_id")
+                ?.jsonPrimitive
+                ?.contentOrNull
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+
+    private fun resolveSessionChangedReason(envelope: Envelope): String =
+        envelope.payload?.jsonObject
+            ?.get("reason")
+            ?.jsonPrimitive
+            ?.contentOrNull
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?: "unknown"
 
     private fun clearAuthFollowUpJobs() {
         authFollowUpJobs.forEach { job -> job.cancel() }
@@ -296,6 +365,9 @@ class RelayConnectionService : Service() {
     companion object {
         private const val TAG = "RelayConnectionService"
         private const val CONNECTION_HEALTH_CHECK_INTERVAL_MS = 45_000L
+        private const val SESSION_CHANGED_SYNC_DEBOUNCE_MS = 250L
+        private const val SESSION_CHANGED_SYNC_LIMIT = 48
+        private const val SESSION_CHANGED_SYNC_OVERLAP_COUNT = 10
         private val AUTHENTICATED_FOLLOW_UP_DELAYS_MS = longArrayOf(300L, 1_500L, 5_000L)
 
         fun start(context: Context) {

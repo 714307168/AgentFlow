@@ -152,16 +152,20 @@ func WSHandler(h *hub.Hub, cfg *config.Config, st *store.Store) http.HandlerFunc
 			_ = conn.WriteMessage(websocket.TextMessage, data)
 		}
 
-		// For auth.resume on an agent, drain queued messages for its projects.
-		if env.Event == model.EventAuthResume && client.Type == model.ClientTypeAgent {
-			if len(client.ProjectIDs) == 0 {
-				client.ProjectIDs = h.GetProjectIDsByAgent(client.AgentID)
-			}
-			for _, projectID := range client.ProjectIDs {
-				q := h.GetOrCreateQueue(projectID)
-				for _, queued := range q.DrainFrom(lastSeq) {
-					_ = client.Send(queued)
+		if env.Event == model.EventAuthResume {
+			switch client.Type {
+			case model.ClientTypeAgent:
+				if len(client.ProjectIDs) == 0 {
+					client.ProjectIDs = h.GetProjectIDsByAgent(client.AgentID)
 				}
+				for _, projectID := range client.ProjectIDs {
+					q := h.GetOrCreateQueue(projectID)
+					for _, queued := range q.DrainFrom(lastSeq) {
+						_ = client.Send(queued)
+					}
+				}
+			case model.ClientTypeDevice:
+				h.DrainQueuedDeviceEvents(client, lastSeq)
 			}
 		}
 

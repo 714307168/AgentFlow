@@ -264,6 +264,63 @@ func TestAgentPresenceTracksIdleState(t *testing.T) {
 	}
 }
 
+func TestMessageDoneBroadcastsSessionChangedHint(t *testing.T) {
+	h := NewHub(&config.Config{QueueSize: 100}, nil)
+	agent := newTestClient(h, model.ClientTypeAgent, "agent-1", "")
+	device := newTestClient(h, model.ClientTypeDevice, "agent-1", "device-1")
+
+	h.projects.Store("project-1", "agent-1")
+	h.RegisterAgent(agent)
+	h.RegisterDevice(device)
+
+	h.HandleMessage(agent, &model.Envelope{
+		ID:        "done-1",
+		Event:     model.EventMessageDone,
+		ProjectID: "project-1",
+		StreamID:  "run-1",
+	})
+
+	done := readEnvelope(t, device)
+	if done.Event != model.EventMessageDone {
+		t.Fatalf("expected first event %q, got %q", model.EventMessageDone, done.Event)
+	}
+
+	changed := readEnvelope(t, device)
+	if changed.Event != model.EventSessionChanged {
+		t.Fatalf("expected second event %q, got %q", model.EventSessionChanged, changed.Event)
+	}
+	if changed.ProjectID != "project-1" || changed.AgentID != "agent-1" {
+		t.Fatalf("unexpected session.changed routing: %+v", changed)
+	}
+
+	var payload model.SessionChangedPayload
+	if err := json.Unmarshal(changed.Payload, &payload); err != nil {
+		t.Fatalf("unmarshal session.changed payload: %v", err)
+	}
+	if payload.Reason != model.EventMessageDone || payload.ProjectID != "project-1" || payload.AgentID != "agent-1" {
+		t.Fatalf("unexpected session.changed payload: %+v", payload)
+	}
+}
+
+func TestDrainQueuedDeviceEventsReplaysOnlyAccessibleSessionChanged(t *testing.T) {
+	h := NewHub(&config.Config{QueueSize: 100}, nil)
+	device := newTestClient(h, model.ClientTypeDevice, "agent-1", "device-1")
+
+	h.projects.Store("project-1", "agent-1")
+	h.projects.Store("project-2", "agent-2")
+	h.NotifySessionChanged("project-1", "agent-1", model.EventMessageDone)
+	h.NotifySessionChanged("project-2", "agent-2", model.EventMessageDone)
+
+	h.RegisterDevice(device)
+	h.DrainQueuedDeviceEvents(device, 0)
+
+	replayed := readEnvelope(t, device)
+	if replayed.Event != model.EventSessionChanged || replayed.ProjectID != "project-1" {
+		t.Fatalf("expected project-1 session.changed replay, got %+v", replayed)
+	}
+	assertNoEnvelope(t, device)
+}
+
 func TestWorkgroupCollabMessageSendAllowsJoinedMemberWithoutDirectAgentAccess(t *testing.T) {
 	h, database, owner, member := newCollaborationTestHub(t)
 
