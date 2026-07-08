@@ -386,7 +386,7 @@
         <div class="tabs">
           <button class="tab active" type="button" data-tab="overview" data-i18n="tab.overview">Overview</button>
           <button class="tab" type="button" data-tab="agents" data-i18n="tab.agents">Agents</button>
-          <button class="tab" type="button" data-tab="devices" data-i18n="tab.devices">Devices</button>
+          <button class="tab" type="button" data-tab="devices" data-i18n="tab.devices">Clients</button>
           <button class="tab hidden" type="button" data-tab="users" id="usersTab" data-i18n="tab.users">Users</button>
           <button class="tab" type="button" data-tab="releases" id="releasesTab" data-i18n="tab.releases">Releases</button>
           <button class="tab" type="button" data-tab="account" data-i18n="tab.account">Account</button>
@@ -416,9 +416,9 @@
                 <div class="stat-meta" data-i18n="stats.agents.meta">Desktop inventory</div>
               </article>
               <article class="card stat-card">
-                <div class="stat-label" data-i18n="stats.devices">Devices</div>
+                <div class="stat-label" data-i18n="stats.devices">Clients</div>
                 <div class="stat-value" id="summaryDevices">0</div>
-                <div class="stat-meta" data-i18n="stats.devices.meta">Mobile inventory</div>
+                <div class="stat-meta" data-i18n="stats.devices.meta">Mobile client inventory</div>
               </article>
               <article class="card stat-card">
                 <div class="stat-label" data-i18n="stats.onlineAgents">Online Agents</div>
@@ -426,9 +426,9 @@
                 <div class="stat-meta" data-i18n="stats.onlineAgents.meta">Live desktop sessions</div>
               </article>
               <article class="card stat-card">
-                <div class="stat-label" data-i18n="stats.onlineDevices">Online Devices</div>
+                <div class="stat-label" data-i18n="stats.onlineDevices">Online Clients</div>
                 <div class="stat-value" id="summaryOnlineDevices">0</div>
-                <div class="stat-meta" data-i18n="stats.onlineDevices.meta">Live mobile sessions</div>
+                <div class="stat-meta" data-i18n="stats.onlineDevices.meta">Live mobile client sessions</div>
               </article>
             </div>
           </div>
@@ -502,19 +502,18 @@
           <div class="table-shell">
             <div class="section-head">
               <div class="section-title">
-                <h2 data-i18n="devices.heading">Devices</h2>
-                <p data-i18n="devices.subheading">Mobile clients.</p>
+                <h2 data-i18n="devices.heading">Clients</h2>
+                <p data-i18n="devices.subheading">Mobile clients. Internal keys are generated automatically.</p>
               </div>
             </div>
             <form class="toolbar" id="deviceForm">
               <div class="owner-field hidden" id="deviceOwnerField">
                 <select id="deviceOwner"></select>
               </div>
-              <input id="deviceId" type="text" data-i18n-placeholder="devices.id.placeholder" placeholder="Device ID">
               <select id="deviceAgent"></select>
               <input id="deviceNote" type="text" data-i18n-placeholder="devices.note.placeholder" placeholder="Note">
               <div class="actions">
-                <button class="primary-btn" type="submit" data-i18n="devices.add">Add Device</button>
+                <button class="primary-btn" type="submit" data-i18n="devices.add">Add Client</button>
               </div>
             </form>
             <table>
@@ -688,7 +687,7 @@
         "shell.subtitle": "Operations Console",
         logout: "Sign Out",
         "login.title": "Sign in",
-        "login.subtitle": "Accounts, devices, and desktop inventory.",
+        "login.subtitle": "Accounts, mobile clients, and desktop inventory.",
         "login.username": "Username",
         "login.password": "Password",
         "login.username.placeholder": "Username",
@@ -696,7 +695,7 @@
         "login.submit": "Sign In",
         "tab.overview": "Overview",
         "tab.agents": "Agents",
-        "tab.devices": "Devices",
+        "tab.devices": "Clients",
         "tab.users": "Users",
         "tab.releases": "Releases",
         "tab.account": "Account",
@@ -706,14 +705,14 @@
         "stats.users.meta": "Visible accounts",
         "stats.agents": "Agents",
         "stats.agents.meta": "Desktop inventory",
-        "stats.devices": "Devices",
-        "stats.devices.meta": "Mobile inventory",
+        "stats.devices": "Clients",
+        "stats.devices.meta": "Mobile client inventory",
         "stats.onlineAgents": "Online Agents",
         "stats.onlineAgents.meta": "Live desktop sessions",
-        "stats.onlineDevices": "Online Devices",
-        "stats.onlineDevices.meta": "Live mobile sessions",
+        "stats.onlineDevices": "Online Clients",
+        "stats.onlineDevices.meta": "Live mobile client sessions",
         "connections.heading": "Live Connections",
-        "connections.subheading": "Desktop, device, owner, and binding status.",
+        "connections.subheading": "Desktop, mobile client, owner, and binding status.",
         "connections.empty": "No live or registered connections.",
         "connections.table.type": "Type",
         "connections.table.id": "ID",
@@ -757,14 +756,13 @@
         "agents.table.note": "Note",
         "agents.table.status": "Status",
         "agents.table.created": "Created",
-        "devices.heading": "Devices",
-        "devices.subheading": "Mobile clients.",
-        "devices.id.placeholder": "Device ID",
+        "devices.heading": "Clients",
+        "devices.subheading": "Mobile clients. Internal keys are generated automatically.",
         "devices.note.placeholder": "Note",
         "devices.agent.none": "Unbound",
-        "devices.add": "Add Device",
-        "devices.empty": "No devices.",
-        "devices.table.id": "Device ID",
+        "devices.add": "Add Client",
+        "devices.empty": "No clients.",
+        "devices.table.id": "Client",
         "devices.table.user": "Owner",
         "devices.table.agent": "Bound Agent",
         "devices.table.note": "Note",
@@ -780,7 +778,7 @@
         "users.table.username": "Username",
         "users.table.role": "Role",
         "users.table.agents": "Agents",
-        "users.table.devices": "Devices",
+        "users.table.devices": "Clients",
         "users.table.online": "Online",
         "users.table.created": "Created",
         "users.resetPassword": "Reset Password",
@@ -845,14 +843,13 @@
         "toast.copyFailed": "Copy failed.",
         "toast.agentAdded": "Agent added.",
         "toast.agentDeleted": "Agent deleted.",
-        "toast.deviceAdded": "Device added.",
+        "toast.deviceAdded": "Client added.",
         "toast.deviceDeleted": "Device deleted.",
         "toast.userAdded": "User created.",
         "toast.userDeleted": "User deleted.",
         "toast.passwordReset": "Password reset.",
         "toast.passwordChanged": "Password updated.",
         "toast.enterAgentId": "Enter an agent ID.",
-        "toast.enterDeviceId": "Enter a device ID.",
         "toast.userFieldsRequired": "Username and password are required.",
         "toast.passwordRequired": "Password cannot be empty.",
         "toast.passwordMismatch": "Passwords do not match.",
@@ -864,7 +861,7 @@
         "error.unauthorized": "Session expired. Sign in again.",
         "error.usernameExists": "Username already exists.",
         "error.agentExists": "Agent ID already exists.",
-        "error.deviceExists": "Device ID already exists.",
+        "error.deviceExists": "Client key already exists.",
         "error.currentAdminDelete": "Cannot delete the current admin user.",
         "error.lastAdminDelete": "Cannot delete the last admin user.",
         "error.userNotFound": "User not found.",
@@ -895,7 +892,7 @@
         "login.submit": "登录",
         "tab.overview": "概览",
         "tab.agents": "桌面端",
-        "tab.devices": "设备",
+        "tab.devices": "客户端",
         "tab.users": "用户",
         "tab.releases": "发布版本",
         "tab.account": "账户",
@@ -905,14 +902,14 @@
         "stats.users.meta": "当前可见账号",
         "stats.agents": "桌面端",
         "stats.agents.meta": "桌面库存",
-        "stats.devices": "设备",
-        "stats.devices.meta": "移动端库存",
+        "stats.devices": "客户端",
+        "stats.devices.meta": "移动端客户端库存",
         "stats.onlineAgents": "在线桌面端",
         "stats.onlineAgents.meta": "当前在线桌面会话",
-        "stats.onlineDevices": "在线设备",
-        "stats.onlineDevices.meta": "当前在线移动会话",
+        "stats.onlineDevices": "在线客户端",
+        "stats.onlineDevices.meta": "当前在线移动端会话",
         "connections.heading": "实时连接",
-        "connections.subheading": "桌面、设备、归属人与绑定状态。",
+        "connections.subheading": "桌面端、移动客户端、归属人与绑定状态。",
         "connections.empty": "暂无连接记录。",
         "connections.table.type": "类型",
         "connections.table.id": "ID",
@@ -956,14 +953,13 @@
         "agents.table.note": "备注",
         "agents.table.status": "状态",
         "agents.table.created": "创建时间",
-        "devices.heading": "设备",
-        "devices.subheading": "移动客户端。",
-        "devices.id.placeholder": "设备 ID",
+        "devices.heading": "客户端",
+        "devices.subheading": "移动端客户端，内部标识会自动生成。",
         "devices.note.placeholder": "备注",
         "devices.agent.none": "未绑定",
-        "devices.add": "新增设备",
-        "devices.empty": "暂无设备。",
-        "devices.table.id": "设备 ID",
+        "devices.add": "新增客户端",
+        "devices.empty": "暂无客户端。",
+        "devices.table.id": "客户端",
         "devices.table.user": "归属用户",
         "devices.table.agent": "绑定桌面端",
         "devices.table.note": "备注",
@@ -979,7 +975,7 @@
         "users.table.username": "用户名",
         "users.table.role": "角色",
         "users.table.agents": "桌面端",
-        "users.table.devices": "设备",
+        "users.table.devices": "客户端",
         "users.table.online": "在线",
         "users.table.created": "创建时间",
         "users.resetPassword": "重置密码",
@@ -1044,14 +1040,13 @@
         "toast.copyFailed": "复制失败。",
         "toast.agentAdded": "桌面端已新增。",
         "toast.agentDeleted": "桌面端已删除。",
-        "toast.deviceAdded": "设备已新增。",
+        "toast.deviceAdded": "客户端已新增。",
         "toast.deviceDeleted": "设备已删除。",
         "toast.userAdded": "用户已创建。",
         "toast.userDeleted": "用户已删除。",
         "toast.passwordReset": "密码已重置。",
         "toast.passwordChanged": "密码已更新。",
         "toast.enterAgentId": "请输入桌面端 ID。",
-        "toast.enterDeviceId": "请输入设备 ID。",
         "toast.userFieldsRequired": "用户名和密码不能为空。",
         "toast.passwordRequired": "密码不能为空。",
         "toast.passwordMismatch": "两次输入的密码不一致。",
@@ -1063,7 +1058,7 @@
         "error.unauthorized": "会话已失效，请重新登录。",
         "error.usernameExists": "用户名已存在。",
         "error.agentExists": "桌面端 ID 已存在。",
-        "error.deviceExists": "设备 ID 已存在。",
+        "error.deviceExists": "客户端内部标识已存在。",
         "error.currentAdminDelete": "不能删除当前管理员账号。",
         "error.lastAdminDelete": "不能删除最后一个管理员账号。",
         "error.userNotFound": "用户不存在。",
@@ -1368,7 +1363,7 @@
         $("devicesBody").innerHTML = '<tr><td colspan="' + (showOwner ? 7 : 6) + '" class="empty">' + esc(t("devices.empty")) + "</td></tr>";
         return;
       }
-      $("devicesBody").innerHTML = state.devices.map((device) => "<tr><td class=\"mono\">" + esc(device.id) + "</td>" + (showOwner ? '<td class="mono">' + esc(device.username) + "</td>" : "") + '<td class="mono">' + esc(device.agent_id || "-") + '</td><td class="muted">' + esc(device.note || "") + "</td><td>" + renderStatus(Boolean(device.online)) + '</td><td class="mono">' + esc(fmtDate(device.created_at)) + '</td><td><div class="table-actions"><button type="button" class="danger-btn" data-action="delete-device" data-id="' + esc(device.id) + '">' + esc(t("btn.delete")) + "</button></div></td></tr>").join("");
+      $("devicesBody").innerHTML = state.devices.map((device) => "<tr><td><div class=\"mono\">" + esc(device.id) + "</div></td>" + (showOwner ? '<td class="mono">' + esc(device.username) + "</td>" : "") + '<td class="mono">' + esc(device.agent_id || "-") + '</td><td class="muted">' + esc(device.note || "") + "</td><td>" + renderStatus(Boolean(device.online)) + '</td><td class="mono">' + esc(fmtDate(device.created_at)) + '</td><td><div class="table-actions"><button type="button" class="danger-btn" data-action="delete-device" data-id="' + esc(device.id) + '">' + esc(t("btn.delete")) + "</button></div></td></tr>").join("");
     }
 
     function renderUsers() {
@@ -1550,19 +1545,12 @@
 
     $("deviceForm").addEventListener("submit", async (event) => {
       event.preventDefault();
-      const id = $("deviceId").value.trim();
-      if (!id) {
-        showToast(t("toast.enterDeviceId"), false);
-        return;
-      }
       try {
         await api("POST", "/admin/api/devices", {
-          id,
           agent_id: $("deviceAgent").value,
           note: $("deviceNote").value.trim(),
           user_id: selectedOwnerId("deviceOwner")
         });
-        $("deviceId").value = "";
         $("deviceNote").value = "";
         $("deviceAgent").value = "";
         showToast(t("toast.deviceAdded"), true);

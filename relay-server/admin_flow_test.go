@@ -182,7 +182,6 @@ func TestAdminFlow(t *testing.T) {
 		"user_id": aliceID,
 	}, http.StatusCreated, nil)
 	doJSON(t, client, http.MethodPost, server.URL+"/admin/api/devices", map[string]any{
-		"id":       "device-a",
 		"note":     "Alice phone",
 		"agent_id": "agent-a",
 		"user_id":  aliceID,
@@ -205,7 +204,7 @@ func TestAdminFlow(t *testing.T) {
 	doJSON(t, client, http.MethodGet, server.URL+"/admin/api/devices", nil, http.StatusOK, &devices)
 	foundDevice := false
 	for _, device := range devices {
-		if device.ID == "device-a" && device.Username == "alice" && device.AgentID == "agent-a" {
+		if strings.HasPrefix(device.ID, "client-") && device.Username == "alice" && device.AgentID == "agent-a" {
 			foundDevice = true
 			break
 		}

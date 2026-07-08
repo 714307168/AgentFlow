@@ -33,6 +33,7 @@ var (
 
 const adminSessionTTL = 8 * time.Hour
 const adminCookieName = "admin_session"
+const generatedClientIDPrefix = "client-"
 
 // adminAuth middleware: validates session cookie, redirects to login if missing.
 func adminAuth(cfg *config.Config, next http.HandlerFunc) http.HandlerFunc {
@@ -87,6 +88,12 @@ func newAdminSession(user *db.User) string {
 	}
 	adminSessionsMu.Unlock()
 	return token
+}
+
+func newGeneratedClientID() string {
+	b := make([]byte, 8)
+	_, _ = rand.Read(b)
+	return generatedClientIDPrefix + hex.EncodeToString(b)
 }
 
 func currentAdminSession(r *http.Request) (adminSession, bool) {
@@ -378,6 +385,8 @@ func AdminAgentsHandler(cfg *config.Config, database *db.DB, h *hub.Hub) http.Ha
 				http.Error(w, "id is required", http.StatusBadRequest)
 				return
 			}
+			body.ID = strings.TrimSpace(body.ID)
+			body.Note = strings.TrimSpace(body.Note)
 			targetUserID, err := resolveScopedUserID(session, body.UserID, database)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
@@ -440,10 +449,16 @@ func AdminDevicesHandler(cfg *config.Config, database *db.DB, h *hub.Hub) http.H
 				Note    string `json:"note"`
 				UserID  int    `json:"user_id"`
 			}
-			if err := decodeJSONBody(w, r, &body); err != nil || body.ID == "" {
-				http.Error(w, "id is required", http.StatusBadRequest)
+			if err := decodeJSONBody(w, r, &body); err != nil {
+				http.Error(w, "invalid request body", http.StatusBadRequest)
 				return
 			}
+			body.ID = strings.TrimSpace(body.ID)
+			if body.ID == "" {
+				body.ID = newGeneratedClientID()
+			}
+			body.AgentID = strings.TrimSpace(body.AgentID)
+			body.Note = strings.TrimSpace(body.Note)
 			targetUserID, err := resolveScopedUserID(session, body.UserID, database)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
@@ -970,7 +985,7 @@ const legacyAdminHTML = `<!DOCTYPE html>
     <div class="tabs">
       <div class="tab active" data-tab="overview" data-i18n="tab.overview">Overview</div>
       <div class="tab" data-tab="agents" data-i18n="tab.agents">Agents</div>
-      <div class="tab" data-tab="devices" data-i18n="tab.devices">Devices</div>
+      <div class="tab" data-tab="devices" data-i18n="tab.devices">Clients</div>
       <div class="tab" data-tab="users" id="usersTab" style="display:none;">Users</div>
     </div>
 
@@ -1012,13 +1027,13 @@ const legacyAdminHTML = `<!DOCTYPE html>
       <div class="info-box">
         <h3 data-i18n="device.title">📱 Android App Setup</h3>
         <div class="info-item">
-          <div class="info-label" data-i18n="device.step1">Step 1: Add Device</div>
-          <p style="font-size:12px; color:var(--label); margin-bottom:8px;" data-i18n="device.step1.desc">Go to "Devices" tab and create a new device with a unique ID (e.g., "my-phone")</p>
+          <div class="info-label" data-i18n="device.step1">Step 1: Add Client</div>
+          <p style="font-size:12px; color:var(--label); margin-bottom:8px;" data-i18n="device.step1.desc">Go to "Clients" tab and create a mobile client. The internal key is generated automatically.</p>
         </div>
         <div class="info-item">
           <div class="info-label" data-i18n="device.step2">Step 2: Get JWT Token</div>
           <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px;">
-            <input type="text" id="deviceTokenId" data-i18n-placeholder="device.id.placeholder" placeholder="Enter Device ID" style="flex:1; padding:6px 10px; background:var(--surface2); border:1px solid var(--border); border-radius:4px; color:var(--text); font-size:12px;">
+            <input type="text" id="deviceTokenId" data-i18n-placeholder="device.id.placeholder" placeholder="Enter client key" style="flex:1; padding:6px 10px; background:var(--surface2); border:1px solid var(--border); border-radius:4px; color:var(--text); font-size:12px;">
             <button class="action-btn" onclick="getDeviceToken()" data-i18n="btn.getToken">Get Token</button>
           </div>
           <div class="token-display" id="deviceTokenDisplay"></div>
@@ -1027,7 +1042,7 @@ const legacyAdminHTML = `<!DOCTYPE html>
           <div class="info-label" data-i18n="device.step3">Step 3: Configure Android App</div>
           <div class="info-code" data-i18n="device.step3.desc">Open Android App Settings and enter:
 - Server URL: <span id="wsUrlCopy2">ws://localhost:8080/ws</span>
-- Device ID: [your device ID]
+- Client key: [auto-generated client key]
 - Token: [JWT token from step 2]
 - Agent ID: [bind to specific agent, optional]</div>
         </div>
@@ -1053,14 +1068,13 @@ const legacyAdminHTML = `<!DOCTYPE html>
 
     <div class="panel" id="devicesPanel">
       <div class="toolbar">
-        <input type="text" id="deviceId" data-i18n-placeholder="devices.id.placeholder" placeholder="Device ID">
         <select id="deviceAgent"><option value="" data-i18n="devices.agent.placeholder">— Bind to Agent (optional) —</option></select>
         <input type="text" id="deviceNote" data-i18n-placeholder="devices.note.placeholder" placeholder="Note (optional)">
-        <button class="btn btn-primary" id="addDeviceBtn" data-i18n="devices.add">Add Device</button>
+        <button class="btn btn-primary" id="addDeviceBtn" data-i18n="devices.add">Add Client</button>
       </div>
       <table id="devicesTable">
         <thead><tr>
-          <th data-i18n="devices.table.id">Device ID</th>
+          <th data-i18n="devices.table.id">Client</th>
           <th data-i18n="devices.table.agent">Agent</th>
           <th data-i18n="devices.table.note">Note</th>
           <th data-i18n="devices.table.created">Created</th>
@@ -1107,7 +1121,7 @@ const i18n = {
     logout: 'Sign Out',
     'tab.overview': 'Overview',
     'tab.agents': 'Agents',
-    'tab.devices': 'Devices',
+    'tab.devices': 'Clients',
     'ws.title': '🌐 WebSocket Connection',
     'ws.url': 'WebSocket URL',
     'btn.copy': 'Copy',
@@ -1121,12 +1135,12 @@ const i18n = {
     'agent.step3.desc': 'Open Local Agent Settings and enter:\n- Relay Server URL: {wsUrl}\n- Agent ID: [your agent ID]\n- Token: [JWT token from step 2]',
     'agent.id.placeholder': 'Enter Agent ID',
     'device.title': '📱 Android App Setup',
-    'device.step1': 'Step 1: Add Device',
-    'device.step1.desc': 'Go to "Devices" tab and create a new device with a unique ID (e.g., "my-phone")',
+    'device.step1': 'Step 1: Add Client',
+    'device.step1.desc': 'Go to "Clients" tab and create a mobile client. The internal key is generated automatically.',
     'device.step2': 'Step 2: Get JWT Token',
     'device.step3': 'Step 3: Configure Android App',
-    'device.step3.desc': 'Open Android App Settings and enter:\n- Server URL: {wsUrl}\n- Device ID: [your device ID]\n- Token: [JWT token from step 2]\n- Agent ID: [bind to specific agent, optional]',
-    'device.id.placeholder': 'Enter Device ID',
+    'device.step3.desc': 'Open Android App Settings and enter:\n- Server URL: {wsUrl}\n- Client key: [auto-generated client key]\n- Token: [JWT token from step 2]\n- Agent ID: [bind to specific agent, optional]',
+    'device.id.placeholder': 'Enter client key',
     'agents.id.placeholder': 'Agent ID',
     'agents.note.placeholder': 'Note (optional)',
     'agents.add': 'Add Agent',
@@ -1134,24 +1148,23 @@ const i18n = {
     'agents.table.note': 'Note',
     'agents.table.created': 'Created',
     'agents.empty': 'No agents registered',
-    'devices.id.placeholder': 'Device ID',
     'devices.note.placeholder': 'Note (optional)',
     'devices.agent.placeholder': '— Bind to Agent (optional) —',
-    'devices.add': 'Add Device',
-    'devices.table.id': 'Device ID',
+    'devices.add': 'Add Client',
+    'devices.table.id': 'Client',
     'devices.table.agent': 'Agent',
     'devices.table.note': 'Note',
     'devices.table.created': 'Created',
-    'devices.empty': 'No devices registered',
+    'devices.empty': 'No clients registered',
     'toast.copied': 'Copied to clipboard',
     'toast.copyFailed': 'Failed to copy',
     'toast.tokenGenerated': 'Token generated successfully',
     'toast.agentAdded': 'Agent added',
     'toast.agentDeleted': 'Agent deleted',
-    'toast.deviceAdded': 'Device added',
+    'toast.deviceAdded': 'Client added',
     'toast.deviceDeleted': 'Device deleted',
     'toast.enterAgentId': 'Please enter Agent ID',
-    'toast.enterDeviceId': 'Please enter Device ID',
+    'toast.enterDeviceId': 'Please enter client key',
     'confirm.deleteAgent': 'Delete agent {id}?',
     'confirm.deleteDevice': 'Delete device {id}?'
   },
@@ -1160,7 +1173,7 @@ const i18n = {
     logout: '退出登录',
     'tab.overview': '概览',
     'tab.agents': '客户端',
-    'tab.devices': '设备',
+    'tab.devices': '客户端',
     'ws.title': '🌐 WebSocket 连接',
     'ws.url': 'WebSocket 地址',
     'btn.copy': '复制',
@@ -1174,8 +1187,8 @@ const i18n = {
     'agent.step3.desc': '打开本地客户端设置并输入：\n- 中继服务器地址：{wsUrl}\n- 客户端 ID：[你的客户端 ID]\n- Token：[步骤 2 中的 JWT token]',
     'agent.id.placeholder': '输入客户端 ID',
     'device.title': '📱 Android 应用配置',
-    'device.step1': '步骤 1：添加设备',
-    'device.step1.desc': '前往"设备"标签页，创建一个唯一的设备 ID（例如："my-phone"）',
+    'device.step1': '步骤 1：添加客户端',
+    'device.step1.desc': '前往"客户端"标签页创建移动端客户端，内部标识会自动生成。',
     'device.step2': '步骤 2：获取 JWT Token',
     'device.step3': '步骤 3：配置 Android 应用',
     'device.step3.desc': '打开 Android 应用设置并输入：\n- 服务器地址：{wsUrl}\n- 设备 ID：[你的设备 ID]\n- Token：[步骤 2 中的 JWT token]\n- 客户端 ID：[绑定到指定客户端，可选]',
@@ -1187,24 +1200,22 @@ const i18n = {
     'agents.table.note': '备注',
     'agents.table.created': '创建时间',
     'agents.empty': '暂无客户端',
-    'devices.id.placeholder': '设备 ID',
     'devices.note.placeholder': '备注（可选）',
     'devices.agent.placeholder': '— 绑定到客户端（可选）—',
-    'devices.add': '添加设备',
-    'devices.table.id': '设备 ID',
+    'devices.add': '添加客户端',
+    'devices.table.id': '客户端',
     'devices.table.agent': '客户端',
     'devices.table.note': '备注',
     'devices.table.created': '创建时间',
-    'devices.empty': '暂无设备',
+    'devices.empty': '暂无客户端',
     'toast.copied': '已复制到剪贴板',
     'toast.copyFailed': '复制失败',
     'toast.tokenGenerated': 'Token 生成成功',
     'toast.agentAdded': '客户端已添加',
     'toast.agentDeleted': '客户端已删除',
-    'toast.deviceAdded': '设备已添加',
+    'toast.deviceAdded': '客户端已添加',
     'toast.deviceDeleted': '设备已删除',
     'toast.enterAgentId': '请输入客户端 ID',
-    'toast.enterDeviceId': '请输入设备 ID',
     'confirm.deleteAgent': '确定删除客户端 {id}？',
     'confirm.deleteDevice': '确定删除设备 {id}？'
   }
@@ -1480,15 +1491,12 @@ function refreshDeviceAgentSelect() {
 }
 
 $('addDeviceBtn').addEventListener('click', async () => {
-  const id = $('deviceId').value.trim();
-  if (!id) { showToast(t('toast.enterDeviceId'), false); return; }
   try {
     await api('POST', '/admin/api/devices', {
-      id,
       agent_id: $('deviceAgent').value,
       note: $('deviceNote').value.trim(),
     });
-    $('deviceId').value = ''; $('deviceNote').value = '';
+    $('deviceNote').value = '';
     showToast(t('toast.deviceAdded'), true);
     loadDevices();
   } catch(e) { showToast(e.message, false); }
