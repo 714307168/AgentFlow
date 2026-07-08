@@ -2522,10 +2522,7 @@
               <label id="passwordLabel">Password</label>
               <input type="password" id="password" placeholder="Enter password">
             </div>
-            <div class="field">
-              <label id="agentIdLabel">Agent ID</label>
-              <input type="text" id="agentId" placeholder="Enter your agent ID">
-            </div>
+            <input type="hidden" id="agentId">
             <div class="btn-row">
               <button class="btn-primary" id="loginBtn">Login</button>
               <button class="btn-secondary" id="reconnectBtn">Reconnect</button>
@@ -5922,8 +5919,6 @@
       document.getElementById("username").placeholder = msg("settings.usernamePlaceholder", "Enter username");
       document.getElementById("passwordLabel").textContent = msg("settings.password", "Password");
       document.getElementById("password").placeholder = msg("settings.passwordPlaceholder", "Enter password");
-      document.getElementById("agentIdLabel").textContent = msg("settings.agentId", "Agent ID");
-      document.getElementById("agentId").placeholder = msg("settings.agentIdPlaceholder", "Enter your agent ID");
       document.getElementById("loginBtn").textContent = msg("settings.login", "Login");
       document.getElementById("reconnectBtn").textContent = msg("settings.reconnect", "Reconnect");
       document.getElementById("loginStatusLabel").textContent = msg("settings.loginStatus", "Login Status");
@@ -5970,7 +5965,6 @@
       const payload = {
         serverUrl: document.getElementById("serverUrl").value.trim(),
         username: document.getElementById("username").value.trim(),
-        agentId: document.getElementById("agentId").value.trim(),
         modelProviderProfiles,
         activeModelProviderProfileByProtocol,
         cliProvider: document.getElementById("cliProvider").value,
@@ -7904,7 +7898,7 @@
       rememberCliProviderSelection(event.target);
     });
 
-    ["serverUrl", "username", "password", "agentId", "githubToken"].forEach((id) => {
+    ["serverUrl", "username", "password", "githubToken"].forEach((id) => {
       document.getElementById(id).addEventListener("blur", () => { void saveConnectionConfig(); });
     });
 
@@ -8005,14 +7999,13 @@
       const serverUrl = document.getElementById("serverUrl").value.trim();
       const username = document.getElementById("username").value.trim();
       const password = String(readSecretFieldValue("password") || "").trim();
-      const agentId = document.getElementById("agentId").value.trim();
-      if (!serverUrl || !username || !password || !agentId) {
+      if (!serverUrl || !username || !password) {
         showStatus(msg("settings.fillRequired", "Please fill in all fields."), true);
         return;
       }
       try {
         await saveConnectionConfig();
-        const result = await api.login({ username, password, agentId });
+        const result = await api.login({ username, password });
         if (result.success) {
           showStatus(msg("settings.loginSuccess", "Login successful"), false);
           await updateLoginStatus();

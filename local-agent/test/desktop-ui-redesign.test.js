@@ -68,3 +68,12 @@ test("settings launcher stays a full-width card grid under the shared theme", ()
   assert.match(flowDeckCss, /\.settings-nav-item \{[\s\S]*min-height: 76px;/);
   assert.doesNotMatch(flowDeckCss, /\.settings-shell \{[\s\S]*grid-template-columns: 250px minmax\(0, 1fr\);/);
 });
+
+test("settings connection form hides manually edited agent ids", () => {
+  assert.match(settingsHtml, /<input type="hidden" id="agentId">/);
+  assert.doesNotMatch(settingsHtml, /id="agentIdLabel"/);
+  assert.doesNotMatch(settingsHtml, /placeholder="Enter your agent ID"/);
+  assert.doesNotMatch(settingsHtml, /agentId: document\.getElementById\("agentId"\)\.value\.trim\(\)/);
+  assert.doesNotMatch(settingsHtml, /api\.login\(\{ username, password, agentId \}\)/);
+  assert.doesNotMatch(settingsHtml, /\["serverUrl", "username", "password", "agentId", "githubToken"\]/);
+});

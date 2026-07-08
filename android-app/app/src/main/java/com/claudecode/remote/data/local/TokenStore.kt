@@ -8,6 +8,7 @@ import androidx.security.crypto.MasterKey
 import java.io.File
 import java.security.KeyStore
 import java.security.MessageDigest
+import java.util.UUID
 
 class TokenStore(context: Context) {
     private val appContext = context.applicationContext
@@ -35,10 +36,25 @@ class TokenStore(context: Context) {
     }
 
     fun saveDeviceId(id: String) {
-        prefs.edit().putString(KEY_DEVICE_ID, id).apply()
+        val normalized = id.trim()
+        if (normalized.isBlank()) {
+            getOrCreateDeviceId()
+            return
+        }
+        prefs.edit().putString(KEY_DEVICE_ID, normalized).apply()
     }
 
-    fun getDeviceId(): String? = prefs.getString(KEY_DEVICE_ID, null)
+    fun getDeviceId(): String? = getOrCreateDeviceId()
+
+    fun getOrCreateDeviceId(): String {
+        val existing = prefs.getString(KEY_DEVICE_ID, null)?.trim().orEmpty()
+        if (existing.isNotBlank()) {
+            return existing
+        }
+        val generated = "android-${UUID.randomUUID()}"
+        prefs.edit().putString(KEY_DEVICE_ID, generated).apply()
+        return generated
+    }
 
     fun saveServerUrl(url: String) {
         prefs.edit().putString(KEY_SERVER_URL, url).apply()

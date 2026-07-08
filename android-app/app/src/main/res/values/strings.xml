@@ -23,8 +23,6 @@
     <string name="agents_summary_groups">%1$d groups</string>
     <string name="server_connection">Connection</string>
     <string name="relay_server_url">Relay Server URL</string>
-    <string name="device_id">Device ID</string>
-    <string name="device_id_placeholder">Enter your device ID</string>
     <string name="e2e_encryption">Security</string>
     <string name="e2e_enable">Enable end-to-end encryption</string>
     <string name="public_key">Public Key</string>

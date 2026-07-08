@@ -14,8 +14,6 @@
     <string name="settings_title">设置</string>
     <string name="server_connection">连接</string>
     <string name="relay_server_url">中继服务地址</string>
-    <string name="device_id">设备 ID</string>
-    <string name="device_id_placeholder">请输入设备 ID</string>
     <string name="e2e_encryption">安全</string>
     <string name="e2e_enable">启用端到端加密</string>
     <string name="public_key">公钥</string>

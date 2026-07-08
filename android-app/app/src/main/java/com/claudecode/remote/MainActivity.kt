@@ -429,7 +429,6 @@ class MainActivity : ComponentActivity() {
                             SettingsScreen(
                                 initialState = SettingsState(
                                     serverUrl = tokenStore.getServerUrl() ?: "",
-                                    deviceId = tokenStore.getDeviceId() ?: "",
                                     token = tokenStore.getToken() ?: "",
                                     username = tokenStore.getUsername() ?: "",
                                     password = tokenStore.getPassword() ?: "",
@@ -443,12 +442,12 @@ class MainActivity : ComponentActivity() {
                                     updateState = updateState,
                                     isLoggedIn = tokenStore.hasSavedSession()
                                 ),
-                                onSaveConnection = { url, devId ->
+                                onSaveConnection = { url ->
                                     val normalizedUrl = normalizeHttpBaseUrl(url)
                                     appContainer.updateServerUrl(normalizedUrl)
-                                    tokenStore.saveDeviceId(devId)
+                                    val deviceId = tokenStore.getOrCreateDeviceId()
                                     settingsRefreshTrigger.value += 1
-                                    if (tokenStore.hasSavedSession() && devId.isNotBlank()) {
+                                    if (tokenStore.hasSavedSession() && deviceId.isNotBlank()) {
                                         relayWebSocket.disconnect()
                                         RelayConnectionService.start(applicationContext)
                                     }
@@ -469,12 +468,12 @@ class MainActivity : ComponentActivity() {
                                 onCrashLogsEnabledChange = { enabled ->
                                     tokenStore.saveCrashLogsEnabled(enabled)
                                 },
-                                onLogin = { url, username, password, deviceId ->
+                                onLogin = { url, username, password ->
                                     val normalizedUrl = normalizeHttpBaseUrl(url)
                                     appContainer.updateServerUrl(normalizedUrl)
                                     tokenStore.saveCredentials(username.trim(), password)
                                     tokenStore.clearToken()
-                                    tokenStore.saveDeviceId(deviceId)
+                                    val deviceId = tokenStore.getOrCreateDeviceId()
                                     settingsRefreshTrigger.value += 1
 
                                     lifecycleScope.launch {

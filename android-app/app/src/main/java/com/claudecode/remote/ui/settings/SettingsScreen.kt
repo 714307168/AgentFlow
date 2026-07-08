@@ -87,7 +87,6 @@ import java.time.Instant
 
 data class SettingsState(
     val serverUrl: String = "",
-    val deviceId: String = "",
     val token: String = "",
     val username: String = "",
     val password: String = "",
@@ -107,8 +106,8 @@ data class SettingsState(
 @Composable
 fun SettingsScreen(
     initialState: SettingsState,
-    onSaveConnection: (serverUrl: String, deviceId: String) -> Unit,
-    onLogin: (serverUrl: String, username: String, password: String, deviceId: String) -> Unit,
+    onSaveConnection: (serverUrl: String) -> Unit,
+    onLogin: (serverUrl: String, username: String, password: String) -> Unit,
     onUploadCrashLog: suspend (fileName: String, content: String) -> Result<String>,
     onListTransfers: suspend () -> Result<List<TransferCenterItem>>,
     onDownloadTransfer: suspend (transferId: String) -> Result<TransferCenterItem>,
@@ -125,7 +124,6 @@ fun SettingsScreen(
     onNavigateBack: () -> Unit
 ) {
     var serverUrl by remember(initialState.serverUrl) { mutableStateOf(initialState.serverUrl) }
-    var deviceId by remember(initialState.deviceId) { mutableStateOf(initialState.deviceId) }
     var username by remember(initialState.username) { mutableStateOf(initialState.username) }
     var password by remember(initialState.password) { mutableStateOf(initialState.password) }
     var e2eEnabled by remember(initialState.e2eEnabled) { mutableStateOf(initialState.e2eEnabled) }
@@ -221,25 +219,15 @@ fun SettingsScreen(
                         modifier = Modifier.fillMaxWidth()
                     )
 
-                    SettingsTextField(
-                        value = deviceId,
-                        onValueChange = { deviceId = it },
-                        label = { Text(stringResource(R.string.device_id)) },
-                        placeholder = { Text(stringResource(R.string.device_id_placeholder)) },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Button(
                             onClick = {
-                                onLogin(serverUrl.trim(), username.trim(), password, deviceId.trim())
+                                onLogin(serverUrl.trim(), username.trim(), password)
                                 bannerMessage = loginRequestSentMessage
                             },
                             enabled = serverUrl.isNotBlank() &&
                                 username.isNotBlank() &&
-                                password.isNotBlank() &&
-                                deviceId.isNotBlank(),
+                                password.isNotBlank(),
                             modifier = Modifier.fillMaxWidth(),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = MaterialTheme.colorScheme.primary
@@ -250,10 +238,7 @@ fun SettingsScreen(
 
                         FilledTonalButton(
                             onClick = {
-                                onSaveConnection(
-                                    serverUrl.trim(),
-                                    deviceId.trim()
-                                )
+                                onSaveConnection(serverUrl.trim())
                                 bannerMessage = saveReconnectMessage
                             },
                             enabled = serverUrl.isNotBlank(),

@@ -365,6 +365,20 @@ const configStore = new Store<AgentConfig>({
   },
 });
 
+function getOrCreateAgentId(): string {
+  const envAgentId = (process.env.AGENT_ID ?? "").trim();
+  if (envAgentId) {
+    return envAgentId;
+  }
+  const storedAgentId = String(configStore.get("agentId") || "").trim();
+  if (storedAgentId) {
+    return storedAgentId;
+  }
+  const generatedAgentId = `desktop-${uuidv4()}`;
+  configStore.set("agentId", generatedAgentId);
+  return generatedAgentId;
+}
+
 const appSettingsStore = new Store<AppSettings>({
   name: "app-settings",
   defaults: {
@@ -3872,7 +3886,7 @@ function loadConfig(): AgentConfig {
 
   return {
     serverUrl: (process.env.RELAY_SERVER_URL ?? configStore.get("serverUrl")) as string,
-    agentId: (process.env.AGENT_ID ?? configStore.get("agentId")) as string,
+    agentId: getOrCreateAgentId(),
     token: resolvedToken,
     username: configStore.get("username") as string,
     password: decodeSecretFromStore(configStore.get("encryptedPassword") as string),
@@ -5751,10 +5765,11 @@ ipcMain.handle("save-config", (_event, config: Partial<AgentConfig>) => {
   return true;
 });
 
-ipcMain.handle("login", async (_event, data: { username: string; password: string; agentId: string }) => {
+ipcMain.handle("login", async (_event, data: { username: string; password: string; agentId?: string }) => {
   try {
     const config = loadConfig();
     const serverUrl = toHttpBaseUrl(config.serverUrl);
+    const agentId = data.agentId?.trim() || config.agentId;
 
     const response = await fetchRelayJson(`${serverUrl}/api/auth/login`, {
       method: "POST",
@@ -5762,7 +5777,7 @@ ipcMain.handle("login", async (_event, data: { username: string; password: strin
         username: data.username,
         password: data.password,
         client_type: "agent",
-        client_id: data.agentId,
+        client_id: agentId,
       },
     });
 
