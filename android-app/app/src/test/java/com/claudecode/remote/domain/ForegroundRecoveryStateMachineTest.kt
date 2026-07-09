@@ -72,4 +72,29 @@ class ForegroundRecoveryStateMachineTest {
             )
         )
     }
+
+    @Test
+    fun `shouldForceForegroundReconnect forces cold start and long background restores`() {
+        assertTrue(
+            shouldForceForegroundReconnect(
+                nowMs = 10_000L,
+                lastStoppedAtMs = 0L,
+                thresholdMs = 30_000L
+            )
+        )
+        assertFalse(
+            shouldForceForegroundReconnect(
+                nowMs = 20_000L,
+                lastStoppedAtMs = 10_000L,
+                thresholdMs = 30_000L
+            )
+        )
+        assertTrue(
+            shouldForceForegroundReconnect(
+                nowMs = 45_000L,
+                lastStoppedAtMs = 10_000L,
+                thresholdMs = 30_000L
+            )
+        )
+    }
 }

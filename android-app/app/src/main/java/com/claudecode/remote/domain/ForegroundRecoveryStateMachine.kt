@@ -78,3 +78,17 @@ internal fun shouldScheduleNetworkRecovery(
     }
     return nowMs - lastScheduledAtMs >= minIntervalMs
 }
+
+internal fun shouldForceForegroundReconnect(
+    nowMs: Long,
+    lastStoppedAtMs: Long,
+    thresholdMs: Long
+): Boolean {
+    if (thresholdMs <= 0L) {
+        return true
+    }
+    if (lastStoppedAtMs <= 0L) {
+        return true
+    }
+    return nowMs - lastStoppedAtMs >= thresholdMs
+}

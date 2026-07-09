@@ -52,6 +52,7 @@ import com.claudecode.remote.domain.ForegroundConnectionRecoveryAction
 import com.claudecode.remote.domain.ForegroundRecoveryPass
 import com.claudecode.remote.domain.buildForegroundRecoveryPasses
 import com.claudecode.remote.domain.decideForegroundConnectionRecovery
+import com.claudecode.remote.domain.shouldForceForegroundReconnect
 import com.claudecode.remote.domain.resolveProjectRouteAccessState
 import com.claudecode.remote.domain.shouldScheduleNetworkRecovery
 import com.claudecode.remote.service.RelayConnectionService
@@ -561,6 +562,7 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         appContainer.uiPresenceTracker.setAppInForeground(true)
+        restoreRelayWhenAppBecomesForeground()
     }
 
     override fun onResume() {
@@ -573,6 +575,33 @@ class MainActivity : ComponentActivity() {
         unregisterNetworkRecoveryCallback()
         clearForegroundRecoveryJobs()
         super.onStop()
+    }
+
+    private fun restoreRelayWhenAppBecomesForeground() {
+        if (!appContainer.tokenStore.shouldAutoStartRelay()) {
+            unregisterNetworkRecoveryCallback()
+            clearForegroundRecoveryJobs()
+            return
+        }
+
+        RelayConnectionService.start(applicationContext)
+        registerNetworkRecoveryCallbackIfNeeded()
+
+        val now = System.currentTimeMillis()
+        val forceReconnectInitial = shouldForceForegroundReconnect(
+            nowMs = now,
+            lastStoppedAtMs = lastStoppedAtMs,
+            thresholdMs = FOREGROUND_FORCE_RECONNECT_THRESHOLD_MS
+        )
+        val reason = if (lastStoppedAtMs <= 0L) {
+            "app-start"
+        } else {
+            "activity-foreground"
+        }
+        scheduleForegroundRecoveryPasses(
+            reason = reason,
+            forceReconnectInitial = forceReconnectInitial
+        )
     }
 
     private fun clearForegroundRecoveryJobs() {
