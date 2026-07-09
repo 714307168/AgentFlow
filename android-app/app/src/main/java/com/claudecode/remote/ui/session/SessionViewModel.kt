@@ -66,6 +66,9 @@ internal fun sessionListItemComparator(): Comparator<SessionListItem> =
         .thenByDescending { it.previewTimestamp ?: 0L }
         .thenBy { it.title.lowercase() }
 
+internal fun hasStoredSessionAuth(token: String?, hasSavedCredentials: Boolean): Boolean =
+    !token.isNullOrBlank() || hasSavedCredentials
+
 class SessionViewModel(
     private val repository: SessionRepository,
     private val messageRepository: MessageRepository,
@@ -272,6 +275,13 @@ class SessionViewModel(
             _uiState.update { it.copy(isLoading = true) }
         }
         try {
+            if (!hasStoredAuthMaterial()) {
+                if (reportErrors) {
+                    _uiState.update { it.copy(error = "Please sign in before syncing sessions") }
+                }
+                return
+            }
+
             val deviceId = tokenStore.getDeviceId()?.trim().orEmpty()
             val previousToken = tokenStore.getToken()?.trim().orEmpty()
             var tokenChanged = false
@@ -344,6 +354,12 @@ class SessionViewModel(
             }
         }
     }
+
+    private fun hasStoredAuthMaterial(): Boolean =
+        hasStoredSessionAuth(
+            token = tokenStore.getToken(),
+            hasSavedCredentials = tokenStore.hasSavedCredentials()
+        )
 
     private suspend fun waitForRelayConnection() {
         var waitedMs = 0L

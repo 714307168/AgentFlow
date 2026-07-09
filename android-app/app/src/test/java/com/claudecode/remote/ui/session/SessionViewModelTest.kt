@@ -36,6 +36,14 @@ class SessionViewModelTest {
         assertEquals(listOf("Running Empty", "Queued Empty", "New Chat"), sorted.map { it.title })
     }
 
+    @Test
+    fun `hasStoredSessionAuth requires either token or saved credentials`() {
+        assertEquals(false, hasStoredSessionAuth(token = null, hasSavedCredentials = false))
+        assertEquals(false, hasStoredSessionAuth(token = "  ", hasSavedCredentials = false))
+        assertEquals(true, hasStoredSessionAuth(token = "token", hasSavedCredentials = false))
+        assertEquals(true, hasStoredSessionAuth(token = null, hasSavedCredentials = true))
+    }
+
     private fun message(timestamp: Long): Message = Message(
         id = "message-$timestamp",
         projectId = "project-a",
