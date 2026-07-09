@@ -120,6 +120,7 @@ fun SessionListScreen(
 
     LaunchedEffect(Unit) {
         viewModel.initialize()
+        viewModel.onResume()
     }
 
     LaunchedEffect(listState, displayRowKeys) {

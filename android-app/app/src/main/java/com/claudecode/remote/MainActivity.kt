@@ -3,8 +3,6 @@ package com.claudecode.remote
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.ConnectivityManager
-import android.net.Network
 import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
@@ -48,13 +46,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
-import com.claudecode.remote.domain.ForegroundConnectionRecoveryAction
-import com.claudecode.remote.domain.ForegroundRecoveryPass
-import com.claudecode.remote.domain.buildForegroundRecoveryPasses
-import com.claudecode.remote.domain.decideForegroundConnectionRecovery
-import com.claudecode.remote.domain.shouldForceForegroundReconnect
 import com.claudecode.remote.domain.resolveProjectRouteAccessState
-import com.claudecode.remote.domain.shouldScheduleNetworkRecovery
 import com.claudecode.remote.service.RelayConnectionService
 import com.claudecode.remote.ui.projectAccessNoticeMessageResId
 import com.claudecode.remote.ui.agent.AgentHubScreen
@@ -70,8 +62,6 @@ import com.claudecode.remote.ui.workgroup.WorkgroupChatScreen
 import com.claudecode.remote.ui.workgroup.WorkgroupChatViewModel
 import com.claudecode.remote.ui.workgroup.WorkgroupTaskManageScreen
 import com.claudecode.remote.util.CrashLogger
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.Locale
 
@@ -83,10 +73,6 @@ private data class BottomNavItem(
 
 class MainActivity : ComponentActivity() {
     private lateinit var appContainer: AppContainer
-    private var lastStoppedAtMs: Long = 0L
-    private var lastNetworkRecoveryScheduledAtMs: Long = 0L
-    private var networkRecoveryCallback: ConnectivityManager.NetworkCallback? = null
-    private val foregroundRecoveryJobs = mutableSetOf<Job>()
 
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -562,7 +548,6 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         appContainer.uiPresenceTracker.setAppInForeground(true)
-        restoreRelayWhenAppBecomesForeground()
     }
 
     override fun onResume() {
@@ -571,137 +556,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         appContainer.uiPresenceTracker.setAppInForeground(false)
-        lastStoppedAtMs = System.currentTimeMillis()
-        unregisterNetworkRecoveryCallback()
-        clearForegroundRecoveryJobs()
         super.onStop()
-    }
-
-    private fun restoreRelayWhenAppBecomesForeground() {
-        if (!appContainer.tokenStore.shouldAutoStartRelay()) {
-            unregisterNetworkRecoveryCallback()
-            clearForegroundRecoveryJobs()
-            return
-        }
-
-        registerNetworkRecoveryCallbackIfNeeded()
-
-        val now = System.currentTimeMillis()
-        val forceReconnectInitial = shouldForceForegroundReconnect(
-            nowMs = now,
-            lastStoppedAtMs = lastStoppedAtMs,
-            thresholdMs = FOREGROUND_FORCE_RECONNECT_THRESHOLD_MS
-        )
-        val reason = if (lastStoppedAtMs <= 0L) {
-            "app-start"
-        } else {
-            "activity-foreground"
-        }
-        scheduleForegroundRecoveryPasses(
-            reason = reason,
-            forceReconnectInitial = forceReconnectInitial
-        )
-    }
-
-    private fun clearForegroundRecoveryJobs() {
-        foregroundRecoveryJobs.forEach { job -> job.cancel() }
-        foregroundRecoveryJobs.clear()
-    }
-
-    private fun scheduleForegroundRecoveryPasses(reason: String, forceReconnectInitial: Boolean) {
-        clearForegroundRecoveryJobs()
-        val passes = buildForegroundRecoveryPasses(
-            baseReason = reason,
-            delaysMs = FOREGROUND_RECOVERY_DELAYS_MS,
-            forceReconnectInitial = forceReconnectInitial
-        )
-        CrashLogger.logInfo(
-            "MainActivity",
-            "Scheduling foreground recovery passes reason=$reason forceReconnectInitial=$forceReconnectInitial passCount=${passes.size}"
-        )
-        passes.forEach { pass ->
-            val job = lifecycleScope.launch {
-                if (pass.delayMs > 0L) {
-                    delay(pass.delayMs)
-                }
-                CrashLogger.logInfo(
-                    "MainActivity",
-                    "Running foreground recovery pass reason=${pass.reason} stage=${pass.stage.wireName} forceReconnect=${pass.forceReconnect}"
-                )
-                try {
-                    restoreRelayConnectionOnForeground(
-                        pass = pass,
-                        staleTimeoutMs = RESUME_STALE_CONNECTION_TIMEOUT_MS
-                    )
-                    syncForegroundData(pass)
-                } catch (e: Exception) {
-                    CrashLogger.logError("MainActivity", "Failed to verify relay connection on resume", e)
-                }
-            }
-            foregroundRecoveryJobs += job
-            job.invokeOnCompletion {
-                foregroundRecoveryJobs.remove(job)
-            }
-        }
-    }
-
-    private fun registerNetworkRecoveryCallbackIfNeeded() {
-        if (networkRecoveryCallback != null) {
-            return
-        }
-        val connectivityManager = getSystemService(ConnectivityManager::class.java) ?: return
-        val callback = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) {
-                if (!appContainer.tokenStore.shouldAutoStartRelay()) {
-                    return
-                }
-                val now = System.currentTimeMillis()
-                if (!shouldScheduleNetworkRecovery(
-                        nowMs = now,
-                        lastScheduledAtMs = lastNetworkRecoveryScheduledAtMs,
-                        minIntervalMs = NETWORK_RECOVERY_MIN_INTERVAL_MS
-                    )
-                ) {
-                    return
-                }
-                lastNetworkRecoveryScheduledAtMs = now
-                CrashLogger.logInfo(
-                    "MainActivity",
-                    "Network became available; scheduling recovery network=$network"
-                )
-                lifecycleScope.launch {
-                    scheduleForegroundRecoveryPasses("network-available", forceReconnectInitial = false)
-                }
-            }
-        }
-        runCatching {
-            connectivityManager.registerDefaultNetworkCallback(callback)
-            networkRecoveryCallback = callback
-        }.onFailure { error ->
-            CrashLogger.logError(
-                "MainActivity",
-                "Failed to register network recovery callback",
-                error as? Exception ?: Exception(error)
-            )
-        }
-    }
-
-    private fun unregisterNetworkRecoveryCallback() {
-        val callback = networkRecoveryCallback ?: return
-        val connectivityManager = getSystemService(ConnectivityManager::class.java) ?: run {
-            networkRecoveryCallback = null
-            return
-        }
-        runCatching {
-            connectivityManager.unregisterNetworkCallback(callback)
-        }.onFailure { error ->
-            CrashLogger.logError(
-                "MainActivity",
-                "Failed to unregister network recovery callback",
-                error as? Exception ?: Exception(error)
-            )
-        }
-        networkRecoveryCallback = null
     }
 
     private fun requestNotificationPermissionIfNeeded() {
@@ -731,147 +586,4 @@ class MainActivity : ComponentActivity() {
         resources.updateConfiguration(config, resources.displayMetrics)
     }
 
-    private suspend fun restoreRelayConnectionOnForeground(
-        pass: ForegroundRecoveryPass,
-        staleTimeoutMs: Long
-    ) {
-        val tokenStore = appContainer.tokenStore
-        val deviceId = tokenStore.getDeviceId()?.trim().orEmpty()
-        if (deviceId.isEmpty()) {
-            return
-        }
-
-        val previousToken = tokenStore.getToken()?.trim().orEmpty()
-        var tokenChanged = false
-        if (tokenStore.hasSavedCredentials()) {
-            val shouldRefreshToken = pass.forceReconnect ||
-                previousToken.isBlank() ||
-                appContainer.authSessionManager.isTokenExpiringSoon()
-            appContainer.authSessionManager.ensureValidToken(
-                clientId = deviceId,
-                forceRefresh = shouldRefreshToken
-            ).onSuccess { refreshedToken ->
-                val normalizedToken = refreshedToken.trim()
-                tokenChanged = normalizedToken.isNotEmpty() && normalizedToken != previousToken
-            }.onFailure { error ->
-                CrashLogger.logError(
-                    "MainActivity",
-                    "Failed to refresh relay token on foreground restore",
-                    error as? Exception ?: Exception(error)
-                )
-            }
-        }
-
-        val decision = decideForegroundConnectionRecovery(
-            pass = pass,
-            tokenChanged = tokenChanged
-        )
-        if (decision.action == ForegroundConnectionRecoveryAction.FORCE_RECONNECT) {
-            CrashLogger.logInfo(
-                "MainActivity",
-                "Foreground relay recovery forcing reconnect reason=${decision.reason} stage=${pass.stage.wireName} tokenChanged=$tokenChanged"
-            )
-            appContainer.relayWebSocket.forceReconnect(decision.reason)
-            return
-        }
-
-        appContainer.relayWebSocket.ensureHealthyConnection(
-            reason = decision.reason,
-            staleTimeoutMs = staleTimeoutMs
-        )
-    }
-
-    private suspend fun syncForegroundData(pass: ForegroundRecoveryPass) {
-        val sessionRepository = appContainer.sessionRepository
-        val messageRepository = appContainer.messageRepository
-        val workgroupRepository = appContainer.workgroupRepository
-        val webSocket = appContainer.relayWebSocket
-        val reason = pass.reason
-        CrashLogger.logInfo("MainActivity", "Starting foreground sync reason=$reason")
-
-        val syncResult = sessionRepository.syncFromServer(force = true)
-        syncResult.onFailure { error ->
-            CrashLogger.logError(
-                "MainActivity",
-                "Failed to refresh session catalog on foreground: $reason",
-                error as? Exception ?: Exception(error)
-            )
-        }
-        syncResult.onSuccess {
-            CrashLogger.logInfo(
-                "MainActivity",
-                "Foreground session catalog refreshed reason=$reason sessionCount=${sessionRepository.getSessions().size}"
-            )
-        }
-
-        val sessions = sessionRepository.getSessions()
-        if (sessions.isEmpty()) {
-            CrashLogger.logInfo("MainActivity", "Foreground sync found no sessions reason=$reason")
-            workgroupRepository.retainAgentIds(emptyList())
-            return
-        }
-
-        var waitedMs = 0L
-        while (waitedMs < FOREGROUND_SYNC_CONNECTION_WAIT_MS) {
-            if (webSocket.connectionState.value == com.claudecode.remote.data.remote.RelayWebSocket.ConnectionState.CONNECTED) {
-                break
-            }
-            delay(500)
-            waitedMs += 500L
-        }
-
-        if (webSocket.connectionState.value != com.claudecode.remote.data.remote.RelayWebSocket.ConnectionState.CONNECTED) {
-            CrashLogger.logInfo("MainActivity", "Skipping foreground project sync because relay is not connected: $reason")
-            return
-        }
-
-        runCatching {
-            messageRepository.requestSessionShellSyncs(
-                sessions = sessions,
-                bypassDedupe = true,
-                maxProjects = sessions.size
-            )
-        }.onSuccess {
-            CrashLogger.logInfo(
-                "MainActivity",
-                "Foreground session-shell sync requested reason=$reason sessionCount=${sessions.size}"
-            )
-        }.onFailure { error ->
-            CrashLogger.logError(
-                "MainActivity",
-                "Failed to request session-shell syncs on foreground: $reason",
-                error as? Exception ?: Exception(error)
-            )
-        }
-
-        val trackedAgentIds = workgroupRepository.resolveTrackedAgentIds(
-            sessions.map { it.agentId.trim() }.filter { it.isNotEmpty() }.distinct().sorted()
-        )
-        runCatching {
-            if (trackedAgentIds.isEmpty()) {
-                workgroupRepository.retainAgentIds(emptyList())
-            } else {
-                workgroupRepository.refresh(trackedAgentIds, force = true)
-            }
-        }.onSuccess {
-            CrashLogger.logInfo(
-                "MainActivity",
-                "Foreground workgroup refresh completed reason=$reason trackedAgentCount=${trackedAgentIds.size}"
-            )
-        }.onFailure { error ->
-            CrashLogger.logError(
-                "MainActivity",
-                "Failed to refresh workgroups on foreground: $reason",
-                error as? Exception ?: Exception(error)
-            )
-        }
-    }
-
-    companion object {
-        private const val RESUME_STALE_CONNECTION_TIMEOUT_MS = 20_000L
-        private const val FOREGROUND_FORCE_RECONNECT_THRESHOLD_MS = 30_000L
-        private const val FOREGROUND_SYNC_CONNECTION_WAIT_MS = 6_000L
-        private const val NETWORK_RECOVERY_MIN_INTERVAL_MS = 4_000L
-        private val FOREGROUND_RECOVERY_DELAYS_MS = longArrayOf(0L, 1_500L, 5_000L)
-    }
 }
