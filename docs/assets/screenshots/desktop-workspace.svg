@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="800" viewBox="0 0 1280 800" role="img" aria-label="AgentFlow desktop workspace preview">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#111827"/>
+      <stop offset="0.48" stop-color="#172554"/>
+      <stop offset="1" stop-color="#0f172a"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#38bdf8"/>
+      <stop offset="1" stop-color="#22c55e"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="800" rx="42" fill="url(#bg)"/>
+  <circle cx="1070" cy="90" r="190" fill="#0ea5e9" opacity="0.16"/>
+  <circle cx="180" cy="720" r="260" fill="#22c55e" opacity="0.1"/>
+  <rect x="70" y="64" width="1140" height="672" rx="34" fill="#0b1220" opacity="0.94"/>
+  <rect x="70" y="64" width="1140" height="68" rx="34" fill="#111827"/>
+  <circle cx="112" cy="98" r="10" fill="#ef4444"/>
+  <circle cx="144" cy="98" r="10" fill="#f59e0b"/>
+  <circle cx="176" cy="98" r="10" fill="#22c55e"/>
+  <text x="222" y="106" font-family="Segoe UI, Arial, sans-serif" font-size="24" font-weight="700" fill="#f8fafc">AgentFlow Desktop</text>
+  <rect x="96" y="158" width="284" height="552" rx="26" fill="#111827"/>
+  <text x="124" y="204" font-family="Segoe UI, Arial, sans-serif" font-size="21" font-weight="700" fill="#f8fafc">Projects</text>
+  <rect x="124" y="232" width="228" height="76" rx="18" fill="#172554"/>
+  <rect x="140" y="250" width="118" height="14" rx="7" fill="#e0f2fe"/>
+  <rect x="140" y="278" width="176" height="10" rx="5" fill="#7dd3fc" opacity="0.62"/>
+  <circle cx="326" cy="270" r="10" fill="#22c55e"/>
+  <rect x="124" y="326" width="228" height="76" rx="18" fill="#0f172a"/>
+  <rect x="140" y="344" width="140" height="14" rx="7" fill="#cbd5e1"/>
+  <rect x="140" y="372" width="154" height="10" rx="5" fill="#64748b"/>
+  <circle cx="326" cy="364" r="10" fill="#f59e0b"/>
+  <rect x="124" y="420" width="228" height="76" rx="18" fill="#0f172a"/>
+  <rect x="140" y="438" width="96" height="14" rx="7" fill="#cbd5e1"/>
+  <rect x="140" y="466" width="184" height="10" rx="5" fill="#64748b"/>
+  <circle cx="326" cy="458" r="10" fill="#38bdf8"/>
+  <rect x="410" y="158" width="498" height="552" rx="28" fill="#f8fafc"/>
+  <text x="446" y="208" font-family="Segoe UI, Arial, sans-serif" font-size="26" font-weight="800" fill="#0f172a">Remote Agent Session</text>
+  <text x="446" y="242" font-family="Segoe UI, Arial, sans-serif" font-size="16" fill="#64748b">Sync status, messages, files and execution logs in one workspace.</text>
+  <rect x="446" y="284" width="380" height="84" rx="22" fill="#e0f2fe"/>
+  <text x="474" y="318" font-family="Segoe UI, Arial, sans-serif" font-size="17" font-weight="700" fill="#075985">Mobile command received</text>
+  <text x="474" y="346" font-family="Segoe UI, Arial, sans-serif" font-size="15" fill="#0369a1">Continue the Codex task and stream progress back.</text>
+  <rect x="504" y="392" width="344" height="78" rx="22" fill="#dcfce7"/>
+  <text x="532" y="425" font-family="Segoe UI, Arial, sans-serif" font-size="17" font-weight="700" fill="#166534">Desktop agent running</text>
+  <text x="532" y="452" font-family="Segoe UI, Arial, sans-serif" font-size="15" fill="#15803d">2 files changed, tests queued.</text>
+  <rect x="446" y="518" width="402" height="112" rx="24" fill="#0f172a"/>
+  <rect x="474" y="546" width="216" height="12" rx="6" fill="#38bdf8"/>
+  <rect x="474" y="576" width="306" height="12" rx="6" fill="#94a3b8"/>
+  <rect x="474" y="606" width="250" height="12" rx="6" fill="#64748b"/>
+  <rect x="938" y="158" width="246" height="552" rx="28" fill="#111827"/>
+  <text x="970" y="206" font-family="Segoe UI, Arial, sans-serif" font-size="21" font-weight="700" fill="#f8fafc">Runtime</text>
+  <rect x="970" y="236" width="182" height="58" rx="18" fill="#0f172a"/>
+  <text x="994" y="270" font-family="Segoe UI, Arial, sans-serif" font-size="16" fill="#cbd5e1">Codex CLI</text>
+  <rect x="970" y="318" width="182" height="58" rx="18" fill="#0f172a"/>
+  <text x="994" y="352" font-family="Segoe UI, Arial, sans-serif" font-size="16" fill="#cbd5e1">Claude Code</text>
+  <rect x="970" y="424" width="182" height="10" rx="5" fill="#334155"/>
+  <rect x="970" y="424" width="136" height="10" rx="5" fill="url(#accent)"/>
+  <text x="970" y="472" font-family="Segoe UI, Arial, sans-serif" font-size="15" fill="#94a3b8">Connection stable</text>
+</svg>

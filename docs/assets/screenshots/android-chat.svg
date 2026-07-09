@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="1280" viewBox="0 0 720 1280" role="img" aria-label="AgentFlow Android chat preview">
+  <defs>
+    <linearGradient id="phoneBg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0f172a"/>
+      <stop offset="1" stop-color="#164e63"/>
+    </linearGradient>
+    <linearGradient id="send" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#22c55e"/>
+      <stop offset="1" stop-color="#06b6d4"/>
+    </linearGradient>
+  </defs>
+  <rect width="720" height="1280" rx="68" fill="#020617"/>
+  <rect x="42" y="42" width="636" height="1196" rx="54" fill="url(#phoneBg)"/>
+  <rect x="282" y="72" width="156" height="16" rx="8" fill="#334155"/>
+  <text x="78" y="150" font-family="Segoe UI, Arial, sans-serif" font-size="34" font-weight="800" fill="#f8fafc">AgentFlow</text>
+  <text x="78" y="190" font-family="Segoe UI, Arial, sans-serif" font-size="20" fill="#bae6fd">Project messages stay in sync.</text>
+  <rect x="78" y="226" width="564" height="94" rx="28" fill="#0f172a" opacity="0.78"/>
+  <circle cx="126" cy="273" r="18" fill="#22c55e"/>
+  <text x="164" y="266" font-family="Segoe UI, Arial, sans-serif" font-size="22" font-weight="700" fill="#f8fafc">Desktop online</text>
+  <text x="164" y="294" font-family="Segoe UI, Arial, sans-serif" font-size="16" fill="#94a3b8">Last sync just now</text>
+  <rect x="78" y="366" width="448" height="116" rx="28" fill="#e0f2fe"/>
+  <text x="112" y="410" font-family="Segoe UI, Arial, sans-serif" font-size="20" font-weight="700" fill="#075985">Check the latest build error</text>
+  <text x="112" y="444" font-family="Segoe UI, Arial, sans-serif" font-size="17" fill="#0369a1">Send logs back to desktop agent.</text>
+  <rect x="184" y="530" width="458" height="132" rx="30" fill="#dcfce7"/>
+  <text x="222" y="578" font-family="Segoe UI, Arial, sans-serif" font-size="20" font-weight="700" fill="#166534">Fix applied on desktop</text>
+  <text x="222" y="612" font-family="Segoe UI, Arial, sans-serif" font-size="17" fill="#15803d">Tests passed and release upload queued.</text>
+  <rect x="78" y="710" width="498" height="160" rx="30" fill="#f8fafc"/>
+  <text x="114" y="758" font-family="Segoe UI, Arial, sans-serif" font-size="20" font-weight="700" fill="#0f172a">Files received</text>
+  <rect x="114" y="790" width="382" height="12" rx="6" fill="#cbd5e1"/>
+  <rect x="114" y="824" width="304" height="12" rx="6" fill="#e2e8f0"/>
+  <rect x="114" y="842" width="220" height="12" rx="6" fill="#e2e8f0"/>
+  <rect x="78" y="1048" width="564" height="92" rx="30" fill="#f8fafc"/>
+  <text x="112" y="1103" font-family="Segoe UI, Arial, sans-serif" font-size="20" fill="#475569">Type a command...</text>
+  <circle cx="590" cy="1094" r="34" fill="url(#send)"/>
+  <path d="M578 1096h24m0 0-10-10m10 10-10 10" fill="none" stroke="#f8fafc" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="250" y="1188" width="220" height="10" rx="5" fill="#334155"/>
+</svg>

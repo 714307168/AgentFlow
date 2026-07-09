@@ -19,6 +19,12 @@ Android App  <-->  Relay Server  <-->  Desktop Agent  <-->  Claude Code CLI / Co
 
 也就是手机负责查看和操作，服务器负责中转，桌面端负责真正执行 AI 编程任务。
 
+## 界面预览
+
+| 桌面端工作台 | Android 聊天 | 管理后台 |
+| --- | --- | --- |
+| ![桌面端工作台](./docs/assets/screenshots/desktop-workspace.svg) | ![Android 聊天](./docs/assets/screenshots/android-chat.svg) | ![管理后台](./docs/assets/screenshots/admin-console.svg) |
+
 ## 适合谁用？
 
 - 经常在电脑上使用 Claude Code、Codex 这类 CLI Agent 的开发者
