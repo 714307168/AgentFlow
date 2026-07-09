@@ -584,7 +584,6 @@ class MainActivity : ComponentActivity() {
             return
         }
 
-        RelayConnectionService.start(applicationContext)
         registerNetworkRecoveryCallbackIfNeeded()
 
         val now = System.currentTimeMillis()
