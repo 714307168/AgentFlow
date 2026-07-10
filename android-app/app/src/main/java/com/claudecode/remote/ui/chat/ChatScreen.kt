@@ -158,7 +158,6 @@ fun ChatScreen(
     var selectedPane by rememberSaveable(projectId) { mutableStateOf(ChatPane.CONVERSATION) }
     var showModelDialog by remember { mutableStateOf(false) }
     var showConversationDialog by remember { mutableStateOf(false) }
-    var modelInput by remember { mutableStateOf("") }
     var hasInitialConversationScrollPosition by remember(projectId) { mutableStateOf(false) }
     var pendingConversationBottomScroll by remember(projectId) { mutableStateOf(true) }
     var previousLastMessageId by remember(projectId) { mutableStateOf<String?>(null) }
@@ -438,6 +437,9 @@ fun ChatScreen(
     }
 
     if (showModelDialog) {
+        val modelChoices = remember(uiState.cliProvider, uiState.cliModel) {
+            modelChoices(uiState.cliProvider, uiState.cliModel)
+        }
         AlertDialog(
             onDismissRequest = { showModelDialog = false },
             title = { Text(stringResource(R.string.chat_switch_model_title)) },
@@ -452,31 +454,31 @@ fun ChatScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    OutlinedTextField(
-                        value = modelInput,
-                        onValueChange = { modelInput = it },
-                        label = { Text(stringResource(R.string.chat_model_field)) },
-                        placeholder = { Text(stringResource(R.string.chat_model_placeholder)) },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 320.dp)
+                    ) {
+                        items(modelChoices, key = { it.model ?: "auto" }) { choice ->
+                            ModelChoiceRow(
+                                choice = choice,
+                                selected = (choice.model.orEmpty() == uiState.cliModel.trim()),
+                                onClick = {
+                                    viewModel.changeModel(choice.model.orEmpty())
+                                    showModelDialog = false
+                                }
+                            )
+                        }
+                    }
                 }
             },
             confirmButton = {
-                TextButton(
-                    onClick = {
-                        viewModel.changeModel(modelInput)
-                        showModelDialog = false
-                    }
-                ) {
-                    Text(stringResource(R.string.settings_apply))
-                }
-            },
-            dismissButton = {
                 TextButton(onClick = { showModelDialog = false }) {
                     Text(stringResource(R.string.cancel))
                 }
-            }
+            },
+            dismissButton = {}
         )
     }
 
@@ -667,6 +669,10 @@ fun ChatScreen(
                     onRemovePendingAttachment = { attachmentId ->
                         viewModel.removePendingAttachment(attachmentId)
                     },
+                    provider = providerLabel(uiState.cliProvider),
+                    model = modelLabel(uiState.cliModel),
+                    modelEnabled = uiState.isConnected && !uiState.isSending,
+                    onChangeModel = { showModelDialog = true },
                     enabled = uiState.isConnected && !uiState.isSending && uiState.messageComposeAllowed,
                     stopEnabled = uiState.isConnected && !uiState.isSending,
                     isRunning = uiState.isRunning
@@ -706,10 +712,7 @@ fun ChatScreen(
                         }
                     },
                     onOpenConversations = { showConversationDialog = true },
-                    onChangeModel = {
-                        modelInput = uiState.cliModel
-                        showModelDialog = true
-                    },
+                    onChangeModel = { showModelDialog = true },
                     conversationEnabled = uiState.isConnected,
                     refreshEnabled = !uiState.isSwitchingConversation,
                     modelEnabled = uiState.isConnected && !uiState.isSending,
@@ -874,6 +877,78 @@ private fun providerLabel(provider: String): String = ProviderUi.label(provider)
 
 private fun modelLabel(model: String?): String =
     model?.trim().takeUnless { it.isNullOrEmpty() } ?: "Auto"
+
+private data class ModelChoice(
+    val model: String?,
+    val title: String,
+    val detail: String
+)
+
+private fun modelChoices(provider: String, currentModel: String?): List<ModelChoice> {
+    val choices = mutableListOf<ModelChoice>()
+    val seen = mutableSetOf<String>()
+
+    fun add(model: String?, title: String, detail: String) {
+        val normalized = model?.trim().orEmpty()
+        val key = normalized.lowercase().ifBlank { "auto" }
+        if (seen.add(key)) {
+            choices += ModelChoice(
+                model = normalized.ifBlank { null },
+                title = title,
+                detail = detail
+            )
+        }
+    }
+
+    add(null, "Auto", "使用当前服务商默认模型")
+    add(currentModel, modelLabel(currentModel), "从桌面端同步的当前模型")
+    ProviderUi.defaultModels(provider).forEach { preset ->
+        add(preset.model, preset.model, "上游预设：${preset.name}")
+    }
+
+    return choices
+}
+
+@Composable
+private fun ModelChoiceRow(
+    choice: ModelChoice,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(16.dp),
+        color = if (selected) {
+            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.86f)
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.46f)
+        },
+        border = BorderStroke(
+            1.dp,
+            if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.46f)
+            else MaterialTheme.colorScheme.outline.copy(alpha = 0.12f)
+        ),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
+            verticalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            Text(
+                text = choice.title,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+            )
+            Text(
+                text = choice.detail,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f)
+                else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
 
 @Composable
 private fun connectionLabel(isConnected: Boolean): String =
@@ -1590,6 +1665,10 @@ private fun InputBar(
     onStop: () -> Unit,
     onAttachFile: () -> Unit,
     onRemovePendingAttachment: (String) -> Unit,
+    provider: String,
+    model: String,
+    modelEnabled: Boolean,
+    onChangeModel: () -> Unit,
     enabled: Boolean,
     stopEnabled: Boolean,
     isRunning: Boolean
@@ -1609,6 +1688,42 @@ private fun InputBar(
                 .imePadding(),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Surface(
+                    onClick = onChangeModel,
+                    enabled = modelEnabled,
+                    shape = RoundedCornerShape(999.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.76f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.18f))
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.AutoAwesome,
+                            contentDescription = stringResource(R.string.action_model),
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Text(
+                            text = "$provider / $model",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.widthIn(max = 260.dp)
+                        )
+                    }
+                }
+            }
+
             if (pendingAttachments.isNotEmpty()) {
                 PendingAttachmentTray(
                     attachments = pendingAttachments,

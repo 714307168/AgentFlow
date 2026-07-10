@@ -1891,6 +1891,62 @@ body.lightbox-open {
   border-color: var(--border);
 }
 
+.model-switch-menu {
+  position: fixed;
+  z-index: 2400;
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  max-height: min(420px, calc(100vh - 48px));
+  overflow-y: auto;
+  border: 1px solid rgba(169, 188, 255, 0.24);
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, rgba(18, 24, 38, 0.98), rgba(9, 13, 24, 0.98)),
+    var(--surface, #101725);
+  box-shadow: 0 22px 54px rgba(0, 0, 0, 0.38);
+  backdrop-filter: blur(18px);
+}
+
+.model-switch-menu-header {
+  padding: 4px 8px 8px;
+  color: rgba(238, 244, 255, 0.72);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.model-switch-option {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  padding: 10px 11px;
+  border: 1px solid rgba(169, 188, 255, 0.12);
+  border-radius: 13px;
+  color: rgba(242, 246, 255, 0.94);
+  text-align: left;
+  background: rgba(255, 255, 255, 0.045);
+  cursor: pointer;
+}
+
+.model-switch-option:hover,
+.model-switch-option.active {
+  border-color: rgba(94, 234, 212, 0.52);
+  background: rgba(94, 234, 212, 0.12);
+}
+
+.model-switch-option-name {
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.model-switch-option-detail {
+  color: rgba(213, 224, 245, 0.68);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
 .composer-mode-select {
   appearance: none;
   background:

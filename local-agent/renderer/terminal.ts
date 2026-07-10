@@ -5,6 +5,12 @@ type AttachmentKind = "image" | "file";
 const MAX_ACTIVITY_PANEL_ITEMS = 30;
 type ProviderUiApi = {
   getProviderLabel?: (provider: string) => string;
+  listModelProviderPresets?: () => Array<{
+    id: string;
+    name: string;
+    protocol: "openai" | "anthropic";
+    defaultModel: string;
+  }>;
 };
 type ClientCapabilitiesApi = {
   supportsDesktopCapability?: (key: string) => boolean;
@@ -92,6 +98,18 @@ interface ClaudeAgentApi {
   minimizeWindow?: () => void;
   maximizeWindow?: () => void;
   closeWindow?: () => void;
+  getConfig?: () => Promise<{
+    openaiDefaultModel?: string | null;
+    anthropicDefaultModel?: string | null;
+    modelProviderProfiles?: Array<{
+      id?: string | null;
+      name?: string | null;
+      protocol?: "openai" | "anthropic" | string | null;
+      defaultModel?: string | null;
+      enabled?: boolean | null;
+    }> | null;
+    activeModelProviderProfileByProtocol?: Partial<Record<"openai" | "anthropic", string>> | null;
+  }>;
 }
 
 interface SessionMessage {
@@ -653,6 +671,102 @@ function syncAttachmentButtons(): void {
 function modelLabel(model: string | null | undefined): string {
   const value = model?.trim() ?? "";
   return value || inlineText("Auto", "自动");
+}
+
+type ModelProviderProtocol = "openai" | "anthropic";
+
+interface ModelChoice {
+  model: string | null;
+  label: string;
+  detail: string;
+}
+
+function providerProtocol(provider: "claude" | "codex"): ModelProviderProtocol {
+  return provider === "claude" ? "anthropic" : "openai";
+}
+
+function addModelChoice(choices: ModelChoice[], seen: Set<string>, model: string | null, detail: string): void {
+  const normalized = model?.trim() ?? "";
+  const key = normalized.toLowerCase() || "auto";
+  if (seen.has(key)) {
+    return;
+  }
+  seen.add(key);
+  choices.push({
+    model: normalized || null,
+    label: modelLabel(normalized),
+    detail,
+  });
+}
+
+function getPresetModelChoices(provider: "claude" | "codex"): ModelChoice[] {
+  const protocol = providerProtocol(provider);
+  const presets = getProviderUiApi()?.listModelProviderPresets?.() ?? [];
+  const choices: ModelChoice[] = [];
+  const seen = new Set<string>();
+  for (const preset of presets) {
+    if (preset.protocol !== protocol || !preset.defaultModel?.trim()) {
+      continue;
+    }
+    addModelChoice(
+      choices,
+      seen,
+      preset.defaultModel,
+      inlineText(`Upstream preset: ${preset.name}`, `上游预设：${preset.name}`),
+    );
+  }
+  return choices;
+}
+
+async function buildModelChoices(project: ProjectState, session: SessionSnapshot | null): Promise<ModelChoice[]> {
+  const provider = getConfiguredProvider(project, session);
+  const protocol = providerProtocol(provider);
+  const choices: ModelChoice[] = [];
+  const seen = new Set<string>();
+
+  addModelChoice(choices, seen, null, inlineText("Use the active provider default", "使用当前服务商默认模型"));
+  addModelChoice(choices, seen, session?.model ?? null, inlineText("Synced from current session", "从当前会话同步"));
+  addModelChoice(choices, seen, project.cliModel ?? null, inlineText("Synced from project settings", "从项目配置同步"));
+
+  try {
+    const config = await api.getConfig?.();
+    const profiles = Array.isArray(config?.modelProviderProfiles) ? config.modelProviderProfiles : [];
+    const activeId = config?.activeModelProviderProfileByProtocol?.[protocol];
+    const matchingProfiles = profiles.filter((profile) => (
+      profile
+      && profile.enabled !== false
+      && profile.protocol === protocol
+      && typeof profile.defaultModel === "string"
+      && profile.defaultModel.trim()
+    ));
+    const activeProfile = matchingProfiles.find((profile) => profile.id === activeId);
+    if (activeProfile) {
+      addModelChoice(
+        choices,
+        seen,
+        activeProfile.defaultModel ?? null,
+        inlineText(`Active provider: ${activeProfile.name || activeProfile.id || providerLabel(provider)}`, `当前服务商：${activeProfile.name || activeProfile.id || providerLabel(provider)}`),
+      );
+    }
+    for (const profile of matchingProfiles) {
+      addModelChoice(
+        choices,
+        seen,
+        profile.defaultModel ?? null,
+        inlineText(`Configured provider: ${profile.name || profile.id || providerLabel(provider)}`, `已配置服务商：${profile.name || profile.id || providerLabel(provider)}`),
+      );
+    }
+    const legacyDefault = protocol === "openai" ? config?.openaiDefaultModel : config?.anthropicDefaultModel;
+    addModelChoice(choices, seen, legacyDefault ?? null, inlineText("Configured default model", "已配置默认模型"));
+  } catch (error) {
+    console.warn("Failed to load configured model choices", error);
+  }
+
+  for (const choice of getPresetModelChoices(provider)) {
+    addModelChoice(choices, seen, choice.model, choice.detail);
+  }
+
+  return choices;
 }
 
 function isComposerRunMode(value: string | null | undefined): value is ComposerRunMode {
@@ -4337,29 +4451,17 @@ function getWorkgroupStatusMeta(workgroupId: string): { label: string; tone: str
   };
 }
 
-async function promptForModel(): Promise<void> {
-  const project = getCurrentProject();
-  if (!project) {
-    return;
-  }
+let modelPickerEl: HTMLDivElement | null = null;
 
-  const session = getCurrentSession();
-  const currentModel = session?.model ?? project.cliModel ?? "";
-  const nextModel = window.prompt(
-    inlineText(
-      "Enter a model name. Leave blank or type auto to use the provider default.",
-      "输入模型名称。留空或输入 auto 将使用当前提供方默认模型。",
-    ),
-    currentModel,
-  );
+function closeModelPicker(): void {
+  modelPickerEl?.remove();
+  modelPickerEl = null;
+}
 
-  if (nextModel === null) {
-    return;
-  }
-
-  const normalized = nextModel.trim();
+async function switchProjectModel(projectId: string, model: string | null): Promise<void> {
+  const normalized = model?.trim() ?? "";
   const result = await api.sendProjectPrompt({
-    projectId: project.id,
+    projectId,
     prompt: normalized ? `/model ${normalized}` : "/model auto",
   });
 
@@ -4370,6 +4472,59 @@ async function promptForModel(): Promise<void> {
 
   setHintText(inlineText("Model update queued.", "模型切换已加入队列。"), false);
   elements.composerInput?.focus();
+}
+
+async function openModelPicker(anchor: HTMLElement): Promise<void> {
+  const project = getCurrentProject();
+  if (!project) {
+    return;
+  }
+
+  const session = getCurrentSession();
+  const currentModel = getConfiguredModel(project, session)?.trim() ?? "";
+  const choices = await buildModelChoices(project, session);
+
+  closeModelPicker();
+  const picker = document.createElement("div");
+  picker.className = "model-switch-menu";
+  picker.setAttribute("role", "menu");
+
+  const header = document.createElement("div");
+  header.className = "model-switch-menu-header";
+  header.textContent = inlineText("Switch model", "切换模型");
+  picker.appendChild(header);
+
+  for (const choice of choices) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "model-switch-option";
+    button.setAttribute("role", "menuitem");
+    if ((choice.model ?? "") === currentModel) {
+      button.classList.add("active");
+    }
+
+    const name = document.createElement("span");
+    name.className = "model-switch-option-name";
+    name.textContent = choice.label;
+    const detail = document.createElement("span");
+    detail.className = "model-switch-option-detail";
+    detail.textContent = choice.detail;
+    button.append(name, detail);
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      closeModelPicker();
+      void switchProjectModel(project.id, choice.model);
+    });
+    picker.appendChild(button);
+  }
+
+  document.body.appendChild(picker);
+  const rect = anchor.getBoundingClientRect();
+  const pickerWidth = Math.min(360, Math.max(260, rect.width));
+  picker.style.width = `${pickerWidth}px`;
+  picker.style.left = `${Math.max(12, Math.min(window.innerWidth - pickerWidth - 12, rect.left))}px`;
+  picker.style.top = `${Math.max(12, Math.min(window.innerHeight - picker.offsetHeight - 12, rect.bottom + 8))}px`;
+  modelPickerEl = picker;
 }
 
 async function loadI18n(): Promise<void> {
@@ -4708,12 +4863,25 @@ elements.workbenchTabs?.addEventListener("click", (event) => {
   });
 });
 
-elements.modelBadge?.addEventListener("click", () => {
-  void promptForModel();
+elements.modelBadge?.addEventListener("click", (event) => {
+  event.stopPropagation();
+  void openModelPicker(event.currentTarget as HTMLElement);
 });
 
-elements.composerModelBtn?.addEventListener("click", () => {
-  void promptForModel();
+elements.composerModelBtn?.addEventListener("click", (event) => {
+  event.stopPropagation();
+  void openModelPicker(event.currentTarget as HTMLElement);
+});
+
+document.addEventListener("click", (event) => {
+  if (!modelPickerEl) {
+    return;
+  }
+  const target = event.target instanceof Node ? event.target : null;
+  if (target && modelPickerEl.contains(target)) {
+    return;
+  }
+  closeModelPicker();
 });
 
 elements.composerRunModeSelect?.addEventListener("change", (event) => {
