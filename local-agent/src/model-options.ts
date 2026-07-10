@@ -14,6 +14,7 @@ export interface ModelProviderOption {
   defaultModel: string | null;
   models: string[];
   configured: boolean;
+  credentialSource?: "config" | "env" | "none";
   error?: string;
 }
 
@@ -31,17 +32,18 @@ export async function listConfiguredModelOptions(
     .filter((profile) => profile.enabled !== false);
 
   return await Promise.all(profiles.map(async (profile) => {
-    const resolvedApiKey = resolveProfileApiKey(profile, env);
+    const credential = resolveProfileCredential(profile, env);
     const option: ModelProviderOption = {
       id: profile.id,
       name: profile.name,
       protocol: profile.protocol,
       defaultModel: normalizeText(profile.defaultModel) || null,
       models: [],
-      configured: Boolean(resolvedApiKey),
+      configured: Boolean(credential.apiKey),
+      credentialSource: credential.source,
     };
 
-    if (!resolvedApiKey) {
+    if (!credential.apiKey) {
       option.models = fallbackModelsForProfile(profile);
       return option;
     }
@@ -49,7 +51,7 @@ export async function listConfiguredModelOptions(
     try {
       const models = await fetchProviderModels({
         ...profile,
-        resolvedApiKey,
+        resolvedApiKey: credential.apiKey,
       });
       option.models = mergeModels([
         profile.defaultModel,
@@ -130,8 +132,19 @@ function fallbackModelsForProfile(profile: ModelProviderProfile): string[] {
   ]);
 }
 
-function resolveProfileApiKey(profile: ModelProviderProfile, env: NodeJS.ProcessEnv): string {
-  return normalizeText(profile.apiKey) || firstEnv(env, getProfileApiKeyEnvNames(profile));
+function resolveProfileCredential(
+  profile: ModelProviderProfile,
+  env: NodeJS.ProcessEnv,
+): { apiKey: string; source: "config" | "env" | "none" } {
+  const configured = normalizeText(profile.apiKey);
+  if (configured) {
+    return { apiKey: configured, source: "config" };
+  }
+  const fromEnv = firstEnv(env, getProfileApiKeyEnvNames(profile));
+  if (fromEnv) {
+    return { apiKey: fromEnv, source: "env" };
+  }
+  return { apiKey: "", source: "none" };
 }
 
 function getProfileApiKeyEnvNames(profile: ModelProviderProfile): string[] {

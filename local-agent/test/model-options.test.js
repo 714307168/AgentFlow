@@ -37,6 +37,7 @@ test("listConfiguredModelOptions loads OpenAI-compatible models using env keys",
 
     assert.equal(options.length, 1);
     assert.equal(options[0].configured, true);
+    assert.equal(options[0].credentialSource, "env");
     assert.deepEqual(options[0].models, ["deepseek-chat", "deepseek-reasoner"]);
     assert.equal(calls[0].url, "https://api.deepseek.com/v1/models");
     assert.equal(calls[0].init.headers.Authorization, "Bearer sk-env");
@@ -68,9 +69,29 @@ test("listConfiguredModelOptions falls back to configured default when model API
 
     assert.equal(options.length, 1);
     assert.equal(options[0].configured, true);
+    assert.equal(options[0].credentialSource, "config");
     assert.equal(options[0].error, "HTTP 401");
     assert.deepEqual(options[0].models, ["claude-custom", "claude-3-7-sonnet-latest"]);
   } finally {
     global.fetch = previousFetch;
   }
+});
+
+test("listConfiguredModelOptions marks missing provider credentials explicitly", async () => {
+  const options = await listConfiguredModelOptions({
+    modelProviderProfiles: [{
+      id: "openai",
+      name: "OpenAI",
+      protocol: "openai",
+      apiKey: "",
+      baseUrl: "https://api.openai.com",
+      defaultModel: "gpt-5.4",
+      enabled: true,
+    }],
+  }, {});
+
+  assert.equal(options.length, 1);
+  assert.equal(options[0].configured, false);
+  assert.equal(options[0].credentialSource, "none");
+  assert.deepEqual(options[0].models, ["gpt-5.4"]);
 });

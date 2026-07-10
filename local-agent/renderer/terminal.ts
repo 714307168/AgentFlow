@@ -706,6 +706,7 @@ interface ModelProviderOption {
   defaultModel: string | null;
   models: string[];
   configured: boolean;
+  credentialSource?: "config" | "env" | "none";
   error?: string;
   source?: "local" | "remote";
 }
@@ -815,10 +816,29 @@ function providerOptionDetail(option: ModelProviderOption): string {
   if (option.source === "remote") {
     return inlineText("Models loaded from the remote desktop environment.", "模型列表来自远端桌面环境。");
   }
+  if (option.credentialSource === "env") {
+    return inlineText("Models loaded from this desktop's environment variables.", "模型列表来自本机环境变量。");
+  }
+  if (option.credentialSource === "config") {
+    return inlineText("Models loaded from the local provider configuration.", "模型列表来自本地模型配置。");
+  }
   if (option.configured) {
     return inlineText("Models loaded from configured API or environment.", "模型列表来自已配置 API 或环境变量。");
   }
   return inlineText("No API key found; showing configured defaults.", "未找到 API Key，显示已配置默认模型。");
+}
+
+function providerOptionSourceLabel(option: ModelProviderOption): string {
+  if (option.source === "remote") {
+    return inlineText("Remote env", "远端环境");
+  }
+  if (option.credentialSource === "env") {
+    return inlineText("Local env", "本机环境");
+  }
+  if (option.credentialSource === "config") {
+    return inlineText("Local config", "本地配置");
+  }
+  return inlineText("Default", "默认");
 }
 
 async function buildModelProviderOptions(
@@ -4746,6 +4766,13 @@ async function openModelPicker(anchor: HTMLElement, options: { force?: boolean }
 
   const detail = document.createElement("div");
   detail.className = "model-switch-option-detail";
+  const providerMeta = document.createElement("div");
+  providerMeta.className = "model-switch-provider-meta";
+  const providerProtocolBadge = document.createElement("span");
+  providerProtocolBadge.className = "model-switch-source-chip";
+  const providerSourceBadge = document.createElement("span");
+  providerSourceBadge.className = "model-switch-source-chip";
+  providerMeta.append(providerProtocolBadge, providerSourceBadge);
 
   const actions = document.createElement("div");
   actions.className = "model-switch-actions";
@@ -4788,6 +4815,8 @@ async function openModelPicker(anchor: HTMLElement, options: { force?: boolean }
     modelSelect.value = option.protocol === providerProtocol(currentProvider) && currentModel
       ? currentModel
       : (option.defaultModel ?? "");
+    providerProtocolBadge.textContent = option.protocol === "anthropic" ? "Anthropic" : "OpenAI";
+    providerSourceBadge.textContent = providerOptionSourceLabel(option);
     detail.textContent = providerOptionDetail(option);
   }
 
@@ -4809,7 +4838,7 @@ async function openModelPicker(anchor: HTMLElement, options: { force?: boolean }
     void switchProjectModel(project.id, providerForProtocol(option.protocol), modelSelect.value || null);
   });
 
-  picker.append(providerLabelEl, modelLabelEl, detail, actions);
+  picker.append(providerLabelEl, modelLabelEl, providerMeta, detail, actions);
   syncModelSelect();
 
   document.body.appendChild(picker);
