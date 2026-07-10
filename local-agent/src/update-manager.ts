@@ -18,6 +18,7 @@ import {
   getGitHubReleaseApiUrl,
   type GitHubReleasePayload,
 } from "./github-update-source";
+import { selectFastestGitHubDownloadUrl } from "./github-download-accelerator";
 
 type UpdateStatus = "idle" | "checking" | "available" | "downloading" | "downloaded" | "up_to_date" | "error";
 
@@ -149,11 +150,13 @@ class UpdateManager extends EventEmitter {
     });
 
     try {
-      const response = await fetch(this.latestRelease.downloadUrl, {
-        headers: this.buildDownloadHeaders(this.latestRelease.downloadUrl),
+      const originalDownloadUrl = this.latestRelease.downloadUrl;
+      const selectedDownload = await selectFastestGitHubDownloadUrl(originalDownloadUrl);
+      const response = await fetch(selectedDownload.url, {
+        headers: this.buildDownloadHeaders(originalDownloadUrl),
       });
       if (!response.ok) {
-        throw new Error(`Download failed with status ${response.status}`);
+        throw new Error(`Download failed from ${selectedDownload.label} with status ${response.status}`);
       }
 
       const buffer = await this.readDownloadBuffer(response, this.latestRelease.size ?? null);
