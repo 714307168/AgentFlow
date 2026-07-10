@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const settingsHtml = fs.readFileSync(path.join(__dirname, "../renderer/settings.html"), "utf8");
+const mainSource = fs.readFileSync(path.join(__dirname, "../src/main.ts"), "utf8");
 
 test("settings page splits system settings into standalone panes", () => {
   const expectedPanes = [
@@ -77,4 +78,20 @@ test("settings runtime pane manages model credentials through provider profiles"
   assert.doesNotMatch(settingsHtml, /id="anthropicApiKey"/);
   assert.match(settingsHtml, /\.model-provider-name \{[^}]*color: var\(--text\)/);
   assert.doesNotMatch(settingsHtml, /\.model-provider-name \{[^}]*color: #fff/);
+});
+
+test("settings page preserves project drafts during background config loads", () => {
+  const loadSettingsBody = settingsHtml.match(/async function loadSettings\(\) \{([\s\S]*?)\n    \}\n\n    document\.getElementById\("cliProvider"\)/)?.[1] || "";
+  assert.match(settingsHtml, /function syncAddProjectFormDefaults\(config = latestConfig\)/);
+  assert.match(settingsHtml, /if \(isAddProjectFormVisible\(\) \|\| hasAddProjectDraft\(\)\) \{/);
+  assert.match(loadSettingsBody, /syncAddProjectFormDefaults\(config\);/);
+  assert.doesNotMatch(loadSettingsBody, /document\.getElementById\("projectModel"\)\.value = "";/);
+  assert.doesNotMatch(loadSettingsBody, /document\.getElementById\("projectPrompt"\)\.value = "";/);
+});
+
+test("main process caches public settings config snapshots", () => {
+  assert.match(mainSource, /let publicConfigCache: PublicAgentConfig \| null = null;/);
+  assert.match(mainSource, /function getPublicConfig\(\): PublicAgentConfig \{\s*return publicConfigCache \?\? warmPublicConfigCache\(\);\s*\}/);
+  assert.match(mainSource, /app\.whenReady\(\)\.then\(async \(\) => \{[\s\S]*warmPublicConfigCache\(\);[\s\S]*const config = loadConfig\(\);/);
+  assert.match(mainSource, /ipcMain\.handle\("save-config"[\s\S]*invalidatePublicConfigCache\(\);[\s\S]*warmPublicConfigCache\(\);/);
 });

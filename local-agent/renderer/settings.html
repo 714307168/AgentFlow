@@ -5957,6 +5957,59 @@
       el._timer = setTimeout(() => el.classList.remove("visible"), 1500);
     }
 
+    function isAddProjectFormVisible() {
+      return document.getElementById("addProjectForm").classList.contains("visible");
+    }
+
+    function captureAddProjectDraft() {
+      return {
+        name: document.getElementById("projectName").value,
+        path: document.getElementById("projectPath").value,
+        groupName: document.getElementById("projectGroup").value,
+        cliProvider: document.getElementById("projectProvider").value,
+        cliModel: document.getElementById("projectModel").value,
+        codexWebSearchEnabled: document.getElementById("projectCodexSearchEnabled").checked,
+        projectPrompt: document.getElementById("projectPrompt").value,
+      };
+    }
+
+    function hasAddProjectDraft(draft = captureAddProjectDraft()) {
+      return Boolean(
+        String(draft.name || "").trim()
+        || String(draft.path || "").trim()
+        || String(draft.groupName || "").trim()
+        || String(draft.cliModel || "").trim()
+        || String(draft.projectPrompt || "").trim()
+        || draft.codexWebSearchEnabled
+      );
+    }
+
+    function resetAddProjectForm(options = {}) {
+      const provider = options.provider || document.getElementById("cliProvider").value || latestConfig?.cliProvider || "claude";
+      if (options.hide !== false) {
+        document.getElementById("addProjectForm").classList.remove("visible");
+      }
+      document.getElementById("projectName").value = "";
+      document.getElementById("projectPath").value = "";
+      document.getElementById("projectGroup").value = "";
+      document.getElementById("projectProvider").value = provider;
+      applyCliProviderAvailabilityToSelect(document.getElementById("projectProvider"), document.getElementById("projectProvider").value);
+      document.getElementById("projectModel").value = "";
+      document.getElementById("projectCodexSearchEnabled").checked = false;
+      setProjectCodexSearchVisibility(document.getElementById("projectProvider").value);
+      document.getElementById("projectPrompt").value = "";
+    }
+
+    function syncAddProjectFormDefaults(config = latestConfig) {
+      if (isAddProjectFormVisible() || hasAddProjectDraft()) {
+        return;
+      }
+      resetAddProjectForm({
+        hide: false,
+        provider: config?.cliProvider || "claude",
+      });
+    }
+
     async function saveConnectionConfig() {
       const password = readSecretFieldValue("password");
       const githubToken = readSecretFieldValue("githubToken");
@@ -7866,12 +7919,7 @@
       renderModelProviderPresetOptions();
       renderModelProviderProfiles();
       document.getElementById("cliProvider").value = config.cliProvider || "claude";
-      document.getElementById("projectProvider").value = config.cliProvider || "claude";
-      document.getElementById("projectModel").value = "";
-      document.getElementById("projectCodexSearchEnabled").checked = false;
-      setProjectCodexSearchVisibility(document.getElementById("projectProvider").value);
-      document.getElementById("projectPrompt").value = "";
-      document.getElementById("projectGroup").value = "";
+      syncAddProjectFormDefaults(config);
       document.getElementById("e2eToggle").checked = e2e.enabled;
       document.getElementById("pubkey").textContent = e2e.publicKey || "—";
       document.getElementById("autoStartToggle").checked = appSettings.autoStart || false;
@@ -8514,22 +8562,14 @@
     });
 
     document.getElementById("addProjectBtn").addEventListener("click", () => {
+      syncAddProjectFormDefaults(latestConfig);
       setProjectCodexSearchVisibility(document.getElementById("projectProvider").value);
       document.getElementById("addProjectForm").classList.add("visible");
       document.getElementById("projectName").focus();
     });
 
     document.getElementById("cancelProjectBtn").addEventListener("click", () => {
-      document.getElementById("addProjectForm").classList.remove("visible");
-      document.getElementById("projectName").value = "";
-      document.getElementById("projectPath").value = "";
-      document.getElementById("projectGroup").value = "";
-      document.getElementById("projectProvider").value = document.getElementById("cliProvider").value || "claude";
-      applyCliProviderAvailabilityToSelect(document.getElementById("projectProvider"), document.getElementById("projectProvider").value);
-      document.getElementById("projectModel").value = "";
-      document.getElementById("projectCodexSearchEnabled").checked = false;
-      setProjectCodexSearchVisibility(document.getElementById("projectProvider").value);
-      document.getElementById("projectPrompt").value = "";
+      resetAddProjectForm();
     });
 
     document.getElementById("saveProjectBtn").addEventListener("click", async () => {
@@ -8558,16 +8598,7 @@
           codexWebSearchEnabled,
           projectPrompt: projectPrompt || null,
         });
-        document.getElementById("addProjectForm").classList.remove("visible");
-        document.getElementById("projectName").value = "";
-        document.getElementById("projectPath").value = "";
-        document.getElementById("projectGroup").value = "";
-        document.getElementById("projectProvider").value = document.getElementById("cliProvider").value || "claude";
-        applyCliProviderAvailabilityToSelect(document.getElementById("projectProvider"), document.getElementById("projectProvider").value);
-        document.getElementById("projectModel").value = "";
-        document.getElementById("projectCodexSearchEnabled").checked = false;
-        setProjectCodexSearchVisibility(document.getElementById("projectProvider").value);
-        document.getElementById("projectPrompt").value = "";
+        resetAddProjectForm();
         paneLoadState.projectsDirty = true;
         paneLoadState.workgroupsDirty = true;
         await loadProjects({ force: true });

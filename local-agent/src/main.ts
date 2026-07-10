@@ -154,6 +154,16 @@ interface AgentConfig {
   cliProvider: CliProvider;
 }
 
+type PublicAgentConfig = Omit<
+  AgentConfig,
+  "encryptedToken"
+  | "encryptedPassword"
+  | "encryptedOpenaiApiKey"
+  | "encryptedAnthropicApiKey"
+  | "encryptedModelProviderProfiles"
+  | "encryptedGithubToken"
+>;
+
 interface AppSettings {
   autoStart: boolean;
   silentLaunch: boolean;
@@ -367,6 +377,17 @@ const configStore = new Store<AgentConfig>({
   },
 });
 
+let publicConfigCache: PublicAgentConfig | null = null;
+
+function invalidatePublicConfigCache(): void {
+  publicConfigCache = null;
+}
+
+function warmPublicConfigCache(): PublicAgentConfig {
+  publicConfigCache = buildPublicConfigSnapshot();
+  return publicConfigCache;
+}
+
 function getOrCreateAgentId(): string {
   const envAgentId = (process.env.AGENT_ID ?? "").trim();
   if (envAgentId) {
@@ -378,6 +399,7 @@ function getOrCreateAgentId(): string {
   }
   const generatedAgentId = `desktop-${uuidv4()}`;
   configStore.set("agentId", generatedAgentId);
+  invalidatePublicConfigCache();
   return generatedAgentId;
 }
 
@@ -3948,7 +3970,7 @@ function revealPrimaryWindow(): void {
   showWorkspaceWindow();
 }
 
-function getPublicConfig(): Omit<AgentConfig, "encryptedToken" | "encryptedPassword" | "encryptedOpenaiApiKey" | "encryptedAnthropicApiKey" | "encryptedModelProviderProfiles" | "encryptedGithubToken"> {
+function buildPublicConfigSnapshot(): PublicAgentConfig {
   const config = loadConfig();
   const encryptedPassword = (configStore.get("encryptedPassword") as string) || "";
   const encryptedOpenaiApiKey = (configStore.get("encryptedOpenaiApiKey") as string) || "";
@@ -3984,6 +4006,10 @@ function getPublicConfig(): Omit<AgentConfig, "encryptedToken" | "encryptedPassw
   };
 }
 
+function getPublicConfig(): PublicAgentConfig {
+  return publicConfigCache ?? warmPublicConfigCache();
+}
+
 function getProviderEnvironment(provider: CliProvider): Record<string, string> {
   const config = loadConfig();
   const githubToken = config.githubToken?.trim() || process.env.GITHUB_TOKEN?.trim() || process.env.GH_TOKEN?.trim() || "";
@@ -4002,6 +4028,7 @@ function saveAuthState(data: {
   configStore.set("encryptedToken", encodeSecretForStore(data.token));
   configStore.set("token", "");
   configStore.set("tokenExpiresAt", data.expiresAt);
+  invalidatePublicConfigCache();
 }
 
 function saveControllerAuthState(data: {
@@ -4013,6 +4040,7 @@ function saveControllerAuthState(data: {
   configStore.set("encryptedControllerToken", encodeSecretForStore(data.token));
   configStore.set("controllerToken", "");
   configStore.set("controllerTokenExpiresAt", data.expiresAt);
+  invalidatePublicConfigCache();
 }
 
 function updateRelayClientAuthFromConfig(): void {
@@ -5735,6 +5763,7 @@ ipcMain.handle("revoke-access-grant", async (_event, data: AccessGrantRevokeOpti
 });
 
 ipcMain.handle("save-config", (_event, config: Partial<AgentConfig>) => {
+  invalidatePublicConfigCache();
   clearRelayDeviceListCache();
   clearRelayTransferListCache();
   clearAccessGrantCache();
@@ -5807,6 +5836,7 @@ ipcMain.handle("save-config", (_event, config: Partial<AgentConfig>) => {
     }
   }
   if (config.cliProvider !== undefined) configStore.set("cliProvider", config.cliProvider);
+  warmPublicConfigCache();
   return true;
 });
 
@@ -7225,6 +7255,7 @@ app.whenReady().then(async () => {
   tray = createTray();
   await refreshAgentToken(false);
   await refreshControllerToken(false);
+  warmPublicConfigCache();
   const config = loadConfig();
   initRelay(config);
   ensureRemoteRelayReady(config);
