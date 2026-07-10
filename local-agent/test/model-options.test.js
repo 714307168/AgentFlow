@@ -3,21 +3,10 @@ const assert = require("node:assert/strict");
 
 const { listConfiguredModelOptions } = require("../dist/src/model-options.js");
 
-test("listConfiguredModelOptions loads OpenAI-compatible models using env keys", async () => {
-  const calls = [];
+test("listConfiguredModelOptions lists built-in OpenAI-compatible models using env keys without upstream fetch", async () => {
   const previousFetch = global.fetch;
-  global.fetch = async (url, init) => {
-    calls.push({ url, init });
-    return {
-      ok: true,
-      status: 200,
-      json: async () => ({
-        data: [
-          { id: "deepseek-chat" },
-          { id: "deepseek-reasoner" },
-        ],
-      }),
-    };
+  global.fetch = async () => {
+    throw new Error("model list should not call upstream fetch");
   };
 
   try {
@@ -39,20 +28,16 @@ test("listConfiguredModelOptions loads OpenAI-compatible models using env keys",
     assert.equal(options[0].configured, true);
     assert.equal(options[0].credentialSource, "env");
     assert.deepEqual(options[0].models, ["deepseek-chat", "deepseek-reasoner"]);
-    assert.equal(calls[0].url, "https://api.deepseek.com/v1/models");
-    assert.equal(calls[0].init.headers.Authorization, "Bearer sk-env");
   } finally {
     global.fetch = previousFetch;
   }
 });
 
-test("listConfiguredModelOptions falls back to configured default when model API fails", async () => {
+test("listConfiguredModelOptions merges configured defaults with built-in provider models", async () => {
   const previousFetch = global.fetch;
-  global.fetch = async () => ({
-    ok: false,
-    status: 401,
-    json: async () => ({}),
-  });
+  global.fetch = async () => {
+    throw new Error("model list should not call upstream fetch");
+  };
 
   try {
     const options = await listConfiguredModelOptions({
@@ -70,8 +55,14 @@ test("listConfiguredModelOptions falls back to configured default when model API
     assert.equal(options.length, 1);
     assert.equal(options[0].configured, true);
     assert.equal(options[0].credentialSource, "config");
-    assert.equal(options[0].error, "HTTP 401");
-    assert.deepEqual(options[0].models, ["claude-custom", "claude-3-7-sonnet-latest"]);
+    assert.equal(options[0].error, undefined);
+    assert.deepEqual(options[0].models, [
+      "claude-custom",
+      "claude-3-7-sonnet-latest",
+      "claude-3-5-sonnet-latest",
+      "claude-3-5-haiku-latest",
+      "claude-3-opus-latest",
+    ]);
   } finally {
     global.fetch = previousFetch;
   }
@@ -93,5 +84,24 @@ test("listConfiguredModelOptions marks missing provider credentials explicitly",
   assert.equal(options.length, 1);
   assert.equal(options[0].configured, false);
   assert.equal(options[0].credentialSource, "none");
-  assert.deepEqual(options[0].models, ["gpt-5.4"]);
+  assert.deepEqual(options[0].models.slice(0, 5), ["gpt-5.4", "gpt-5.6", "gpt-5.5", "gpt-5.4-mini", "gpt-5-codex"]);
+});
+
+test("listConfiguredModelOptions exposes current Codex model choices without upstream lookup", async () => {
+  const options = await listConfiguredModelOptions({
+    modelProviderProfiles: [{
+      id: "openai",
+      name: "OpenAI",
+      protocol: "openai",
+      apiKey: "sk-config",
+      baseUrl: "https://api.openai.com",
+      defaultModel: "gpt-5.6",
+      enabled: true,
+    }],
+  }, {});
+
+  assert.equal(options.length, 1);
+  assert.equal(options[0].configured, true);
+  assert.equal(options[0].credentialSource, "config");
+  assert.deepEqual(options[0].models.slice(0, 5), ["gpt-5.6", "gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5-codex"]);
 });

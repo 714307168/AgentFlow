@@ -1,5 +1,4 @@
 import {
-  getProviderDefaultSdkBaseUrl,
   listModelProviderPresets,
   normalizeModelProviderProfiles,
   type ModelProviderProfile,
@@ -18,11 +17,54 @@ export interface ModelProviderOption {
   error?: string;
 }
 
-interface ModelListProfile extends ModelProviderProfile {
-  resolvedApiKey: string;
-}
-
-const MODEL_LIST_TIMEOUT_MS = 8000;
+const BUILTIN_MODEL_CATALOG_BY_PROFILE_ID: Record<string, string[]> = {
+  openai: [
+    "gpt-5.6",
+    "gpt-5.5",
+    "gpt-5.4",
+    "gpt-5.4-mini",
+    "gpt-5-codex",
+    "gpt-4.1",
+    "gpt-4.1-mini",
+    "gpt-4o",
+    "gpt-4o-mini",
+    "gpt-image-1",
+  ],
+  deepseek: [
+    "deepseek-chat",
+    "deepseek-reasoner",
+  ],
+  zhipu: [
+    "glm-4.5",
+    "glm-4.5-air",
+    "glm-4-plus",
+    "glm-4-flash",
+  ],
+  "minimax-mimo": [
+    "MiniMax-M1",
+    "abab6.5s-chat",
+    "abab6.5g-chat",
+  ],
+  hunyuan: [
+    "hunyuan-turbos-latest",
+    "hunyuan-lite",
+    "hunyuan-standard",
+    "hunyuan-pro",
+  ],
+  "aliyun-qwen": [
+    "qwen-plus",
+    "qwen-max",
+    "qwen-turbo",
+    "qwen-long",
+    "qwen-vl-plus",
+  ],
+  anthropic: [
+    "claude-3-7-sonnet-latest",
+    "claude-3-5-sonnet-latest",
+    "claude-3-5-haiku-latest",
+    "claude-3-opus-latest",
+  ],
+};
 
 export async function listConfiguredModelOptions(
   config: ProviderConfigSnapshot,
@@ -31,105 +73,37 @@ export async function listConfiguredModelOptions(
   const profiles = normalizeModelProviderProfiles(config.modelProviderProfiles, config)
     .filter((profile) => profile.enabled !== false);
 
-  return await Promise.all(profiles.map(async (profile) => {
+  return profiles.map((profile) => {
     const credential = resolveProfileCredential(profile, env);
-    const option: ModelProviderOption = {
+    return {
       id: profile.id,
       name: profile.name,
       protocol: profile.protocol,
       defaultModel: normalizeText(profile.defaultModel) || null,
-      models: [],
+      models: modelsForProfile(profile),
       configured: Boolean(credential.apiKey),
       credentialSource: credential.source,
     };
-
-    if (!credential.apiKey) {
-      option.models = fallbackModelsForProfile(profile);
-      return option;
-    }
-
-    try {
-      const models = await fetchProviderModels({
-        ...profile,
-        resolvedApiKey: credential.apiKey,
-      });
-      option.models = mergeModels([
-        profile.defaultModel,
-        ...models,
-        ...fallbackModelsForProfile(profile),
-      ]);
-    } catch (error: any) {
-      option.error = error?.message ?? String(error);
-      option.models = fallbackModelsForProfile(profile);
-    }
-
-    return option;
-  }));
-}
-
-async function fetchProviderModels(profile: ModelListProfile): Promise<string[]> {
-  return profile.protocol === "anthropic"
-    ? await fetchAnthropicModels(profile)
-    : await fetchOpenAiCompatibleModels(profile);
-}
-
-async function fetchOpenAiCompatibleModels(profile: ModelListProfile): Promise<string[]> {
-  const url = joinBaseUrl(resolveProfileBaseUrl(profile), "/v1/models");
-  const data = await fetchModelJson(url, {
-    Authorization: "Bearer " + profile.resolvedApiKey,
   });
-  return parseModelIds(data);
 }
 
-async function fetchAnthropicModels(profile: ModelListProfile): Promise<string[]> {
-  const url = joinBaseUrl(resolveProfileBaseUrl(profile), "/v1/models");
-  const data = await fetchModelJson(url, {
-    "anthropic-version": "2023-06-01",
-    "x-api-key": profile.resolvedApiKey,
-  });
-  return parseModelIds(data);
-}
-
-async function fetchModelJson(url: string, headers: Record<string, string>): Promise<unknown> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), MODEL_LIST_TIMEOUT_MS);
-  try {
-    const response = await fetch(url, {
-      method: "GET",
-      headers: {
-        Accept: "application/json",
-        ...headers,
-      },
-      signal: controller.signal,
-    });
-    if (!response.ok) {
-      throw new Error("HTTP " + response.status);
-    }
-    return await response.json();
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-function parseModelIds(data: unknown): string[] {
-  const items = Array.isArray((data as { data?: unknown[] })?.data)
-    ? (data as { data: unknown[] }).data
-    : (Array.isArray(data) ? data : []);
-  return mergeModels(items.map((item) => {
-    if (typeof item === "string") {
-      return item;
-    }
-    const model = item as { id?: unknown; name?: unknown };
-    return typeof model.id === "string" ? model.id : (typeof model.name === "string" ? model.name : "");
-  }));
-}
-
-function fallbackModelsForProfile(profile: ModelProviderProfile): string[] {
+function modelsForProfile(profile: ModelProviderProfile): string[] {
   const preset = listModelProviderPresets().find((entry) => entry.id === profile.id);
   return mergeModels([
     profile.defaultModel,
+    ...builtinModelsForProfile(profile),
     preset?.defaultModel,
   ]);
+}
+
+function builtinModelsForProfile(profile: ModelProviderProfile): string[] {
+  const byId = BUILTIN_MODEL_CATALOG_BY_PROFILE_ID[profile.id.toLowerCase()];
+  if (byId) {
+    return byId;
+  }
+  return profile.protocol === "anthropic"
+    ? BUILTIN_MODEL_CATALOG_BY_PROFILE_ID.anthropic
+    : BUILTIN_MODEL_CATALOG_BY_PROFILE_ID.openai;
 }
 
 function resolveProfileCredential(
@@ -170,16 +144,6 @@ function getProfileApiKeyEnvNames(profile: ModelProviderProfile): string[] {
   return [...names];
 }
 
-function resolveProfileBaseUrl(profile: ModelProviderProfile): string {
-  const configured = normalizeText(profile.baseUrl);
-  if (configured) {
-    return configured;
-  }
-  return profile.protocol === "anthropic"
-    ? getProviderDefaultSdkBaseUrl("claude")
-    : getProviderDefaultSdkBaseUrl("codex");
-}
-
 function firstEnv(env: NodeJS.ProcessEnv, names: string[]): string {
   for (const name of names) {
     const value = normalizeText(env[name]);
@@ -203,15 +167,6 @@ function mergeModels(models: Array<string | null | undefined>): string[] {
     result.push(normalized);
   }
   return result;
-}
-
-function joinBaseUrl(baseUrl: string, suffix: string): string {
-  const normalizedBaseUrl = baseUrl.replace(/\/+$/u, "");
-  const normalizedSuffix = suffix.replace(/^\/+/u, "/");
-  if (/\/v\d+(?:\.\d+)?$/iu.test(normalizedBaseUrl) && /^\/v\d+(?:\.\d+)?\//iu.test(normalizedSuffix)) {
-    return normalizedBaseUrl + normalizedSuffix.replace(/^\/v\d+(?:\.\d+)?/iu, "");
-  }
-  return normalizedBaseUrl + normalizedSuffix;
 }
 
 function normalizeText(value: string | null | undefined): string {
