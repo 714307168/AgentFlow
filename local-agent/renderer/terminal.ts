@@ -71,7 +71,7 @@ interface ClaudeAgentApi {
     projectId: string;
     updates: Record<string, string | boolean | null>;
   }) => Promise<{ success: boolean; error?: string }>;
-  listModelOptions?: () => Promise<{
+  listModelOptions?: (options?: { force?: boolean }) => Promise<{
     success: boolean;
     error?: string;
     providers?: ModelProviderOption[];
@@ -805,12 +805,16 @@ function providerOptionDetail(option: ModelProviderOption): string {
   return inlineText("No API key found; showing configured defaults.", "未找到 API Key，显示已配置默认模型。");
 }
 
-async function buildModelProviderOptions(project: ProjectState, session: SessionSnapshot | null): Promise<ModelProviderOption[]> {
+async function buildModelProviderOptions(
+  project: ProjectState,
+  session: SessionSnapshot | null,
+  options: { force?: boolean } = {},
+): Promise<ModelProviderOption[]> {
   const currentProvider = getConfiguredProvider(project, session);
   const currentProtocol = providerProtocol(currentProvider);
   const currentModel = getConfiguredModel(project, session)?.trim() ?? "";
   try {
-    const response = await api.listModelOptions?.();
+    const response = await api.listModelOptions?.({ force: options.force === true });
     if (response?.success && Array.isArray(response.providers) && response.providers.length > 0) {
       return response.providers.map((providerOption) => ({
         ...providerOption,
@@ -4569,7 +4573,7 @@ async function switchProjectModel(projectId: string, provider: "claude" | "codex
   elements.composerInput?.focus();
 }
 
-async function openModelPicker(anchor: HTMLElement): Promise<void> {
+async function openModelPicker(anchor: HTMLElement, options: { force?: boolean } = {}): Promise<void> {
   const project = getCurrentProject();
   if (!project) {
     return;
@@ -4578,7 +4582,7 @@ async function openModelPicker(anchor: HTMLElement): Promise<void> {
   const session = getCurrentSession();
   const currentProvider = getConfiguredProvider(project, session);
   const currentModel = getConfiguredModel(project, session)?.trim() ?? "";
-  const providers = await buildModelProviderOptions(project, session);
+  const providers = await buildModelProviderOptions(project, session, options);
   const initialProviderIndex = Math.max(0, providers.findIndex((option) => (
     option.protocol === providerProtocol(currentProvider)
     && (
@@ -4626,6 +4630,10 @@ async function openModelPicker(anchor: HTMLElement): Promise<void> {
 
   const actions = document.createElement("div");
   actions.className = "model-switch-actions";
+  const refreshButton = document.createElement("button");
+  refreshButton.type = "button";
+  refreshButton.className = "model-switch-action secondary";
+  refreshButton.textContent = inlineText("Refresh list", "刷新列表");
   const cancelButton = document.createElement("button");
   cancelButton.type = "button";
   cancelButton.className = "model-switch-action secondary";
@@ -4634,7 +4642,7 @@ async function openModelPicker(anchor: HTMLElement): Promise<void> {
   applyButton.type = "button";
   applyButton.className = "model-switch-action primary";
   applyButton.textContent = inlineText("Apply", "应用");
-  actions.append(cancelButton, applyButton);
+  actions.append(refreshButton, cancelButton, applyButton);
 
   function getSelectedProviderOption(): ModelProviderOption {
     return providers[Number(providerSelect.value)] ?? providers[0];
@@ -4668,6 +4676,12 @@ async function openModelPicker(anchor: HTMLElement): Promise<void> {
   cancelButton.addEventListener("click", (event) => {
     event.stopPropagation();
     closeModelPicker();
+  });
+  refreshButton.addEventListener("click", (event) => {
+    event.stopPropagation();
+    closeModelPicker();
+    setHintText(inlineText("Refreshing model list...", "正在刷新模型列表..."), false);
+    void openModelPicker(anchor, { force: true });
   });
   applyButton.addEventListener("click", (event) => {
     event.stopPropagation();

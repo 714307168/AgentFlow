@@ -106,7 +106,7 @@ import { buildGitHubCommandEnvironment } from "./github-command-env";
 import { shouldReuseExistingTokenAfterRefreshFailure } from "./auth-token-refresh-policy";
 import { applyDesktopStartupModePlan, buildDesktopStartupModePlan } from "./desktop-startup-mode";
 import { buildLoginItemArgs, shouldShowWorkspaceOnStartup } from "./desktop-launch-mode";
-import { listConfiguredModelOptions } from "./model-options";
+import { listConfiguredModelOptions, type ModelProviderOption } from "./model-options";
 import {
   CACHED_SECRET_PLACEHOLDER,
   normalizeSecretInputForSave,
@@ -501,6 +501,7 @@ const ACCESS_GRANTS_CACHE_TTL_MS = 8_000;
 const WORKGROUP_REGISTRY_SEARCH_CACHE_TTL_MS = 12_000;
 const WORKGROUP_REGISTRY_MEMBERS_CACHE_TTL_MS = 12_000;
 const CLI_PROVIDER_RUNTIME_STATUS_CACHE_TTL_MS = 15_000;
+const MODEL_OPTIONS_CACHE_TTL_MS = 5 * 60_000;
 const CLI_PROVIDER_AUTO_UPGRADE_COOLDOWN_MS = 6 * 60 * 60 * 1000;
 const PROVIDER_SDK_AUTO_UPGRADE_COOLDOWN_MS = 6 * 60 * 60 * 1000;
 const DESKTOP_LOG_TRACE_ID_PATTERN = /(?:trace[_-]?id["=: ]+|traceId["=: ]+)([a-z0-9:-]{6,})/ig;
@@ -533,6 +534,11 @@ const cliProviderRuntimeStatusCache = createTimedAsyncCache<Record<CliProvider, 
   load: getCliProviderRuntimeStatuses,
 });
 
+const modelOptionsCache = createTimedAsyncCache<ModelProviderOption[]>({
+  ttlMs: MODEL_OPTIONS_CACHE_TTL_MS,
+  load: async () => await listConfiguredModelOptions(loadConfig()),
+});
+
 function syncLoginItemSettings(): void {
   const autoStart = appSettingsStore.get("autoStart") as boolean;
   const silentLaunch = appSettingsStore.get("silentLaunch") as boolean;
@@ -556,6 +562,14 @@ function clearCliProviderRuntimeStatusCache(): void {
 
 async function loadCliProviderRuntimeStatuses(options: { force?: boolean } = {}): Promise<Record<CliProvider, CliProviderRuntimeStatus>> {
   return await cliProviderRuntimeStatusCache.get({ force: options.force === true });
+}
+
+function clearModelOptionsCache(): void {
+  modelOptionsCache.clear();
+}
+
+async function loadModelOptions(options: { force?: boolean } = {}): Promise<ModelProviderOption[]> {
+  return await modelOptionsCache.get({ force: options.force === true });
 }
 
 function getProviderSdkConfig(provider: CliProvider): ProviderSdkConfig | null {
@@ -5662,11 +5676,11 @@ ipcMain.on("open-project-window", (_event, projectId: string) => {
 
 ipcMain.handle("get-config", () => getPublicConfig());
 
-ipcMain.handle("list-model-options", async () => {
+ipcMain.handle("list-model-options", async (_event, options?: { force?: boolean } | null) => {
   try {
     return {
       success: true,
-      providers: await listConfiguredModelOptions(loadConfig()),
+      providers: await loadModelOptions({ force: options?.force === true }),
     };
   } catch (error: any) {
     return {
@@ -5712,6 +5726,7 @@ ipcMain.handle("save-config", (_event, config: Partial<AgentConfig>) => {
   clearAccessGrantCache();
   clearWorkgroupRegistryCaches();
   clearCliProviderRuntimeStatusCache();
+  clearModelOptionsCache();
   if (config.serverUrl !== undefined) configStore.set("serverUrl", config.serverUrl);
   if (config.agentId !== undefined) configStore.set("agentId", config.agentId);
   if (config.token !== undefined) {
