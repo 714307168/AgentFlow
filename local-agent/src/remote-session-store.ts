@@ -1156,10 +1156,18 @@ export default class RemoteSessionStore extends EventEmitter {
     if (!state) {
       return;
     }
-    state.project.online = Boolean(payload?.online);
-    if (state.project.online === false) {
+    const wasOnline = state.project.online !== false;
+    const nextOnline = payload?.online === true;
+    state.project.online = nextOnline;
+    if (!nextOnline) {
       this.failProjectRunObservers(projectId, "Remote project went offline.");
       this.clearSessionSyncRequests(projectId);
+    } else if (!wasOnline) {
+      this.clearSessionSyncRequests(projectId);
+      this.requestSessionSync(projectId, {
+        limit: DEFAULT_PAGE_SIZE,
+        summaryOnly: true,
+      });
     }
     this.emit("projects-changed", this.getProjects());
     this.emitSnapshot(projectId);

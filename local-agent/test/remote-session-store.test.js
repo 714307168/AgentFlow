@@ -221,6 +221,51 @@ test("remote session store bypasses session sync backpressure for detail and act
   assert.equal(sentEvents[1].payload.item_id, "msg-1");
 });
 
+test("remote session store refreshes a project when it comes back online", () => {
+  const sentEvents = [];
+  const relayClient = {
+    send(event) {
+      sentEvents.push(event);
+    },
+  };
+  const store = new RemoteSessionStore(relayClient, {
+    localAgentId: () => "local-agent",
+  });
+
+  listRemoteProject(store);
+  store.handleEnvelope({
+    id: "env-offline",
+    event: Events.AGENT_STATUS,
+    project_id: "remote-project-1",
+    ts: Date.now(),
+    payload: {
+      project_id: "remote-project-1",
+      online: false,
+    },
+  });
+
+  assert.equal(sentEvents.length, 0);
+  assert.equal(store.getProject("remote-project-1").online, false);
+
+  store.handleEnvelope({
+    id: "env-online",
+    event: Events.AGENT_STATUS,
+    project_id: "remote-project-1",
+    ts: Date.now(),
+    payload: {
+      project_id: "remote-project-1",
+      online: true,
+    },
+  });
+
+  assert.equal(store.getProject("remote-project-1").online, true);
+  assert.equal(sentEvents.length, 1);
+  assert.equal(sentEvents[0].event, Events.SESSION_SYNC_REQUEST);
+  assert.equal(sentEvents[0].project_id, "remote-project-1");
+  assert.equal(sentEvents[0].payload.limit, 30);
+  assert.equal(sentEvents[0].payload.summary_only, true);
+});
+
 test("remote session store fetches model options from the remote project owner", async () => {
   const sentEvents = [];
   const relayClient = {
