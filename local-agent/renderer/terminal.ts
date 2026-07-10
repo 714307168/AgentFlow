@@ -67,6 +67,15 @@ interface ClaudeAgentApi {
   createProjectConversation?: (projectId: string) => Promise<{ success: boolean; error?: string; conversationId?: string }>;
   activateProjectConversation?: (data: { projectId: string; conversationId: string }) => Promise<{ success: boolean; error?: string }>;
   sendProjectPrompt: (data: { projectId: string; prompt: string; attachments?: AttachmentRef[] }) => Promise<{ success: boolean; error?: string }>;
+  updateProject?: (data: {
+    projectId: string;
+    updates: Record<string, string | boolean | null>;
+  }) => Promise<{ success: boolean; error?: string }>;
+  listModelOptions?: () => Promise<{
+    success: boolean;
+    error?: string;
+    providers?: ModelProviderOption[];
+  }>;
   sendWorkgroupCollaborationMessage?: (data: { workgroupId: string; content: string }) => Promise<{ success: boolean; error?: string }>;
   pickProjectAttachments?: (data: { projectId: string; kind: AttachmentKind }) => Promise<{
     success: boolean;
@@ -681,6 +690,16 @@ interface ModelChoice {
   detail: string;
 }
 
+interface ModelProviderOption {
+  id: string;
+  name: string;
+  protocol: ModelProviderProtocol;
+  defaultModel: string | null;
+  models: string[];
+  configured: boolean;
+  error?: string;
+}
+
 function providerProtocol(provider: "claude" | "codex"): ModelProviderProtocol {
   return provider === "claude" ? "anthropic" : "openai";
 }
@@ -767,6 +786,70 @@ async function buildModelChoices(project: ProjectState, session: SessionSnapshot
   }
 
   return choices;
+}
+
+function providerForProtocol(protocol: ModelProviderProtocol): "claude" | "codex" {
+  return protocol === "anthropic" ? "claude" : "codex";
+}
+
+function providerOptionDetail(option: ModelProviderOption): string {
+  if (option.error) {
+    return inlineText(
+      `Model API unavailable: ${option.error}. Showing configured defaults.`,
+      `模型 API 不可用：${option.error}。当前显示已配置默认模型。`,
+    );
+  }
+  if (option.configured) {
+    return inlineText("Models loaded from configured API or environment.", "模型列表来自已配置 API 或环境变量。");
+  }
+  return inlineText("No API key found; showing configured defaults.", "未找到 API Key，显示已配置默认模型。");
+}
+
+async function buildModelProviderOptions(project: ProjectState, session: SessionSnapshot | null): Promise<ModelProviderOption[]> {
+  const currentProvider = getConfiguredProvider(project, session);
+  const currentProtocol = providerProtocol(currentProvider);
+  const currentModel = getConfiguredModel(project, session)?.trim() ?? "";
+  try {
+    const response = await api.listModelOptions?.();
+    if (response?.success && Array.isArray(response.providers) && response.providers.length > 0) {
+      return response.providers.map((providerOption) => ({
+        ...providerOption,
+        models: mergeModelValues([
+          providerOption.defaultModel,
+          ...providerOption.models,
+          providerOption.protocol === currentProtocol ? currentModel : null,
+        ]),
+      }));
+    }
+  } catch (error) {
+    console.warn("Failed to load upstream model options", error);
+  }
+
+  const fallbackChoices = await buildModelChoices(project, session);
+  return [{
+    id: currentProvider,
+    name: providerLabel(currentProvider),
+    protocol: currentProtocol,
+    defaultModel: project.cliModel ?? session?.model ?? null,
+    models: mergeModelValues(fallbackChoices.map((choice) => choice.model)),
+    configured: false,
+    error: inlineText("Using local fallback model list", "正在使用本地兜底模型列表"),
+  }];
+}
+
+function mergeModelValues(models: Array<string | null | undefined>): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const model of models) {
+    const normalized = model?.trim() ?? "";
+    const key = normalized.toLowerCase();
+    if (!normalized || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push(normalized);
+  }
+  return result;
 }
 
 function isComposerRunMode(value: string | null | undefined): value is ComposerRunMode {
@@ -4458,8 +4541,20 @@ function closeModelPicker(): void {
   modelPickerEl = null;
 }
 
-async function switchProjectModel(projectId: string, model: string | null): Promise<void> {
+async function switchProjectModel(projectId: string, provider: "claude" | "codex", model: string | null): Promise<void> {
   const normalized = model?.trim() ?? "";
+  const updateResult = await api.updateProject?.({
+    projectId,
+    updates: {
+      cliProvider: provider,
+      cliModel: normalized || null,
+    },
+  });
+  if (updateResult && !updateResult.success) {
+    setHintText(updateResult.error ?? inlineText("Failed to update project model", "更新项目模型失败"), true);
+    return;
+  }
+
   const result = await api.sendProjectPrompt({
     projectId,
     prompt: normalized ? `/model ${normalized}` : "/model auto",
@@ -4481,8 +4576,17 @@ async function openModelPicker(anchor: HTMLElement): Promise<void> {
   }
 
   const session = getCurrentSession();
+  const currentProvider = getConfiguredProvider(project, session);
   const currentModel = getConfiguredModel(project, session)?.trim() ?? "";
-  const choices = await buildModelChoices(project, session);
+  const providers = await buildModelProviderOptions(project, session);
+  const initialProviderIndex = Math.max(0, providers.findIndex((option) => (
+    option.protocol === providerProtocol(currentProvider)
+    && (
+      option.models.some((model) => model.toLowerCase() === currentModel.toLowerCase())
+      || option.defaultModel?.toLowerCase() === currentModel.toLowerCase()
+      || !currentModel
+    )
+  )));
 
   closeModelPicker();
   const picker = document.createElement("div");
@@ -4494,33 +4598,90 @@ async function openModelPicker(anchor: HTMLElement): Promise<void> {
   header.textContent = inlineText("Switch model", "切换模型");
   picker.appendChild(header);
 
-  for (const choice of choices) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "model-switch-option";
-    button.setAttribute("role", "menuitem");
-    if ((choice.model ?? "") === currentModel) {
-      button.classList.add("active");
-    }
+  const providerLabelEl = document.createElement("label");
+  providerLabelEl.className = "model-switch-field";
+  const providerCaption = document.createElement("span");
+  providerCaption.textContent = inlineText("Provider", "厂商");
+  const providerSelect = document.createElement("select");
+  providerSelect.className = "model-switch-select";
+  providers.forEach((option, index) => {
+    const item = document.createElement("option");
+    item.value = String(index);
+    item.textContent = option.name;
+    providerSelect.appendChild(item);
+  });
+  providerSelect.value = String(initialProviderIndex);
+  providerLabelEl.append(providerCaption, providerSelect);
 
-    const name = document.createElement("span");
-    name.className = "model-switch-option-name";
-    name.textContent = choice.label;
-    const detail = document.createElement("span");
-    detail.className = "model-switch-option-detail";
-    detail.textContent = choice.detail;
-    button.append(name, detail);
-    button.addEventListener("click", (event) => {
-      event.stopPropagation();
-      closeModelPicker();
-      void switchProjectModel(project.id, choice.model);
-    });
-    picker.appendChild(button);
+  const modelLabelEl = document.createElement("label");
+  modelLabelEl.className = "model-switch-field";
+  const modelCaption = document.createElement("span");
+  modelCaption.textContent = inlineText("Model", "具体模型");
+  const modelSelect = document.createElement("select");
+  modelSelect.className = "model-switch-select";
+  modelLabelEl.append(modelCaption, modelSelect);
+
+  const detail = document.createElement("div");
+  detail.className = "model-switch-option-detail";
+
+  const actions = document.createElement("div");
+  actions.className = "model-switch-actions";
+  const cancelButton = document.createElement("button");
+  cancelButton.type = "button";
+  cancelButton.className = "model-switch-action secondary";
+  cancelButton.textContent = inlineText("Cancel", "取消");
+  const applyButton = document.createElement("button");
+  applyButton.type = "button";
+  applyButton.className = "model-switch-action primary";
+  applyButton.textContent = inlineText("Apply", "应用");
+  actions.append(cancelButton, applyButton);
+
+  function getSelectedProviderOption(): ModelProviderOption {
+    return providers[Number(providerSelect.value)] ?? providers[0];
   }
+
+  function syncModelSelect(): void {
+    const option = getSelectedProviderOption();
+    const models = mergeModelValues([
+      option.protocol === providerProtocol(currentProvider) ? currentModel : null,
+      option.defaultModel,
+      ...option.models,
+    ]);
+    modelSelect.innerHTML = "";
+    const autoOption = document.createElement("option");
+    autoOption.value = "";
+    autoOption.textContent = modelLabel(null);
+    modelSelect.appendChild(autoOption);
+    for (const model of models) {
+      const item = document.createElement("option");
+      item.value = model;
+      item.textContent = model;
+      modelSelect.appendChild(item);
+    }
+    modelSelect.value = option.protocol === providerProtocol(currentProvider) && currentModel
+      ? currentModel
+      : (option.defaultModel ?? "");
+    detail.textContent = providerOptionDetail(option);
+  }
+
+  providerSelect.addEventListener("change", syncModelSelect);
+  cancelButton.addEventListener("click", (event) => {
+    event.stopPropagation();
+    closeModelPicker();
+  });
+  applyButton.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const option = getSelectedProviderOption();
+    closeModelPicker();
+    void switchProjectModel(project.id, providerForProtocol(option.protocol), modelSelect.value || null);
+  });
+
+  picker.append(providerLabelEl, modelLabelEl, detail, actions);
+  syncModelSelect();
 
   document.body.appendChild(picker);
   const rect = anchor.getBoundingClientRect();
-  const pickerWidth = Math.min(360, Math.max(260, rect.width));
+  const pickerWidth = 360;
   picker.style.width = `${pickerWidth}px`;
   picker.style.left = `${Math.max(12, Math.min(window.innerWidth - pickerWidth - 12, rect.left))}px`;
   picker.style.top = `${Math.max(12, Math.min(window.innerHeight - picker.offsetHeight - 12, rect.bottom + 8))}px`;

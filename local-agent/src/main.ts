@@ -106,6 +106,7 @@ import { buildGitHubCommandEnvironment } from "./github-command-env";
 import { shouldReuseExistingTokenAfterRefreshFailure } from "./auth-token-refresh-policy";
 import { applyDesktopStartupModePlan, buildDesktopStartupModePlan } from "./desktop-startup-mode";
 import { buildLoginItemArgs, shouldShowWorkspaceOnStartup } from "./desktop-launch-mode";
+import { listConfiguredModelOptions } from "./model-options";
 import {
   CACHED_SECRET_PLACEHOLDER,
   normalizeSecretInputForSave,
@@ -5660,6 +5661,21 @@ ipcMain.on("open-project-window", (_event, projectId: string) => {
 });
 
 ipcMain.handle("get-config", () => getPublicConfig());
+
+ipcMain.handle("list-model-options", async () => {
+  try {
+    return {
+      success: true,
+      providers: await listConfiguredModelOptions(loadConfig()),
+    };
+  } catch (error: any) {
+    return {
+      success: false,
+      error: error?.message ?? String(error),
+      providers: [],
+    };
+  }
+});
 
 ipcMain.handle("list-access-grants", async (_event, options?: { force?: boolean } | null) => {
   try {

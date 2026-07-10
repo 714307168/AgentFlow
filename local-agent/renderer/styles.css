@@ -1917,6 +1917,38 @@ body.lightbox-open {
   text-transform: uppercase;
 }
 
+.model-switch-field {
+  display: grid;
+  gap: 6px;
+  color: rgba(238, 244, 255, 0.7);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.model-switch-select {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid rgba(169, 188, 255, 0.18);
+  border-radius: 12px;
+  color: rgba(242, 246, 255, 0.95);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.035)),
+    #101725;
+  outline: none;
+  padding: 0 10px;
+}
+
+.model-switch-select:focus {
+  border-color: rgba(94, 234, 212, 0.58);
+  box-shadow: 0 0 0 3px rgba(94, 234, 212, 0.12);
+}
+
+.model-switch-select option {
+  color: #111827;
+  background: #f8fafc;
+}
+
 .model-switch-option {
   display: grid;
   gap: 3px;
@@ -1945,6 +1977,33 @@ body.lightbox-open {
   color: rgba(213, 224, 245, 0.68);
   font-size: 11px;
   line-height: 1.35;
+}
+
+.model-switch-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.model-switch-action {
+  min-height: 34px;
+  border: 1px solid rgba(169, 188, 255, 0.18);
+  border-radius: 11px;
+  padding: 0 13px;
+  color: rgba(242, 246, 255, 0.94);
+  background: rgba(255, 255, 255, 0.06);
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.model-switch-action.primary {
+  border-color: rgba(94, 234, 212, 0.42);
+  background: linear-gradient(135deg, rgba(94, 234, 212, 0.32), rgba(34, 211, 238, 0.18));
+}
+
+.model-switch-action.secondary {
+  color: rgba(213, 224, 245, 0.78);
 }
 
 .composer-mode-select {
