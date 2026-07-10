@@ -17,6 +17,7 @@ export interface SessionSyncRequestOptions {
   conversationId?: string | null;
   itemId?: string | null;
   runId?: string | null;
+  modelOptionsForce?: boolean;
   projectUpdates?: SessionSyncProjectUpdates | null;
 }
 

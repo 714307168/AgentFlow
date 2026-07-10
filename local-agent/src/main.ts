@@ -5036,6 +5036,7 @@ function initRelay(config: AgentConfig): void {
       broadcastSessionSync(snapshot, true);
     },
     getDefaultCliProvider,
+    listModelOptions: (options) => loadModelOptions(options),
     syncProjectCatalog: () => syncProjectCatalog(loadConfig().agentId),
     getWorkgroupRelayPayload: () => buildWorkgroupRelayPayload(),
     dispatchWorkgroupTask: (taskId: string) => handleDispatchWorkgroupTaskRequest(taskId),
@@ -5718,8 +5719,15 @@ ipcMain.on("open-project-window", (_event, projectId: string) => {
 
 ipcMain.handle("get-config", () => getPublicConfig());
 
-ipcMain.handle("list-model-options", async (_event, options?: { force?: boolean } | null) => {
+ipcMain.handle("list-model-options", async (_event, options?: { force?: boolean; projectId?: string | null } | null) => {
   try {
+    const projectId = typeof options?.projectId === "string" ? options.projectId.trim() : "";
+    if (projectId && isRemoteProject(projectId)) {
+      return {
+        success: true,
+        providers: await remoteSessionStore!.listModelOptions(projectId, { force: options?.force === true }),
+      };
+    }
     return {
       success: true,
       providers: await loadModelOptions({ force: options?.force === true }),

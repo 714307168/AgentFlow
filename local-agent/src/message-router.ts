@@ -10,6 +10,7 @@ import { SessionSyncActions } from "./session-sync-actions";
 import { Envelope, Events } from "./types";
 import { createRunAttachmentFromPath, getUniqueAttachmentPath } from "./attachment-utils";
 import appLogger from "./app-logger";
+import type { ModelProviderOption } from "./model-options";
 import {
   buildWorkgroupListResponsePayload,
   type WorkgroupRelayPayload,
@@ -71,6 +72,7 @@ interface MessageRouterOptions {
     content: string;
     clientMessageId?: string | null;
   }) => Promise<{ success: boolean; error?: string; session?: unknown }>;
+  listModelOptions?: (options?: { force?: boolean }) => Promise<ModelProviderOption[]>;
 }
 
 class MessageRouter {
@@ -138,7 +140,7 @@ class MessageRouter {
         this.handleProjectListRequest();
         break;
       case Events.SESSION_SYNC_REQUEST:
-        this.handleSessionSyncRequest(env);
+        void this.handleSessionSyncRequest(env);
         break;
       case Events.WORKGROUP_LIST_REQUEST:
         this.handleWorkgroupListRequest(env);
@@ -722,7 +724,7 @@ class MessageRouter {
     });
   }
 
-  private handleSessionSyncRequest(env: Envelope): void {
+  private async handleSessionSyncRequest(env: Envelope): Promise<void> {
     const projectId = env.project_id;
     if (!projectId || !this.options.runtimeManager) {
       return;
@@ -743,6 +745,7 @@ class MessageRouter {
         codex_web_search?: boolean;
         project_prompt?: string | null;
       };
+      model_options_force?: boolean;
       summary_only?: boolean;
       known_items?: Array<{
         id?: string;
@@ -791,6 +794,18 @@ class MessageRouter {
       }
     }
 
+    let modelOptions: ModelProviderOption[] | undefined;
+    let modelOptionsError: string | undefined;
+    if (action === SessionSyncActions.FETCH_MODEL_OPTIONS) {
+      try {
+        modelOptions = await this.options.listModelOptions?.({
+          force: payloadObject?.model_options_force === true,
+        }) ?? [];
+      } catch (error) {
+        modelOptionsError = error instanceof Error ? error.message : String(error);
+      }
+    }
+
     const snapshot = this.options.runtimeManager.getSnapshot(projectId);
     const afterSeq = Number(payloadObject?.after_seq) > 0 ? Number(payloadObject?.after_seq) : 0;
     const beforeSeq = Number(payloadObject?.before_seq) > 0 ? Number(payloadObject?.before_seq) : 0;
@@ -826,6 +841,8 @@ class MessageRouter {
       payload: {
         request_id: env.id,
         ...payload,
+        model_options: modelOptions,
+        model_options_error: modelOptionsError,
       },
     });
   }

@@ -27,6 +27,7 @@ import {
   type SessionSyncRequestOptions,
 } from "./session-sync-flight-control";
 import { Envelope, Events } from "./types";
+import type { ModelProviderOption } from "./model-options";
 
 export interface RemoteProjectInfo {
   id: string;
@@ -137,6 +138,12 @@ interface InFlightSessionSyncRequest {
   timeout: NodeJS.Timeout;
 }
 
+interface PendingModelOptionsRequest {
+  timeout: NodeJS.Timeout;
+  resolve: (providers: ModelProviderOption[]) => void;
+  reject: (error: Error) => void;
+}
+
 const DEFAULT_PAGE_SIZE = 30;
 const MAX_REMOTE_ITEMS = 1200;
 const MAX_REMOTE_ACTIVITY_ITEMS = 30;
@@ -149,6 +156,7 @@ const REMOTE_RUN_IDLE_TIMEOUT_MS = 120_000;
 const REMOTE_RUN_MAX_LIFETIME_MS = 10 * 60_000;
 const FULL_ITEM_REQUEST_DEDUPE_MS = 5_000;
 const SESSION_SYNC_ACK_TIMEOUT_MS = 12_000;
+const REMOTE_MODEL_OPTIONS_TIMEOUT_MS = 12_000;
 
 function cloneAttachments(attachments?: RunAttachment[]): RunAttachment[] | undefined {
   if (!attachments || attachments.length === 0) {
@@ -282,6 +290,42 @@ function readNumber(value: unknown): number {
   return Number.isFinite(normalized) ? normalized : 0;
 }
 
+function normalizeModelProviderOption(value: unknown): ModelProviderOption | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const raw = value as Record<string, unknown>;
+  const protocol = readString(raw.protocol).trim();
+  if (protocol !== "openai" && protocol !== "anthropic") {
+    return null;
+  }
+  const id = readString(raw.id).trim();
+  const name = readString(raw.name).trim();
+  if (!id || !name) {
+    return null;
+  }
+  return {
+    id,
+    name,
+    protocol,
+    defaultModel: readString(raw.defaultModel ?? raw.default_model).trim() || null,
+    models: Array.isArray(raw.models)
+      ? raw.models.map((entry) => readString(entry).trim()).filter(Boolean)
+      : [],
+    configured: raw.configured === true,
+    error: readString(raw.error).trim() || undefined,
+  };
+}
+
+function normalizeModelProviderOptions(value: unknown): ModelProviderOption[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((entry) => normalizeModelProviderOption(entry))
+    .filter((entry): entry is ModelProviderOption => entry !== null);
+}
+
 export default class RemoteSessionStore extends EventEmitter {
   private readonly relayClient: RelayClient;
   private readonly localAgentId: () => string;
@@ -294,6 +338,7 @@ export default class RemoteSessionStore extends EventEmitter {
   private readonly pendingFullItemRequests = new Map<string, number>();
   private readonly inFlightSessionSyncRequests = new Map<string, InFlightSessionSyncRequest>();
   private readonly queuedSessionSyncRequests = new Map<string, SessionSyncRequestOptions>();
+  private readonly pendingModelOptionsRequests = new Map<string, PendingModelOptionsRequest>();
 
   constructor(relayClient: RelayClient, options: { localAgentId: () => string }) {
     super();
@@ -583,6 +628,7 @@ export default class RemoteSessionStore extends EventEmitter {
         conversation_id: options.conversationId ?? undefined,
         item_id: options.itemId ?? undefined,
         run_id: options.runId ?? undefined,
+        model_options_force: options.modelOptionsForce === true || undefined,
         project_updates: options.projectUpdates ? {
           group_name: options.projectUpdates.groupName ?? undefined,
           cli_provider: options.projectUpdates.cliProvider ?? undefined,
@@ -697,6 +743,37 @@ export default class RemoteSessionStore extends EventEmitter {
       },
     });
     return { success: true };
+  }
+
+  listModelOptions(projectId: string, options: { force?: boolean } = {}): Promise<ModelProviderOption[]> {
+    const state = this.states.get(projectId);
+    if (!state) {
+      return Promise.reject(new Error("Remote project not found"));
+    }
+    if (state.project.online === false) {
+      return Promise.reject(new Error("Remote project is offline"));
+    }
+    if (!this.relayClient.isConnected()) {
+      return Promise.reject(new Error("Remote relay is disconnected"));
+    }
+
+    const requestId = uuidv4();
+    return new Promise<ModelProviderOption[]>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.pendingModelOptionsRequests.delete(requestId);
+        reject(new Error("Remote model list request timed out."));
+      }, REMOTE_MODEL_OPTIONS_TIMEOUT_MS);
+      this.pendingModelOptionsRequests.set(requestId, {
+        timeout,
+        resolve,
+        reject,
+      });
+      this.dispatchSessionSyncRequest(projectId, {
+        action: SessionSyncActions.FETCH_MODEL_OPTIONS,
+        limit: DEFAULT_PAGE_SIZE,
+        modelOptionsForce: options.force === true,
+      }, requestId);
+    });
   }
 
   async sendPrompt(
@@ -939,6 +1016,7 @@ export default class RemoteSessionStore extends EventEmitter {
     const acknowledgedRequestId = readString(payload.request_id ?? payload.requestId).trim();
     if (acknowledgedRequestId) {
       this.acknowledgeSessionSyncRequest(projectId, acknowledgedRequestId);
+      this.resolvePendingModelOptionsRequest(acknowledgedRequestId, payload);
     }
     const runtimeUnchanged = Boolean(payload.runtime_unchanged);
     const runtimeChanged = runtimeUnchanged
@@ -958,6 +1036,21 @@ export default class RemoteSessionStore extends EventEmitter {
     if (runtimeChanged || syncItemsChanged) {
       this.emitSnapshot(projectId);
     }
+  }
+
+  private resolvePendingModelOptionsRequest(requestId: string, payload: LooseRecord): void {
+    const pending = this.pendingModelOptionsRequests.get(requestId);
+    if (!pending) {
+      return;
+    }
+    clearTimeout(pending.timeout);
+    this.pendingModelOptionsRequests.delete(requestId);
+    const error = readString(payload.model_options_error ?? payload.modelOptionsError).trim();
+    if (error) {
+      pending.reject(new Error(error));
+      return;
+    }
+    pending.resolve(normalizeModelProviderOptions(payload.model_options ?? payload.modelOptions));
   }
 
   private applySessionRuntimeSnapshot(state: RemoteState, payload: LooseRecord): boolean {

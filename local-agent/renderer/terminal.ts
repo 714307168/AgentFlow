@@ -76,7 +76,7 @@ interface ClaudeAgentApi {
     projectId: string;
     updates: Record<string, string | boolean | null>;
   }) => Promise<{ success: boolean; error?: string }>;
-  listModelOptions?: (options?: { force?: boolean }) => Promise<{
+  listModelOptions?: (options?: { force?: boolean; projectId?: string | null }) => Promise<{
     success: boolean;
     error?: string;
     providers?: ModelProviderOption[];
@@ -707,6 +707,7 @@ interface ModelProviderOption {
   models: string[];
   configured: boolean;
   error?: string;
+  source?: "local" | "remote";
 }
 
 function providerProtocol(provider: "claude" | "codex"): ModelProviderProtocol {
@@ -802,11 +803,17 @@ function providerForProtocol(protocol: ModelProviderProtocol): "claude" | "codex
 }
 
 function providerOptionDetail(option: ModelProviderOption): string {
+  if (option.source === "remote" && option.error) {
+    return option.error;
+  }
   if (option.error) {
     return inlineText(
       `Model API unavailable: ${option.error}. Showing configured defaults.`,
       `模型 API 不可用：${option.error}。当前显示已配置默认模型。`,
     );
+  }
+  if (option.source === "remote") {
+    return inlineText("Models loaded from the remote desktop environment.", "模型列表来自远端桌面环境。");
   }
   if (option.configured) {
     return inlineText("Models loaded from configured API or environment.", "模型列表来自已配置 API 或环境变量。");
@@ -823,10 +830,14 @@ async function buildModelProviderOptions(
   const currentProtocol = providerProtocol(currentProvider);
   const currentModel = getConfiguredModel(project, session)?.trim() ?? "";
   try {
-    const response = await api.listModelOptions?.({ force: options.force === true });
+    const response = await api.listModelOptions?.({
+      force: options.force === true,
+      projectId: project.isRemote ? project.id : null,
+    });
     if (response?.success && Array.isArray(response.providers) && response.providers.length > 0) {
       return response.providers.map((providerOption) => ({
         ...providerOption,
+        source: project.isRemote ? "remote" : "local",
         models: mergeModelValues([
           providerOption.defaultModel,
           ...providerOption.models,
@@ -834,8 +845,14 @@ async function buildModelProviderOptions(
         ]),
       }));
     }
+    if (project.isRemote) {
+      return [buildRemoteModelOptionsFallback(project, session, response?.error)];
+    }
   } catch (error) {
     console.warn("Failed to load upstream model options", error);
+    if (project.isRemote) {
+      return [buildRemoteModelOptionsFallback(project, session, error instanceof Error ? error.message : String(error))];
+    }
   }
 
   const fallbackChoices = await buildModelChoices(project, session);
@@ -848,6 +865,32 @@ async function buildModelProviderOptions(
     configured: false,
     error: inlineText("Using local fallback model list", "正在使用本地兜底模型列表"),
   }];
+}
+
+function buildRemoteModelOptionsFallback(
+  project: ProjectState,
+  session: SessionSnapshot | null,
+  error?: string,
+): ModelProviderOption {
+  const currentProvider = getConfiguredProvider(project, session);
+  const currentProtocol = providerProtocol(currentProvider);
+  const currentModel = getConfiguredModel(project, session)?.trim() ?? "";
+  return {
+    id: currentProvider,
+    name: providerLabel(currentProvider),
+    protocol: currentProtocol,
+    defaultModel: project.cliModel ?? session?.model ?? null,
+    models: mergeModelValues([
+      currentModel,
+      project.cliModel ?? null,
+      session?.model ?? null,
+    ]),
+    configured: false,
+    error: error
+      ? inlineText("Remote model list unavailable: " + error, "远端模型列表不可用：" + error)
+      : inlineText("Remote model list unavailable. Showing only the current remote model.", "远端模型列表不可用，仅显示当前远端模型。"),
+    source: "remote",
+  };
 }
 
 function mergeModelValues(models: Array<string | null | undefined>): string[] {

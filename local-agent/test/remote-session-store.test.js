@@ -221,6 +221,67 @@ test("remote session store bypasses session sync backpressure for detail and act
   assert.equal(sentEvents[1].payload.item_id, "msg-1");
 });
 
+test("remote session store fetches model options from the remote project owner", async () => {
+  const sentEvents = [];
+  const relayClient = {
+    isConnected() {
+      return true;
+    },
+    send(event) {
+      sentEvents.push(event);
+    },
+  };
+  const store = new RemoteSessionStore(relayClient, {
+    localAgentId: () => "local-agent",
+  });
+
+  listRemoteProject(store);
+  const promise = store.listModelOptions("remote-project-1", { force: true });
+
+  assert.equal(sentEvents.length, 1);
+  assert.equal(sentEvents[0].event, Events.SESSION_SYNC_REQUEST);
+  assert.equal(sentEvents[0].payload.action, "fetch_model_options");
+  assert.equal(sentEvents[0].payload.model_options_force, true);
+
+  store.handleEnvelope({
+    id: "env-model-options",
+    event: Events.SESSION_SYNC,
+    project_id: "remote-project-1",
+    ts: Date.now(),
+    payload: {
+      request_id: sentEvents[0].id,
+      snapshot_revision: "rev-model-options",
+      provider: "codex",
+      model_options: [
+        {
+          id: "remote-openai",
+          name: "Remote OpenAI",
+          protocol: "openai",
+          defaultModel: "gpt-5.4",
+          models: ["gpt-5.4", "gpt-5.4-mini"],
+          configured: true,
+        },
+      ],
+      sync: {
+        items: [],
+        latest_seq: 0,
+      },
+    },
+  });
+
+  assert.deepEqual(await promise, [
+    {
+      id: "remote-openai",
+      name: "Remote OpenAI",
+      protocol: "openai",
+      defaultModel: "gpt-5.4",
+      models: ["gpt-5.4", "gpt-5.4-mini"],
+      configured: true,
+      error: undefined,
+    },
+  ]);
+});
+
 test("remote session store keeps workgroup-dispatched prompts out of private project snapshots", async () => {
   const sentEvents = [];
   const relayClient = {
