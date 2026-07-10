@@ -61,6 +61,13 @@ class AppUpdateManager(
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(5, TimeUnit.MINUTES)
         .build()
+    private val downloadAccelerator = GitHubDownloadAccelerator(
+        client = OkHttpClient.Builder()
+            .connectTimeout(3500, TimeUnit.MILLISECONDS)
+            .readTimeout(3500, TimeUnit.MILLISECONDS)
+            .callTimeout(3500, TimeUnit.MILLISECONDS)
+            .build()
+    )
 
     private val _state = MutableStateFlow(AppUpdateState())
     val state: StateFlow<AppUpdateState> = _state.asStateFlow()
@@ -229,7 +236,8 @@ class AppUpdateManager(
         }
 
         try {
-            val requestBuilder = Request.Builder().url(downloadUrl)
+            val selectedDownload = downloadAccelerator.selectFastest(downloadUrl)
+            val requestBuilder = Request.Builder().url(selectedDownload.url)
             if (isGitHubDownloadUrl(downloadUrl)) {
                 requestBuilder
                     .header("Accept", "application/octet-stream")

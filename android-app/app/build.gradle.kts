@@ -22,8 +22,8 @@ android {
         applicationId = "com.claudecode.remote"
         minSdk = 26
         targetSdk = 34
-        versionCode = 133
-        versionName = "1.2.49"
+        versionCode = 134
+        versionName = "1.2.50"
     }
     buildFeatures {
         compose = true
@@ -79,6 +79,7 @@ dependencies {
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
     implementation("androidx.datastore:datastore-preferences:1.0.0")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
 
     // Room
     val roomVersion = "2.6.1"
