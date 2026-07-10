@@ -81,6 +81,7 @@ import {
   isProviderSdkConfigured,
   type ProviderSdkConfig,
 } from "./provider-sdk";
+import type { CodexReasoningEffort } from "./codex-command-support";
 import { buildSkillCatalogSnapshot } from "./skill-catalog";
 import {
   buildProviderSdkInstallCommand,
@@ -862,6 +863,19 @@ function normalizeIncomingAttachments(payload: unknown): RunAttachment[] {
       });
     })
     .filter((entry): entry is RunAttachment => entry !== null);
+}
+
+function normalizeCodexReasoningEffort(value: unknown): CodexReasoningEffort | null {
+  if (
+    value === "minimal"
+    || value === "low"
+    || value === "medium"
+    || value === "high"
+    || value === "xhigh"
+  ) {
+    return value;
+  }
+  return null;
 }
 
 function encodeSecretForStore(secret: string): string {
@@ -6459,7 +6473,12 @@ ipcMain.handle("get-attachment-image-data", (_event, data: { path?: string | nul
   };
 });
 
-ipcMain.handle("send-project-prompt", (_event, data: { projectId: string; prompt: string; attachments?: unknown[] }) => {
+ipcMain.handle("send-project-prompt", (_event, data: {
+  projectId: string;
+  prompt: string;
+  attachments?: unknown[];
+  reasoningEffort?: unknown;
+}) => {
   const project = getProjectById(data.projectId);
   if (!project) {
     return { success: false, error: "Project not found" };
@@ -6480,6 +6499,7 @@ ipcMain.handle("send-project-prompt", (_event, data: { projectId: string; prompt
     cwd: project.path,
     prompt: data.prompt,
     attachments,
+    reasoningEffort: normalizeCodexReasoningEffort(data.reasoningEffort),
     source: "desktop",
   });
 

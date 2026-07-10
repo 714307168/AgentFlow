@@ -2024,6 +2024,10 @@ body.lightbox-open {
   padding: 0 28px 0 10px;
 }
 
+.composer-reasoning-select {
+  min-width: 118px;
+}
+
 .composer-mode-select:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(124, 92, 252, 0.18);

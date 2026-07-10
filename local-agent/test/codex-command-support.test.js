@@ -133,6 +133,60 @@ test("buildCodexExecArgs enables search for fresh exec runs", () => {
   ]);
 });
 
+test("buildCodexExecArgs passes Codex reasoning effort through config override", () => {
+  const args = buildCodexExecArgs({
+    canResumeConversation: false,
+    codexThreadId: null,
+    model: "gpt-5.4",
+    reasoningEffort: "high",
+    searchEnabled: false,
+  });
+
+  assert.deepEqual(args, [
+    "exec",
+    "--json",
+    "--dangerously-bypass-approvals-and-sandbox",
+    "--skip-git-repo-check",
+    "--enable",
+    "code_mode_only",
+    "--disable",
+    "tool_suggest",
+    "--disable",
+    "tool_call_mcp_elicitation",
+    "--model",
+    "gpt-5.4",
+    "-c",
+    "model_reasoning_effort=\"high\"",
+  ]);
+});
+
+test("buildCodexExecArgs preserves reasoning effort when resuming a thread", () => {
+  const args = buildCodexExecArgs({
+    canResumeConversation: true,
+    codexThreadId: "thread-123",
+    model: null,
+    reasoningEffort: "low",
+    searchEnabled: true,
+  });
+
+  assert.deepEqual(args, [
+    "exec",
+    "resume",
+    "--json",
+    "--dangerously-bypass-approvals-and-sandbox",
+    "--skip-git-repo-check",
+    "--enable",
+    "code_mode_only",
+    "--disable",
+    "tool_suggest",
+    "--disable",
+    "tool_call_mcp_elicitation",
+    "-c",
+    "model_reasoning_effort=\"low\"",
+    "thread-123",
+  ]);
+});
+
 test("buildCodexExecArgs drops unsupported resume and search flags when the local CLI lacks them", () => {
   const args = buildCodexExecArgs({
     canResumeConversation: true,

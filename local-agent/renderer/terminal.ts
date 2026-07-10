@@ -66,7 +66,12 @@ interface ClaudeAgentApi {
   }) => Promise<{ success: boolean; error?: string; items?: WorkgroupMessage[] }>;
   createProjectConversation?: (projectId: string) => Promise<{ success: boolean; error?: string; conversationId?: string }>;
   activateProjectConversation?: (data: { projectId: string; conversationId: string }) => Promise<{ success: boolean; error?: string }>;
-  sendProjectPrompt: (data: { projectId: string; prompt: string; attachments?: AttachmentRef[] }) => Promise<{ success: boolean; error?: string }>;
+  sendProjectPrompt: (data: {
+    projectId: string;
+    prompt: string;
+    attachments?: AttachmentRef[];
+    reasoningEffort?: ComposerReasoningEffort | null;
+  }) => Promise<{ success: boolean; error?: string }>;
   updateProject?: (data: {
     projectId: string;
     updates: Record<string, string | boolean | null>;
@@ -341,6 +346,7 @@ interface WorkspaceDraftState {
 }
 
 type ComposerRunMode = "normal" | "plan" | "goal";
+type ComposerReasoningEffort = "auto" | "minimal" | "low" | "medium" | "high" | "xhigh";
 
 interface RenderOptions {
   staticI18n?: boolean;
@@ -419,6 +425,7 @@ const elements = {
   composerInput: document.getElementById("composerInput") as HTMLTextAreaElement | null,
   composerModelBtn: document.getElementById("composerModelBtn") as HTMLButtonElement | null,
   composerRunModeSelect: document.getElementById("composerRunModeSelect") as HTMLSelectElement | null,
+  composerReasoningSelect: document.getElementById("composerReasoningSelect") as HTMLSelectElement | null,
   mentionSuggestions: document.getElementById("mentionSuggestions"),
   composerHint: document.getElementById("composerHint"),
   attachImageBtn: document.getElementById("attachImageBtn") as HTMLButtonElement | null,
@@ -462,6 +469,7 @@ const state: {
   messageSearchLoading: boolean;
   pendingAttachments: AttachmentRef[];
   composerRunMode: ComposerRunMode;
+  composerReasoningEffort: ComposerReasoningEffort;
   draftsByWorkspaceKey: Map<string, WorkspaceDraftState>;
   preferredViews: Record<"claude" | "codex", WorkspaceView>;
   groupOrder: string[];
@@ -492,6 +500,7 @@ const state: {
   messageSearchLoading: false,
   pendingAttachments: [],
   composerRunMode: "normal",
+  composerReasoningEffort: "auto",
   draftsByWorkspaceKey: new Map<string, WorkspaceDraftState>(),
   preferredViews: {
     claude: "messages",
@@ -860,6 +869,15 @@ function isComposerRunMode(value: string | null | undefined): value is ComposerR
   return value === "normal" || value === "plan" || value === "goal";
 }
 
+function isComposerReasoningEffort(value: string | null | undefined): value is ComposerReasoningEffort {
+  return value === "auto"
+    || value === "minimal"
+    || value === "low"
+    || value === "medium"
+    || value === "high"
+    || value === "xhigh";
+}
+
 function composerRunModeLabel(mode: ComposerRunMode): string {
   if (mode === "plan") {
     return inlineText("Plan", "计划");
@@ -868,6 +886,25 @@ function composerRunModeLabel(mode: ComposerRunMode): string {
     return inlineText("Goal", "目标");
   }
   return inlineText("Normal", "普通");
+}
+
+function composerReasoningLabel(effort: ComposerReasoningEffort): string {
+  if (effort === "minimal") {
+    return inlineText("Minimal", "极低");
+  }
+  if (effort === "low") {
+    return inlineText("Low", "低");
+  }
+  if (effort === "medium") {
+    return inlineText("Medium", "中");
+  }
+  if (effort === "high") {
+    return inlineText("High", "高");
+  }
+  if (effort === "xhigh") {
+    return inlineText("XHigh", "极高");
+  }
+  return inlineText("Auto", "自动");
 }
 
 function syncComposerRunModeSelect(enabled: boolean, disabledTitle?: string): void {
@@ -894,6 +931,37 @@ function syncComposerRunModeSelect(enabled: boolean, disabledTitle?: string): vo
   select.title = enabled
     ? inlineText("Choose how the next prompt runs", "选择下一条提示词的运行模式")
     : (disabledTitle ?? inlineText("Run modes are available for Codex projects", "运行模式仅在 Codex 项目中可用"));
+}
+
+function syncComposerReasoningSelect(enabled: boolean, disabledTitle?: string): void {
+  const select = elements.composerReasoningSelect;
+  if (!select) {
+    return;
+  }
+  for (const option of Array.from(select.options)) {
+    if (isComposerReasoningEffort(option.value)) {
+      option.textContent = `${inlineText("Reasoning", "推理")}: ${composerReasoningLabel(option.value)}`;
+    }
+  }
+  if (!enabled) {
+    state.composerReasoningEffort = "auto";
+  }
+  select.value = state.composerReasoningEffort;
+  select.disabled = !enabled;
+  select.hidden = false;
+  select.title = enabled
+    ? inlineText("Choose Codex reasoning effort for the next prompt", "选择下一条 Codex 提示词的推理强度")
+    : (disabledTitle ?? inlineText("Reasoning effort is available for Codex projects", "推理强度仅在 Codex 项目中可用"));
+}
+
+function getComposerReasoningEffortForSend(): ComposerReasoningEffort | null {
+  const project = getCurrentProject();
+  const session = getCurrentSession();
+  const provider = getConfiguredProvider(project, session);
+  if (!project || provider !== "codex" || state.workgroupId || state.composerReasoningEffort === "auto") {
+    return null;
+  }
+  return state.composerReasoningEffort;
 }
 
 function translateSource(source: "remote" | "desktop" | "workgroup"): string {
@@ -3554,6 +3622,7 @@ function renderHeader(): void {
       elements.composerModelBtn.hidden = false;
     }
     syncComposerRunModeSelect(false, inlineText("Run modes are disabled in collaboration groups", "协作组不使用项目运行模式"));
+    syncComposerReasoningSelect(false, inlineText("Reasoning effort is disabled in collaboration groups", "协作组不使用推理强度"));
     syncDocumentTitleIfNeeded();
     return;
   }
@@ -3602,6 +3671,12 @@ function renderHeader(): void {
     provider === "codex"
       ? inlineText("Select a project before choosing a run mode", "先选择项目，再选择运行模式")
       : inlineText("Plan and goal modes are available for Codex projects", "计划和目标模式仅在 Codex 项目中可用"),
+  );
+  syncComposerReasoningSelect(
+    Boolean(project && provider === "codex"),
+    provider === "codex"
+      ? inlineText("Select a project before choosing reasoning effort", "先选择项目，再选择推理强度")
+      : inlineText("Reasoning effort is available for Codex projects", "推理强度仅在 Codex 项目中可用"),
   );
   if (elements.modeBadge) {
     elements.modeBadge.textContent = msg("terminal.mode.fullAuto", "Full auto");
@@ -4312,6 +4387,7 @@ async function submitPrompt(): Promise<void> {
     projectId: state.projectId,
     prompt,
     attachments,
+    reasoningEffort: getComposerReasoningEffortForSend(),
   });
 
   if (!result.success) {
@@ -5077,6 +5153,29 @@ elements.composerRunModeSelect?.addEventListener("change", (event) => {
       : inlineText(
           `${composerRunModeLabel(state.composerRunMode)} mode selected for the next prompt.`,
           `下一条提示词将使用${composerRunModeLabel(state.composerRunMode)}模式。`,
+        ),
+    false,
+  );
+});
+
+elements.composerReasoningSelect?.addEventListener("change", (event) => {
+  const target = event.target as HTMLSelectElement | null;
+  const nextEffort = isComposerReasoningEffort(target?.value) ? target.value : "auto";
+  const project = getCurrentProject();
+  const session = getCurrentSession();
+  const provider = getConfiguredProvider(project, session);
+  const enabled = Boolean(project && provider === "codex" && !state.workgroupId);
+  state.composerReasoningEffort = enabled ? nextEffort : "auto";
+  syncComposerReasoningSelect(
+    enabled,
+    inlineText("Reasoning effort is available for Codex projects", "推理强度仅在 Codex 项目中可用"),
+  );
+  setHintText(
+    state.composerReasoningEffort === "auto"
+      ? inlineText("Reasoning effort set to auto.", "推理强度已设为自动。")
+      : inlineText(
+          `Reasoning effort set to ${composerReasoningLabel(state.composerReasoningEffort)} for the next prompt.`,
+          `下一条提示词推理强度：${composerReasoningLabel(state.composerReasoningEffort)}。`,
         ),
     false,
   );

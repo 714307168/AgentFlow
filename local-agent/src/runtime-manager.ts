@@ -26,6 +26,7 @@ import {
   buildProviderToolsMessage,
   buildSlashHelpMessage,
   parseSlashToggleIntent,
+  type CodexReasoningEffort,
 } from "./codex-command-support";
 import { createProviderNativeCliCapabilities, getProviderLabel as getRegisteredProviderLabel } from "./provider-registry";
 import { executeProviderSdkRun, type ProviderSdkConfig } from "./provider-sdk";
@@ -94,6 +95,7 @@ export interface EnqueueMessageOptions {
   queuedAt?: number;
   interruptCurrent?: boolean;
   interruptReason?: string;
+  reasoningEffort?: CodexReasoningEffort | null;
   runId?: string;
   responseMessageId?: string;
   onTextDelta?: (chunk: string) => void;
@@ -1006,6 +1008,7 @@ class RuntimeManager extends EventEmitter {
       canResumeConversation: this.shouldResumeConversation(state.projectId, "codex"),
       codexThreadId: state.codexThreadId,
       model: state.model,
+      reasoningEffort: run.reasoningEffort ?? null,
       searchEnabled: this.isCodexWebSearchEnabled(state.projectId),
       capabilities: {
         resumeConversation: runtime.capabilities.resumeConversation,

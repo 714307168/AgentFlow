@@ -30,8 +30,11 @@ test("desktop composer exposes per-project model switching next to the prompt", 
   assert.match(terminalHtml, /id="composerRunModeSelect"/);
   assert.match(terminalHtml, /<option value="plan">Plan<\/option>/);
   assert.match(terminalHtml, /<option value="goal">Goal<\/option>/);
+  assert.match(terminalHtml, /id="composerReasoningSelect"/);
+  assert.match(terminalHtml, /<option value="xhigh">XHigh<\/option>/);
   assert.match(stylesCss, /\.composer-model-button \{/);
   assert.match(stylesCss, /\.composer-mode-select \{/);
+  assert.match(stylesCss, /\.composer-reasoning-select \{/);
   assert.match(stylesCss, /max-width: 240px/);
   assert.match(stylesCss, /text-overflow: ellipsis/);
 });

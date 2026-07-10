@@ -6,9 +6,12 @@ export interface CodexExecArgsOptions {
   canResumeConversation: boolean;
   codexThreadId: string | null;
   model: string | null;
+  reasoningEffort?: CodexReasoningEffort | null;
   searchEnabled: boolean;
   capabilities?: Partial<Pick<ProviderRuntimeCapabilities, "resumeConversation" | "webSearch">>;
 }
+
+export type CodexReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh";
 
 export type SlashToggleIntent = "status" | "enable" | "disable" | "toggle";
 
@@ -38,6 +41,7 @@ export function buildCodexExecArgs(options: CodexExecArgsOptions): string[] {
     "--skip-git-repo-check",
     ...CODEX_RESTRICTED_TOOL_ARGS,
     ...(options.model ? ["--model", options.model] : []),
+    ...(options.reasoningEffort ? ["-c", `model_reasoning_effort=${JSON.stringify(options.reasoningEffort)}`] : []),
   ];
 
   if (supportsResume && options.canResumeConversation && options.codexThreadId) {

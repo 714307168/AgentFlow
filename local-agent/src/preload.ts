@@ -27,7 +27,12 @@ contextBridge.exposeInMainWorld('claudeAgent', {
   activateProjectConversation: (data: { projectId: string; conversationId: string }) => ipcRenderer.invoke('activate-project-conversation', data),
   clearHistoryCache: (projectId?: string | null) => ipcRenderer.invoke('clear-history-cache', projectId),
   repairChatHistory: (projectId?: string | null) => ipcRenderer.invoke('repair-chat-history', projectId),
-  sendProjectPrompt: (data: { projectId: string; prompt: string; attachments?: unknown[] }) => ipcRenderer.invoke('send-project-prompt', data),
+  sendProjectPrompt: (data: {
+    projectId: string;
+    prompt: string;
+    attachments?: unknown[];
+    reasoningEffort?: string | null;
+  }) => ipcRenderer.invoke('send-project-prompt', data),
   pickProjectAttachments: (data: { projectId: string; kind: 'image' | 'file' }) => ipcRenderer.invoke('pick-project-attachments', data),
   saveClipboardProjectImage: (data: { projectId: string }) => ipcRenderer.invoke('save-clipboard-project-image', data),
   getAttachmentImageData: (data: { path?: string | null }) => ipcRenderer.invoke('get-attachment-image-data', data),
