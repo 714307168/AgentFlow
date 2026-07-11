@@ -243,9 +243,25 @@ class RelayClient extends EventEmitter {
     this.recordConnectionEvent("connect-attempt", {
       detail: "generation=" + String(generation) + "; queued=" + String(this.pendingOutgoingEnvelopes.length),
     });
-    const socket = new WebSocket(this.serverUrl, {
-      headers: buildRelayApiHeaders(),
-    });
+    let socket: WebSocket;
+    try {
+      socket = new WebSocket(this.serverUrl, {
+        headers: buildRelayApiHeaders(),
+      });
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      this.ws = null;
+      this.lastErrorAt = Date.now();
+      this.lastErrorMessage = err.message;
+      this.consecutiveFailureCount += 1;
+      this.recordConnectionEvent("socket-error", {
+        detail: err.message,
+      });
+      this.setConnectionState("disconnected");
+      this.emit("disconnected");
+      this.emitRelayError(err);
+      return;
+    }
     this.ws = socket;
     socket.on("open", () => this.onOpen(generation, socket));
     socket.on("message", (data: WebSocket.RawData) => this.onMessage(generation, socket, data.toString()));
@@ -538,7 +554,13 @@ class RelayClient extends EventEmitter {
     this.recordConnectionEvent("socket-error", {
       detail: err.message,
     });
-    this.emit("error", err);
+    this.emitRelayError(err);
+  }
+
+  private emitRelayError(err: Error): void {
+    if (this.listenerCount("error") > 0) {
+      this.emit("error", err);
+    }
   }
 
   private onSocketActivity(generation: number, socket: WebSocket): void {

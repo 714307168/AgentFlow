@@ -16,6 +16,20 @@ function waitForListening(server) {
   });
 }
 
+test("RelayClient reports invalid relay URLs without throwing from connect", () => {
+  const client = new RelayClient("", "agent-test", "token-test", false);
+
+  assert.doesNotThrow(() => client.connect());
+
+  const snapshot = client.getConnectionSnapshot();
+  assert.equal(snapshot.state, "disconnected");
+  assert.equal(snapshot.isConnected, false);
+  assert.equal(snapshot.isAuthenticated, false);
+  assert.match(snapshot.lastErrorMessage, /Invalid URL/);
+  assert.ok(snapshot.lastErrorAt > 0);
+  assert.ok(snapshot.recentEvents.some((entry) => entry.type === "socket-error"));
+});
+
 test("RelayClient reports connected only after relay authentication", async () => {
   const wss = new WebSocketServer({ port: 0 });
   await waitForListening(wss);
