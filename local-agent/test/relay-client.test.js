@@ -3,7 +3,9 @@ const assert = require("node:assert/strict");
 const { once } = require("node:events");
 const { WebSocketServer } = require("ws");
 
-const RelayClient = require("../dist/src/relay-client.js").default;
+const relayClientModule = require("../dist/src/relay-client.js");
+const RelayClient = relayClientModule.default;
+const { normalizeRelayWebSocketUrl } = relayClientModule;
 const { Events } = require("../dist/src/types.js");
 
 function waitForListening(server) {
@@ -15,6 +17,14 @@ function waitForListening(server) {
     server.once("listening", resolve);
   });
 }
+
+test("normalizeRelayWebSocketUrl accepts base relay URLs and targets /ws", () => {
+  assert.equal(normalizeRelayWebSocketUrl("https://relay.example.com"), "wss://relay.example.com/ws");
+  assert.equal(normalizeRelayWebSocketUrl("http://127.0.0.1:8080"), "ws://127.0.0.1:8080/ws");
+  assert.equal(normalizeRelayWebSocketUrl("wss://relay.example.com"), "wss://relay.example.com/ws");
+  assert.equal(normalizeRelayWebSocketUrl("relay.example.com"), "wss://relay.example.com/ws");
+  assert.equal(normalizeRelayWebSocketUrl("wss://relay.example.com/custom"), "wss://relay.example.com/custom");
+});
 
 test("RelayClient reports invalid relay URLs without throwing from connect", () => {
   const client = new RelayClient("", "agent-test", "token-test", false);
@@ -28,6 +38,34 @@ test("RelayClient reports invalid relay URLs without throwing from connect", () 
   assert.match(snapshot.lastErrorMessage, /Invalid URL/);
   assert.ok(snapshot.lastErrorAt > 0);
   assert.ok(snapshot.recentEvents.some((entry) => entry.type === "socket-error"));
+});
+
+test("RelayClient connects to /ws when configured with an HTTP relay base URL", async () => {
+  const wss = new WebSocketServer({ port: 0, path: "/ws" });
+  await waitForListening(wss);
+  const address = wss.address();
+  if (!address || typeof address === "string") {
+    throw new Error("failed to resolve test websocket address");
+  }
+
+  const authMessagePromise = new Promise((resolve) => {
+    wss.on("connection", (socket, request) => {
+      socket.once("message", (raw) => resolve({
+        path: request.url,
+        env: JSON.parse(raw.toString()),
+      }));
+    });
+  });
+
+  const client = new RelayClient("http://127.0.0.1:" + address.port, "agent-test", "token-test", false);
+  client.connect();
+  const authMessage = await authMessagePromise;
+
+  assert.equal(authMessage.path, "/ws");
+  assert.equal(authMessage.env.event, Events.AUTH_LOGIN);
+
+  client.disconnect();
+  await new Promise((resolve) => wss.close(resolve));
 });
 
 test("RelayClient reports connected only after relay authentication", async () => {

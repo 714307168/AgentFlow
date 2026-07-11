@@ -28,6 +28,30 @@ interface QueuedOutgoingEnvelope {
 
 const RECENT_CONNECTION_EVENT_LIMIT = 24;
 
+export function normalizeRelayWebSocketUrl(serverUrl: string): string {
+  const trimmed = serverUrl.trim();
+  if (!trimmed) {
+    return trimmed;
+  }
+
+  const withProtocol = /^[a-z][a-z\d+.-]*:\/\//iu.test(trimmed)
+    ? trimmed
+    : `wss://${trimmed}`;
+  const url = new URL(withProtocol);
+  if (url.protocol === "http:") {
+    url.protocol = "ws:";
+  } else if (url.protocol === "https:") {
+    url.protocol = "wss:";
+  }
+  if (url.protocol !== "ws:" && url.protocol !== "wss:") {
+    throw new Error(`Unsupported relay websocket protocol: ${url.protocol}`);
+  }
+  if (!url.pathname || url.pathname === "/") {
+    url.pathname = "/ws";
+  }
+  return url.toString();
+}
+
 export type RelayConnectionState =
   | "disconnected"
   | "connecting"
@@ -245,7 +269,7 @@ class RelayClient extends EventEmitter {
     });
     let socket: WebSocket;
     try {
-      socket = new WebSocket(this.serverUrl, {
+      socket = new WebSocket(normalizeRelayWebSocketUrl(this.serverUrl), {
         headers: buildRelayApiHeaders(),
       });
     } catch (error) {
