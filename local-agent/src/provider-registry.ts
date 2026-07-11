@@ -145,7 +145,7 @@ const PROVIDER_REGISTRY: Record<CliProvider, ProviderRegistryEntry> = {
       baseUrlConfigKey: "openaiBaseUrl",
       defaultModelConfigKey: "openaiDefaultModel",
       defaultBaseUrl: "https://api.openai.com",
-      defaultModel: "gpt-5.4",
+      defaultModel: "gpt-5.6-sol",
       env: {
         apiKey: "OPENAI_API_KEY",
         baseUrl: "OPENAI_BASE_URL",
@@ -193,7 +193,7 @@ export const MODEL_PROVIDER_PRESETS: ModelProviderPreset[] = [
     name: "OpenAI",
     protocol: "openai",
     baseUrl: "https://api.openai.com",
-    defaultModel: "gpt-5.4",
+    defaultModel: "gpt-5.6-sol",
     description: "Official OpenAI-compatible API endpoint.",
   },
   {

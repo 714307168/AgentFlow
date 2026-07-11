@@ -76,7 +76,7 @@ test("listConfiguredModelOptions marks missing provider credentials explicitly",
       protocol: "openai",
       apiKey: "",
       baseUrl: "https://api.openai.com",
-      defaultModel: "gpt-5.4",
+      defaultModel: "gpt-5.6-sol",
       enabled: true,
     }],
   }, {});
@@ -84,7 +84,15 @@ test("listConfiguredModelOptions marks missing provider credentials explicitly",
   assert.equal(options.length, 1);
   assert.equal(options[0].configured, false);
   assert.equal(options[0].credentialSource, "none");
-  assert.deepEqual(options[0].models.slice(0, 5), ["gpt-5.4", "gpt-5.6", "gpt-5.5", "gpt-5.4-mini", "gpt-5-codex"]);
+  assert.deepEqual(options[0].models.slice(0, 7), [
+    "gpt-5.6-sol",
+    "gpt-5.6-terra",
+    "gpt-5.6-luna",
+    "gpt-5.6",
+    "gpt-5.5",
+    "gpt-5.4",
+    "gpt-5.4-mini",
+  ]);
 });
 
 test("listConfiguredModelOptions exposes current Codex model choices without upstream lookup", async () => {
@@ -95,7 +103,7 @@ test("listConfiguredModelOptions exposes current Codex model choices without ups
       protocol: "openai",
       apiKey: "sk-config",
       baseUrl: "https://api.openai.com",
-      defaultModel: "gpt-5.6",
+      defaultModel: "gpt-5.6-terra",
       enabled: true,
     }],
   }, {});
@@ -103,5 +111,13 @@ test("listConfiguredModelOptions exposes current Codex model choices without ups
   assert.equal(options.length, 1);
   assert.equal(options[0].configured, true);
   assert.equal(options[0].credentialSource, "config");
-  assert.deepEqual(options[0].models.slice(0, 5), ["gpt-5.6", "gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5-codex"]);
+  assert.deepEqual(options[0].models.slice(0, 7), [
+    "gpt-5.6-terra",
+    "gpt-5.6-sol",
+    "gpt-5.6-luna",
+    "gpt-5.6",
+    "gpt-5.5",
+    "gpt-5.4",
+    "gpt-5.4-mini",
+  ]);
 });

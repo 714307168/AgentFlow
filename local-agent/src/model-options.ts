@@ -19,6 +19,9 @@ export interface ModelProviderOption {
 
 const BUILTIN_MODEL_CATALOG_BY_PROFILE_ID: Record<string, string[]> = {
   openai: [
+    "gpt-5.6-sol",
+    "gpt-5.6-terra",
+    "gpt-5.6-luna",
     "gpt-5.6",
     "gpt-5.5",
     "gpt-5.4",
@@ -28,6 +31,7 @@ const BUILTIN_MODEL_CATALOG_BY_PROFILE_ID: Record<string, string[]> = {
     "gpt-4.1-mini",
     "gpt-4o",
     "gpt-4o-mini",
+    "gpt-image-2",
     "gpt-image-1",
   ],
   deepseek: [

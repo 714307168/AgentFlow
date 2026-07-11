@@ -12,7 +12,7 @@ object ProviderUi {
     fun defaultModels(provider: String): List<ModelPreset> =
         if (provider.equals("codex", ignoreCase = true)) {
             listOf(
-                ModelPreset("OpenAI", "gpt-5.4"),
+                ModelPreset("OpenAI", "gpt-5.6-sol"),
                 ModelPreset("DeepSeek", "deepseek-chat"),
                 ModelPreset("智谱 GLM", "glm-4.5"),
                 ModelPreset("MiniMax / Mimo", "MiniMax-M1"),

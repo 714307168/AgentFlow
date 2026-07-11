@@ -1,6 +1,6 @@
 {
   "name": "agentflow-desktop",
-  "version": "1.1.210",
+  "version": "1.1.211",
   "description": "Desktop agent for AgentFlow remote control",
   "author": "AgentFlow contributors <noreply@agentflow.local>",
   "license": "MIT",
