@@ -35,8 +35,38 @@ import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
+import java.net.URI
 import java.util.UUID
 import java.util.concurrent.TimeUnit
+
+internal fun normalizeRelayWebSocketUrl(rawUrl: String): String {
+    val trimmed = rawUrl.trim()
+    if (trimmed.isEmpty()) {
+        return "wss://relay.liuyg.cn/ws"
+    }
+
+    val hasProtocol = Regex("^[a-z][a-z\\d+.-]*://", RegexOption.IGNORE_CASE).containsMatchIn(trimmed)
+    val withProtocol = if (hasProtocol) trimmed else "wss://$trimmed"
+    val uri = URI(withProtocol)
+    val scheme = when (uri.scheme?.lowercase()) {
+        "http" -> "ws"
+        "https" -> "wss"
+        "ws" -> "ws"
+        "wss" -> "wss"
+        else -> throw IllegalArgumentException("Unsupported relay websocket protocol: ${uri.scheme.orEmpty()}")
+    }
+    val path = uri.rawPath.orEmpty().ifBlank { "/" }
+    val normalizedPath = if (path == "/") "/ws" else path.trimEnd('/').ifEmpty { "/ws" }
+    return URI(
+        scheme,
+        uri.rawUserInfo,
+        uri.host,
+        uri.port,
+        normalizedPath,
+        uri.rawQuery,
+        uri.rawFragment
+    ).toString()
+}
 
 class RelayWebSocket(
     private var serverUrl: String,
@@ -652,18 +682,7 @@ class RelayWebSocket(
     }
 
     private fun toWsUrl(rawUrl: String): String {
-        val trimmed = rawUrl.trim().trimEnd('/')
-        if (trimmed.isEmpty()) {
-            return "wss://relay.liuyg.cn/ws"
-        }
-
-        return when {
-            (trimmed.startsWith("ws://") || trimmed.startsWith("wss://")) && trimmed.endsWith("/ws") -> trimmed
-            trimmed.startsWith("http://") -> "ws://${trimmed.removePrefix("http://")}/ws"
-            trimmed.startsWith("https://") -> "wss://${trimmed.removePrefix("https://")}/ws"
-            trimmed.startsWith("ws://") || trimmed.startsWith("wss://") -> "$trimmed/ws"
-            else -> "ws://$trimmed/ws"
-        }
+        return normalizeRelayWebSocketUrl(rawUrl)
     }
 
     private fun shouldEncryptEvent(event: String): Boolean = event !in setOf(
