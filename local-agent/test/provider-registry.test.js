@@ -35,7 +35,7 @@ test("provider labels, commands, install targets, and sdk defaults come from the
   assert.equal(getProviderInstallTargets("claude").winget, "Anthropic.ClaudeCode");
   assert.equal(getProviderInstallTargets("codex").npm, "@openai/codex@latest");
   assert.equal(getProviderDefaultSdkBaseUrl("claude"), "https://api.anthropic.com");
-  assert.equal(getProviderDefaultSdkModel("codex"), "gpt-5.6-sol");
+  assert.equal(getProviderDefaultSdkModel("codex"), "gpt-5.6-terra");
 });
 
 test("provider capability helpers stay provider-specific", () => {

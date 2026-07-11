@@ -76,7 +76,7 @@ test("listConfiguredModelOptions marks missing provider credentials explicitly",
       protocol: "openai",
       apiKey: "",
       baseUrl: "https://api.openai.com",
-      defaultModel: "gpt-5.6-sol",
+      defaultModel: "gpt-5.6-terra",
       enabled: true,
     }],
   }, {});
@@ -85,8 +85,8 @@ test("listConfiguredModelOptions marks missing provider credentials explicitly",
   assert.equal(options[0].configured, false);
   assert.equal(options[0].credentialSource, "none");
   assert.deepEqual(options[0].models.slice(0, 7), [
-    "gpt-5.6-sol",
     "gpt-5.6-terra",
+    "gpt-5.6-sol",
     "gpt-5.6-luna",
     "gpt-5.6",
     "gpt-5.5",
