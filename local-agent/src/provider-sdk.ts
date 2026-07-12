@@ -21,11 +21,22 @@ export interface ProviderSdkExecutionOptions {
   messages?: SessionMessage[];
   attachments?: RunAttachment[];
   signal?: AbortSignal;
+  onTextDelta?: (chunk: string) => void;
+  onGuidance?: (event: ProviderSdkGuidanceEvent) => void;
 }
 
 export interface ProviderSdkExecutionResult {
   text: string;
   model: string | null;
+}
+
+export interface ProviderSdkGuidanceEvent {
+  key: string;
+  kind: "thinking" | "tool" | "status";
+  title: string;
+  delta?: string;
+  detail?: string;
+  status?: "pending" | "running" | "completed" | "error";
 }
 
 export interface ProviderSdkImageGenerationOptions {
@@ -49,6 +60,8 @@ const MAX_SDK_TOTAL_CHARS = 24_000;
 
 class ManagedProviderSdkUnavailableError extends Error {}
 
+class OpenAiResponsesUnavailableError extends Error {}
+
 export function isProviderSdkConfigured(config: ProviderSdkConfig | null | undefined): boolean {
   return Boolean(config?.apiKey?.trim());
 }
@@ -61,6 +74,15 @@ export async function executeProviderSdkRun(
   }
 
   if (options.provider === "codex") {
+    if (shouldUseOpenAiResponsesApi(options.config, options.model)) {
+      try {
+        return await executeOpenAiResponsesStream(options);
+      } catch (error) {
+        if (!(error instanceof OpenAiResponsesUnavailableError)) {
+          throw error;
+        }
+      }
+    }
     try {
       return await executeManagedOpenAiChatCompletion(options);
     } catch (error) {
@@ -191,6 +213,86 @@ function buildManagedOpenAiClientOptions(config: ProviderSdkConfig): Record<stri
     clientOptions.baseURL = baseURL;
   }
   return clientOptions;
+}
+
+async function executeOpenAiResponsesStream(
+  options: ProviderSdkExecutionOptions,
+): Promise<ProviderSdkExecutionResult> {
+  const payloadModel =
+    normalizeText(options.model) || normalizeText(options.config.defaultModel) || getProviderDefaultSdkModel("codex");
+  const url = joinBaseUrl(options.config.baseUrl || getProviderDefaultSdkBaseUrl("codex"), "/v1/responses");
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "text/event-stream",
+      Authorization: `Bearer ${options.config.apiKey!.trim()}`,
+    },
+    body: JSON.stringify({
+      model: payloadModel,
+      instructions: normalizeText(options.projectPrompt) || undefined,
+      input: await buildOpenAiResponsesInput(options),
+      reasoning: {
+        summary: "auto",
+      },
+      stream: true,
+    }),
+    signal: options.signal,
+  });
+
+  if (!response.ok) {
+    const errorText = (await response.text()).trim();
+    if (response.status === 404 || /unsupported|not supported|unknown parameter|invalid.*reasoning/i.test(errorText)) {
+      throw new OpenAiResponsesUnavailableError(errorText || response.statusText || "OpenAI Responses API is unavailable.");
+    }
+    throw new Error(errorText || response.statusText || "OpenAI Responses API request failed.");
+  }
+
+  let text = "";
+  let model: string | null = payloadModel;
+  await readOpenAiSseStream(response, (event) => {
+    const eventType = normalizeText(event.type as string | null | undefined);
+    if (eventType === "response.completed" && event.response && typeof event.response === "object") {
+      const responsePayload = event.response as Record<string, unknown>;
+      model = normalizeText(responsePayload.model as string | null | undefined) || model;
+      if (!text.trim()) {
+        const completedText = extractOpenAiResponseText(responsePayload);
+        if (completedText) {
+          text += completedText;
+          options.onTextDelta?.(completedText);
+        }
+      }
+      options.onGuidance?.({
+        key: "openai-responses-status",
+        kind: "status",
+        title: "OpenAI Responses",
+        status: "completed",
+        detail: "Responses stream completed.",
+      });
+      return;
+    }
+
+    const textDelta = extractOpenAiTextDelta(event);
+    if (textDelta) {
+      text += textDelta;
+      options.onTextDelta?.(textDelta);
+      return;
+    }
+
+    const guidance = normalizeOpenAiGuidanceEvent(event);
+    if (guidance) {
+      options.onGuidance?.(guidance);
+    }
+  });
+
+  const normalizedText = text.trim();
+  if (!normalizedText) {
+    throw new Error("OpenAI Responses API returned no assistant text.");
+  }
+  return {
+    text: normalizedText,
+    model,
+  };
 }
 
 async function generateManagedOpenAiImage(
@@ -413,6 +515,48 @@ async function buildOpenAiContentBlocks(content: string, attachments: RunAttachm
   return blocks;
 }
 
+async function buildOpenAiResponsesInput(options: ProviderSdkExecutionOptions): Promise<Array<Record<string, unknown>>> {
+  const history = buildConversationHistory(options.messages, options.prompt);
+  const input: Array<Record<string, unknown>> = [];
+  for (const message of history) {
+    const attachments = message.attachments ?? (message.content === options.prompt ? options.attachments ?? [] : []);
+    input.push({
+      role: message.role,
+      content: await buildOpenAiResponsesContent(message.role, message.content, attachments),
+    });
+  }
+  return input;
+}
+
+async function buildOpenAiResponsesContent(
+  role: SessionMessage["role"],
+  content: string,
+  attachments: RunAttachment[],
+): Promise<string | Array<Record<string, unknown>>> {
+  if (!attachments.some((attachment) => attachment.kind === "image")) {
+    return appendUnsupportedAttachmentNote(content, attachments);
+  }
+
+  const textType = role === "assistant" ? "output_text" : "input_text";
+  const blocks: Array<Record<string, unknown>> = [
+    { type: textType, text: appendUnsupportedAttachmentNote(content, attachments) },
+  ];
+  if (role !== "user") {
+    return blocks;
+  }
+  for (const attachment of attachments) {
+    const imageBlock = await buildImageDataUrl(attachment);
+    if (!imageBlock) {
+      continue;
+    }
+    blocks.push({
+      type: "input_image",
+      image_url: imageBlock,
+    });
+  }
+  return blocks;
+}
+
 async function buildAnthropicContentBlocks(content: string, attachments: RunAttachment[]): Promise<Array<Record<string, unknown>>> {
   const blocks: Array<Record<string, unknown>> = [
     { type: "text", text: appendUnsupportedAttachmentNote(content, attachments) },
@@ -476,6 +620,194 @@ async function buildImageBase64(attachment: RunAttachment): Promise<{ base64: st
 
 function normalizeText(value: string | null | undefined): string {
   return String(value ?? "").trim();
+}
+
+function shouldUseOpenAiResponsesApi(config: ProviderSdkConfig, model: string | null): boolean {
+  const baseUrl = normalizeText(config.baseUrl) || getProviderDefaultSdkBaseUrl("codex");
+  let host = "";
+  try {
+    host = new URL(baseUrl).host.toLowerCase();
+  } catch {
+    return false;
+  }
+  const selectedModel =
+    normalizeText(model) || normalizeText(config.defaultModel) || getProviderDefaultSdkModel("codex");
+  return host === "api.openai.com" && /^(gpt-5(?:\.|-|$)|o[134](?:\.|-|$)|o\d(?:\.|-|$))/i.test(selectedModel);
+}
+
+async function readOpenAiSseStream(
+  response: Response,
+  onEvent: (event: Record<string, unknown>) => void,
+): Promise<void> {
+  const body = response.body;
+  if (!body) {
+    throw new Error("OpenAI Responses API returned no stream body.");
+  }
+
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    buffer += decoder.decode(value, { stream: true });
+    buffer = drainOpenAiSseBuffer(buffer, onEvent);
+  }
+  buffer += decoder.decode();
+  drainOpenAiSseBuffer(buffer, onEvent, true);
+}
+
+function drainOpenAiSseBuffer(
+  buffer: string,
+  onEvent: (event: Record<string, unknown>) => void,
+  flush = false,
+): string {
+  const normalized = buffer.replace(/\r\n/g, "\n");
+  const parts = normalized.split("\n\n");
+  const pending = flush ? "" : parts.pop() ?? "";
+  const completeParts = flush ? parts.filter((part) => part.trim()) : parts;
+  for (const part of completeParts) {
+    const parsed = parseOpenAiSseEvent(part);
+    if (parsed) {
+      onEvent(parsed);
+    }
+  }
+  return pending;
+}
+
+function parseOpenAiSseEvent(raw: string): Record<string, unknown> | null {
+  const dataLines: string[] = [];
+  let namedEvent = "";
+  for (const line of raw.split("\n")) {
+    if (line.startsWith("event:")) {
+      namedEvent = line.slice("event:".length).trim();
+      continue;
+    }
+    if (line.startsWith("data:")) {
+      dataLines.push(line.slice("data:".length).trimStart());
+    }
+  }
+  const data = dataLines.join("\n").trim();
+  if (!data || data === "[DONE]") {
+    return null;
+  }
+  const parsed = JSON.parse(data) as Record<string, unknown>;
+  if (!parsed.type && namedEvent) {
+    parsed.type = namedEvent;
+  }
+  return parsed;
+}
+
+function extractOpenAiTextDelta(event: Record<string, unknown>): string {
+  const eventType = normalizeText(event.type as string | null | undefined);
+  if (eventType !== "response.output_text.delta") {
+    return "";
+  }
+  return normalizeEventText(event.delta) || normalizeEventText(event.text);
+}
+
+function normalizeOpenAiGuidanceEvent(event: Record<string, unknown>): ProviderSdkGuidanceEvent | null {
+  const eventType = normalizeText(event.type as string | null | undefined);
+  if (!eventType) {
+    return null;
+  }
+
+  if (eventType.includes("reasoning_summary") || eventType.includes("reasoning_text")) {
+    const delta = normalizeEventText(event.delta) || normalizeEventText(event.text);
+    const doneText = normalizeEventText(event.text);
+    return {
+      key: eventType.includes("reasoning_summary") ? "openai-reasoning-summary" : "openai-reasoning",
+      kind: "thinking",
+      title: eventType.includes("reasoning_summary") ? "Reasoning summary" : "Reasoning guidance",
+      delta: eventType.endsWith(".delta") ? delta : undefined,
+      detail: !eventType.endsWith(".delta") ? doneText : undefined,
+      status: eventType.endsWith(".done") ? "completed" : "running",
+    };
+  }
+
+  if (eventType === "response.output_item.added" || eventType === "response.output_item.done") {
+    const item = event.item && typeof event.item === "object" ? event.item as Record<string, unknown> : null;
+    const itemType = normalizeText(item?.type as string | null | undefined);
+    if (itemType === "function_call" || itemType === "tool_call") {
+      const key = normalizeText(item?.id as string | null | undefined)
+        || normalizeText(item?.call_id as string | null | undefined)
+        || "openai-tool-call";
+      const name = normalizeText(item?.name as string | null | undefined) || "Tool call";
+      return {
+        key,
+        kind: "tool",
+        title: name,
+        detail: stringifyCompact(item),
+        status: eventType.endsWith(".done") ? "completed" : "running",
+      };
+    }
+  }
+
+  if (eventType === "response.function_call_arguments.delta") {
+    const key = normalizeText(event.item_id as string | null | undefined)
+      || normalizeText(event.call_id as string | null | undefined)
+      || "openai-tool-call";
+    return {
+      key,
+      kind: "tool",
+      title: "Tool arguments",
+      delta: normalizeEventText(event.delta),
+      status: "running",
+    };
+  }
+
+  if (eventType === "response.failed" || eventType === "response.incomplete") {
+    return {
+      key: "openai-responses-status",
+      kind: "status",
+      title: "OpenAI Responses",
+      detail: stringifyCompact(event.error ?? event),
+      status: eventType === "response.failed" ? "error" : "completed",
+    };
+  }
+
+  return null;
+}
+
+function normalizeEventText(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function extractOpenAiResponseText(payload: Record<string, unknown>): string {
+  const direct = normalizeEventText(payload.output_text);
+  if (direct) {
+    return direct.trim();
+  }
+  const output = Array.isArray(payload.output) ? payload.output : [];
+  const parts: string[] = [];
+  for (const item of output) {
+    if (!item || typeof item !== "object") {
+      continue;
+    }
+    const content = Array.isArray((item as Record<string, unknown>).content)
+      ? (item as Record<string, unknown>).content as Array<Record<string, unknown>>
+      : [];
+    for (const block of content) {
+      const text = normalizeEventText(block.text);
+      if (text) {
+        parts.push(text);
+      }
+    }
+  }
+  return parts.join("\n").trim();
+}
+
+function stringifyCompact(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value ?? "");
+  }
 }
 
 function resolveManagedOpenAiClientConstructor(): new (options: Record<string, unknown>) => {

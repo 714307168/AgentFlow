@@ -29,7 +29,7 @@ import {
   type CodexReasoningEffort,
 } from "./codex-command-support";
 import { createProviderNativeCliCapabilities, getProviderLabel as getRegisteredProviderLabel } from "./provider-registry";
-import { executeProviderSdkRun, type ProviderSdkConfig } from "./provider-sdk";
+import { executeProviderSdkRun, type ProviderSdkConfig, type ProviderSdkGuidanceEvent } from "./provider-sdk";
 import { type ProviderRuntimeSelection } from "./provider-runtime";
 import { terminateProcessHandle } from "./process-cleanup";
 import SessionHistoryStore, {
@@ -1830,13 +1830,22 @@ class RuntimeManager extends EventEmitter {
         messages: state.messages,
         attachments: run.attachments,
         signal: abortController.signal,
+        onTextDelta: (chunk) => {
+          this.appendAssistantText(state, context, run, chunk);
+          run.onTextDelta?.(chunk);
+        },
+        onGuidance: (event) => {
+          this.recordProviderSdkGuidance(state, context, run, event);
+        },
       });
 
       if (result.model) {
         state.model = result.model;
       }
-      this.appendAssistantText(state, context, run, result.text);
-      run.onTextDelta?.(result.text);
+      if (!context.assistantMessageId) {
+        this.appendAssistantText(state, context, run, result.text);
+        run.onTextDelta?.(result.text);
+      }
       if (context.assistantMessageId) {
         this.updateMessage(state, context.assistantMessageId, {
           status: "done",
@@ -1861,6 +1870,45 @@ class RuntimeManager extends EventEmitter {
       }
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(message);
+    }
+  }
+
+  private recordProviderSdkGuidance(
+    state: ProjectState,
+    context: RunContext,
+    run: PendingRun,
+    event: ProviderSdkGuidanceEvent,
+  ): void {
+    const key = "provider-sdk:" + event.key;
+    let activityId = context.activityIdsByKey.get(key);
+    const status = event.status ?? "running";
+    if (!activityId) {
+      activityId = this.addActivity(state, {
+        id: uuidv4(),
+        kind: event.kind,
+        title: event.title,
+        detail: event.detail ?? event.delta ?? "",
+        status,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        meta: {
+          source: run.source,
+          runId: run.runId,
+          eventKey: event.key,
+        },
+      });
+      context.activityIdsByKey.set(key, activityId);
+      return;
+    }
+
+    if (event.delta) {
+      this.appendActivityDetail(state, activityId, event.delta);
+    }
+    if (event.detail !== undefined || event.status !== undefined) {
+      this.updateActivity(state, activityId, {
+        detail: event.detail,
+        status,
+      });
     }
   }
 

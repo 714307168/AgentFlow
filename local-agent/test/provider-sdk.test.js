@@ -89,6 +89,74 @@ test("executeProviderSdkRun falls back to the HTTP chat endpoint when no managed
   }
 });
 
+test("executeProviderSdkRun streams OpenAI Responses guidance for gpt-5 models", async () => {
+  const originalFetch = global.fetch;
+  const textDeltas = [];
+  const guidanceEvents = [];
+  global.fetch = async (input, init) => {
+    assert.equal(String(input), "https://api.openai.com/v1/responses");
+    assert.equal(init?.method, "POST");
+    assert.equal(init?.headers?.Accept, "text/event-stream");
+    assert.equal(init?.headers?.Authorization, "Bearer test-key");
+    const payload = JSON.parse(String(init?.body || "{}"));
+    assert.equal(payload.model, "gpt-5.6-terra");
+    assert.equal(payload.instructions, "Follow project rules.");
+    assert.equal(payload.reasoning.summary, "auto");
+    assert.equal(payload.stream, true);
+    assert.equal(payload.input[0].role, "user");
+
+    const encoder = new TextEncoder();
+    const sse = [
+      "event: response.reasoning_summary_text.delta",
+      "data: {\"type\":\"response.reasoning_summary_text.delta\",\"delta\":\"Checking context\"}",
+      "",
+      "event: response.output_text.delta",
+      "data: {\"type\":\"response.output_text.delta\",\"delta\":\"Hello\"}",
+      "",
+      "event: response.output_text.delta",
+      "data: {\"type\":\"response.output_text.delta\",\"delta\":\" world\"}",
+      "",
+      "event: response.completed",
+      "data: {\"type\":\"response.completed\",\"response\":{\"model\":\"gpt-5.6-terra\"}}",
+      "",
+    ].join("\n");
+
+    return {
+      ok: true,
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode(sse));
+          controller.close();
+        },
+      }),
+    };
+  };
+
+  try {
+    const result = await executeProviderSdkRun({
+      provider: "codex",
+      config: {
+        apiKey: "test-key",
+        baseUrl: "https://api.openai.com",
+        defaultModel: "gpt-5.6-terra",
+      },
+      model: null,
+      prompt: "hello",
+      projectPrompt: "Follow project rules.",
+      onTextDelta: (chunk) => textDeltas.push(chunk),
+      onGuidance: (event) => guidanceEvents.push(event),
+    });
+
+    assert.equal(result.text, "Hello world");
+    assert.equal(result.model, "gpt-5.6-terra");
+    assert.deepEqual(textDeltas, ["Hello", " world"]);
+    assert.equal(guidanceEvents[0].key, "openai-reasoning-summary");
+    assert.equal(guidanceEvents[0].delta, "Checking context");
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test("executeProviderSdkRun does not append duplicate v1 when the base URL already includes it", async () => {
   const originalFetch = global.fetch;
   global.fetch = async (input, init) => {
