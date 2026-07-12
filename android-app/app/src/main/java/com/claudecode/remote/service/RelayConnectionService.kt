@@ -171,6 +171,9 @@ class RelayConnectionService : Service() {
                 }
 
                 container.relayWebSocket.ensureHealthyConnection("service-start")
+                if (container.relayWebSocket.isReadyForTraffic()) {
+                    schedulePostAuthFollowUpSyncs(container, "service-start-ready")
+                }
             } catch (e: Exception) {
                 CrashLogger.logError("RelayConnectionService", "Failed to connect WebSocket", e)
             }

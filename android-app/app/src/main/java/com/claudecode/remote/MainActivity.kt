@@ -73,6 +73,7 @@ private data class BottomNavItem(
 
 class MainActivity : ComponentActivity() {
     private lateinit var appContainer: AppContainer
+    private var lastAutoRelayServiceStartAtMs: Long = 0L
 
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -88,6 +89,7 @@ class MainActivity : ComponentActivity() {
         applySavedLanguage()
         requestNotificationPermissionIfNeeded()
         appContainer.chatNavigationBus.publishFromIntent(intent)
+        startRelayServiceIfSessionCanResume("app-create")
 
         enableEdgeToEdge()
         setContent {
@@ -552,6 +554,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        startRelayServiceIfSessionCanResume("app-resume")
     }
 
     override fun onStop() {
@@ -584,6 +587,23 @@ class MainActivity : ComponentActivity() {
         config.setLocale(locale)
         @Suppress("DEPRECATION")
         resources.updateConfiguration(config, resources.displayMetrics)
+    }
+
+    private fun startRelayServiceIfSessionCanResume(reason: String) {
+        if (!::appContainer.isInitialized || !appContainer.tokenStore.shouldAutoStartRelay()) {
+            return
+        }
+        val now = System.currentTimeMillis()
+        if (now - lastAutoRelayServiceStartAtMs < AUTO_RELAY_SERVICE_START_COOLDOWN_MS) {
+            return
+        }
+        lastAutoRelayServiceStartAtMs = now
+        CrashLogger.logInfo("MainActivity", "Auto-starting relay connection service reason=$reason")
+        RelayConnectionService.start(applicationContext)
+    }
+
+    companion object {
+        private const val AUTO_RELAY_SERVICE_START_COOLDOWN_MS = 15_000L
     }
 
 }
