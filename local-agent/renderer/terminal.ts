@@ -112,6 +112,17 @@ interface ClaudeAgentApi {
   minimizeWindow?: () => void;
   maximizeWindow?: () => void;
   closeWindow?: () => void;
+  createTemporaryAccessLink?: (data: {
+    targetAgentId?: string | null;
+    projectIds?: string[] | null;
+    scopeType?: string | null;
+    capabilityBundle?: string | null;
+    allowFileDownload?: boolean;
+    allowDiagnostics?: boolean;
+    expiresAt?: string | null;
+    maxUses?: number | null;
+    note?: string | null;
+  }) => Promise<{ success: boolean; error?: string; url?: string; apiUrl?: string; token?: string; remainingUses?: number }>;
   getConfig?: () => Promise<{
     openaiDefaultModel?: string | null;
     anthropicDefaultModel?: string | null;
@@ -1921,6 +1932,142 @@ async function copyTextToClipboard(value: string): Promise<boolean> {
       fallback.remove();
     }
   }
+}
+
+let temporaryAccessContextMenu: HTMLElement | null = null;
+let temporaryAccessDialog: HTMLElement | null = null;
+
+function closeTemporaryAccessContextMenu(): void {
+  temporaryAccessContextMenu?.remove();
+  temporaryAccessContextMenu = null;
+}
+
+function closeTemporaryAccessDialog(): void {
+  temporaryAccessDialog?.remove();
+  temporaryAccessDialog = null;
+}
+
+function getProjectById(projectId: string): ProjectState | null {
+  return state.projects.find((project) => project.id === projectId) ?? null;
+}
+
+function showTemporaryAccessContextMenu(project: ProjectState, clientX: number, clientY: number): void {
+  closeTemporaryAccessContextMenu();
+  const menu = document.createElement("div");
+  menu.className = "temporary-access-menu";
+  menu.setAttribute("role", "menu");
+  menu.innerHTML = [
+    `<button type="button" class="temporary-access-menu-item" data-share-temp-api="${escapeHtml(project.id)}">${escapeHtml(inlineText("Share temporary API", "分享临时 API"))}</button>`,
+  ].join("");
+  document.body.appendChild(menu);
+  const viewportPadding = 12;
+  const rect = menu.getBoundingClientRect();
+  menu.style.left = `${Math.max(viewportPadding, Math.min(clientX, window.innerWidth - rect.width - viewportPadding))}px`;
+  menu.style.top = `${Math.max(viewportPadding, Math.min(clientY, window.innerHeight - rect.height - viewportPadding))}px`;
+  menu.querySelector("[data-share-temp-api]")?.addEventListener("click", () => {
+    closeTemporaryAccessContextMenu();
+    openTemporaryAccessDialog(project);
+  });
+  temporaryAccessContextMenu = menu;
+}
+
+function openTemporaryAccessDialog(project: ProjectState): void {
+  if (!api.createTemporaryAccessLink) {
+    setHintText(inlineText("Current desktop build does not support temporary API sharing.", "当前桌面版本不支持临时 API 分享。"), true);
+    return;
+  }
+  closeTemporaryAccessDialog();
+  const dialog = document.createElement("div");
+  dialog.className = "temporary-access-dialog";
+  dialog.innerHTML = [
+    '<div class="temporary-access-backdrop" data-close-temp-access="1"></div>',
+    '<form class="temporary-access-card">',
+    '<div class="temporary-access-header">',
+    `<div><strong>${escapeHtml(inlineText("Share temporary API", "分享临时 API"))}</strong><span>${escapeHtml(project.name)}</span></div>`,
+    '<button type="button" class="temporary-access-close" data-close-temp-access="1">×</button>',
+    '</div>',
+    `<p class="temporary-access-desc">${escapeHtml(inlineText("Create a limited-use link for this project. The receiver must log in before redeeming it.", "为当前项目生成限次限时链接，对方登录后才能兑换授权。"))}</p>`,
+    '<label class="temporary-access-field">',
+    `<span>${escapeHtml(inlineText("Call limit", "调用次数"))}</span>`,
+    '<input name="maxUses" type="number" min="1" max="1000" value="3" required>',
+    '</label>',
+    '<label class="temporary-access-field">',
+    `<span>${escapeHtml(inlineText("Expires in hours", "有效小时数"))}</span>`,
+    '<input name="expiresInHours" type="number" min="1" max="720" value="24" required>',
+    '</label>',
+    '<label class="temporary-access-field">',
+    `<span>${escapeHtml(inlineText("Note", "备注"))}</span>`,
+    `<input name="note" type="text" maxlength="120" value="${escapeHtml(project.name)}">`,
+    '</label>',
+    '<div class="temporary-access-result hidden" data-temp-access-result>',
+    '<textarea readonly data-temp-access-url></textarea>',
+    `<button type="button" class="ghost-button" data-copy-temp-access>${escapeHtml(inlineText("Copy again", "再次复制"))}</button>`,
+    '</div>',
+    '<div class="temporary-access-actions">',
+    `<button type="button" class="ghost-button" data-close-temp-access="1">${escapeHtml(inlineText("Cancel", "取消"))}</button>`,
+    `<button type="submit" class="primary-button" data-temp-access-submit>${escapeHtml(inlineText("Create and copy", "生成并复制"))}</button>`,
+    '</div>',
+    '</form>',
+  ].join("");
+  document.body.appendChild(dialog);
+  temporaryAccessDialog = dialog;
+
+  dialog.querySelectorAll("[data-close-temp-access]").forEach((node) => {
+    node.addEventListener("click", () => closeTemporaryAccessDialog());
+  });
+
+  dialog.querySelector("[data-copy-temp-access]")?.addEventListener("click", () => {
+    const value = (dialog.querySelector("[data-temp-access-url]") as HTMLTextAreaElement | null)?.value ?? "";
+    void copyTextToClipboard(value).then((copied) => {
+      setHintText(copied ? inlineText("Temporary API link copied.", "临时 API 链接已复制。") : inlineText("Failed to copy temporary API link.", "复制临时 API 链接失败。"), !copied);
+    });
+  });
+
+  dialog.querySelector("form")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    void createTemporaryAccessLinkFromDialog(project, dialog);
+  });
+}
+
+async function createTemporaryAccessLinkFromDialog(project: ProjectState, dialog: HTMLElement): Promise<void> {
+  const form = dialog.querySelector("form") as HTMLFormElement | null;
+  const submitButton = dialog.querySelector("[data-temp-access-submit]") as HTMLButtonElement | null;
+  if (!form || !api.createTemporaryAccessLink) {
+    return;
+  }
+  const formData = new FormData(form);
+  const maxUses = Number(formData.get("maxUses") ?? 0);
+  const expiresInHours = Number(formData.get("expiresInHours") ?? 0);
+  if (!Number.isFinite(maxUses) || maxUses <= 0 || !Number.isFinite(expiresInHours) || expiresInHours <= 0) {
+    setHintText(inlineText("Call limit and expiry must be greater than zero.", "调用次数和有效期必须大于 0。"), true);
+    return;
+  }
+  submitButton?.setAttribute("disabled", "true");
+  const result = await api.createTemporaryAccessLink({
+    targetAgentId: project.isRemote ? project.agentId ?? null : null,
+    projectIds: [project.id],
+    scopeType: "selected_projects",
+    capabilityBundle: "collaborate",
+    allowFileDownload: true,
+    allowDiagnostics: true,
+    maxUses,
+    expiresAt: new Date(Date.now() + expiresInHours * 60 * 60 * 1000).toISOString(),
+    note: String(formData.get("note") ?? "").trim(),
+  });
+  submitButton?.removeAttribute("disabled");
+  if (!result.success) {
+    setHintText(result.error ?? inlineText("Failed to create temporary API link.", "生成临时 API 链接失败。"), true);
+    return;
+  }
+  const url = result.url || result.apiUrl || "";
+  const textarea = dialog.querySelector("[data-temp-access-url]") as HTMLTextAreaElement | null;
+  const resultBox = dialog.querySelector("[data-temp-access-result]") as HTMLElement | null;
+  if (textarea) {
+    textarea.value = url;
+  }
+  resultBox?.classList.remove("hidden");
+  const copied = await copyTextToClipboard(url);
+  setHintText(copied ? inlineText("Temporary API link created and copied.", "临时 API 链接已生成并复制。") : inlineText("Temporary API link created. Copy it from the dialog.", "临时 API 链接已生成，请在弹窗中复制。"), !copied);
 }
 
 async function copyVisibleMessage(messageId: string): Promise<void> {
@@ -5324,6 +5471,7 @@ elements.messageSearchInput?.addEventListener("input", (event) => {
 });
 
 elements.projectList?.addEventListener("click", (event) => {
+  closeTemporaryAccessContextMenu();
   const target = event.target instanceof Element ? event.target : null;
   const header = target?.closest("[data-group-header]") as HTMLElement | null;
   const groupKey = header?.dataset.groupHeader;
@@ -5344,6 +5492,40 @@ elements.projectList?.addEventListener("click", (event) => {
   }
 
   void selectProject(projectId);
+});
+
+elements.projectList?.addEventListener("contextmenu", (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  const item = target?.closest("[data-project-id]") as HTMLElement | null;
+  const projectId = item?.dataset.projectId;
+  if (!projectId) {
+    return;
+  }
+  const project = getProjectById(projectId);
+  if (!project) {
+    return;
+  }
+  event.preventDefault();
+  showTemporaryAccessContextMenu(project, event.clientX, event.clientY);
+});
+
+document.addEventListener("click", (event) => {
+  if (!temporaryAccessContextMenu) {
+    return;
+  }
+  const target = event.target instanceof Node ? event.target : null;
+  if (target && temporaryAccessContextMenu.contains(target)) {
+    return;
+  }
+  closeTemporaryAccessContextMenu();
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") {
+    return;
+  }
+  closeTemporaryAccessContextMenu();
+  closeTemporaryAccessDialog();
 });
 
 elements.projectList?.addEventListener("keydown", (event) => {

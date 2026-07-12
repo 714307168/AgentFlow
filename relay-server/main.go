@@ -72,6 +72,8 @@ func main() {
 	mux.HandleFunc("/api/auth/change-password", rateLimitMiddleware("password-change", changePasswordRateLimiter, handler.ChangePasswordHandler(database)))
 	mux.HandleFunc("/api/access/grants", handler.AccessGrantsHandler(cfg, database))
 	mux.HandleFunc("/api/access/grants/", handler.AccessGrantsHandler(cfg, database))
+	mux.HandleFunc("/api/access/temp-links", handler.TemporaryAccessLinksHandler(cfg, database))
+	mux.HandleFunc("/api/access/temp-links/", handler.TemporaryAccessLinksHandler(cfg, database))
 	mux.HandleFunc("/api/access/effective-scope", handler.EffectiveScopeHandler(cfg, database))
 	mux.HandleFunc("/api/workgroups/registry/publish", handler.WorkgroupRegistryHandler(cfg, database))
 	mux.HandleFunc("/api/workgroups/registry/join", handler.WorkgroupRegistryHandler(cfg, database))

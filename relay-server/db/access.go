@@ -354,10 +354,27 @@ func (db *DB) CreateAgentAccessGrant(controllerUserID int, targetAgentID string,
 }
 
 func (db *DB) CreateAgentAccessGrantWithInput(input AccessGrantInput) error {
-	targetAgentID := strings.TrimSpace(input.TargetAgentID)
-	targetOwnerID, err := db.GetAgentUserID(targetAgentID)
+	tx, err := db.Begin()
 	if err != nil {
+		return fmt.Errorf("failed to start access grant transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	if err := db.createAgentAccessGrantWithTx(tx, input); err != nil {
 		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit access grant: %w", err)
+	}
+	return nil
+}
+
+func (db *DB) createAgentAccessGrantWithTx(tx *sql.Tx, input AccessGrantInput) error {
+	targetAgentID := strings.TrimSpace(input.TargetAgentID)
+	var targetOwnerID int
+	err := tx.QueryRow("SELECT user_id FROM agents WHERE id = ?", targetAgentID).Scan(&targetOwnerID)
+	if err != nil {
+		return fmt.Errorf("failed to get agent owner: %w", err)
 	}
 	if targetOwnerID == input.ControllerUserID {
 		return fmt.Errorf("controller already owns the target agent")
@@ -378,12 +395,6 @@ func (db *DB) CreateAgentAccessGrantWithInput(input AccessGrantInput) error {
 	if capabilityBundle == "" {
 		capabilityBundle = "collaborate"
 	}
-
-	tx, err := db.Begin()
-	if err != nil {
-		return fmt.Errorf("failed to start access grant transaction: %w", err)
-	}
-	defer tx.Rollback()
 
 	_, err = tx.Exec(`
 		INSERT INTO agent_access_grants (
@@ -429,10 +440,6 @@ func (db *DB) CreateAgentAccessGrantWithInput(input AccessGrantInput) error {
 		`, input.ControllerUserID, targetAgentID, projectID); err != nil {
 			return fmt.Errorf("failed to save access grant project scope: %w", err)
 		}
-	}
-
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit access grant: %w", err)
 	}
 	return nil
 }

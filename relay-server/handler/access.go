@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -45,6 +47,27 @@ type accessGrantPatchRequest struct {
 	AllowDiagnostics  *bool     `json:"allow_diagnostics"`
 	ExpiresAt         *string   `json:"expires_at"`
 	Note              *string   `json:"note"`
+}
+
+type temporaryAccessLinkCreateRequest struct {
+	TargetAgentID     string   `json:"target_agent_id"`
+	ProjectIDs        []string `json:"project_ids"`
+	ScopeType         string   `json:"scope_type"`
+	CapabilityBundle  string   `json:"capability_bundle"`
+	AllowFileDownload *bool    `json:"allow_file_download"`
+	AllowDiagnostics  *bool    `json:"allow_diagnostics"`
+	ExpiresAt         string   `json:"expires_at"`
+	MaxUses           int      `json:"max_uses"`
+	Note              string   `json:"note"`
+}
+
+type temporaryAccessLinkResponse struct {
+	Success       bool                    `json:"success"`
+	Token         string                  `json:"token,omitempty"`
+	URL           string                  `json:"url,omitempty"`
+	APIURL        string                  `json:"api_url,omitempty"`
+	Link          *db.TemporaryAccessLink `json:"link,omitempty"`
+	RemainingUses int                     `json:"remaining_uses,omitempty"`
 }
 
 func parseOptionalRFC3339(value string) (*time.Time, error) {
@@ -94,6 +117,159 @@ func writeAccessGrantError(w http.ResponseWriter, err error, fallback string) {
 		return
 	}
 	http.Error(w, fallback, http.StatusInternalServerError)
+}
+
+func generateTemporaryAccessToken() (string, error) {
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(buf), nil
+}
+
+func requestPublicBaseURL(r *http.Request) string {
+	proto := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto"))
+	if proto == "" {
+		if r.TLS != nil {
+			proto = "https"
+		} else {
+			proto = "http"
+		}
+	}
+	host := strings.TrimSpace(r.Header.Get("X-Forwarded-Host"))
+	if host == "" {
+		host = r.Host
+	}
+	return strings.TrimRight(proto+"://"+host, "/")
+}
+
+func temporaryAccessLinkAPIURL(r *http.Request, token string) string {
+	return requestPublicBaseURL(r) + "/api/access/temp-links/" + token
+}
+
+func temporaryAccessLinkShareURL(r *http.Request, token string) string {
+	return temporaryAccessLinkAPIURL(r, token)
+}
+
+// TemporaryAccessLinksHandler creates and redeems limited-use access grant links.
+func TemporaryAccessLinksHandler(cfg *config.Config, database *db.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		pathSuffix := strings.TrimPrefix(r.URL.Path, "/api/access/temp-links")
+		if pathSuffix == "" || pathSuffix == "/" {
+			if r.Method != http.MethodPost {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+
+			session, err := currentClientSession(r, cfg, database)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusUnauthorized)
+				return
+			}
+
+			var body temporaryAccessLinkCreateRequest
+			if err := decodeJSONBody(w, r, &body); err != nil {
+				http.Error(w, "invalid request body", http.StatusBadRequest)
+				return
+			}
+			body.TargetAgentID = strings.TrimSpace(body.TargetAgentID)
+			if body.TargetAgentID == "" {
+				http.Error(w, "target_agent_id is required", http.StatusBadRequest)
+				return
+			}
+			if err := verifyGrantOwnership(database, session, body.TargetAgentID); err != nil {
+				writeAccessGrantError(w, err, "failed to verify target agent ownership")
+				return
+			}
+
+			expiresAt, err := parseOptionalRFC3339(body.ExpiresAt)
+			if err != nil || expiresAt == nil {
+				http.Error(w, "valid expires_at is required", http.StatusBadRequest)
+				return
+			}
+			allowFileDownload := true
+			if body.AllowFileDownload != nil {
+				allowFileDownload = *body.AllowFileDownload
+			}
+			allowDiagnostics := true
+			if body.AllowDiagnostics != nil {
+				allowDiagnostics = *body.AllowDiagnostics
+			}
+			token, err := generateTemporaryAccessToken()
+			if err != nil {
+				http.Error(w, "failed to generate temporary access token", http.StatusInternalServerError)
+				return
+			}
+			link, err := database.CreateTemporaryAccessLink(db.TemporaryAccessLinkInput{
+				TokenHash:         hashToken(token),
+				CreatedByUserID:   session.User.ID,
+				TargetAgentID:     body.TargetAgentID,
+				ProjectIDs:        body.ProjectIDs,
+				ScopeType:         body.ScopeType,
+				CapabilityBundle:  body.CapabilityBundle,
+				AllowFileDownload: allowFileDownload,
+				AllowDiagnostics:  allowDiagnostics,
+				Note:              body.Note,
+				MaxUses:           body.MaxUses,
+				ExpiresAt:         *expiresAt,
+			})
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(temporaryAccessLinkResponse{
+				Success:       true,
+				Token:         token,
+				URL:           temporaryAccessLinkShareURL(r, token),
+				APIURL:        temporaryAccessLinkAPIURL(r, token),
+				Link:          link,
+				RemainingUses: link.RemainingUses,
+			})
+			return
+		}
+
+		segments := strings.Split(strings.Trim(pathSuffix, "/"), "/")
+		if len(segments) == 0 || strings.TrimSpace(segments[0]) == "" {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		token := strings.TrimSpace(segments[0])
+		switch {
+		case len(segments) == 1 && r.Method == http.MethodGet:
+			link, err := database.GetTemporaryAccessLinkByHash(hashToken(token))
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusNotFound)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(temporaryAccessLinkResponse{
+				Success:       true,
+				Link:          link,
+				RemainingUses: link.RemainingUses,
+			})
+		case len(segments) == 2 && segments[1] == "redeem" && r.Method == http.MethodPost:
+			session, err := currentClientSession(r, cfg, database)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusUnauthorized)
+				return
+			}
+			link, err := database.RedeemTemporaryAccessLink(hashToken(token), session.User.ID)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(temporaryAccessLinkResponse{
+				Success:       true,
+				Link:          link,
+				RemainingUses: link.RemainingUses,
+			})
+		default:
+			http.Error(w, "not found", http.StatusNotFound)
+		}
+	}
 }
 
 // AccessGrantsHandler manages one-way desktop control grants for signed-in app clients.

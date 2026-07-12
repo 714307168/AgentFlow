@@ -784,6 +784,145 @@ func TestWorkgroupKickRevokesGrantedAccess(t *testing.T) {
 	assertControllableAgent(t, server.URL, memberToken, "owner-agent", false)
 }
 
+func TestTemporaryAccessLinkRedeemsIntoScopedGrantOnce(t *testing.T) {
+	dataDir := t.TempDir()
+	database, err := db.Open(dataDir)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer database.Close()
+
+	owner, err := database.CreateUser("temp-owner", "Owner12345A", false)
+	if err != nil {
+		t.Fatalf("create owner: %v", err)
+	}
+	viewer, err := database.CreateUser("temp-viewer", "Viewer12345A", false)
+	if err != nil {
+		t.Fatalf("create viewer: %v", err)
+	}
+	secondViewer, err := database.CreateUser("temp-second", "Second12345A", false)
+	if err != nil {
+		t.Fatalf("create second viewer: %v", err)
+	}
+	if err := database.RegisterAgent("temp-owner-agent", owner.ID, "Owner desktop"); err != nil {
+		t.Fatalf("register owner agent: %v", err)
+	}
+	if err := database.RegisterAgent("temp-viewer-agent", viewer.ID, "Viewer desktop"); err != nil {
+		t.Fatalf("register viewer agent: %v", err)
+	}
+	if err := database.RegisterAgent("temp-second-agent", secondViewer.ID, "Second desktop"); err != nil {
+		t.Fatalf("register second agent: %v", err)
+	}
+
+	server := newAccessAndWorkgroupTestServer(t, database, dataDir)
+	defer server.Close()
+
+	ownerToken := mustLoginClientToken(t, server.URL, "temp-owner", "Owner12345A", "agent", "temp-owner-agent")
+	viewerToken := mustLoginClientToken(t, server.URL, "temp-viewer", "Viewer12345A", "agent", "temp-viewer-agent")
+	secondToken := mustLoginClientToken(t, server.URL, "temp-second", "Second12345A", "agent", "temp-second-agent")
+
+	var createResponse struct {
+		Success       bool   `json:"success"`
+		Token         string `json:"token"`
+		URL           string `json:"url"`
+		APIURL        string `json:"api_url"`
+		RemainingUses int    `json:"remaining_uses"`
+	}
+	doJSONRequest(t, http.MethodPost, server.URL+"/api/access/temp-links", map[string]any{
+		"target_agent_id":     "temp-owner-agent",
+		"project_ids":         []string{"project-alpha"},
+		"scope_type":          "selected_projects",
+		"capability_bundle":   "collaborate",
+		"allow_file_download": true,
+		"allow_diagnostics":   true,
+		"max_uses":            1,
+		"expires_at":          time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
+		"note":                "handoff",
+	}, http.StatusOK, ownerToken, &createResponse)
+	if !createResponse.Success || createResponse.Token == "" || createResponse.RemainingUses != 1 {
+		t.Fatalf("unexpected create response: %+v", createResponse)
+	}
+	if createResponse.URL == "" || createResponse.APIURL == "" {
+		t.Fatalf("expected share and api urls, got %+v", createResponse)
+	}
+
+	doJSONRequest(t, http.MethodPost, server.URL+"/api/access/temp-links/"+createResponse.Token+"/redeem", map[string]any{}, http.StatusOK, viewerToken, &map[string]any{})
+
+	var scope effectiveScopePayload
+	doBearerJSON(t, server.URL+"/api/access/effective-scope", viewerToken, http.StatusOK, &scope)
+	var sharedProjectIDs []string
+	for _, item := range scope.AgentScopes {
+		if item.AgentID == "temp-owner-agent" {
+			sharedProjectIDs = item.ProjectIDs
+			if item.ScopeType != "selected_projects" {
+				t.Fatalf("expected selected project scope, got %+v", item)
+			}
+			break
+		}
+	}
+	if len(sharedProjectIDs) != 1 || sharedProjectIDs[0] != "project-alpha" {
+		t.Fatalf("expected scoped temp grant, got %+v", scope.AgentScopes)
+	}
+
+	doJSONRequest(t, http.MethodPost, server.URL+"/api/access/temp-links/"+createResponse.Token+"/redeem", map[string]any{}, http.StatusBadRequest, secondToken, nil)
+	assertControllableAgent(t, server.URL, secondToken, "temp-owner-agent", false)
+}
+
+func TestTemporaryAccessLinkRejectsNonOwnerAndExpiredLinks(t *testing.T) {
+	dataDir := t.TempDir()
+	database, err := db.Open(dataDir)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer database.Close()
+
+	owner, err := database.CreateUser("expire-owner", "Owner12345A", false)
+	if err != nil {
+		t.Fatalf("create owner: %v", err)
+	}
+	viewer, err := database.CreateUser("expire-viewer", "Viewer12345A", false)
+	if err != nil {
+		t.Fatalf("create viewer: %v", err)
+	}
+	if err := database.RegisterAgent("expire-owner-agent", owner.ID, "Owner desktop"); err != nil {
+		t.Fatalf("register owner agent: %v", err)
+	}
+	if err := database.RegisterAgent("expire-viewer-agent", viewer.ID, "Viewer desktop"); err != nil {
+		t.Fatalf("register viewer agent: %v", err)
+	}
+
+	server := newAccessAndWorkgroupTestServer(t, database, dataDir)
+	defer server.Close()
+
+	ownerToken := mustLoginClientToken(t, server.URL, "expire-owner", "Owner12345A", "agent", "expire-owner-agent")
+	viewerToken := mustLoginClientToken(t, server.URL, "expire-viewer", "Viewer12345A", "agent", "expire-viewer-agent")
+
+	doJSONRequest(t, http.MethodPost, server.URL+"/api/access/temp-links", map[string]any{
+		"target_agent_id": "expire-owner-agent",
+		"project_ids":     []string{"project-alpha"},
+		"max_uses":        1,
+		"expires_at":      time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
+	}, http.StatusForbidden, viewerToken, nil)
+
+	var createResponse struct {
+		Token string `json:"token"`
+	}
+	doJSONRequest(t, http.MethodPost, server.URL+"/api/access/temp-links", map[string]any{
+		"target_agent_id": "expire-owner-agent",
+		"project_ids":     []string{"project-alpha"},
+		"max_uses":        1,
+		"expires_at":      time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
+	}, http.StatusOK, ownerToken, &createResponse)
+	if createResponse.Token == "" {
+		t.Fatalf("expected token")
+	}
+	if _, err := database.Exec("UPDATE temporary_access_links SET expires_at = ? WHERE target_agent_id = ?", time.Now().Add(-time.Minute), "expire-owner-agent"); err != nil {
+		t.Fatalf("expire link: %v", err)
+	}
+	doJSONRequest(t, http.MethodPost, server.URL+"/api/access/temp-links/"+createResponse.Token+"/redeem", map[string]any{}, http.StatusBadRequest, viewerToken, nil)
+	assertControllableAgent(t, server.URL, viewerToken, "expire-owner-agent", false)
+}
+
 func newAccessAndWorkgroupTestServer(t *testing.T, database *db.DB, dataDir string) *httptest.Server {
 	t.Helper()
 
@@ -800,6 +939,8 @@ func newAccessAndWorkgroupTestServer(t *testing.T, database *db.DB, dataDir stri
 	mux.HandleFunc("/api/auth/login", handler.LoginHandler(database, cfg))
 	mux.HandleFunc("/api/access/grants", handler.AccessGrantsHandler(cfg, database))
 	mux.HandleFunc("/api/access/grants/", handler.AccessGrantsHandler(cfg, database))
+	mux.HandleFunc("/api/access/temp-links", handler.TemporaryAccessLinksHandler(cfg, database))
+	mux.HandleFunc("/api/access/temp-links/", handler.TemporaryAccessLinksHandler(cfg, database))
 	mux.HandleFunc("/api/access/effective-scope", handler.EffectiveScopeHandler(cfg, database))
 	mux.HandleFunc("/api/workgroups/registry/publish", handler.WorkgroupRegistryHandler(cfg, database))
 	mux.HandleFunc("/api/workgroups/registry/join", handler.WorkgroupRegistryHandler(cfg, database))

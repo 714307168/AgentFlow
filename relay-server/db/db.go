@@ -212,6 +212,34 @@ func (db *DB) initSchema() error {
 		PRIMARY KEY (controller_user_id, target_agent_id, project_id)
 	);
 
+	-- Temporary share links that can be redeemed into normal access grants.
+	CREATE TABLE IF NOT EXISTS temporary_access_links (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		token_hash TEXT NOT NULL UNIQUE,
+		created_by_user_id INTEGER NOT NULL,
+		target_agent_id TEXT NOT NULL,
+		scope_type TEXT NOT NULL DEFAULT 'selected_projects',
+		capability_bundle TEXT NOT NULL DEFAULT 'collaborate',
+		allow_file_download INTEGER NOT NULL DEFAULT 1,
+		allow_diagnostics INTEGER NOT NULL DEFAULT 1,
+		note TEXT NOT NULL DEFAULT '',
+		max_uses INTEGER NOT NULL,
+		used_count INTEGER NOT NULL DEFAULT 0,
+		expires_at DATETIME NOT NULL,
+		revoked_at DATETIME,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (created_by_user_id) REFERENCES users(id) ON DELETE CASCADE,
+		FOREIGN KEY (target_agent_id) REFERENCES agents(id) ON DELETE CASCADE
+	);
+
+	CREATE TABLE IF NOT EXISTS temporary_access_link_projects (
+		link_id INTEGER NOT NULL,
+		project_id TEXT NOT NULL,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		PRIMARY KEY (link_id, project_id),
+		FOREIGN KEY (link_id) REFERENCES temporary_access_links(id) ON DELETE CASCADE
+	);
+
 	-- Indexes
 	CREATE INDEX IF NOT EXISTS idx_agents_user_id ON agents(user_id);
 	CREATE INDEX IF NOT EXISTS idx_devices_user_id ON devices(user_id);
@@ -220,6 +248,9 @@ func (db *DB) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_agent_access_grants_target_agent ON agent_access_grants(target_agent_id);
 	CREATE INDEX IF NOT EXISTS idx_agent_access_grant_projects_controller ON agent_access_grant_projects(controller_user_id, target_agent_id);
 	CREATE INDEX IF NOT EXISTS idx_agent_access_grant_projects_target_project ON agent_access_grant_projects(target_agent_id, project_id);
+	CREATE INDEX IF NOT EXISTS idx_temporary_access_links_token ON temporary_access_links(token_hash);
+	CREATE INDEX IF NOT EXISTS idx_temporary_access_links_owner ON temporary_access_links(created_by_user_id, created_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_temporary_access_link_projects_link ON temporary_access_link_projects(link_id);
 	CREATE INDEX IF NOT EXISTS idx_login_sessions_user_id ON login_sessions(user_id);
 	CREATE INDEX IF NOT EXISTS idx_login_sessions_token_hash ON login_sessions(token_hash);
 	CREATE INDEX IF NOT EXISTS idx_releases_lookup ON releases(platform, channel, arch, published, created_at);

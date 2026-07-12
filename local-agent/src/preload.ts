@@ -177,6 +177,17 @@ contextBridge.exposeInMainWorld('claudeAgent', {
     note?: string | null;
   }) => ipcRenderer.invoke('save-access-grant', data),
   revokeAccessGrant: (data: { grantId?: string | null; controllerUserId?: number | null; targetAgentId?: string | null }) => ipcRenderer.invoke('revoke-access-grant', data),
+  createTemporaryAccessLink: (data: {
+    targetAgentId?: string | null;
+    projectIds?: string[] | null;
+    scopeType?: string | null;
+    capabilityBundle?: string | null;
+    allowFileDownload?: boolean;
+    allowDiagnostics?: boolean;
+    expiresAt?: string | null;
+    maxUses?: number | null;
+    note?: string | null;
+  }) => ipcRenderer.invoke('create-temporary-access-link', data),
   saveConfig: (config: Record<string, unknown>) => ipcRenderer.invoke('save-config', config),
   login: (data: { username: string; password: string }) => ipcRenderer.invoke('login', data),
   onProjectId: (callback: (id: string | null) => void) => {

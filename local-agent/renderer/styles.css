@@ -2390,6 +2390,142 @@ body.lightbox-open {
   position: absolute;
 }
 
+.temporary-access-menu {
+  background: rgba(12, 20, 31, 0.97);
+  border: 1px solid rgba(124, 92, 252, 0.34);
+  border-radius: 14px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.42);
+  padding: 6px;
+  position: fixed;
+  z-index: 55;
+}
+
+.temporary-access-menu-item {
+  background: transparent;
+  border: 0;
+  border-radius: 10px;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  min-width: 168px;
+  padding: 10px 12px;
+  text-align: left;
+}
+
+.temporary-access-menu-item:hover {
+  background: rgba(124, 92, 252, 0.18);
+}
+
+.temporary-access-dialog {
+  inset: 0;
+  position: fixed;
+  z-index: 60;
+}
+
+.temporary-access-backdrop {
+  backdrop-filter: blur(10px);
+  background: rgba(2, 6, 13, 0.68);
+  inset: 0;
+  position: absolute;
+}
+
+.temporary-access-card {
+  background: linear-gradient(155deg, rgba(12, 24, 36, 0.98), rgba(8, 13, 24, 0.98));
+  border: 1px solid rgba(124, 92, 252, 0.3);
+  border-radius: 22px;
+  box-shadow: 0 26px 70px rgba(0, 0, 0, 0.48);
+  color: var(--text);
+  display: grid;
+  gap: 14px;
+  left: 50%;
+  max-width: min(460px, calc(100vw - 32px));
+  padding: 20px;
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 100%;
+}
+
+.temporary-access-header {
+  align-items: flex-start;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.temporary-access-header strong,
+.temporary-access-header span {
+  display: block;
+}
+
+.temporary-access-header strong {
+  font-size: 17px;
+}
+
+.temporary-access-header span,
+.temporary-access-desc {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.temporary-access-close {
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  color: var(--text);
+  cursor: pointer;
+  height: 30px;
+  width: 30px;
+}
+
+.temporary-access-field {
+  display: grid;
+  gap: 7px;
+}
+
+.temporary-access-field span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.temporary-access-field input,
+.temporary-access-result textarea {
+  background: rgba(4, 10, 18, 0.78);
+  border: 1px solid rgba(126, 162, 193, 0.24);
+  border-radius: 12px;
+  color: var(--text);
+  font: inherit;
+  outline: none;
+  padding: 10px 12px;
+}
+
+.temporary-access-field input:focus,
+.temporary-access-result textarea:focus {
+  border-color: rgba(34, 211, 238, 0.55);
+  box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.12);
+}
+
+.temporary-access-result {
+  display: grid;
+  gap: 10px;
+}
+
+.temporary-access-result.hidden {
+  display: none;
+}
+
+.temporary-access-result textarea {
+  min-height: 74px;
+  resize: vertical;
+}
+
+.temporary-access-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
 ::-webkit-scrollbar {
   height: 10px;
   width: 10px;

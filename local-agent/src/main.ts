@@ -268,6 +268,18 @@ interface AccessGrantRevokeOptions {
   targetAgentId?: string | null;
 }
 
+interface TemporaryAccessLinkCreateOptions {
+  targetAgentId?: string | null;
+  projectIds?: string[] | null;
+  scopeType?: string | null;
+  capabilityBundle?: string | null;
+  allowFileDownload?: boolean;
+  allowDiagnostics?: boolean;
+  expiresAt?: string | null;
+  maxUses?: number | null;
+  note?: string | null;
+}
+
 type SettingsPane =
   | "overview"
   | "connection"
@@ -1792,6 +1804,67 @@ async function revokeAccessGrantOnServer(data: AccessGrantRevokeOptions): Promis
     clearAccessGrantCache();
     requestRemoteProjectCatalogRefresh();
     return { success: true };
+  } catch (error: unknown) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+async function createTemporaryAccessLinkOnServer(data: TemporaryAccessLinkCreateOptions): Promise<{ success: boolean; error?: string; url?: string; apiUrl?: string; token?: string; remainingUses?: number }> {
+  const refreshed = await refreshAgentToken(false);
+  const config = loadConfig();
+  if (!refreshed || !config.token) {
+    return { success: false, error: "Not logged in" };
+  }
+
+  const targetAgentId = data.targetAgentId?.trim() || config.agentId;
+  if (!targetAgentId) {
+    return { success: false, error: "Missing target agent" };
+  }
+  const maxUses = Number(data.maxUses ?? 0);
+  if (!Number.isFinite(maxUses) || maxUses <= 0) {
+    return { success: false, error: "Call limit must be greater than zero" };
+  }
+  const expiresAt = data.expiresAt?.trim();
+  if (!expiresAt) {
+    return { success: false, error: "Expiry time is required" };
+  }
+
+  try {
+    const response = await fetchRelayJson(`${toHttpBaseUrl(config.serverUrl)}/api/access/temp-links`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${config.token}`,
+      },
+      body: {
+        target_agent_id: targetAgentId,
+        project_ids: Array.isArray(data.projectIds) ? data.projectIds : [],
+        scope_type: data.scopeType ?? "selected_projects",
+        capability_bundle: data.capabilityBundle ?? "collaborate",
+        allow_file_download: data.allowFileDownload !== false,
+        allow_diagnostics: data.allowDiagnostics !== false,
+        expires_at: expiresAt,
+        max_uses: Math.floor(maxUses),
+        note: data.note ?? "",
+      },
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      return { success: false, error: errorText || response.statusText };
+    }
+    const payload = await response.json() as {
+      success?: boolean;
+      url?: string;
+      api_url?: string;
+      token?: string;
+      remaining_uses?: number;
+    };
+    return {
+      success: payload.success !== false,
+      url: payload.url,
+      apiUrl: payload.api_url,
+      token: payload.token,
+      remainingUses: payload.remaining_uses,
+    };
   } catch (error: unknown) {
     return { success: false, error: error instanceof Error ? error.message : String(error) };
   }
@@ -5768,6 +5841,10 @@ ipcMain.handle("save-access-grant", async (_event, data: AccessGrantSaveOptions)
 
 ipcMain.handle("revoke-access-grant", async (_event, data: AccessGrantRevokeOptions) => {
   return revokeAccessGrantOnServer(data);
+});
+
+ipcMain.handle("create-temporary-access-link", async (_event, data: TemporaryAccessLinkCreateOptions) => {
+  return createTemporaryAccessLinkOnServer(data);
 });
 
 ipcMain.handle("save-config", (_event, config: Partial<AgentConfig>) => {
