@@ -3,6 +3,9 @@
     <string name="app_name">AgentFlow</string>
     <string name="no_sessions">No projects or workgroups yet. Connect your desktop agent to load them here.</string>
     <string name="send_message">Send</string>
+    <string name="voice_input">Voice input</string>
+    <string name="voice_input_prompt">Speak your message</string>
+    <string name="voice_input_unavailable">No speech recognizer is available on this device.</string>
     <string name="message_hint">Send a message</string>
     <string name="session_search_hint">Search projects, groups, or messages</string>
     <string name="session_search_empty">No matching projects or workgroups</string>

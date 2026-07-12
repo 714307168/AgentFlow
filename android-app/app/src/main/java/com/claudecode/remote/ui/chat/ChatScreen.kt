@@ -1,5 +1,7 @@
 package com.claudecode.remote.ui.chat
 
+import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.graphics.BitmapFactory
@@ -52,6 +54,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AlertDialog
@@ -109,7 +112,10 @@ import com.claudecode.remote.data.model.MessageType
 import com.claudecode.remote.domain.TransferCenterItem
 import com.claudecode.remote.ui.common.ClientCapabilities
 import com.claudecode.remote.ui.common.ProviderUi
+import com.claudecode.remote.ui.common.appendVoiceInputText
 import com.claudecode.remote.ui.common.animateScrollToItemBottom
+import com.claudecode.remote.ui.common.buildVoiceInputIntent
+import com.claudecode.remote.ui.common.extractVoiceInputText
 import com.claudecode.remote.ui.projectAccessNoticeMessageResId
 import com.claudecode.remote.ui.common.rememberEventCoroutineScope
 import com.claudecode.remote.ui.common.rememberViewTreeLifecycleOwner
@@ -182,6 +188,16 @@ fun ChatScreen(
     ) { uris: List<Uri> ->
         if (uris.isNotEmpty()) {
             viewModel.addAttachments(uris)
+        }
+    }
+    val voiceInputLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val spokenText = extractVoiceInputText(result.data)
+            if (spokenText.isNotBlank()) {
+                viewModel.updateInput(appendVoiceInputText(uiState.inputText, spokenText))
+            }
         }
     }
 
@@ -666,6 +682,19 @@ fun ChatScreen(
                     onSend = { viewModel.sendMessage() },
                     onStop = { viewModel.stopTask() },
                     onAttachFile = { filePickerLauncher.launch(arrayOf("*/*")) },
+                    onVoiceInput = {
+                        try {
+                            voiceInputLauncher.launch(
+                                buildVoiceInputIntent(context.getString(R.string.voice_input_prompt))
+                            )
+                        } catch (_: ActivityNotFoundException) {
+                            Toast.makeText(
+                                context,
+                                context.getString(R.string.voice_input_unavailable),
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    },
                     onRemovePendingAttachment = { attachmentId ->
                         viewModel.removePendingAttachment(attachmentId)
                     },
@@ -1664,6 +1693,7 @@ private fun InputBar(
     onSend: () -> Unit,
     onStop: () -> Unit,
     onAttachFile: () -> Unit,
+    onVoiceInput: () -> Unit,
     onRemovePendingAttachment: (String) -> Unit,
     provider: String,
     model: String,
@@ -1751,6 +1781,23 @@ private fun InputBar(
                         )
                     }
                 }
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.54f)
+                ) {
+                    IconButton(
+                        onClick = onVoiceInput,
+                        enabled = enabled,
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Mic,
+                            contentDescription = stringResource(R.string.voice_input),
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    }
                 }
                 Spacer(modifier = Modifier.width(8.dp))
                 OutlinedTextField(

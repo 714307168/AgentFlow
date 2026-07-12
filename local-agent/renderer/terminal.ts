@@ -430,6 +430,7 @@ const elements = {
   composerHint: document.getElementById("composerHint"),
   attachImageBtn: document.getElementById("attachImageBtn") as HTMLButtonElement | null,
   attachFileBtn: document.getElementById("attachFileBtn") as HTMLButtonElement | null,
+  voiceInputBtn: document.getElementById("voiceInputBtn") as HTMLButtonElement | null,
   attachmentTray: document.getElementById("attachmentTray"),
   stopBtn: document.getElementById("stopBtn") as HTMLButtonElement | null,
   sendBtn: document.getElementById("sendBtn") as HTMLButtonElement | null,
@@ -549,6 +550,8 @@ const renderSignatures: Record<"projectList" | "workbench" | "queue" | "cli" | "
   header: "",
 };
 let lastDocumentTitle = "";
+let activeSpeechRecognition: any = null;
+let isVoiceListening = false;
 const mentionState: {
   query: string;
   rangeStart: number;
@@ -881,6 +884,7 @@ function syncAttachmentButtons(): void {
     elements.attachFileBtn.hidden = !fileSupported;
     elements.attachFileBtn.disabled = !state.projectId || !fileSupported;
   }
+  updateVoiceInputButton();
 }
 
 function modelLabel(model: string | null | undefined): string {
@@ -1660,6 +1664,133 @@ function syncComposerInputHeight(): void {
   input.style.height = "auto";
   input.style.height = `${Math.min(input.scrollHeight, 220)}px`;
   input.style.overflowY = input.scrollHeight > 220 ? "auto" : "hidden";
+}
+
+function getSpeechRecognitionConstructor(): any | null {
+  const speechWindow = window as typeof window & {
+    SpeechRecognition?: any;
+    webkitSpeechRecognition?: any;
+  };
+  return speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition ?? null;
+}
+
+function updateVoiceInputButton(): void {
+  const button = elements.voiceInputBtn;
+  if (!button) {
+    return;
+  }
+  const supported = Boolean(getSpeechRecognitionConstructor());
+  button.disabled = !supported;
+  button.classList.toggle("listening", isVoiceListening);
+  button.textContent = isVoiceListening
+    ? inlineText("Listening", "正在听")
+    : inlineText("Voice", "语音");
+  button.title = supported
+    ? inlineText("Voice input", "语音输入")
+    : inlineText("Voice input is not supported in this desktop runtime.", "当前桌面运行环境不支持语音输入。");
+}
+
+function insertComposerText(text: string): void {
+  const input = elements.composerInput;
+  const normalized = text.trim();
+  if (!input || !normalized) {
+    return;
+  }
+
+  const start = input.selectionStart ?? input.value.length;
+  const end = input.selectionEnd ?? start;
+  const before = input.value.slice(0, start);
+  const after = input.value.slice(end);
+  const prefix = before && !/\s$/u.test(before) ? " " : "";
+  const suffix = after && !/^\s/u.test(after) ? " " : "";
+  const insertion = prefix + normalized + suffix;
+  input.value = before + insertion + after;
+  const caret = before.length + insertion.length;
+  input.setSelectionRange(caret, caret);
+  input.focus();
+  syncComposerInputHeight();
+  persistWorkspaceDraft(getCurrentWorkspaceKey());
+  refreshMentionSuggestions();
+}
+
+function stopVoiceInput(): void {
+  if (!activeSpeechRecognition) {
+    return;
+  }
+  try {
+    activeSpeechRecognition.stop();
+  } catch {
+    activeSpeechRecognition = null;
+    isVoiceListening = false;
+    updateVoiceInputButton();
+  }
+}
+
+function startVoiceInput(): void {
+  if (isVoiceListening) {
+    stopVoiceInput();
+    return;
+  }
+
+  const Recognition = getSpeechRecognitionConstructor();
+  if (!Recognition) {
+    setHintText(inlineText("Voice input is not supported in this desktop runtime.", "当前桌面运行环境不支持语音输入。"), true);
+    updateVoiceInputButton();
+    return;
+  }
+
+  const recognition = new Recognition();
+  activeSpeechRecognition = recognition;
+  recognition.lang = state.lang === "zh" ? "zh-CN" : "en-US";
+  recognition.continuous = false;
+  recognition.interimResults = true;
+  let finalTranscript = "";
+  let latestTranscript = "";
+  recognition.onstart = () => {
+    isVoiceListening = true;
+    updateVoiceInputButton();
+    setHintText(inlineText("Listening... speak now.", "正在听，请开始说话。"), false);
+  };
+  recognition.onresult = (event: any) => {
+    let interimTranscript = "";
+    for (let index = event.resultIndex ?? 0; index < event.results.length; index += 1) {
+      const result = event.results[index];
+      const transcript = String(result?.[0]?.transcript ?? "").trim();
+      if (!transcript) {
+        continue;
+      }
+      latestTranscript = transcript;
+      if (result.isFinal) {
+        finalTranscript = (finalTranscript + " " + transcript).trim();
+      } else {
+        interimTranscript = transcript;
+      }
+    }
+    if (interimTranscript) {
+      setHintText(inlineText("Listening: " + interimTranscript, "正在听：" + interimTranscript), false);
+    }
+  };
+  recognition.onerror = (event: any) => {
+    const code = String(event?.error ?? "");
+    const isNoSpeech = code === "no-speech" || code === "aborted";
+    setHintText(
+      isNoSpeech
+        ? inlineText("No voice was captured.", "没有识别到语音。")
+        : inlineText("Voice input failed: " + (code || "unknown error"), "语音输入失败：" + (code || "未知错误")),
+      !isNoSpeech,
+    );
+  };
+  recognition.onend = () => {
+    const transcript = finalTranscript || latestTranscript;
+    if (transcript) {
+      insertComposerText(transcript);
+      setHintText(inlineText("Voice text added to the input.", "语音内容已加入输入框。"), false);
+    }
+    activeSpeechRecognition = null;
+    isVoiceListening = false;
+    updateVoiceInputButton();
+  };
+  recognition.start();
 }
 
 function scrollMessagesToBottom(): void {
@@ -2743,6 +2874,7 @@ function applyStaticI18n(): void {
     elements.attachFileBtn.textContent = label;
     elements.attachFileBtn.title = label;
   }
+  updateVoiceInputButton();
   if (elements.messagesJumpButton) {
     const label = inlineText("Latest", "最新消息");
     elements.messagesJumpButton.textContent = label;
@@ -5077,6 +5209,10 @@ elements.attachImageBtn?.addEventListener("click", () => {
 
 elements.attachFileBtn?.addEventListener("click", () => {
   void pickAttachments("file");
+});
+
+elements.voiceInputBtn?.addEventListener("click", () => {
+  startVoiceInput();
 });
 
 elements.composerInput?.addEventListener("keydown", (event) => {
