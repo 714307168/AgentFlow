@@ -57,6 +57,41 @@ class MessageRepositoryRuntimeTest {
         assertFalse(shouldSkipRuntimeSnapshotUpdate(session, runtime))
     }
 
+    @Test
+    fun resolveSessionSyncConversationIdUsesRuntimeConversationWhenPresent() {
+        val runtime = runtime(
+            snapshotRevision = "rev-1",
+            activeConversationId = " conv-runtime "
+        )
+
+        val conversationId = resolveSessionSyncConversationId(
+            runtime = runtime,
+            cachedActiveConversationId = "conv-cached"
+        )
+
+        org.junit.Assert.assertEquals("conv-runtime", conversationId)
+    }
+
+    @Test
+    fun resolveSessionSyncConversationIdFallsBackToCachedActiveConversation() {
+        val conversationId = resolveSessionSyncConversationId(
+            runtime = null,
+            cachedActiveConversationId = " conv-cached "
+        )
+
+        org.junit.Assert.assertEquals("conv-cached", conversationId)
+    }
+
+    @Test
+    fun resolveSessionSyncConversationIdAllowsConversationlessProjects() {
+        val conversationId = resolveSessionSyncConversationId(
+            runtime = null,
+            cachedActiveConversationId = "  "
+        )
+
+        org.junit.Assert.assertNull(conversationId)
+    }
+
     private fun runtime(
         snapshotRevision: String?,
         projectSignature: String? = null,

@@ -77,6 +77,17 @@ internal data class IncomingSessionRuntime(
     val syncBucket: String?
 )
 
+internal fun resolveSessionSyncConversationId(
+    runtime: IncomingSessionRuntime?,
+    cachedActiveConversationId: String?
+): String? =
+    runtime?.activeConversationId
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() }
+        ?: cachedActiveConversationId
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+
 class MessageRepository(
     private val webSocket: RelayWebSocket,
     private val relayApiProvider: () -> RelayApi,
@@ -853,6 +864,8 @@ class MessageRepository(
             Events.SESSION_SYNC -> {
                 clearProjectSyncFlights(projectId)
                 val payloadObj = envelope.payload?.jsonObject ?: return
+                val cachedActiveConversationId = sessionDao.getSessionByProjectId(projectId)
+                    ?.activeConversationId
                 val runtimeUnchanged = payloadObj["runtime_unchanged"]?.jsonPrimitive?.booleanOrNull == true
                 val runtime = if (runtimeUnchanged) {
                     null
@@ -878,6 +891,10 @@ class MessageRepository(
                         "MessageRepository",
                         "Received session.sync v2 for projectId=$projectId items=${items.size} latestSeq=$latestSeq afterSeq=$requestedAfterSeq beforeSeq=${requestedBeforeSeq ?: 0L} limit=$requestedLimit truncated=$truncated runtimeUnchanged=$runtimeUnchanged running=${runtime?.isRunning ?: false} queued=${runtime?.queuedCount ?: 0} conversation=${runtime?.activeConversationId ?: "none"} snapshotRevision=${runtime?.snapshotRevision ?: "none"}"
                     )
+                    val syncConversationId = resolveSessionSyncConversationId(
+                        runtime = runtime,
+                        cachedActiveConversationId = cachedActiveConversationId
+                    )
                     val applied = applyProjectSyncDelta(
                         projectId = projectId,
                         rawItems = items,
@@ -885,7 +902,7 @@ class MessageRepository(
                         fallbackTimestamp = envelope.ts,
                         requestBeforeSeq = requestedBeforeSeq,
                         truncated = truncated,
-                        conversationId = runtime?.activeConversationId
+                        conversationId = syncConversationId
                     )
                     maybeRequestProjectBackfill(
                         projectId = projectId,
