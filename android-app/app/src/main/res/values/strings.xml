@@ -5,6 +5,9 @@
     <string name="send_message">Send</string>
     <string name="voice_input">Voice input</string>
     <string name="voice_input_prompt">Speak your message</string>
+    <string name="voice_input_send_prompt">Speak the message to send directly</string>
+    <string name="voice_mode_transcribe">Text</string>
+    <string name="voice_mode_send">Send</string>
     <string name="voice_input_unavailable">No speech recognizer is available on this device.</string>
     <string name="message_hint">Send a message</string>
     <string name="session_search_hint">Search projects, groups, or messages</string>

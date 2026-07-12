@@ -4,6 +4,11 @@ import android.content.Intent
 import android.speech.RecognizerIntent
 import java.util.Locale
 
+enum class VoiceInputMode {
+    Transcribe,
+    Send
+}
+
 fun buildVoiceInputIntent(prompt: String): Intent =
     Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
         putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)

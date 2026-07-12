@@ -112,6 +112,7 @@ import com.claudecode.remote.data.model.MessageType
 import com.claudecode.remote.domain.TransferCenterItem
 import com.claudecode.remote.ui.common.ClientCapabilities
 import com.claudecode.remote.ui.common.ProviderUi
+import com.claudecode.remote.ui.common.VoiceInputMode
 import com.claudecode.remote.ui.common.appendVoiceInputText
 import com.claudecode.remote.ui.common.animateScrollToItemBottom
 import com.claudecode.remote.ui.common.buildVoiceInputIntent
@@ -162,6 +163,7 @@ fun ChatScreen(
     val queueListState = remember(projectId) { LazyListState() }
     val eventScope = rememberEventCoroutineScope()
     var selectedPane by rememberSaveable(projectId) { mutableStateOf(ChatPane.CONVERSATION) }
+    var voiceInputMode by rememberSaveable { mutableStateOf(VoiceInputMode.Transcribe) }
     var showModelDialog by remember { mutableStateOf(false) }
     var showConversationDialog by remember { mutableStateOf(false) }
     var hasInitialConversationScrollPosition by remember(projectId) { mutableStateOf(false) }
@@ -196,7 +198,11 @@ fun ChatScreen(
         if (result.resultCode == Activity.RESULT_OK) {
             val spokenText = extractVoiceInputText(result.data)
             if (spokenText.isNotBlank()) {
-                viewModel.updateInput(appendVoiceInputText(uiState.inputText, spokenText))
+                if (voiceInputMode == VoiceInputMode.Send) {
+                    viewModel.sendVoiceText(spokenText)
+                } else {
+                    viewModel.updateInput(appendVoiceInputText(uiState.inputText, spokenText))
+                }
             }
         }
     }
@@ -685,7 +691,15 @@ fun ChatScreen(
                     onVoiceInput = {
                         try {
                             voiceInputLauncher.launch(
-                                buildVoiceInputIntent(context.getString(R.string.voice_input_prompt))
+                                buildVoiceInputIntent(
+                                    context.getString(
+                                        if (voiceInputMode == VoiceInputMode.Send) {
+                                            R.string.voice_input_send_prompt
+                                        } else {
+                                            R.string.voice_input_prompt
+                                        }
+                                    )
+                                )
                             )
                         } catch (_: ActivityNotFoundException) {
                             Toast.makeText(
@@ -702,6 +716,14 @@ fun ChatScreen(
                     model = modelLabel(uiState.cliModel),
                     modelEnabled = uiState.isConnected && !uiState.isSending,
                     onChangeModel = { showModelDialog = true },
+                    voiceInputMode = voiceInputMode,
+                    onToggleVoiceMode = {
+                        voiceInputMode = if (voiceInputMode == VoiceInputMode.Send) {
+                            VoiceInputMode.Transcribe
+                        } else {
+                            VoiceInputMode.Send
+                        }
+                    },
                     enabled = uiState.isConnected && !uiState.isSending && uiState.messageComposeAllowed,
                     stopEnabled = uiState.isConnected && !uiState.isSending,
                     isRunning = uiState.isRunning
@@ -1699,6 +1721,8 @@ private fun InputBar(
     model: String,
     modelEnabled: Boolean,
     onChangeModel: () -> Unit,
+    voiceInputMode: VoiceInputMode,
+    onToggleVoiceMode: () -> Unit,
     enabled: Boolean,
     stopEnabled: Boolean,
     isRunning: Boolean
@@ -1798,6 +1822,23 @@ private fun InputBar(
                             tint = MaterialTheme.colorScheme.onSecondaryContainer
                         )
                     }
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                TextButton(
+                    onClick = onToggleVoiceMode,
+                    enabled = enabled,
+                    modifier = Modifier.heightIn(min = 40.dp)
+                ) {
+                    Text(
+                        text = stringResource(
+                            if (voiceInputMode == VoiceInputMode.Send) {
+                                R.string.voice_mode_send
+                            } else {
+                                R.string.voice_mode_transcribe
+                            }
+                        ),
+                        style = MaterialTheme.typography.labelMedium
+                    )
                 }
                 Spacer(modifier = Modifier.width(8.dp))
                 OutlinedTextField(

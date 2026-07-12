@@ -2,6 +2,7 @@
 type WorkspaceView = "messages" | "activity" | "cli" | "queue";
 type SidebarListMode = "messages" | "contacts";
 type AttachmentKind = "image" | "file";
+type VoiceInputMode = "transcribe" | "send";
 const MAX_ACTIVITY_PANEL_ITEMS = 30;
 type ProviderUiApi = {
   getProviderLabel?: (provider: string) => string;
@@ -442,6 +443,7 @@ const elements = {
   attachImageBtn: document.getElementById("attachImageBtn") as HTMLButtonElement | null,
   attachFileBtn: document.getElementById("attachFileBtn") as HTMLButtonElement | null,
   voiceInputBtn: document.getElementById("voiceInputBtn") as HTMLButtonElement | null,
+  voiceInputModeSelect: document.getElementById("voiceInputModeSelect") as HTMLSelectElement | null,
   attachmentTray: document.getElementById("attachmentTray"),
   stopBtn: document.getElementById("stopBtn") as HTMLButtonElement | null,
   sendBtn: document.getElementById("sendBtn") as HTMLButtonElement | null,
@@ -563,6 +565,7 @@ const renderSignatures: Record<"projectList" | "workbench" | "queue" | "cli" | "
 let lastDocumentTitle = "";
 let activeSpeechRecognition: any = null;
 let isVoiceListening = false;
+let voiceInputMode: VoiceInputMode = "transcribe";
 const mentionState: {
   query: string;
   rangeStart: number;
@@ -824,6 +827,7 @@ function inlineText(en: string, zh: string): string {
 const storageKeys = {
   groupOrder: "claude.projectGroupOrder.v1",
   groupCollapsed: "claude.projectGroupCollapsed.v1",
+  voiceInputMode: "agentflow.voiceInputMode.v1",
 };
 
 function readStorageJson<T>(key: string, fallback: T): T {
@@ -1687,6 +1691,19 @@ function getSpeechRecognitionConstructor(): any | null {
 
 function updateVoiceInputButton(): void {
   const button = elements.voiceInputBtn;
+  const modeSelect = elements.voiceInputModeSelect;
+  if (modeSelect) {
+    modeSelect.value = voiceInputMode;
+    modeSelect.title = inlineText("Voice input mode", "语音输入模式");
+    const transcribeOption = modeSelect.querySelector('option[value="transcribe"]');
+    const sendOption = modeSelect.querySelector('option[value="send"]');
+    if (transcribeOption) {
+      transcribeOption.textContent = inlineText("Text", "转文字");
+    }
+    if (sendOption) {
+      sendOption.textContent = inlineText("Send", "直接发");
+    }
+  }
   if (!button) {
     return;
   }
@@ -1697,7 +1714,9 @@ function updateVoiceInputButton(): void {
     ? inlineText("Listening", "正在听")
     : inlineText("Voice", "语音");
   button.title = supported
-    ? inlineText("Voice input", "语音输入")
+    ? (voiceInputMode === "send"
+      ? inlineText("Voice input: send directly", "语音输入：直接发送")
+      : inlineText("Voice input: transcribe to text", "语音输入：转成文字"))
     : inlineText("Voice input is not supported in this desktop runtime.", "当前桌面运行环境不支持语音输入。");
 }
 
@@ -1724,6 +1743,51 @@ function insertComposerText(text: string): void {
   refreshMentionSuggestions();
 }
 
+async function sendVoiceTranscript(transcript: string): Promise<void> {
+  const prompt = transcript.trim();
+  if (!prompt) {
+    return;
+  }
+  if (state.workgroupId) {
+    if (!api.sendWorkgroupCollaborationMessage) {
+      insertComposerText(prompt);
+      return;
+    }
+    const result = await api.sendWorkgroupCollaborationMessage({
+      workgroupId: state.workgroupId,
+      content: prompt,
+    });
+    if (!result.success) {
+      insertComposerText(prompt);
+      setHintText(result.error ?? inlineText("Failed to send voice message.", "语音消息发送失败。"), true);
+      return;
+    }
+    setHintText(inlineText("Voice message sent.", "语音消息已发送。"), false);
+    return;
+  }
+  if (!state.projectId) {
+    insertComposerText(prompt);
+    return;
+  }
+  const session = getCurrentSession();
+  setHintText(
+    session?.isRunning
+      ? inlineText("Voice prompt queued behind the current run.", "语音提示词已排队等待当前任务完成。")
+      : inlineText("Voice prompt sent.", "语音提示词已发送。"),
+    false,
+  );
+  const result = await api.sendProjectPrompt({
+    projectId: state.projectId,
+    prompt: buildComposerPrompt(prompt, []),
+    attachments: [],
+    reasoningEffort: getComposerReasoningEffortForSend(),
+  });
+  if (!result.success) {
+    insertComposerText(prompt);
+    setHintText(result.error ?? inlineText("Failed to send voice prompt.", "语音提示词发送失败。"), true);
+  }
+}
+
 function stopVoiceInput(): void {
   if (!activeSpeechRecognition) {
     return;
@@ -1736,6 +1800,17 @@ function stopVoiceInput(): void {
     updateVoiceInputButton();
   }
 }
+
+function readVoiceInputMode(): VoiceInputMode {
+  const value = readStorageJson<VoiceInputMode>(storageKeys.voiceInputMode, "transcribe");
+  return value === "send" ? "send" : "transcribe";
+}
+
+function persistVoiceInputMode(): void {
+  writeStorageJson(storageKeys.voiceInputMode, voiceInputMode);
+}
+
+voiceInputMode = readVoiceInputMode();
 
 function startVoiceInput(): void {
   if (isVoiceListening) {
@@ -1794,8 +1869,12 @@ function startVoiceInput(): void {
   recognition.onend = () => {
     const transcript = finalTranscript || latestTranscript;
     if (transcript) {
-      insertComposerText(transcript);
-      setHintText(inlineText("Voice text added to the input.", "语音内容已加入输入框。"), false);
+      if (voiceInputMode === "send") {
+        void sendVoiceTranscript(transcript);
+      } else {
+        insertComposerText(transcript);
+        setHintText(inlineText("Voice text added to the input.", "语音内容已加入输入框。"), false);
+      }
     }
     activeSpeechRecognition = null;
     isVoiceListening = false;
@@ -5360,6 +5439,19 @@ elements.attachFileBtn?.addEventListener("click", () => {
 
 elements.voiceInputBtn?.addEventListener("click", () => {
   startVoiceInput();
+});
+
+elements.voiceInputModeSelect?.addEventListener("change", (event) => {
+  const value = (event.target as HTMLSelectElement | null)?.value;
+  voiceInputMode = value === "send" ? "send" : "transcribe";
+  persistVoiceInputMode();
+  updateVoiceInputButton();
+  setHintText(
+    voiceInputMode === "send"
+      ? inlineText("Voice input will send recognized text directly.", "语音识别后会直接发送。")
+      : inlineText("Voice input will transcribe into the input box.", "语音识别后会转成输入框文字。"),
+    false,
+  );
 });
 
 elements.composerInput?.addEventListener("keydown", (event) => {

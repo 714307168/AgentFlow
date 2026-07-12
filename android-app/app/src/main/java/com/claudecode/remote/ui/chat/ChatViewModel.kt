@@ -47,6 +47,17 @@ private const val SEND_FEEDBACK_DISCONNECTED_RECHECK_MS = 5_000L
 private const val RECENT_SEND_REUSE_WINDOW_MS = 20_000L
 private const val MAX_AUTO_SEND_RETRY_COUNT = 1
 
+private fun appendVoiceDraftText(current: String, spoken: String): String {
+    val normalized = spoken.trim()
+    if (normalized.isEmpty()) {
+        return current
+    }
+    if (current.isBlank()) {
+        return normalized
+    }
+    return if (current.last().isWhitespace()) current + normalized else "$current $normalized"
+}
+
 data class ConversationItem(
     val id: String,
     val title: String,
@@ -845,6 +856,71 @@ class ChatViewModel(
             tokenStore.saveDraft(projectId, text)
         }
         _uiState.update { it.copy(inputText = text) }
+    }
+
+    fun sendVoiceText(text: String) {
+        val state = _uiState.value
+        if (state.projectId.isBlank() || state.isSending || !state.messageComposeAllowed) {
+            return
+        }
+
+        val textSnapshot = text.trim()
+        if (textSnapshot.isEmpty()) {
+            return
+        }
+        val attachmentSnapshot = emptyList<MessageAttachment>()
+        val sendFingerprint = buildSendFingerprint(textSnapshot, attachmentSnapshot)
+        if (reuseRecentPendingSendIfNeeded(state, sendFingerprint)) {
+            return
+        }
+        val optimisticStartedAt = System.currentTimeMillis()
+
+        markSyncBurst()
+        _uiState.update {
+            it.copy(
+                isSending = true,
+                isRunning = if (state.isRunning || state.queuedCount > 0) state.isRunning else true,
+                queuedCount = if (state.isRunning || state.queuedCount > 0) state.queuedCount + 1 else 0,
+                currentPrompt = if (state.isRunning || state.queuedCount > 0) state.currentPrompt else textSnapshot,
+                queuePreview = if (state.isRunning || state.queuedCount > 0) textSnapshot else null,
+                currentStartedAt = if (state.isRunning || state.queuedCount > 0) state.currentStartedAt else optimisticStartedAt
+            )
+        }
+
+        viewModelScope.launch {
+            try {
+                val runId = messageRepository.sendMessage(
+                    projectId = state.projectId,
+                    content = textSnapshot,
+                    attachments = attachmentSnapshot,
+                    agentId = state.agentId
+                )
+                if (runId.isNotBlank()) {
+                    trackPendingSendFeedback(runId, sendFingerprint, textSnapshot, attachmentSnapshot)
+                } else {
+                    _uiState.update { it.copy(isSending = false) }
+                }
+                schedulePostSendSyncNudges()
+            } catch (e: Exception) {
+                CrashLogger.logError("ChatViewModel", "Error sending voice message", e)
+                clearPendingSendFeedback(clearRecent = true)
+                _uiState.update {
+                    val restoredInput = appendVoiceDraftText(it.inputText, textSnapshot)
+                    if (state.projectId.isNotBlank()) {
+                        tokenStore.saveDraft(state.projectId, restoredInput)
+                    }
+                    it.copy(
+                        inputText = restoredInput,
+                        isSending = false,
+                        isRunning = state.isRunning,
+                        queuedCount = state.queuedCount,
+                        currentPrompt = state.currentPrompt,
+                        queuePreview = state.queuePreview,
+                        currentStartedAt = state.currentStartedAt
+                    )
+                }
+            }
+        }
     }
 
     fun addAttachments(uris: List<Uri>) {

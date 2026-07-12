@@ -1990,6 +1990,10 @@ body.lightbox-open {
   padding: 0 10px;
 }
 
+.voice-mode-select {
+  max-width: 92px;
+}
+
 .voice-input-button.listening {
   background: rgba(34, 211, 238, 0.18);
   border-color: rgba(34, 211, 238, 0.55);

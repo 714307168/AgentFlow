@@ -6,6 +6,7 @@ const path = require("node:path");
 const stylesCss = fs.readFileSync(path.join(__dirname, "../renderer/styles.css"), "utf8");
 const flowDeckCss = fs.readFileSync(path.join(__dirname, "../renderer/flow-deck.css"), "utf8");
 const terminalHtml = fs.readFileSync(path.join(__dirname, "../renderer/index.html"), "utf8");
+const terminalTs = fs.readFileSync(path.join(__dirname, "../renderer/terminal.ts"), "utf8");
 const settingsHtml = fs.readFileSync(path.join(__dirname, "../renderer/settings.html"), "utf8");
 
 test("desktop workbench uses the AgentFlow reference redesign layer", () => {
@@ -33,11 +34,19 @@ test("desktop composer exposes per-project model switching next to the prompt", 
   assert.match(terminalHtml, /id="composerReasoningSelect"/);
   assert.match(terminalHtml, /<option value="xhigh">XHigh<\/option>/);
   assert.match(terminalHtml, /id="voiceInputBtn"/);
+  assert.match(terminalHtml, /id="voiceInputModeSelect"/);
+  assert.match(terminalHtml, /<option value="transcribe">Text<\/option>/);
+  assert.match(terminalHtml, /<option value="send">Send<\/option>/);
   assert.match(stylesCss, /\.composer-model-button \{/);
   assert.match(stylesCss, /\.composer-model-button,\s*\.composer-mode-select \{[\s\S]*border-radius: 999px;/);
   assert.match(stylesCss, /\.composer-mode-select \{/);
   assert.match(stylesCss, /\.composer-reasoning-select \{/);
   assert.match(stylesCss, /\.voice-input-button\.listening \{/);
+  assert.match(stylesCss, /\.voice-mode-select \{/);
+  assert.match(terminalTs, /type VoiceInputMode = "transcribe" \| "send"/);
+  assert.match(terminalTs, /agentflow\.voiceInputMode\.v1/);
+  assert.match(terminalTs, /sendVoiceTranscript/);
+  assert.match(terminalTs, /Voice input will send recognized text directly/);
   assert.match(stylesCss, /\.model-switch-provider-meta \{/);
   assert.match(stylesCss, /\.model-switch-source-chip \{/);
   assert.match(stylesCss, /max-width: 240px/);

@@ -32,6 +32,17 @@ private const val WORKGROUP_MANUAL_REFRESH_CONNECTION_WAIT_MS = 4_000L
 private const val WORKGROUP_MANUAL_REFRESH_CONNECTION_POLL_MS = 250L
 private val WORKGROUP_POST_SEND_SYNC_DELAYS_MS = longArrayOf(0L, 1_200L, 4_000L, 9_000L)
 
+private fun appendVoiceDraftText(current: String, spoken: String): String {
+    val normalized = spoken.trim()
+    if (normalized.isEmpty()) {
+        return current
+    }
+    if (current.isBlank()) {
+        return normalized
+    }
+    return if (current.last().isWhitespace()) current + normalized else "$current $normalized"
+}
+
 data class WorkgroupMentionSuggestion(
     val token: String,
     val label: String,
@@ -378,6 +389,48 @@ class WorkgroupChatViewModel(
                     it.copy(
                         inputText = textSnapshot,
                         mentionSuggestions = buildMentionSuggestions(textSnapshot, it.members),
+                        error = context.resolveWorkgroupErrorMessage(
+                            result.exceptionOrNull(),
+                            text(R.string.workgroups_error_send_message)
+                        )
+                    )
+                }
+            } else {
+                schedulePostSendSyncNudges()
+            }
+            _uiState.update { it.copy(isSending = false) }
+        }
+    }
+
+    fun sendVoiceText(text: String) {
+        val state = _uiState.value
+        if (state.agentId.isBlank() || state.workgroupId.isBlank() || state.isSending) {
+            return
+        }
+        val textSnapshot = text.trim()
+        if (textSnapshot.isEmpty()) {
+            return
+        }
+
+        _uiState.update { it.copy(isSending = true, mentionSuggestions = emptyList(), error = null) }
+        viewModelScope.launch {
+            val result = workgroupRepository.sendMessage(
+                agentId = state.agentId,
+                workgroupId = state.workgroupId,
+                content = textSnapshot
+            )
+            if (result.isFailure) {
+                CrashLogger.logError(
+                    "WorkgroupChatViewModel",
+                    "Failed to send workgroup voice message",
+                    result.exceptionOrNull() as? Exception
+                )
+                _uiState.update {
+                    val restoredInput = appendVoiceDraftText(it.inputText, textSnapshot)
+                    tokenStore.saveDraft(draftKey(state.agentId, state.workgroupId), restoredInput)
+                    it.copy(
+                        inputText = restoredInput,
+                        mentionSuggestions = buildMentionSuggestions(restoredInput, it.members),
                         error = context.resolveWorkgroupErrorMessage(
                             result.exceptionOrNull(),
                             text(R.string.workgroups_error_send_message)

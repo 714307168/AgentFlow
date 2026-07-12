@@ -53,6 +53,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -71,6 +72,7 @@ import com.claudecode.remote.R
 import com.claudecode.remote.data.model.WorkgroupMember
 import com.claudecode.remote.data.model.WorkgroupMessage
 import com.claudecode.remote.domain.TransferCenterItem
+import com.claudecode.remote.ui.common.VoiceInputMode
 import com.claudecode.remote.ui.common.appendVoiceInputText
 import com.claudecode.remote.ui.common.animateScrollToItemBottom
 import com.claudecode.remote.ui.common.buildVoiceInputIntent
@@ -107,6 +109,7 @@ fun WorkgroupChatScreen(
     var handledResumeScrollToken by remember(agentId, workgroupId) { mutableStateOf(0) }
     var showTransferSheet by remember(agentId, workgroupId) { mutableStateOf(false) }
     var transferRefreshToken by remember(agentId, workgroupId) { mutableStateOf(0) }
+    var voiceInputMode by rememberSaveable { mutableStateOf(VoiceInputMode.Transcribe) }
     var scopedTransfers by remember(agentId, workgroupId) { mutableStateOf(emptyList<TransferCenterItem>()) }
     var isRefreshingTransfers by remember(agentId, workgroupId) { mutableStateOf(false) }
     var busyTransferId by remember(agentId, workgroupId) { mutableStateOf<String?>(null) }
@@ -116,7 +119,11 @@ fun WorkgroupChatScreen(
         if (result.resultCode == Activity.RESULT_OK) {
             val spokenText = extractVoiceInputText(result.data)
             if (spokenText.isNotBlank()) {
-                viewModel.updateInput(appendVoiceInputText(uiState.inputText, spokenText))
+                if (voiceInputMode == VoiceInputMode.Send) {
+                    viewModel.sendVoiceText(spokenText)
+                } else {
+                    viewModel.updateInput(appendVoiceInputText(uiState.inputText, spokenText))
+                }
             }
         }
     }
@@ -272,10 +279,26 @@ fun WorkgroupChatScreen(
                     onTextChange = viewModel::updateInput,
                     onApplyMention = viewModel::applyMentionSuggestion,
                     onSend = viewModel::sendMessage,
+                    voiceInputMode = voiceInputMode,
+                    onToggleVoiceMode = {
+                        voiceInputMode = if (voiceInputMode == VoiceInputMode.Send) {
+                            VoiceInputMode.Transcribe
+                        } else {
+                            VoiceInputMode.Send
+                        }
+                    },
                     onVoiceInput = {
                         try {
                             voiceInputLauncher.launch(
-                                buildVoiceInputIntent(context.getString(R.string.voice_input_prompt))
+                                buildVoiceInputIntent(
+                                    context.getString(
+                                        if (voiceInputMode == VoiceInputMode.Send) {
+                                            R.string.voice_input_send_prompt
+                                        } else {
+                                            R.string.voice_input_prompt
+                                        }
+                                    )
+                                )
                             )
                         } catch (_: ActivityNotFoundException) {
                             Toast.makeText(
@@ -786,6 +809,8 @@ private fun WorkgroupInputBar(
     onTextChange: (String) -> Unit,
     onApplyMention: (WorkgroupMentionSuggestion) -> Unit,
     onSend: () -> Unit,
+    voiceInputMode: VoiceInputMode,
+    onToggleVoiceMode: () -> Unit,
     onVoiceInput: () -> Unit
 ) {
     Surface(
@@ -854,6 +879,21 @@ private fun WorkgroupInputBar(
                     Icon(
                         imageVector = Icons.Default.Mic,
                         contentDescription = stringResource(R.string.voice_input)
+                    )
+                }
+                TextButton(
+                    onClick = onToggleVoiceMode,
+                    enabled = enabled
+                ) {
+                    Text(
+                        text = stringResource(
+                            if (voiceInputMode == VoiceInputMode.Send) {
+                                R.string.voice_mode_send
+                            } else {
+                                R.string.voice_mode_transcribe
+                            }
+                        ),
+                        style = MaterialTheme.typography.labelMedium
                     )
                 }
                 FilledIconButton(
