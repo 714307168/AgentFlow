@@ -594,6 +594,203 @@ function highlightText(value: string, query: string): string {
     .join("");
 }
 
+function sanitizeMarkdownUrl(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  try {
+    const url = new URL(trimmed, window.location.href);
+    if (url.protocol === "http:" || url.protocol === "https:" || url.protocol === "mailto:") {
+      return url.href;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function renderMarkdownInline(value: string, query: string): string {
+  const tick = String.fromCharCode(96);
+  let output = "";
+  let cursor = 0;
+  while (cursor < value.length) {
+    const nextCode = value.indexOf(tick, cursor);
+    const nextLink = value.indexOf("[", cursor);
+    const candidates = [nextCode, nextLink].filter((index) => index >= 0);
+    const next = candidates.length > 0 ? Math.min(...candidates) : -1;
+    if (next < 0) {
+      output += renderMarkdownEmphasis(value.slice(cursor), query);
+      break;
+    }
+
+    output += renderMarkdownEmphasis(value.slice(cursor, next), query);
+    if (next === nextCode) {
+      const closing = value.indexOf(tick, next + 1);
+      if (closing < 0) {
+        output += renderMarkdownEmphasis(value.slice(next), query);
+        break;
+      }
+      output += "<code>" + highlightText(value.slice(next + 1, closing), query) + "</code>";
+      cursor = closing + 1;
+      continue;
+    }
+
+    const labelEnd = value.indexOf("]", next + 1);
+    const hrefStart = labelEnd >= 0 && value[labelEnd + 1] === "(" ? labelEnd + 2 : -1;
+    const hrefEnd = hrefStart >= 0 ? value.indexOf(")", hrefStart) : -1;
+    if (labelEnd < 0 || hrefStart < 0 || hrefEnd < 0) {
+      output += renderMarkdownEmphasis(value.slice(next, next + 1), query);
+      cursor = next + 1;
+      continue;
+    }
+
+    const href = sanitizeMarkdownUrl(value.slice(hrefStart, hrefEnd));
+    const label = value.slice(next + 1, labelEnd);
+    if (!href) {
+      output += renderMarkdownEmphasis(value.slice(next, hrefEnd + 1), query);
+      cursor = hrefEnd + 1;
+      continue;
+    }
+    output += "<a href=\"" + escapeHtml(href) + "\" target=\"_blank\" rel=\"noreferrer noopener\">"
+      + renderMarkdownEmphasis(label, query)
+      + "</a>";
+    cursor = hrefEnd + 1;
+  }
+  return output;
+}
+
+function renderMarkdownEmphasis(value: string, query: string): string {
+  const tokenPattern = /(\*\*[^*\n]+\*\*|__[^_\n]+__|\*[^*\n]+\*|_[^_\n]+_)/g;
+  return value
+    .split(tokenPattern)
+    .map((segment) => {
+      if ((segment.startsWith("**") && segment.endsWith("**")) || (segment.startsWith("__") && segment.endsWith("__"))) {
+        return "<strong>" + highlightText(segment.slice(2, -2), query) + "</strong>";
+      }
+      if ((segment.startsWith("*") && segment.endsWith("*")) || (segment.startsWith("_") && segment.endsWith("_"))) {
+        return "<em>" + highlightText(segment.slice(1, -1), query) + "</em>";
+      }
+      return highlightText(segment, query);
+    })
+    .join("");
+}
+
+function renderMarkdownParagraph(lines: string[], query: string): string {
+  return "<p>" + lines.map((line) => renderMarkdownInline(line, query)).join("<br>") + "</p>";
+}
+
+function renderMarkdownTextBlocks(value: string, query: string): string {
+  const lines = value.replace(/\r\n/g, "\n").split("\n");
+  const blocks: string[] = [];
+  let paragraph: string[] = [];
+  const flushParagraph = () => {
+    if (paragraph.length === 0) {
+      return;
+    }
+    blocks.push(renderMarkdownParagraph(paragraph, query));
+    paragraph = [];
+  };
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const trimmed = line.trim();
+    if (!trimmed) {
+      flushParagraph();
+      continue;
+    }
+
+    const heading = /^(#{1,4})\s+(.+)$/.exec(trimmed);
+    if (heading) {
+      flushParagraph();
+      const level = Math.min(heading[1].length, 4);
+      blocks.push("<h" + level + ">" + renderMarkdownInline(heading[2], query) + "</h" + level + ">");
+      continue;
+    }
+
+    if (/^(---|\*\*\*|___)$/.test(trimmed)) {
+      flushParagraph();
+      blocks.push("<hr>");
+      continue;
+    }
+
+    if (/^>\s?/.test(trimmed)) {
+      flushParagraph();
+      const quoteLines: string[] = [];
+      while (index < lines.length && /^>\s?/.test(lines[index].trim())) {
+        quoteLines.push(lines[index].trim().replace(/^>\s?/, ""));
+        index += 1;
+      }
+      index -= 1;
+      blocks.push("<blockquote>" + renderMarkdownParagraph(quoteLines, query) + "</blockquote>");
+      continue;
+    }
+
+    const unordered = /^[-*+]\s+(.+)$/.exec(trimmed);
+    const ordered = /^\d+[.)]\s+(.+)$/.exec(trimmed);
+    if (unordered || ordered) {
+      flushParagraph();
+      const orderedList = Boolean(ordered);
+      const items: string[] = [];
+      while (index < lines.length) {
+        const current = lines[index].trim();
+        const match = orderedList ? /^\d+[.)]\s+(.+)$/.exec(current) : /^[-*+]\s+(.+)$/.exec(current);
+        if (!match) {
+          break;
+        }
+        items.push("<li>" + renderMarkdownInline(match[1], query) + "</li>");
+        index += 1;
+      }
+      index -= 1;
+      const tag = orderedList ? "ol" : "ul";
+      blocks.push("<" + tag + ">" + items.join("") + "</" + tag + ">");
+      continue;
+    }
+
+    paragraph.push(line);
+  }
+
+  flushParagraph();
+  return blocks.join("");
+}
+
+function renderMarkdownContent(value: string, query: string): string {
+  const fenceText = String.fromCharCode(96, 96, 96);
+  const lines = value.replace(/\r\n/g, "\n").split("\n");
+  const blocks: string[] = [];
+  let textLines: string[] = [];
+  const flushText = () => {
+    if (textLines.length === 0) {
+      return;
+    }
+    blocks.push(renderMarkdownTextBlocks(textLines.join("\n"), query));
+    textLines = [];
+  };
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const trimmed = lines[index].trim();
+    if (!trimmed.startsWith(fenceText)) {
+      textLines.push(lines[index]);
+      continue;
+    }
+
+    flushText();
+    const languageName = trimmed.slice(fenceText.length).trim().split(/\s+/)[0] ?? "";
+    const language = languageName ? "<span class=\"markdown-code-language\">" + escapeHtml(languageName) + "</span>" : "";
+    const codeLines: string[] = [];
+    index += 1;
+    while (index < lines.length && lines[index].trim() !== fenceText) {
+      codeLines.push(lines[index]);
+      index += 1;
+    }
+    blocks.push("<pre>" + language + "<code>" + highlightText(codeLines.join("\n"), query) + "</code></pre>");
+  }
+
+  flushText();
+  return blocks.join("") || "&nbsp;";
+}
+
 function formatTemplate(template: string, vars?: Record<string, string>): string {
   if (!vars) {
     return template;
@@ -3366,7 +3563,7 @@ function renderMessages(): void {
           `<span class="message-time" title="${escapeHtml(formatDateTime(message.updatedAt || message.createdAt))}">${escapeHtml(formatTime(message.updatedAt || message.createdAt))}</span>`,
           actionButton,
           "</div>",
-          `<div class="message-content${message.status === "streaming" ? " streaming" : ""}">${highlightText(content, state.messageSearchQuery)}</div>`,
+          `<div class="message-content markdown-content${message.status === "streaming" ? " streaming" : ""}">${renderMarkdownContent(content, state.messageSearchQuery)}</div>`,
           "</div>",
           "</article>",
         ].join("");
@@ -3463,7 +3660,7 @@ function renderMessages(): void {
           ? `<div class="message-attachments">${message.attachments.map((attachment) => renderAttachmentCardView(attachment)).join("")}</div>`
           : "",
         message.content
-          ? `<div class="message-content${message.status === "streaming" ? " streaming" : ""}">${highlightText(message.content, state.messageSearchQuery)}</div>`
+          ? `<div class="message-content markdown-content${message.status === "streaming" ? " streaming" : ""}">${renderMarkdownContent(message.content, state.messageSearchQuery)}</div>`
           : "",
         "</div>",
         "</article>",

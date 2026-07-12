@@ -1821,6 +1821,122 @@ body.lightbox-open {
   word-break: break-word;
 }
 
+.markdown-content {
+  white-space: normal;
+}
+
+.markdown-content > :first-child {
+  margin-top: 0;
+}
+
+.markdown-content > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown-content p {
+  margin: 0 0 10px;
+}
+
+.markdown-content h1,
+.markdown-content h2,
+.markdown-content h3,
+.markdown-content h4 {
+  color: var(--text-strong);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+  margin: 14px 0 8px;
+}
+
+.markdown-content h1 {
+  font-size: 20px;
+}
+
+.markdown-content h2 {
+  font-size: 18px;
+}
+
+.markdown-content h3,
+.markdown-content h4 {
+  font-size: 16px;
+}
+
+.markdown-content ul,
+.markdown-content ol {
+  margin: 8px 0 12px;
+  padding-left: 22px;
+}
+
+.markdown-content li + li {
+  margin-top: 4px;
+}
+
+.markdown-content blockquote {
+  background: rgba(255, 255, 255, 0.045);
+  border-left: 3px solid var(--accent);
+  border-radius: 12px;
+  color: var(--text-soft);
+  margin: 10px 0;
+  padding: 10px 12px;
+}
+
+.markdown-content code {
+  background: rgba(5, 12, 20, 0.68);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 7px;
+  color: #dff7ff;
+  font-family: "SF Mono", Consolas, "Liberation Mono", monospace;
+  font-size: 0.92em;
+  padding: 1px 5px;
+}
+
+.markdown-content pre {
+  background: linear-gradient(180deg, rgba(7, 14, 23, 0.92), rgba(3, 8, 14, 0.94));
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  margin: 12px 0;
+  overflow: auto;
+  padding: 14px;
+  position: relative;
+}
+
+.markdown-content pre code {
+  background: transparent;
+  border: 0;
+  color: #e7f7ff;
+  display: block;
+  font-size: 12px;
+  line-height: 1.55;
+  padding: 0;
+  white-space: pre;
+}
+
+.markdown-code-language {
+  color: var(--text-muted);
+  display: block;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+}
+
+.markdown-content a {
+  color: var(--accent);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.markdown-content a:hover {
+  text-decoration: underline;
+}
+
+.markdown-content hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 14px 0;
+}
+
 .message-content.streaming::after {
   animation: pulse 1.2s ease-in-out infinite;
   color: var(--accent);
