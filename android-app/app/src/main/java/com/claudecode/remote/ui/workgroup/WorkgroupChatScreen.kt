@@ -1,10 +1,6 @@
 package com.claudecode.remote.ui.workgroup
 
-import android.app.Activity
-import android.content.ActivityNotFoundException
 import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.combinedClickable
@@ -75,9 +71,8 @@ import com.claudecode.remote.domain.TransferCenterItem
 import com.claudecode.remote.ui.common.VoiceInputMode
 import com.claudecode.remote.ui.common.appendVoiceInputText
 import com.claudecode.remote.ui.common.animateScrollToItemBottom
-import com.claudecode.remote.ui.common.buildVoiceInputIntent
-import com.claudecode.remote.ui.common.extractVoiceInputText
 import com.claudecode.remote.ui.common.rememberEventCoroutineScope
+import com.claudecode.remote.ui.common.rememberVoiceInputLauncher
 import com.claudecode.remote.ui.common.rememberViewTreeLifecycleOwner
 import com.claudecode.remote.ui.common.scrollToItemBottom
 import com.claudecode.remote.ui.transfer.ScopedTransferSheet
@@ -113,20 +108,16 @@ fun WorkgroupChatScreen(
     var scopedTransfers by remember(agentId, workgroupId) { mutableStateOf(emptyList<TransferCenterItem>()) }
     var isRefreshingTransfers by remember(agentId, workgroupId) { mutableStateOf(false) }
     var busyTransferId by remember(agentId, workgroupId) { mutableStateOf<String?>(null) }
-    val voiceInputLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            val spokenText = extractVoiceInputText(result.data)
-            if (spokenText.isNotBlank()) {
-                if (voiceInputMode == VoiceInputMode.Send) {
-                    viewModel.sendVoiceText(spokenText)
-                } else {
-                    viewModel.updateInput(appendVoiceInputText(uiState.inputText, spokenText))
-                }
-            }
+    val voiceInputLauncher = rememberVoiceInputLauncher(
+        voiceInputMode = voiceInputMode,
+        onTranscribe = { spokenText ->
+            viewModel.updateInput(appendVoiceInputText(uiState.inputText, spokenText))
+        },
+        onSend = viewModel::sendVoiceText,
+        onUnavailable = { message ->
+            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
         }
-    }
+    )
 
     LaunchedEffect(agentId, workgroupId, workgroupName) {
         viewModel.loadWorkgroup(agentId, workgroupId, workgroupName)
@@ -288,25 +279,15 @@ fun WorkgroupChatScreen(
                         }
                     },
                     onVoiceInput = {
-                        try {
-                            voiceInputLauncher.launch(
-                                buildVoiceInputIntent(
-                                    context.getString(
-                                        if (voiceInputMode == VoiceInputMode.Send) {
-                                            R.string.voice_input_send_prompt
-                                        } else {
-                                            R.string.voice_input_prompt
-                                        }
-                                    )
-                                )
+                        voiceInputLauncher(
+                            context.getString(
+                                if (voiceInputMode == VoiceInputMode.Send) {
+                                    R.string.voice_input_send_prompt
+                                } else {
+                                    R.string.voice_input_prompt
+                                }
                             )
-                        } catch (_: ActivityNotFoundException) {
-                            Toast.makeText(
-                                context,
-                                context.getString(R.string.voice_input_unavailable),
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        }
+                        )
                     }
                 )
             }
