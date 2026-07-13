@@ -11,6 +11,8 @@ test("terminal chat messages render through the safe markdown renderer", () => {
   assert.match(terminalSource, /function sanitizeMarkdownUrl/);
   assert.match(terminalSource, /renderMarkdownContent\(message\.content, state\.messageSearchQuery\)/);
   assert.match(terminalSource, /renderMarkdownContent\(content, state\.messageSearchQuery\)/);
+  assert.match(terminalSource, /data-copy-markdown-block/);
+  assert.match(terminalSource, /function copyMarkdownCodeBlock\(button: HTMLElement\)/);
 });
 
 test("terminal markdown styling covers common chat markdown blocks", () => {
@@ -18,4 +20,6 @@ test("terminal markdown styling covers common chat markdown blocks", () => {
   assert.match(stylesCss, /\.markdown-content blockquote/);
   assert.match(stylesCss, /\.markdown-content ul,/);
   assert.match(stylesCss, /\.markdown-content a/);
+  assert.match(stylesCss, /\.markdown-code-copy/);
+  assert.match(stylesCss, /\.markdown-code-toolbar/);
 });

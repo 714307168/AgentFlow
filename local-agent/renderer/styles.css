@@ -1900,6 +1900,43 @@ body.lightbox-open {
   position: relative;
 }
 
+.markdown-code-toolbar {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  margin: -2px -2px 10px;
+}
+
+.markdown-code-copy {
+  align-items: center;
+  background: rgba(124, 92, 252, 0.12);
+  border: 1px solid rgba(124, 92, 252, 0.3);
+  border-radius: 7px;
+  color: #d9d1ff;
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  opacity: 0.72;
+  padding: 6px 8px;
+  transition: background 140ms ease, border-color 140ms ease, opacity 140ms ease;
+}
+
+.markdown-content pre:hover .markdown-code-copy,
+.markdown-code-copy:focus-visible {
+  background: rgba(124, 92, 252, 0.22);
+  border-color: rgba(124, 92, 252, 0.56);
+  opacity: 1;
+}
+
+.markdown-code-copy:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .markdown-content pre code {
   background: transparent;
   border: 0;
@@ -1917,8 +1954,13 @@ body.lightbox-open {
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.08em;
-  margin-bottom: 8px;
   text-transform: uppercase;
+}
+
+@media (hover: none) {
+  .markdown-code-copy {
+    opacity: 1;
+  }
 }
 
 .markdown-content a {

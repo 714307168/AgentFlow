@@ -796,13 +796,18 @@ function renderMarkdownContent(value: string, query: string): string {
     flushText();
     const languageName = trimmed.slice(fenceText.length).trim().split(/\s+/)[0] ?? "";
     const language = languageName ? "<span class=\"markdown-code-language\">" + escapeHtml(languageName) + "</span>" : "";
+    const copyLabel = escapeHtml(inlineText("Copy", "复制"));
+    const toolbar = "<div class=\"markdown-code-toolbar\">" + language
+      + "<button class=\"markdown-code-copy\" type=\"button\" data-copy-markdown-block>"
+      + copyLabel
+      + "</button></div>";
     const codeLines: string[] = [];
     index += 1;
     while (index < lines.length && lines[index].trim() !== fenceText) {
       codeLines.push(lines[index]);
       index += 1;
     }
-    blocks.push("<pre>" + language + "<code>" + highlightText(codeLines.join("\n"), query) + "</code></pre>");
+    blocks.push("<pre>" + toolbar + "<code>" + highlightText(codeLines.join("\n"), query) + "</code></pre>");
   }
 
   flushText();
@@ -2162,6 +2167,21 @@ async function copyVisibleMessage(messageId: string): Promise<void> {
     copied
       ? inlineText("Message copied to clipboard.", "消息已复制到剪贴板。")
       : inlineText("Failed to copy the message.", "复制消息失败。"),
+    !copied,
+  );
+}
+
+async function copyMarkdownCodeBlock(button: HTMLElement): Promise<void> {
+  const code = button.closest("pre")?.querySelector("code")?.textContent ?? "";
+  if (!code.trim()) {
+    setHintText(inlineText("Nothing to copy from this code block.", "这个代码块没有可复制的内容。"), true);
+    return;
+  }
+  const copied = await copyTextToClipboard(code);
+  setHintText(
+    copied
+      ? inlineText("Code block copied to clipboard.", "代码片段已复制到剪贴板。")
+      : inlineText("Failed to copy the code block.", "代码片段复制失败。"),
     !copied,
   );
 }
@@ -5752,6 +5772,11 @@ elements.attachmentTray?.addEventListener("click", (event) => {
 
 elements.messages?.addEventListener("click", (event) => {
   const target = event.target instanceof Element ? event.target : null;
+  const markdownCopyButton = target?.closest("[data-copy-markdown-block]") as HTMLElement | null;
+  if (markdownCopyButton) {
+    void copyMarkdownCodeBlock(markdownCopyButton);
+    return;
+  }
   const copyButton = target?.closest("[data-copy-message-id]") as HTMLElement | null;
   const messageId = copyButton?.dataset.copyMessageId;
   if (messageId) {
