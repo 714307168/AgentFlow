@@ -100,6 +100,40 @@ test("RuntimeManager keeps already queued runs ahead of a newer interrupting run
   runtimeManager.dispose();
 });
 
+test("RuntimeManager merges a queued message into the active Codex turn as guidance", async () => {
+  const runtimeManager = createRuntimeManager();
+  const state = runtimeManager.ensureState("project-steer");
+  state.active = true;
+  state.provider = "codex";
+  state.codexThreadId = "thread-1";
+  state.codexActiveTurnId = "turn-1";
+  const requests = [];
+  state.codexAppServer = {
+    async steer(request) {
+      requests.push(request);
+    },
+  };
+
+  runtimeManager.enqueueMessage({
+    projectId: "project-steer",
+    cwd: process.cwd(),
+    prompt: "Prefer the smaller change.",
+    source: "desktop",
+    runId: "guidance-1",
+  });
+
+  assert.deepEqual(await runtimeManager.steerQueuedRun("project-steer", "guidance-1"), { success: true });
+  assert.deepEqual(requests, [{
+    threadId: "thread-1",
+    expectedTurnId: "turn-1",
+    prompt: "Prefer the smaller change.",
+  }]);
+  assert.equal(runtimeManager.getSnapshot("project-steer").queue.length, 0);
+  assert.match(runtimeManager.getSnapshot("project-steer").messages.at(-1).content, /Prefer the smaller change/);
+
+  runtimeManager.dispose();
+});
+
 test("RuntimeManager emits run-completed when a run ends with an error", async () => {
   const runtimeManager = createRuntimeManager();
   const completions = [];

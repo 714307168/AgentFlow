@@ -1243,43 +1243,6 @@
       border: 1px solid rgba(251, 146, 60, 0.24);
       word-break: break-word;
     }
-    .runtime-status-guide {
-      margin-top: 10px;
-      padding: 12px;
-      border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--border));
-      border-left: 3px solid var(--accent);
-      border-radius: 12px;
-      background: color-mix(in srgb, var(--accent) 8%, var(--panel));
-    }
-    .runtime-status-guide-title {
-      font-size: 12px;
-      font-weight: 700;
-      color: var(--text);
-    }
-    .runtime-status-guide-copy {
-      margin-top: 4px;
-      font-size: 12px;
-      line-height: 1.5;
-      color: var(--muted);
-    }
-    .runtime-status-guide-command {
-      display: block;
-      margin-top: 8px;
-      padding: 8px 10px;
-      overflow-x: auto;
-      border-radius: 8px;
-      background: rgba(15, 23, 42, 0.08);
-      color: var(--text);
-      font-family: Consolas, "Cascadia Code", monospace;
-      font-size: 11px;
-      white-space: nowrap;
-    }
-    .runtime-status-guide-actions {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin-top: 10px;
-    }
     .runtime-status-actions {
       margin-top: 12px;
       display: flex;
@@ -3384,7 +3347,7 @@
                 <button class="btn-secondary" id="refreshRuntimeStatusBtn" type="button">Refresh Runtime Status</button>
               </div>
             </div>
-            <div class="model-provider-section" id="modelProviderSection">
+            <div class="model-provider-section">
               <div class="runtime-card-title" id="modelProviderSectionTitle">Model Providers</div>
               <div class="field-help" id="modelProviderSectionHint">Manage API keys, Base URLs, and default models as provider profiles. Select one OpenAI-compatible profile for Codex API fallback.</div>
               <div class="model-provider-toolbar">
@@ -3471,7 +3434,6 @@
   <script src="./provider-ui.js"></script>
   <script src="./client-capabilities.js"></script>
   <script src="./settings-provider-runtime.js"></script>
-  <script src="./settings-runtime-guide.js"></script>
   <script src="./settings-access-grants.js"></script>
   <script src="./settings-pane-loaders.js"></script>
   <script>
@@ -3479,7 +3441,6 @@
     const providerUi = window.ProviderUi;
     const clientCapabilitiesApi = window.ClientCapabilities;
     const providerRuntimeApi = window.SettingsProviderRuntime;
-    const runtimeGuideApi = window.SettingsRuntimeGuide;
     const settingsAccessGrants = window.SettingsAccessGrants;
     const settingsPaneLoaders = window.SettingsPaneLoaders;
     const CACHED_SECRET_PLACEHOLDER = "__cached__";
@@ -4483,12 +4444,6 @@
             </div>
           `
           : "";
-        const runtimeGuide = status && runtimeGuideApi?.getProviderRuntimeGuide
-          ? runtimeGuideApi.getProviderRuntimeGuide(id, status, apiFallbackReady)
-          : null;
-        const runtimeGuideMarkup = runtimeGuide
-          ? buildRuntimeStatusGuideMarkup(id, label, runtimeGuide)
-          : "";
         return `
           <div class="runtime-status-card">
             <div class="runtime-status-header">
@@ -4507,90 +4462,10 @@
             </div>
             ${capabilityMarkup}
             ${upgradeMarkup}
-            ${runtimeGuideMarkup}
           </div>
         `;
       }).join("");
       applyCliProviderAvailability();
-    }
-
-    function buildRuntimeStatusGuideMarkup(provider, label, guide) {
-      const isRepair = guide.kind === "repair";
-      const title = isRepair
-        ? inlineText(`Repair ${label}`, `修复 ${label}`)
-        : inlineText(`Install ${label}`, `安装 ${label}`);
-      const description = isRepair
-        ? inlineText(
-          `${label} was found, but it cannot run prompts. Update or reinstall it, then refresh the runtime status.`,
-          `已检测到 ${label}，但它无法执行提示词。请升级或重新安装，然后刷新运行环境状态。`
-        )
-        : inlineText(
-          `${label} is not installed. Run this command, then refresh the runtime status.`,
-          `本机未检测到 ${label}。运行以下命令安装后，再刷新运行环境状态。`
-        );
-      return `
-        <div class="runtime-status-guide">
-          <div class="runtime-status-guide-title">${escapeHtml(title)}</div>
-          <div class="runtime-status-guide-copy">${escapeHtml(description)}</div>
-          <code class="runtime-status-guide-command">${escapeHtml(guide.command)}</code>
-          <div class="runtime-status-guide-actions">
-            <button class="btn-secondary btn-small" type="button" data-runtime-guide-action="copy-command" data-runtime-guide-command="${escapeHtml(guide.command)}">${escapeHtml(inlineText("Copy command", "复制命令"))}</button>
-            <button class="btn-secondary btn-small" type="button" data-runtime-guide-action="configure-api" data-runtime-guide-provider="${escapeHtml(provider)}">${escapeHtml(inlineText("Configure API fallback", "配置 API 回退"))}</button>
-          </div>
-        </div>
-      `;
-    }
-
-    async function copyRuntimeGuideCommand(command) {
-      const text = String(command || "").trim();
-      if (!text) {
-        return;
-      }
-      try {
-        if (navigator.clipboard?.writeText) {
-          await navigator.clipboard.writeText(text);
-        } else {
-          const input = document.createElement("textarea");
-          input.value = text;
-          input.style.position = "fixed";
-          input.style.opacity = "0";
-          document.body.appendChild(input);
-          input.select();
-          document.execCommand("copy");
-          input.remove();
-        }
-        showStatus(inlineText("Command copied. Run it in a terminal, then refresh the runtime status.", "命令已复制。请在终端运行后刷新运行环境状态。"), false);
-      } catch (error) {
-        console.error("Failed to copy runtime guide command:", error);
-        showStatus(inlineText("Could not copy the command. Select it above and copy it manually.", "无法复制命令，请在上方手动选择并复制。"), true);
-      }
-    }
-
-    function openProviderApiFallbackSetup(provider) {
-      const protocol = provider === "claude" ? "anthropic" : "openai";
-      const profiles = getModelProviderProfiles();
-      const activeMap = normalizeActiveModelProviderMap(latestConfig, profiles);
-      let profile = profiles.find((entry) => entry.id === activeMap[protocol] && entry.protocol === protocol)
-        || profiles.find((entry) => entry.protocol === protocol);
-      if (!profile) {
-        const preset = MODEL_PROVIDER_PRESETS.find((entry) => entry.protocol === protocol);
-        profile = {
-          id: makeUniqueModelProviderId(preset?.id || protocol, profiles),
-          name: preset?.name || protocol,
-          protocol,
-          apiKey: "",
-          baseUrl: preset?.baseUrl || "",
-          defaultModel: preset?.defaultModel || "",
-          enabled: true,
-        };
-        profiles.push(profile);
-        updateModelProviderState(profiles, activeMap);
-      }
-      editingModelProviderId = profile.id;
-      renderModelProviderProfiles();
-      const section = document.getElementById("modelProviderSection");
-      section?.scrollIntoView({ behavior: "smooth", block: "start" });
-      document.getElementById("modelProviderApiKey")?.focus({ preventScroll: true });
     }
 
     async function loadCliProviderRuntimeStatus() {
@@ -8152,20 +8027,6 @@
       latestCliProviderRuntimeStatus = await api.getCliProviderRuntimeStatus({ force: true });
       renderCliProviderRuntimeStatus();
       flashSaved();
-    });
-
-    document.getElementById("runtimeStatusGrid").addEventListener("click", (event) => {
-      const button = event.target.closest("[data-runtime-guide-action]");
-      if (!button) {
-        return;
-      }
-      if (button.dataset.runtimeGuideAction === "copy-command") {
-        void copyRuntimeGuideCommand(button.dataset.runtimeGuideCommand);
-        return;
-      }
-      if (button.dataset.runtimeGuideAction === "configure-api") {
-        openProviderApiFallbackSetup(button.dataset.runtimeGuideProvider || "codex");
-      }
     });
 
     document.getElementById("projectProvider").addEventListener("focus", (event) => {

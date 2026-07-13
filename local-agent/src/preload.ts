@@ -38,6 +38,7 @@ contextBridge.exposeInMainWorld('claudeAgent', {
   getAttachmentImageData: (data: { path?: string | null }) => ipcRenderer.invoke('get-attachment-image-data', data),
   stopProjectRun: (projectId: string) => ipcRenderer.invoke('stop-project-run', projectId),
   removeQueuedProjectPrompt: (data: { projectId: string; runId: string }) => ipcRenderer.invoke('remove-queued-project-prompt', data),
+  steerQueuedProjectPrompt: (data: { projectId: string; runId: string }) => ipcRenderer.invoke('steer-queued-project-prompt', data),
   listScheduledTasks: () => ipcRenderer.invoke('list-scheduled-tasks'),
   saveScheduledTask: (data: {
     id?: string;

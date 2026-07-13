@@ -55,6 +55,7 @@ import type {
 import { createProjectSyncBucket } from "./project-sync-bucket";
 import { createProjectSessionSignature } from "./project-session-signature";
 import { createSessionSnapshotRevision } from "./session-snapshot-revision";
+import { CodexAppServer, type CodexAppServerEvent } from "./codex-app-server";
 
 export interface RuntimeConfig {
   getProjectProvider: (projectId: string) => CliProvider;
@@ -145,6 +146,8 @@ interface ProjectState {
   codexThreadId: string | null;
   pendingModelSwitchContext: string | null;
   process: ActiveRunProcessHandle | null;
+  codexAppServer: CodexAppServer | null;
+  codexActiveTurnId: string | null;
   pendingStop: PendingStop | null;
 }
 
@@ -357,6 +360,44 @@ class RuntimeManager extends EventEmitter {
       syncBucket,
       projectSignature: createProjectSessionSignature(snapshotBase, snapshotRevision),
     };
+  }
+
+  async steerQueuedRun(projectId: string, runId: string): Promise<{ success: boolean; error?: string }> {
+    const state = this.ensureState(projectId);
+    const queuedIndex = state.queue.findIndex((entry) => entry.runId === runId);
+    if (queuedIndex < 0) return { success: false, error: "Queued item not found" };
+    if (!state.active || state.provider !== "codex" || !state.codexAppServer || !state.codexThreadId || !state.codexActiveTurnId) {
+      return { success: false, error: "The current run cannot accept guidance." };
+    }
+    const queued = state.queue[queuedIndex];
+    if ((queued.attachments?.length ?? 0) > 0) return { success: false, error: "Guidance messages cannot include attachments." };
+    try {
+      await state.codexAppServer.steer({
+        threadId: state.codexThreadId,
+        expectedTurnId: state.codexActiveTurnId,
+        prompt: queued.prompt,
+      });
+      state.queue.splice(queuedIndex, 1);
+      this.addMessage(state, {
+        id: queued.runId,
+        role: "user",
+        content: queued.prompt,
+        attachments: [],
+        provider: state.provider,
+        source: queued.source,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        status: "done",
+      });
+      this.addActivity(state, {
+        id: uuidv4(), kind: "status", title: "Guidance applied", detail: "Queued message was merged into the active Codex turn.",
+        status: "completed", createdAt: Date.now(), updatedAt: Date.now(), meta: { source: queued.source, runId: queued.runId },
+      });
+      this.emitSnapshot(projectId);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
   }
 
   getLatestSyncSeq(projectId: string): number {
@@ -739,7 +780,7 @@ class RuntimeManager extends EventEmitter {
           let lastCodexError: unknown = null;
           for (let attempt = 0; attempt <= CODEX_EXIT_CODE_1_MAX_RETRIES; attempt += 1) {
             try {
-              await this.executeCodex(state, run, context, providerRuntime);
+              await this.executeCodexAppServer(state, run, context, providerRuntime);
               lastCodexError = null;
               break;
             } catch (error) {
@@ -834,6 +875,8 @@ class RuntimeManager extends EventEmitter {
       state.currentPrompt = null;
       state.currentStartedAt = null;
       state.process = null;
+      state.codexAppServer = null;
+      state.codexActiveTurnId = null;
       state.pendingStop = null;
       this.emitSnapshot(projectId);
       void this.processNext(projectId);
@@ -995,7 +1038,100 @@ class RuntimeManager extends EventEmitter {
     );
   }
 
-  private executeCodex(
+  private async executeCodexAppServer(
+    state: ProjectState,
+    run: PendingRun,
+    context: RunContext,
+    runtime: ProviderRuntimeSelection,
+  ): Promise<void> {
+    const command = runtime.cliStatus?.command ?? (process.platform === "win32" ? "codex.cmd" : "codex");
+    let resolveTurn: (() => void) | null = null;
+    let rejectTurn: ((error: Error) => void) | null = null;
+    const turnFinished = new Promise<void>((resolve, reject) => {
+      resolveTurn = resolve;
+      rejectTurn = reject;
+    });
+    const server = new CodexAppServer({
+      command,
+      cwd: run.cwd,
+      env: this.getConfig().getProviderEnvironment?.("codex"),
+      onEvent: (event) => this.handleCodexAppServerEvent(state, run, context, event, resolveTurn, rejectTurn),
+      onExit: (error) => {
+        if (state.pendingStop) {
+          rejectTurn?.(new StopRunError(state.pendingStop.reason, state.pendingStop.notifyAsError));
+        } else {
+          rejectTurn?.(error);
+        }
+      },
+    });
+    state.codexAppServer = server;
+    state.process = server.child;
+    await server.initialize();
+    if (this.shouldResumeConversation(state.projectId, "codex") && state.codexThreadId) {
+      try {
+        await server.resumeThread(state.codexThreadId);
+      } catch {
+        state.codexThreadId = null;
+      }
+    }
+    if (!state.codexThreadId) state.codexThreadId = await server.startThread({ cwd: run.cwd, model: state.model });
+    state.codexActiveTurnId = await server.startTurn({
+      threadId: state.codexThreadId,
+      prompt: this.buildPromptWithAttachments(run),
+      cwd: run.cwd,
+      model: state.model,
+      effort: run.reasoningEffort ?? null,
+    });
+    await turnFinished;
+    server.stop();
+  }
+
+  private handleCodexAppServerEvent(
+    state: ProjectState,
+    run: PendingRun,
+    context: RunContext,
+    event: CodexAppServerEvent,
+    resolveTurn: (() => void) | null,
+    rejectTurn: ((error: Error) => void) | null,
+  ): void {
+    const params = event.params as Record<string, any>;
+    if (event.method === "item/agentMessage/delta") {
+      const delta = String(params.delta ?? "");
+      if (delta) {
+        this.appendAssistantText(state, context, run, delta);
+        run.onTextDelta?.(delta);
+      }
+      return;
+    }
+    if (event.method === "item/started" || event.method === "item/completed") {
+      const item = params.item as Record<string, any> | undefined;
+      if (!item) return;
+      if (item.type === "commandExecution") {
+        const activityKey = String(item.id ?? uuidv4());
+        const activityId = context.activityIdsByKey.get(activityKey) ?? this.addActivity(state, {
+          id: uuidv4(), kind: "command", title: "Command execution", detail: String(item.command ?? ""),
+          status: event.method === "item/started" ? "running" : (item.status === "completed" ? "completed" : "error"),
+          createdAt: Date.now(), updatedAt: Date.now(), meta: { source: run.source, runId: run.runId },
+        });
+        context.activityIdsByKey.set(activityKey, activityId);
+        if (event.method === "item/completed") this.updateActivity(state, activityId, {
+          detail: this.formatCodexCommand(item), status: item.status === "completed" ? "completed" : "error",
+        });
+      }
+      return;
+    }
+    if (event.method === "turn/completed") {
+      const turn = params.turn as Record<string, any> | undefined;
+      if (turn?.status === "failed") {
+        rejectTurn?.(new Error(String(turn.error?.message ?? "Codex turn failed.")));
+      } else {
+        if (context.assistantMessageId) this.updateMessage(state, context.assistantMessageId, { status: "done" });
+        resolveTurn?.();
+      }
+    }
+  }
+
+  private executeCodexExecFallback(
     state: ProjectState,
     run: PendingRun,
     context: RunContext,
@@ -2972,6 +3108,8 @@ class RuntimeManager extends EventEmitter {
         codexThreadId: initialConversation.codexThreadId,
         pendingModelSwitchContext: null,
         process: null,
+        codexAppServer: null,
+        codexActiveTurnId: null,
         pendingStop: null,
       });
 
@@ -3009,6 +3147,8 @@ class RuntimeManager extends EventEmitter {
       codexThreadId: null,
       pendingModelSwitchContext: null,
       process: null,
+      codexAppServer: null,
+      codexActiveTurnId: null,
       pendingStop: null,
     };
     const initialConversation = this.createConversationState();

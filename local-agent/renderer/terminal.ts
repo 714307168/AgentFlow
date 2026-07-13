@@ -100,6 +100,7 @@ interface ClaudeAgentApi {
   }>;
   stopProjectRun: (projectId: string) => Promise<{ success: boolean; error?: string }>;
   removeQueuedProjectPrompt: (data: { projectId: string; runId: string }) => Promise<{ success: boolean; error?: string }>;
+  steerQueuedProjectPrompt: (data: { projectId: string; runId: string }) => Promise<{ success: boolean; error?: string }>;
   onProjectId: (callback: (projectId: string | null) => void) => void;
   getLang?: () => Promise<Lang>;
   getI18nMessages?: () => Promise<Record<string, string>>;
@@ -3340,7 +3341,10 @@ function renderQueue(): void {
       "</div>",
       `<div class="queue-text">${escapeHtml(queuePreview(item.prompt))}</div>`,
       "</div>",
-      `<button class="queue-remove" type="button" data-queue-remove="${escapeHtml(item.runId)}">${escapeHtml(inlineText("Remove", "移除"))}</button>`,
+        session?.isRunning && session?.provider === "codex"
+          ? `<button class="queue-remove" type="button" data-queue-steer="${escapeHtml(item.runId)}">${escapeHtml(inlineText("Guide", "引导"))}</button>`
+          : "",
+        `<button class="queue-remove" type="button" data-queue-remove="${escapeHtml(item.runId)}">${escapeHtml(inlineText("Remove", "移除"))}</button>`,
       "</article>",
     ].join(""))
     .join("");
@@ -5066,6 +5070,17 @@ function translateWorkgroupRole(role: WorkgroupMemberState["role"]): string {
   return inlineText("Member", "成员");
 }
 
+async function steerQueuedRun(runId: string): Promise<void> {
+  if (!state.projectId || !api.steerQueuedProjectPrompt) return;
+  const result = await api.steerQueuedProjectPrompt({ projectId: state.projectId, runId });
+  setHintText(
+    result.success
+      ? inlineText("Guidance added to the active Codex turn.", "引导消息已并入当前 Codex turn。")
+      : (result.error ?? inlineText("Failed to add guidance.", "引导失败。")),
+    !result.success,
+  );
+}
+
 function hideMentionSuggestions(): void {
   mentionState.query = "";
   mentionState.rangeStart = -1;
@@ -5702,6 +5717,12 @@ elements.projectList?.addEventListener("dragend", () => {
 
 elements.queueList?.addEventListener("click", (event) => {
   const target = event.target instanceof Element ? event.target : null;
+  const steerButton = target?.closest("[data-queue-steer]") as HTMLElement | null;
+  const steerRunId = steerButton?.dataset.queueSteer;
+  if (steerRunId) {
+    void steerQueuedRun(steerRunId);
+    return;
+  }
   const button = target?.closest("[data-queue-remove]") as HTMLElement | null;
   const runId = button?.dataset.queueRemove;
   if (!runId) {

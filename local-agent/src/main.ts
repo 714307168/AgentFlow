@@ -6803,6 +6803,13 @@ ipcMain.handle("delete-scheduled-task", (_event, taskId: string) => {
   return { success: true };
 });
 
+ipcMain.handle("steer-queued-project-prompt", async (_event, data: { projectId: string; runId: string }) => {
+  const project = getProjectById(data.projectId);
+  if (!project) return { success: false, error: "Project not found" };
+  if (isRemoteProject(data.projectId)) return { success: false, error: "Guidance is available from the desktop that owns this run." };
+  return await runtimeManager.steerQueuedRun(project.id, data.runId);
+});
+
 ipcMain.handle("set-scheduled-task-enabled", (_event, data: {
   taskId: string;
   enabled: boolean;
