@@ -80,6 +80,13 @@ test("settings runtime pane manages model credentials through provider profiles"
   assert.doesNotMatch(settingsHtml, /\.model-provider-name \{[^}]*color: #fff/);
 });
 
+test("settings runtime pane provides recovery guidance for unavailable providers", () => {
+  assert.match(settingsHtml, /src="\.\/settings-runtime-guide\.js"/);
+  assert.match(settingsHtml, /function buildRuntimeStatusGuideMarkup\(provider, label, guide\)/);
+  assert.match(settingsHtml, /data-runtime-guide-action="configure-api"/);
+  assert.match(settingsHtml, /function openProviderApiFallbackSetup\(provider\)/);
+});
+
 test("settings page preserves project drafts during background config loads", () => {
   const loadSettingsBody = settingsHtml.match(/async function loadSettings\(\) \{([\s\S]*?)\n    \}\n\n    document\.getElementById\("cliProvider"\)/)?.[1] || "";
   assert.match(settingsHtml, /function syncAddProjectFormDefaults\(config = latestConfig\)/);
