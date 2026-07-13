@@ -20,7 +20,8 @@ export class CodexAppServer {
   private readonly pending = new Map<number, { resolve: (result: any) => void; reject: (error: Error) => void }>();
 
   constructor(options: CodexAppServerOptions) {
-    this.child = spawn(options.command, ["app-server", "--stdio"], {
+    const command = createAppServerCommand(options.command);
+    this.child = spawn(command.command, command.args, {
       cwd: options.cwd,
       env: { ...process.env, FORCE_COLOR: "0", ...(options.env ?? {}) },
       windowsHide: true,
@@ -118,4 +119,17 @@ export class CodexAppServer {
     for (const pending of this.pending.values()) pending.reject(error);
     this.pending.clear();
   }
+}
+
+function createAppServerCommand(command: string): { command: string; args: string[] } {
+  if (process.platform !== "win32" || !/\.cmd$/iu.test(command)) {
+    return { command, args: ["app-server", "--stdio"] };
+  }
+  const executable = /\s/u.test(command)
+    ? `"${command.replace(/"/gu, '""')}"`
+    : command;
+  return {
+    command: process.env.ComSpec || "cmd.exe",
+    args: ["/d", "/c", `${executable} app-server --stdio`],
+  };
 }
