@@ -56,6 +56,12 @@ import { createProjectSyncBucket } from "./project-sync-bucket";
 import { createProjectSessionSignature } from "./project-session-signature";
 import { createSessionSnapshotRevision } from "./session-snapshot-revision";
 import { CodexAppServer, type CodexAppServerEvent } from "./codex-app-server";
+import {
+  getProjectVisibleCurrentSource,
+  getVisibleProjectActivities,
+  getVisibleProjectMessages,
+  getVisibleProjectQueue,
+} from "./session-visibility-rules";
 
 export interface RuntimeConfig {
   getProjectProvider: (projectId: string) => CliProvider;
@@ -314,10 +320,10 @@ class RuntimeManager extends EventEmitter {
     const state = this.ensureState(projectId);
     this.syncActiveConversationMeta(state);
     const provider = state.active ? state.provider : this.getResolvedProvider(projectId);
-    const visibleCurrentSource = this.getProjectVisibleCurrentSource(state);
-    const visibleQueue = this.getVisibleProjectQueue(state);
-    const visibleMessages = this.getVisibleProjectMessages(state);
-    const visibleActivities = this.getVisibleProjectActivities(state);
+    const visibleCurrentSource = getProjectVisibleCurrentSource(state);
+    const visibleQueue = getVisibleProjectQueue(state);
+    const visibleMessages = getVisibleProjectMessages(state);
+    const visibleActivities = getVisibleProjectActivities(state);
     const snapshotBase: ProjectSessionSnapshot = {
       projectId,
       provider,
@@ -435,8 +441,8 @@ class RuntimeManager extends EventEmitter {
     }
 
     const sourceItems = kind === "messages"
-      ? this.getVisibleProjectMessages(conversation)
-      : (kind === "activities" ? this.getVisibleProjectActivities(conversation) : conversation.cliTrace);
+      ? getVisibleProjectMessages(conversation)
+      : (kind === "activities" ? getVisibleProjectActivities(conversation) : conversation.cliTrace);
     const limit = Number(request.limit) > 0 ? Math.max(1, Number(request.limit)) : DEFAULT_HISTORY_PAGE_SIZE;
     const beforeId = request.beforeId?.trim() || "";
     const anchorIndex = beforeId
@@ -474,7 +480,7 @@ class RuntimeManager extends EventEmitter {
     }
 
     const limit = Number(request.limit) > 0 ? Math.max(1, Number(request.limit)) : 200;
-    return this.getVisibleProjectMessages(conversation)
+    return getVisibleProjectMessages(conversation)
       .filter((message) => {
         const attachmentText = (message.attachments ?? [])
           .map((attachment) => `${attachment.name} ${attachment.path}`)
@@ -499,8 +505,8 @@ class RuntimeManager extends EventEmitter {
     this.syncActiveConversationMeta(state);
     return state.conversations
       .map((conversation) => {
-        const visibleMessages = this.getVisibleProjectMessages(conversation);
-        const visibleActivities = this.getVisibleProjectActivities(conversation);
+        const visibleMessages = getVisibleProjectMessages(conversation);
+        const visibleActivities = getVisibleProjectActivities(conversation);
         return {
           id: conversation.id,
           title: this.getConversationTitle(conversation),
@@ -2197,38 +2203,6 @@ class RuntimeManager extends EventEmitter {
     };
   }
 
-  private isProjectVisibleMessage(message: SessionMessage): boolean {
-    return message.source !== "workgroup";
-  }
-
-  private isProjectVisibleActivity(activity: SessionActivity): boolean {
-    return activity.meta?.source !== "workgroup";
-  }
-
-  private isProjectVisibleQueueEntry(entry: Pick<PendingRun, "source">): boolean {
-    return entry.source !== "workgroup";
-  }
-
-  private getProjectVisibleCurrentSource(state: ProjectState): RunSource | null {
-    return state.currentSource === "workgroup" ? null : state.currentSource;
-  }
-
-  private getVisibleProjectMessages(
-    owner: Pick<ProjectState | ProjectConversationState, "messages">,
-  ): SessionMessage[] {
-    return owner.messages.filter((message) => this.isProjectVisibleMessage(message));
-  }
-
-  private getVisibleProjectActivities(
-    owner: Pick<ProjectState | ProjectConversationState, "activities">,
-  ): SessionActivity[] {
-    return owner.activities.filter((activity) => this.isProjectVisibleActivity(activity));
-  }
-
-  private getVisibleProjectQueue(state: Pick<ProjectState, "queue">): PendingRun[] {
-    return state.queue.filter((entry) => this.isProjectVisibleQueueEntry(entry));
-  }
-
   private updateMessage(
     state: ProjectState,
     messageId: string,
@@ -2509,7 +2483,7 @@ class RuntimeManager extends EventEmitter {
     previousModel: string | null,
     nextModel: string | null,
   ): string | null {
-    const messages = this.getVisibleProjectMessages(state)
+    const messages = getVisibleProjectMessages(state)
       .filter((message) => {
         const content = message.content.trim();
         return (
@@ -2953,14 +2927,14 @@ class RuntimeManager extends EventEmitter {
     if (!conversation) {
       return;
     }
-    const visibleMessages = this.getVisibleProjectMessages(state);
-    const visibleActivities = this.getVisibleProjectActivities(state);
+    const visibleMessages = getVisibleProjectMessages(state);
+    const visibleActivities = getVisibleProjectActivities(state);
     this.storeCurrentModelSessionRefs(state, conversation);
     conversation.claudeSessionId = state.claudeSessionId;
     conversation.codexThreadId = state.codexThreadId;
     conversation.updatedAt = Math.max(
       conversation.updatedAt,
-      this.getProjectVisibleCurrentSource(state) ? (state.currentStartedAt ?? 0) : 0,
+      getProjectVisibleCurrentSource(state) ? (state.currentStartedAt ?? 0) : 0,
       visibleMessages[visibleMessages.length - 1]?.updatedAt ?? 0,
       visibleActivities[visibleActivities.length - 1]?.updatedAt ?? 0,
       state.cliTrace[state.cliTrace.length - 1]?.createdAt ?? 0,
@@ -2973,7 +2947,7 @@ class RuntimeManager extends EventEmitter {
       return explicitTitle;
     }
 
-    const firstUserMessage = this.getVisibleProjectMessages(conversation)
+    const firstUserMessage = getVisibleProjectMessages(conversation)
       .find((entry) => entry.role === "user" && entry.content.trim());
     if (firstUserMessage) {
       return this.previewConversationTitle(firstUserMessage.content);
