@@ -98,3 +98,10 @@ test("main process warms full and public config snapshots during startup", () =>
   assert.match(mainSource, /app\.whenReady\(\)\.then\(async \(\) => \{[\s\S]*warmAgentConfigCache\(\);[\s\S]*await refreshAgentToken/);
   assert.match(mainSource, /ipcMain\.handle\("save-config"[\s\S]*const previousConfig = loadConfig\(\);[\s\S]*invalidateConfigCaches\(\);[\s\S]*warmAgentConfigCache\(\);/);
 });
+
+test("settings renders cached configuration before slower runtime requests complete", () => {
+  const loadSettingsBody = settingsHtml.match(/async function loadSettings\(\) \{([\s\S]*?)\r?\n    \}\r?\n\r?\n    document\.getElementById\("cliProvider"\)/)?.[1] || "";
+  assert.match(loadSettingsBody, /const deferredSettings = Promise\.all\(\[/);
+  assert.match(loadSettingsBody, /const config = await api\.getConfig\(\);/);
+  assert.match(loadSettingsBody, /syncAddProjectFormDefaults\(config\);[\s\S]*const \[e2e, lang, i18nMessages, appSettings, updateState, runtimeStatus\] = await deferredSettings;/);
+});

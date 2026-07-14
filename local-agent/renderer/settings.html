@@ -7899,8 +7899,7 @@
     }
 
     async function loadSettings() {
-      const [config, e2e, lang, i18nMessages, appSettings, updateState, runtimeStatus] = await Promise.all([
-        api.getConfig(),
+      const deferredSettings = Promise.all([
         api.getE2EStatus(),
         api.getLang(),
         api.getI18nMessages(),
@@ -7909,9 +7908,8 @@
         api.getCliProviderRuntimeStatus(),
         loadLocalCommands(),
       ]);
+      const config = await api.getConfig();
       latestConfig = config || null;
-      latestAppSettings = appSettings || null;
-      latestCliProviderRuntimeStatus = runtimeStatus || null;
       document.getElementById("serverUrl").value = config.serverUrl || "";
       document.getElementById("username").value = config.username || "";
       document.getElementById("agentId").value = config.agentId || "";
@@ -7920,6 +7918,9 @@
       renderModelProviderProfiles();
       document.getElementById("cliProvider").value = config.cliProvider || "claude";
       syncAddProjectFormDefaults(config);
+      const [e2e, lang, i18nMessages, appSettings, updateState, runtimeStatus] = await deferredSettings;
+      latestAppSettings = appSettings || null;
+      latestCliProviderRuntimeStatus = runtimeStatus || null;
       document.getElementById("e2eToggle").checked = e2e.enabled;
       document.getElementById("pubkey").textContent = e2e.publicKey || "—";
       document.getElementById("autoStartToggle").checked = appSettings.autoStart || false;
