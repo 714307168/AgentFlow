@@ -89,9 +89,12 @@ test("settings page preserves project drafts during background config loads", ()
   assert.doesNotMatch(loadSettingsBody, /document\.getElementById\("projectPrompt"\)\.value = "";/);
 });
 
-test("main process caches public settings config snapshots", () => {
+test("main process warms full and public config snapshots during startup", () => {
+  assert.match(mainSource, /let agentConfigCache: AgentConfig \| null = null;/);
   assert.match(mainSource, /let publicConfigCache: PublicAgentConfig \| null = null;/);
+  assert.match(mainSource, /function warmAgentConfigCache\(\): AgentConfig \{\s*agentConfigCache = readConfigFromStore\(\);/);
+  assert.match(mainSource, /function loadConfig\(\): AgentConfig \{\s*return agentConfigCache \?\? warmAgentConfigCache\(\);\s*\}/);
   assert.match(mainSource, /function getPublicConfig\(\): PublicAgentConfig \{\s*return publicConfigCache \?\? warmPublicConfigCache\(\);\s*\}/);
-  assert.match(mainSource, /app\.whenReady\(\)\.then\(async \(\) => \{[\s\S]*warmPublicConfigCache\(\);[\s\S]*const config = loadConfig\(\);/);
-  assert.match(mainSource, /ipcMain\.handle\("save-config"[\s\S]*invalidatePublicConfigCache\(\);[\s\S]*warmPublicConfigCache\(\);/);
+  assert.match(mainSource, /app\.whenReady\(\)\.then\(async \(\) => \{[\s\S]*warmAgentConfigCache\(\);[\s\S]*await refreshAgentToken/);
+  assert.match(mainSource, /ipcMain\.handle\("save-config"[\s\S]*const previousConfig = loadConfig\(\);[\s\S]*invalidateConfigCaches\(\);[\s\S]*warmAgentConfigCache\(\);/);
 });

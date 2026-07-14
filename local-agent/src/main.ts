@@ -389,14 +389,23 @@ const configStore = new Store<AgentConfig>({
   },
 });
 
+let agentConfigCache: AgentConfig | null = null;
 let publicConfigCache: PublicAgentConfig | null = null;
 
-function invalidatePublicConfigCache(): void {
+function invalidateConfigCaches(): void {
+  agentConfigCache = null;
   publicConfigCache = null;
 }
 
+function warmAgentConfigCache(): AgentConfig {
+  agentConfigCache = readConfigFromStore();
+  publicConfigCache = buildPublicConfigSnapshot(agentConfigCache);
+  return agentConfigCache;
+}
+
 function warmPublicConfigCache(): PublicAgentConfig {
-  publicConfigCache = buildPublicConfigSnapshot();
+  const config = agentConfigCache ?? warmAgentConfigCache();
+  publicConfigCache = buildPublicConfigSnapshot(config);
   return publicConfigCache;
 }
 
@@ -411,7 +420,7 @@ function getOrCreateAgentId(): string {
   }
   const generatedAgentId = `desktop-${uuidv4()}`;
   configStore.set("agentId", generatedAgentId);
-  invalidatePublicConfigCache();
+  invalidateConfigCaches();
   return generatedAgentId;
 }
 
@@ -3970,7 +3979,7 @@ function encodeModelProviderProfilesForStore(
   return encodeSecretForStore(JSON.stringify(nextProfiles));
 }
 
-function loadConfig(): AgentConfig {
+function readConfigFromStore(): AgentConfig {
   const legacyToken = configStore.get("token") as string;
   const encryptedToken = (configStore.get("encryptedToken") as string) || "";
   const resolvedToken =
@@ -4031,6 +4040,10 @@ function loadConfig(): AgentConfig {
   };
 }
 
+function loadConfig(): AgentConfig {
+  return agentConfigCache ?? warmAgentConfigCache();
+}
+
 function revealPrimaryWindow(): void {
   if (workspaceWindow && !workspaceWindow.isDestroyed()) {
     revealWindow(workspaceWindow);
@@ -4043,8 +4056,7 @@ function revealPrimaryWindow(): void {
   showWorkspaceWindow();
 }
 
-function buildPublicConfigSnapshot(): PublicAgentConfig {
-  const config = loadConfig();
+function buildPublicConfigSnapshot(config: AgentConfig): PublicAgentConfig {
   const encryptedPassword = (configStore.get("encryptedPassword") as string) || "";
   const encryptedOpenaiApiKey = (configStore.get("encryptedOpenaiApiKey") as string) || "";
   const encryptedAnthropicApiKey = (configStore.get("encryptedAnthropicApiKey") as string) || "";
@@ -4101,7 +4113,7 @@ function saveAuthState(data: {
   configStore.set("encryptedToken", encodeSecretForStore(data.token));
   configStore.set("token", "");
   configStore.set("tokenExpiresAt", data.expiresAt);
-  invalidatePublicConfigCache();
+  invalidateConfigCaches();
 }
 
 function saveControllerAuthState(data: {
@@ -4113,7 +4125,7 @@ function saveControllerAuthState(data: {
   configStore.set("encryptedControllerToken", encodeSecretForStore(data.token));
   configStore.set("controllerToken", "");
   configStore.set("controllerTokenExpiresAt", data.expiresAt);
-  invalidatePublicConfigCache();
+  invalidateConfigCaches();
 }
 
 function updateRelayClientAuthFromConfig(): void {
@@ -5848,7 +5860,8 @@ ipcMain.handle("create-temporary-access-link", async (_event, data: TemporaryAcc
 });
 
 ipcMain.handle("save-config", (_event, config: Partial<AgentConfig>) => {
-  invalidatePublicConfigCache();
+  const previousConfig = loadConfig();
+  invalidateConfigCaches();
   clearRelayDeviceListCache();
   clearRelayTransferListCache();
   clearAccessGrantCache();
@@ -5869,7 +5882,6 @@ ipcMain.handle("save-config", (_event, config: Partial<AgentConfig>) => {
     }
   }
   if (config.modelProviderProfiles !== undefined) {
-    const previousConfig = loadConfig();
     const encryptedProfiles = encodeModelProviderProfilesForStore(
       config.modelProviderProfiles,
       previousConfig.modelProviderProfiles ?? [],
@@ -5892,7 +5904,6 @@ ipcMain.handle("save-config", (_event, config: Partial<AgentConfig>) => {
     configStore.set("anthropicBaseUrl", anthropicProfile?.baseUrl ?? "");
     configStore.set("anthropicDefaultModel", anthropicProfile?.defaultModel ?? "");
   } else if (config.activeModelProviderProfileByProtocol !== undefined) {
-    const previousConfig = loadConfig();
     configStore.set("activeModelProviderProfileByProtocol", normalizeActiveModelProviderProfileMap(
       config.activeModelProviderProfileByProtocol,
       previousConfig.modelProviderProfiles ?? [],
@@ -5921,7 +5932,7 @@ ipcMain.handle("save-config", (_event, config: Partial<AgentConfig>) => {
     }
   }
   if (config.cliProvider !== undefined) configStore.set("cliProvider", config.cliProvider);
-  warmPublicConfigCache();
+  warmAgentConfigCache();
   return true;
 });
 
@@ -7343,12 +7354,12 @@ app.whenReady().then(async () => {
       osRelease: os.release(),
     });
   }
+  warmAgentConfigCache();
   syncLoginItemSettings();
   tray = createTray();
   await refreshAgentToken(false);
   await refreshControllerToken(false);
-  warmPublicConfigCache();
-  const config = loadConfig();
+  const config = warmAgentConfigCache();
   initRelay(config);
   ensureRemoteRelayReady(config);
   scheduleTokenRefresh();
