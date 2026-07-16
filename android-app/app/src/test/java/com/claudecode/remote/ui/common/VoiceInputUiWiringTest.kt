@@ -21,6 +21,7 @@ class VoiceInputUiWiringTest {
         assertTrue(workgroupChat.contains("onVoiceInput"))
         assertTrue(support.contains("ActivityResultContracts.StartActivityForResult"))
         assertTrue(support.contains("ActivityResultContracts.RequestPermission"))
-        assertTrue(support.contains("SpeechRecognizer.isRecognitionAvailable"))
+        assertTrue(support.contains("OfflineVoiceRecognizer"))
+        assertTrue(root.resolve("ui/common/OfflineVoiceModelStore.kt").exists())
     }
 }

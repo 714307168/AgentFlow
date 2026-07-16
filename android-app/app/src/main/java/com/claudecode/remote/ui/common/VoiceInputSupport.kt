@@ -6,10 +6,7 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.os.Bundle
 import android.speech.RecognizerIntent
-import android.speech.RecognitionListener
-import android.speech.SpeechRecognizer
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
@@ -70,7 +67,7 @@ fun rememberVoiceInputLauncher(
     val onTranscribeState = rememberUpdatedState(onTranscribe)
     val onSendState = rememberUpdatedState(onSend)
     val onUnavailableState = rememberUpdatedState(onUnavailable)
-    var pendingEmbeddedPrompt by remember { mutableStateOf<String?>(null) }
+    var pendingOfflinePrompt by remember { mutableStateOf<String?>(null) }
 
     fun handleSpokenText(spokenText: String) {
         val normalized = spokenText.trim()
@@ -84,9 +81,12 @@ fun rememberVoiceInputLauncher(
         }
     }
 
-    val embeddedRecognizer = remember(context) {
-        EmbeddedSpeechRecognizer(
+    val offlineRecognizer = remember(context) {
+        OfflineVoiceRecognizer(
             context = context.applicationContext,
+            onPreparing = {
+                onUnavailableState.value(context.getString(R.string.voice_input_offline_preparing))
+            },
             onResult = ::handleSpokenText,
             onNoMatch = {
                 onUnavailableState.value(context.getString(R.string.voice_input_no_match))
@@ -97,33 +97,29 @@ fun rememberVoiceInputLauncher(
         )
     }
 
-    DisposableEffect(embeddedRecognizer) {
-        onDispose { embeddedRecognizer.destroy() }
+    DisposableEffect(offlineRecognizer) {
+        onDispose { offlineRecognizer.destroy() }
     }
 
-    fun launchEmbeddedRecognizer(prompt: String) {
-        if (!SpeechRecognizer.isRecognitionAvailable(context)) {
-            onUnavailableState.value(context.getString(R.string.voice_input_unavailable))
-            return
-        }
+    fun launchOfflineRecognizer(prompt: String) {
         val hasPermission = ContextCompat.checkSelfPermission(
             context,
             Manifest.permission.RECORD_AUDIO
         ) == PackageManager.PERMISSION_GRANTED
         if (!hasPermission) {
-            pendingEmbeddedPrompt = prompt
+            pendingOfflinePrompt = prompt
             return
         }
-        embeddedRecognizer.start(prompt)
+        offlineRecognizer.start()
     }
 
     val recordAudioPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
-        val prompt = pendingEmbeddedPrompt
-        pendingEmbeddedPrompt = null
+        val prompt = pendingOfflinePrompt
+        pendingOfflinePrompt = null
         if (granted && prompt != null) {
-            embeddedRecognizer.start(prompt)
+            offlineRecognizer.start()
         } else if (!granted) {
             onUnavailableState.value(context.getString(R.string.voice_input_permission_required))
         }
@@ -137,21 +133,21 @@ fun rememberVoiceInputLauncher(
         }
     }
 
-    return remember(context, systemVoiceLauncher, recordAudioPermissionLauncher) {
+    return remember(context, offlineRecognizer, systemVoiceLauncher, recordAudioPermissionLauncher) {
         { prompt ->
             val intent = buildVoiceInputIntent(prompt)
             if (isVoiceRecognitionActivityAvailable(context, intent)) {
                 try {
                     systemVoiceLauncher.launch(intent)
                 } catch (_: ActivityNotFoundException) {
-                    launchEmbeddedRecognizer(prompt)
+                    launchOfflineRecognizer(prompt)
                 }
             } else {
-                launchEmbeddedRecognizer(prompt)
+                launchOfflineRecognizer(prompt)
             }
 
             if (
-                pendingEmbeddedPrompt != null &&
+                pendingOfflinePrompt != null &&
                 ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) !=
                     PackageManager.PERMISSION_GRANTED
             ) {
@@ -163,58 +159,3 @@ fun rememberVoiceInputLauncher(
 
 private fun isVoiceRecognitionActivityAvailable(context: Context, intent: Intent): Boolean =
     intent.resolveActivity(context.packageManager) != null
-
-private class EmbeddedSpeechRecognizer(
-    private val context: Context,
-    private val onResult: (String) -> Unit,
-    private val onNoMatch: () -> Unit,
-    private val onError: () -> Unit
-) {
-    private var recognizer: SpeechRecognizer? = null
-
-    fun start(prompt: String) {
-        destroy()
-        recognizer = SpeechRecognizer.createSpeechRecognizer(context).apply {
-            setRecognitionListener(
-                object : RecognitionListener {
-                    override fun onReadyForSpeech(params: Bundle?) = Unit
-                    override fun onBeginningOfSpeech() = Unit
-                    override fun onRmsChanged(rmsdB: Float) = Unit
-                    override fun onBufferReceived(buffer: ByteArray?) = Unit
-                    override fun onEndOfSpeech() = Unit
-                    override fun onPartialResults(partialResults: Bundle?) = Unit
-                    override fun onEvent(eventType: Int, params: Bundle?) = Unit
-
-                    override fun onError(error: Int) {
-                        if (error == SpeechRecognizer.ERROR_NO_MATCH ||
-                            error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT
-                        ) {
-                            onNoMatch()
-                        } else {
-                            onError()
-                        }
-                    }
-
-                    override fun onResults(results: Bundle?) {
-                        val spokenText = results
-                            ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                            ?.firstOrNull()
-                            ?.trim()
-                            .orEmpty()
-                        if (spokenText.isBlank()) {
-                            onNoMatch()
-                        } else {
-                            onResult(spokenText)
-                        }
-                    }
-                }
-            )
-            startListening(buildVoiceInputIntent(prompt))
-        }
-    }
-
-    fun destroy() {
-        recognizer?.destroy()
-        recognizer = null
-    }
-}

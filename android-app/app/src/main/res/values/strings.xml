@@ -8,7 +8,8 @@
     <string name="voice_input_send_prompt">Speak the message to send directly</string>
     <string name="voice_mode_transcribe">Text</string>
     <string name="voice_mode_send">Send</string>
-    <string name="voice_input_unavailable">No speech recognizer is available. Install or enable a system voice input service and try again.</string>
+    <string name="voice_input_unavailable">Voice recognition is unavailable. Check your connection and try again.</string>
+    <string name="voice_input_offline_preparing">Preparing offline Chinese voice recognition for first use. This may take a moment.</string>
     <string name="voice_input_permission_required">Microphone permission is required for voice input.</string>
     <string name="voice_input_no_match">I could not hear that clearly. Please try again.</string>
     <string name="voice_input_failed">Voice recognition failed. Please try again later.</string>

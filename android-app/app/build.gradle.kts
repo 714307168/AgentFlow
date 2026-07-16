@@ -22,8 +22,13 @@ android {
         applicationId = "com.claudecode.remote"
         minSdk = 26
         targetSdk = 34
-        versionCode = 138
-        versionName = "1.2.54"
+        versionCode = 139
+        versionName = "1.2.55"
+        ndk {
+            // Vosk ships legacy MIPS and desktop emulator binaries. Keep the
+            // production APK focused on Android phone architectures.
+            abiFilters += listOf("armeabi-v7a", "arm64-v8a")
+        }
     }
     buildFeatures {
         compose = true
@@ -78,6 +83,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
     implementation("androidx.datastore:datastore-preferences:1.0.0")
+    implementation("com.alphacephei:vosk-android:0.3.47")
     testImplementation("junit:junit:4.13.2")
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
 
