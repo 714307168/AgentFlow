@@ -23,5 +23,6 @@ class VoiceInputUiWiringTest {
         assertTrue(support.contains("ActivityResultContracts.RequestPermission"))
         assertTrue(support.contains("OfflineVoiceRecognizer"))
         assertTrue(root.resolve("ui/common/OfflineVoiceModelStore.kt").exists())
+        assertTrue(root.resolve("ui/common/OfflineVoiceModelStore.kt").readText().contains("rhasspy/vosk-models"))
     }
 }

@@ -6,12 +6,15 @@ import okhttp3.Request
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 import java.util.zip.ZipInputStream
 
 private const val OFFLINE_VOICE_MODEL_NAME = "vosk-model-small-cn-0.22"
 private const val OFFLINE_VOICE_MODEL_URL =
-    "https://alphacephei.com/vosk/models/vosk-model-small-cn-0.22.zip"
+    "https://huggingface.co/rhasspy/vosk-models/resolve/main/zh/vosk-model-small-cn-0.22.zip"
+private const val OFFLINE_VOICE_MODEL_SHA256 =
+    "3af8b0e7e0f835ae9d414ce5df580237a3cfb08d586c9fbbb0f7ff29ad5b14ba"
 private const val MAX_MODEL_ARCHIVE_BYTES = 80L * 1024 * 1024
 private const val MAX_MODEL_UNPACKED_BYTES = 160L * 1024 * 1024
 
@@ -64,6 +67,7 @@ internal class OfflineVoiceModelStore(
             body.byteStream().use { input ->
                 FileOutputStream(destination).use { output ->
                     val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                    val digest = MessageDigest.getInstance("SHA-256")
                     var totalBytes = 0L
                     while (true) {
                         val read = input.read(buffer)
@@ -73,6 +77,10 @@ internal class OfflineVoiceModelStore(
                             throw IOException("Offline voice model download is larger than expected.")
                         }
                         output.write(buffer, 0, read)
+                        digest.update(buffer, 0, read)
+                    }
+                    if (digest.digest().toHexString() != OFFLINE_VOICE_MODEL_SHA256) {
+                        throw IOException("Offline voice model download failed its integrity check.")
                     }
                 }
             }
@@ -149,3 +157,5 @@ private fun File.mkdirsOrThrow() {
         throw IOException("Unable to create offline voice model storage.")
     }
 }
+
+private fun ByteArray.toHexString(): String = joinToString("") { byte -> "%02x".format(byte) }
