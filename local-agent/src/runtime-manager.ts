@@ -378,11 +378,12 @@ class RuntimeManager extends EventEmitter {
     const queued = state.queue[queuedIndex];
     if ((queued.attachments?.length ?? 0) > 0) return { success: false, error: "Guidance messages cannot include attachments." };
     try {
-      await state.codexAppServer.steer({
+      const steeredTurnId = await state.codexAppServer.steer({
         threadId: state.codexThreadId,
         expectedTurnId: state.codexActiveTurnId,
         prompt: queued.prompt,
       });
+      state.codexActiveTurnId = steeredTurnId;
       state.queue.splice(queuedIndex, 1);
       this.addMessage(state, {
         id: queued.runId,
@@ -1128,6 +1129,9 @@ class RuntimeManager extends EventEmitter {
     }
     if (event.method === "turn/completed") {
       const turn = params.turn as Record<string, any> | undefined;
+      if (turn?.id && turn.id !== state.codexActiveTurnId) {
+        return;
+      }
       if (turn?.status === "failed") {
         rejectTurn?.(new Error(String(turn.error?.message ?? "Codex turn failed.")));
       } else {

@@ -111,6 +111,7 @@ test("RuntimeManager merges a queued message into the active Codex turn as guida
   state.codexAppServer = {
     async steer(request) {
       requests.push(request);
+      return "turn-2";
     },
   };
 
@@ -128,8 +129,40 @@ test("RuntimeManager merges a queued message into the active Codex turn as guida
     expectedTurnId: "turn-1",
     prompt: "Prefer the smaller change.",
   }]);
+  assert.equal(state.codexActiveTurnId, "turn-2");
   assert.equal(runtimeManager.getSnapshot("project-steer").queue.length, 0);
   assert.match(runtimeManager.getSnapshot("project-steer").messages.at(-1).content, /Prefer the smaller change/);
+
+  runtimeManager.dispose();
+});
+
+test("RuntimeManager keeps the steered Codex turn running when the replaced turn completes", () => {
+  const runtimeManager = createRuntimeManager();
+  const state = runtimeManager.ensureState("project-steer-completion");
+  state.codexActiveTurnId = "turn-2";
+  const completions = [];
+  const resolveTurn = () => completions.push("resolved");
+  const rejectTurn = (error) => completions.push(error.message);
+
+  runtimeManager.handleCodexAppServerEvent(
+    state,
+    { runId: "run-1", source: "desktop" },
+    { activityIdsByKey: new Map() },
+    { method: "turn/completed", params: { turn: { id: "turn-1", status: "interrupted" } } },
+    resolveTurn,
+    rejectTurn,
+  );
+  assert.deepEqual(completions, []);
+
+  runtimeManager.handleCodexAppServerEvent(
+    state,
+    { runId: "run-1", source: "desktop" },
+    { activityIdsByKey: new Map() },
+    { method: "turn/completed", params: { turn: { id: "turn-2", status: "completed" } } },
+    resolveTurn,
+    rejectTurn,
+  );
+  assert.deepEqual(completions, ["resolved"]);
 
   runtimeManager.dispose();
 });

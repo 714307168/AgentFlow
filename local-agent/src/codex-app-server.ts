@@ -79,12 +79,15 @@ export class CodexAppServer {
     return turnId;
   }
 
-  async steer(options: { threadId: string; expectedTurnId: string; prompt: string }): Promise<void> {
-    await this.request("turn/steer", {
+  async steer(options: { threadId: string; expectedTurnId: string; prompt: string }): Promise<string> {
+    const result = await this.request("turn/steer", {
       threadId: options.threadId,
       expectedTurnId: options.expectedTurnId,
       input: [{ type: "text", text: options.prompt }],
     });
+    const turnId = String(result?.turnId ?? result?.turn?.id ?? "");
+    if (!turnId) throw new Error("Codex app server did not return a steer turn id.");
+    return turnId;
   }
 
   stop(): void {
