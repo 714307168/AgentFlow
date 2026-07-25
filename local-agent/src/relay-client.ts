@@ -133,6 +133,7 @@ class RelayClient extends EventEmitter {
   private e2eEnabled: boolean;
   private readonly resolveTargetAgentId?: (env: Envelope) => string | null;
   private readonly pendingRoomKeyOffers: Set<string> = new Set();
+  private readonly pendingRoomKeyOfferTargets = new Map<string, string>();
   private readonly pendingEncryptedEnvelopes: Map<string, Envelope[]> = new Map();
   private readonly pendingOutgoingEnvelopes: QueuedOutgoingEnvelope[] = [];
   private connectionGeneration = 0;
@@ -438,6 +439,9 @@ class RelayClient extends EventEmitter {
         this.emit("connected");
         this.emit("authenticated", env);
       }
+      if (env.event === Events.ERROR) {
+        this.releaseRejectedRoomKeyOffer(env);
+      }
       // Handle E2E key exchange
       if (env.event === Events.E2E_OFFER) {
         const payload = env.payload as { public_key?: string; device_id?: string; agent_id?: string } | undefined;
@@ -494,7 +498,7 @@ class RelayClient extends EventEmitter {
             const roomKey = roomPayload.room_key?.trim();
             if (roomAgentId && roomKey) {
               this.e2e.setRoomKey(roomAgentId, roomKey);
-              this.pendingRoomKeyOffers.delete(roomAgentId);
+              this.clearPendingRoomKeyOffer(roomAgentId);
               this.flushPendingEncryptedEnvelopes(roomAgentId);
             }
           }
@@ -888,8 +892,10 @@ class RelayClient extends EventEmitter {
     }
 
     this.pendingRoomKeyOffers.add(normalizedAgentId);
+    const offerId = uuidv4();
+    this.pendingRoomKeyOfferTargets.set(offerId, normalizedAgentId);
     this.send({
-      id: uuidv4(),
+      id: offerId,
       event: Events.E2E_OFFER,
       ts: Date.now(),
       payload: {
@@ -898,6 +904,29 @@ class RelayClient extends EventEmitter {
         device_id: this.deviceId,
       },
     });
+  }
+
+  private releaseRejectedRoomKeyOffer(env: Envelope): void {
+    const payload = env.payload as { ref_id?: unknown } | undefined;
+    const offerId = typeof payload?.ref_id === "string" ? payload.ref_id.trim() : "";
+    if (!offerId) {
+      return;
+    }
+    const agentId = this.pendingRoomKeyOfferTargets.get(offerId);
+    if (!agentId) {
+      return;
+    }
+    this.pendingRoomKeyOfferTargets.delete(offerId);
+    this.pendingRoomKeyOffers.delete(agentId);
+  }
+
+  private clearPendingRoomKeyOffer(agentId: string): void {
+    this.pendingRoomKeyOffers.delete(agentId);
+    for (const [offerId, targetAgentId] of this.pendingRoomKeyOfferTargets.entries()) {
+      if (targetAgentId === agentId) {
+        this.pendingRoomKeyOfferTargets.delete(offerId);
+      }
+    }
   }
 
   private queuePendingEncryptedEnvelope(agentId: string, env: Envelope): void {

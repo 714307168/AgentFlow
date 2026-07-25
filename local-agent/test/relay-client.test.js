@@ -205,6 +205,87 @@ test("RelayClient clears stale auth errors after successful re-authentication", 
   await new Promise((resolve) => wss.close(resolve));
 });
 
+test("RelayClient retries a room-key offer after its offline agent comes online", async () => {
+  const wss = new WebSocketServer({ port: 0 });
+  await waitForListening(wss);
+  const address = wss.address();
+  if (!address || typeof address === "string") {
+    throw new Error("failed to resolve test websocket address");
+  }
+
+  const offers = [];
+  let socket = null;
+  const secondOffer = new Promise((resolve) => {
+    wss.on("connection", (nextSocket) => {
+      socket = nextSocket;
+      nextSocket.on("message", (raw) => {
+        const env = JSON.parse(raw.toString());
+        if (env.event === Events.AUTH_LOGIN) {
+          nextSocket.send(JSON.stringify({
+            id: "auth-ok",
+            event: Events.AUTH_OK,
+            ts: Date.now(),
+            payload: {},
+          }));
+          return;
+        }
+        if (env.event !== Events.E2E_OFFER) {
+          return;
+        }
+        offers.push(env);
+        if (offers.length === 1) {
+          nextSocket.send(JSON.stringify({
+            id: "offer-rejected",
+            event: Events.ERROR,
+            ts: Date.now(),
+            payload: { code: "agent_offline", ref_id: env.id },
+          }));
+          return;
+        }
+        resolve(env);
+      });
+    });
+  });
+
+  const client = new RelayClient(
+    "ws://127.0.0.1:" + address.port,
+    "controller-agent",
+    "token-test",
+    true,
+    {
+      clientType: "device",
+      deviceId: "controller-device",
+      resolveTargetAgentId: () => "owner-agent",
+    },
+  );
+  const authenticated = once(client, "authenticated");
+  client.connect();
+  await authenticated;
+
+  client.send({
+    id: "sync-request",
+    event: Events.SESSION_SYNC_REQUEST,
+    project_id: "owner-project",
+    ts: Date.now(),
+    payload: { limit: 30 },
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  socket.send(JSON.stringify({
+    id: "project-listed-online",
+    event: Events.PROJECT_LISTED,
+    ts: Date.now(),
+    payload: { agent_id: "owner-agent", projects: [] },
+  }));
+
+  const retryOffer = await secondOffer;
+  assert.equal(offers.length, 2);
+  assert.equal(retryOffer.payload.agent_id, "owner-agent");
+
+  client.disconnect();
+  await new Promise((resolve) => wss.close(resolve));
+});
+
 test("RelayClient records close metadata and recent connection events", async () => {
   const wss = new WebSocketServer({ port: 0 });
   await waitForListening(wss);
