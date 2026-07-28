@@ -330,6 +330,7 @@ interface WorkgroupTaskView extends WorkgroupTask {
   assigneeProjectBindingLabel: string | null;
   dispatchReady: boolean;
   dispatchBlockedReason: string | null;
+  dependencyTasks: Array<{ id: string; title: string; status: WorkgroupTaskStatus }>;
 }
 
 interface WorkgroupView extends Workgroup {
@@ -3246,12 +3247,19 @@ function serializeWorkgroupMember(member: WorkgroupMember): WorkgroupMemberView 
 function getWorkgroupDispatchBlockedReason(
   task: WorkgroupTask,
   assignee: WorkgroupMemberView | null,
+  tasksById: Map<string, WorkgroupTask>,
 ): string | null {
   if (!task.assigneeMemberId || !assignee) {
     return "Task has no assignee.";
   }
   if (task.status === "assigned" || task.status === "running") {
     return "Task is already dispatched. Reset or finish it before dispatching again.";
+  }
+  const incompleteDependencies = task.dependsOnIds
+    .map((dependencyId) => tasksById.get(dependencyId))
+    .filter((dependency): dependency is WorkgroupTask => !dependency || dependency.status !== "done");
+  if (incompleteDependencies.length > 0) {
+    return `Waiting for dependencies: ${incompleteDependencies.map((dependency) => dependency?.title || "deleted task").join(", ")}.`;
   }
   if (!assignee.projectId || !assignee.projectExists) {
     return "Assignee is not bound to an available project.";
@@ -3262,9 +3270,25 @@ function getWorkgroupDispatchBlockedReason(
   return null;
 }
 
-function serializeWorkgroupTask(task: WorkgroupTask, membersById: Map<string, WorkgroupMemberView>): WorkgroupTaskView {
+function taskDependsOn(taskId: string, targetId: string, tasksById: Map<string, WorkgroupTask>, visited = new Set<string>()): boolean {
+  if (taskId === targetId) {
+    return true;
+  }
+  if (visited.has(taskId)) {
+    return false;
+  }
+  visited.add(taskId);
+  const task = tasksById.get(taskId);
+  return Boolean(task?.dependsOnIds.some((dependencyId) => taskDependsOn(dependencyId, targetId, tasksById, visited)));
+}
+
+function serializeWorkgroupTask(
+  task: WorkgroupTask,
+  membersById: Map<string, WorkgroupMemberView>,
+  tasksById: Map<string, WorkgroupTask>,
+): WorkgroupTaskView {
   const assignee = task.assigneeMemberId ? membersById.get(task.assigneeMemberId) ?? null : null;
-  const dispatchBlockedReason = getWorkgroupDispatchBlockedReason(task, assignee);
+  const dispatchBlockedReason = getWorkgroupDispatchBlockedReason(task, assignee, tasksById);
   return {
     ...task,
     assigneeMemberName: assignee?.name ?? null,
@@ -3275,6 +3299,14 @@ function serializeWorkgroupTask(task: WorkgroupTask, membersById: Map<string, Wo
     assigneeProjectBindingLabel: assignee?.projectBindingLabel ?? null,
     dispatchReady: !dispatchBlockedReason,
     dispatchBlockedReason,
+    dependencyTasks: task.dependsOnIds.map((dependencyId) => {
+      const dependency = tasksById.get(dependencyId);
+      return {
+        id: dependencyId,
+        title: dependency?.title || "Deleted task",
+        status: dependency?.status || "blocked",
+      };
+    }),
   };
 }
 
@@ -3289,9 +3321,10 @@ function loadSerializedWorkgroups(): WorkgroupView[] {
         .map(serializeWorkgroupMember)
         .sort((left, right) => left.name.localeCompare(right.name, "zh-CN"));
       const membersById = new Map(members.map((member) => [member.id, member]));
-      const tasks = workgroupStore
-        .listTasks(workgroup.id)
-        .map((task) => serializeWorkgroupTask(task, membersById))
+      const tasks = workgroupStore.listTasks(workgroup.id);
+      const tasksById = new Map(tasks.map((task) => [task.id, task]));
+      const serializedTasks = tasks
+        .map((task) => serializeWorkgroupTask(task, membersById, tasksById))
         .sort((left, right) => {
           const leftRank = left.nextRunAt ?? Number.MAX_SAFE_INTEGER;
           const rightRank = right.nextRunAt ?? Number.MAX_SAFE_INTEGER;
@@ -3303,7 +3336,7 @@ function loadSerializedWorkgroups(): WorkgroupView[] {
       return {
         ...workgroup,
         members,
-        tasks,
+        tasks: serializedTasks,
         selectedProjectIds: members
           .filter((member) => member.kind !== "pm" && member.projectId)
           .map((member) => member.projectId as string),
@@ -5368,6 +5401,7 @@ function handleSaveWorkgroupTaskRequest(data: {
   title: string;
   description?: string | null;
   acceptanceCriteria?: string | null;
+  dependsOnIds?: string[];
   assigneeMemberId?: string | null;
   priority?: "low" | "normal" | "high";
   status?: WorkgroupTaskStatus;
@@ -5401,6 +5435,21 @@ function handleSaveWorkgroupTaskRequest(data: {
   const existing = typeof data?.id === "string" && data.id.trim()
     ? workgroupStore.getTaskById(data.id.trim())
     : null;
+  const dependsOnIds = [...new Set((Array.isArray(data?.dependsOnIds) ? data.dependsOnIds : [])
+    .filter((dependencyId): dependencyId is string => typeof dependencyId === "string")
+    .map((dependencyId) => dependencyId.trim())
+    .filter(Boolean))];
+  const tasksById = new Map(workgroupStore.listTasks(workgroup.id).map((task) => [task.id, task]));
+  const taskId = existing?.id || (typeof data?.id === "string" ? data.id.trim() : "");
+  if (taskId && dependsOnIds.includes(taskId)) {
+    return { success: false, error: "A task cannot depend on itself." };
+  }
+  if (dependsOnIds.some((dependencyId) => !tasksById.has(dependencyId))) {
+    return { success: false, error: "Every dependency must belong to this workgroup." };
+  }
+  if (taskId && dependsOnIds.some((dependencyId) => taskDependsOn(dependencyId, taskId, tasksById))) {
+    return { success: false, error: "Task dependencies cannot form a cycle." };
+  }
   const scheduleAnchorAt = Date.now();
   const scheduleType: ScheduledTaskScheduleType | null = data?.scheduleType === "weekly"
     ? "weekly"
@@ -5438,6 +5487,7 @@ function handleSaveWorkgroupTaskRequest(data: {
     title,
     description: data?.description ?? null,
     acceptanceCriteria: data?.acceptanceCriteria ?? null,
+    dependsOnIds,
     assigneeMemberId,
     priority: data?.priority,
     status: data?.status,
@@ -5511,7 +5561,8 @@ async function handleDispatchWorkgroupTaskRequest(taskId: string) {
   }
 
   const serializedMember = serializeWorkgroupMember(member);
-  const dispatchBlockedReason = getWorkgroupDispatchBlockedReason(task, serializedMember);
+  const tasksById = new Map(workgroupStore.listTasks(task.workgroupId).map((entry) => [entry.id, entry]));
+  const dispatchBlockedReason = getWorkgroupDispatchBlockedReason(task, serializedMember, tasksById);
   if (dispatchBlockedReason) {
     return { success: false, error: dispatchBlockedReason };
   }
@@ -7242,6 +7293,8 @@ ipcMain.handle("save-workgroup-member", (_event, data: {
   projectId?: string | null;
   allowedPaths?: string[] | null;
   systemPrompt?: string | null;
+  executionMode?: "read" | "write";
+  specialty?: "planner" | "implementer" | "reviewer" | "tester" | "researcher" | "general";
 }) => {
   const workgroup = workgroupStore.getWorkgroupById(data?.workgroupId || "");
   if (!workgroup) {
@@ -7269,6 +7322,8 @@ ipcMain.handle("save-workgroup-member", (_event, data: {
     projectKind: binding.projectKind,
     allowedPaths: Array.isArray(data?.allowedPaths) ? data.allowedPaths : [],
     systemPrompt: data?.systemPrompt ?? null,
+    executionMode: data?.executionMode ?? "read",
+    specialty: data?.specialty ?? "general",
   });
   touchWorkgroup(workgroup.id);
   broadcastWorkgroupsChanged();

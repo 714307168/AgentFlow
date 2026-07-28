@@ -89,3 +89,22 @@ test("workgroup store force-migrates legacy groups to guarded swarm defaults", (
 
   workgroupStore.removeWorkgroup(workgroupId);
 });
+
+test("workgroup store normalizes task dependencies and removes deleted references", () => {
+  const workgroupId = "workgroup-task-dependencies";
+  workgroupStore.removeWorkgroup(workgroupId);
+  workgroupStore.saveWorkgroup({ id: workgroupId, name: "Dependency graph" });
+
+  const foundation = workgroupStore.saveTask({ workgroupId, title: "Foundation" });
+  const delivery = workgroupStore.saveTask({
+    workgroupId,
+    title: "Delivery",
+    dependsOnIds: [foundation.id, foundation.id, "  "],
+  });
+  assert.deepEqual(workgroupStore.getTaskById(delivery.id)?.dependsOnIds, [foundation.id]);
+
+  workgroupStore.removeTask(foundation.id);
+  assert.deepEqual(workgroupStore.getTaskById(delivery.id)?.dependsOnIds, []);
+
+  workgroupStore.removeWorkgroup(workgroupId);
+});

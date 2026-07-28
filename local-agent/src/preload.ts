@@ -104,6 +104,8 @@ contextBridge.exposeInMainWorld('claudeAgent', {
     projectId?: string | null;
     allowedPaths?: string[] | null;
     systemPrompt?: string | null;
+    executionMode?: 'read' | 'write';
+    specialty?: 'planner' | 'implementer' | 'reviewer' | 'tester' | 'researcher' | 'general';
   }) => ipcRenderer.invoke('save-workgroup-member', data),
   deleteWorkgroupMember: (memberId: string) => ipcRenderer.invoke('delete-workgroup-member', memberId),
   saveWorkgroupTask: (data: {
@@ -112,6 +114,7 @@ contextBridge.exposeInMainWorld('claudeAgent', {
     title: string;
     description?: string | null;
     acceptanceCriteria?: string | null;
+    dependsOnIds?: string[];
     assigneeMemberId?: string | null;
     priority?: 'low' | 'normal' | 'high';
     status?: 'todo' | 'assigned' | 'running' | 'blocked' | 'done' | 'error';

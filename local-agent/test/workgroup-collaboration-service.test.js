@@ -25,6 +25,35 @@ const WorkgroupCollaborationService = require("../dist/src/workgroup-collaborati
 const workgroupStore = require("../dist/src/workgroup-store.js").default;
 const workgroupCollaborationStore = require("../dist/src/workgroup-collaboration-store.js").default;
 
+function createServiceForPolicyTest() {
+  return new WorkgroupCollaborationService({
+    runtimeManager: { getSnapshot() { return null; } },
+    getBoundProject() { return null; },
+    getProjectSessionSnapshot() { return null; },
+    getRemoteSessionStore() { return null; },
+  });
+}
+
+test("workgroup write policy permits one approved writer per workspace", () => {
+  const service = createServiceForPolicyTest();
+  const workgroup = { requireWriteApproval: true, singleWriterPerWorkspace: true };
+  const writer = { executionMode: "write" };
+  const reader = { executionMode: "read" };
+  const project = { id: "project-1", path: "C:/workspace", kind: "local" };
+
+  assert.equal(service.acquireWriteSlot(workgroup, writer, project, "run-1", { senderType: "user" }), null);
+  assert.match(
+    service.acquireWriteSlot(workgroup, writer, project, "run-2", { senderType: "user" }),
+    /already running/i,
+  );
+  assert.equal(service.acquireWriteSlot(workgroup, reader, project, "read-1", { senderType: "member" }), null);
+  service.activeWriterRunByWorkspace.clear();
+  assert.match(
+    service.acquireWriteSlot(workgroup, writer, project, "run-3", { senderType: "member" }),
+    /human-approved/i,
+  );
+});
+
 function createRemoteSnapshot(runId, content) {
   return {
     projectId: "remote-project-1",

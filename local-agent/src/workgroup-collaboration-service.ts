@@ -244,6 +244,7 @@ interface DispatchAttemptResult {
 
 export default class WorkgroupCollaborationService extends EventEmitter {
   private readonly activeDispatchesByWorkgroup = new Map<string, Map<string, ActiveDispatchRecord>>();
+  private readonly activeWriterRunByWorkspace = new Map<string, string>();
 
   constructor(private readonly options: CollaborationServiceOptions) {
     super();
@@ -894,6 +895,9 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       "Operating rules",
       "You are one member in a shared multi-agent group. Complete only the work you actually perform inside your bound project.",
       "Reply only for your own completed work. Do not fabricate work from other members.",
+      member.executionMode === "write"
+        ? "You may modify files only when the approved request requires it; keep changes within the bound project and report every validation you ran."
+        : "You are a read-only contributor: analyze, plan, review, or test, but do not modify files.",
       workgroup.allowDirectMemberMessages
         ? "You may @mention other members when coordination helps, but only report work you actually completed."
         : "Do not simulate other members. Report only your own work and blockers.",
@@ -977,6 +981,11 @@ export default class WorkgroupCollaborationService extends EventEmitter {
     }
 
     const runId = uuidv4();
+    const writeLockReason = this.acquireWriteSlot(workgroup, member, project, runId, userMessage);
+    if (writeLockReason) {
+      this.appendDispatchError(workgroup.id, member, writeLockReason);
+      return { memberId: member.id, memberName: member.name, projectId: project.id, accepted: false, reason: writeLockReason };
+    }
     const rootTriggerMessageId = this.resolveRootTriggerMessageId(workgroup.id, userMessage) ?? userMessage.id;
     const replyMessage = workgroupCollaborationStore.appendMessage(workgroup.id, {
       senderType: "member",
@@ -1435,6 +1444,36 @@ export default class WorkgroupCollaborationService extends EventEmitter {
     return this.activeDispatchesByWorkgroup.get(normalizedWorkgroupId)?.has(normalizedRunId) ?? false;
   }
 
+  private acquireWriteSlot(
+    workgroup: Workgroup,
+    member: WorkgroupMember,
+    project: CollaborationBoundProject,
+    runId: string,
+    trigger: WorkgroupCollaborationMessage,
+  ): string | null {
+    if (member.executionMode !== "write") {
+      return null;
+    }
+    if (workgroup.requireWriteApproval && trigger.senderType !== "user") {
+      return "Write-capable members can only start from a human-approved group request.";
+    }
+    if (!workgroup.singleWriterPerWorkspace) {
+      return null;
+    }
+    const workspaceKey = project.kind === "remote"
+      ? `remote:${project.id}`
+      : `local:${project.path.trim().toLowerCase()}`;
+    if (!workspaceKey || workspaceKey === "local:") {
+      return null;
+    }
+    const activeRunId = this.activeWriterRunByWorkspace.get(workspaceKey);
+    if (activeRunId && activeRunId !== runId) {
+      return "Another write-capable member is already running in this workspace.";
+    }
+    this.activeWriterRunByWorkspace.set(workspaceKey, runId);
+    return null;
+  }
+
   private clearActiveDispatch(workgroupId: string, runId: string): boolean {
     const normalizedWorkgroupId = workgroupId.trim();
     const normalizedRunId = runId.trim();
@@ -1442,8 +1481,14 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       return false;
     }
     const activeDispatches = this.activeDispatchesByWorkgroup.get(normalizedWorkgroupId);
-    if (!activeDispatches?.delete(normalizedRunId)) {
+    const record = activeDispatches?.get(normalizedRunId);
+    if (!record || !activeDispatches?.delete(normalizedRunId)) {
       return false;
+    }
+    for (const [workspaceKey, activeRunId] of this.activeWriterRunByWorkspace.entries()) {
+      if (activeRunId === normalizedRunId) {
+        this.activeWriterRunByWorkspace.delete(workspaceKey);
+      }
     }
     if (activeDispatches.size === 0) {
       this.activeDispatchesByWorkgroup.delete(normalizedWorkgroupId);
@@ -1464,7 +1509,7 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       if (message?.status === "streaming") {
         continue;
       }
-      activeDispatches.delete(runId);
+      this.clearActiveDispatch(normalizedWorkgroupId, runId);
       changed = true;
     }
 

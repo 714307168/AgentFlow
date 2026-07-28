@@ -2757,7 +2757,7 @@
               </div>
               <div class="workgroup-card">
                 <div class="workgroup-card-title" id="workgroupMemberTitle">Agents</div>
-                <div style="display:none;">
+                <div>
                 <div class="field">
                   <label id="memberNameLabel">Member Name</label>
                   <input type="text" id="workgroupMemberName" placeholder="Desktop Member">
@@ -2766,6 +2766,24 @@
                   <label id="memberRoleLabel">Member Type</label>
                   <select id="workgroupMemberRole">
                     <option value="member">Member</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label id="memberExecutionModeLabel">Execution Access</label>
+                  <select id="workgroupMemberExecutionMode">
+                    <option id="memberExecutionModeRead" value="read">Read / review only</option>
+                    <option id="memberExecutionModeWrite" value="write">Can write when a task is approved</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label id="memberSpecialtyLabel">Specialty</label>
+                  <select id="workgroupMemberSpecialty">
+                    <option id="memberSpecialtyGeneral" value="general">General</option>
+                    <option id="memberSpecialtyPlanner" value="planner">Planning</option>
+                    <option id="memberSpecialtyImplementer" value="implementer">Implementation</option>
+                    <option id="memberSpecialtyReviewer" value="reviewer">Review</option>
+                    <option id="memberSpecialtyTester" value="tester">Testing</option>
+                    <option id="memberSpecialtyResearcher" value="researcher">Research</option>
                   </select>
                 </div>
                 <div class="field">
@@ -2809,6 +2827,11 @@
                 <div class="field">
                   <label id="taskAssigneeLabel">Assignee</label>
                   <select id="workgroupTaskAssignee"></select>
+                </div>
+                <div class="field workgroup-field--wide">
+                  <label id="taskDependenciesLabel">Dependencies</label>
+                  <select id="workgroupTaskDependencies" multiple size="4" aria-describedby="taskDependenciesHint"></select>
+                  <div class="toggle-help" id="taskDependenciesHint">Select work that must be completed before this task can be dispatched.</div>
                 </div>
                 <div class="field">
                   <label id="taskPriorityLabel">Priority</label>
@@ -3480,6 +3503,7 @@
       workgroupProjectPicker: "",
       workgroupProjectOptions: "",
       workgroupTaskAssignees: "",
+      workgroupTaskDependencies: "",
       workgroupSelect: "",
       workgroupMembers: "",
       workgroupTasks: "",
@@ -5630,6 +5654,20 @@
       document.getElementById("workgroupMemberName").placeholder = inlineText("Desktop Member", "桌面成员");
       document.getElementById("memberRoleLabel").textContent = inlineText("Member Type", "成员类型");
       document.getElementById("workgroupMemberRole").options[0].text = inlineText("Member", "成员");
+      document.getElementById("memberExecutionModeLabel").textContent = inlineText("Execution Access", "执行权限");
+      document.getElementById("memberExecutionModeRead").textContent = inlineText("Read / review only", "只读 / 审阅");
+      document.getElementById("memberExecutionModeWrite").textContent = inlineText("Can write when a task is approved", "任务获批后可写入");
+      document.getElementById("memberSpecialtyLabel").textContent = inlineText("Specialty", "职责专长");
+      [
+        ["memberSpecialtyGeneral", "General", "通用"],
+        ["memberSpecialtyPlanner", "Planning", "规划"],
+        ["memberSpecialtyImplementer", "Implementation", "实现"],
+        ["memberSpecialtyReviewer", "Review", "审阅"],
+        ["memberSpecialtyTester", "Testing", "测试"],
+        ["memberSpecialtyResearcher", "Research", "调研"],
+      ].forEach(([id, english, chinese]) => {
+        document.getElementById(id).textContent = inlineText(english, chinese);
+      });
       document.getElementById("memberProjectLabel").textContent = inlineText("Bound Project", "绑定项目");
       document.getElementById("memberPathsLabel").textContent = inlineText("Allowed Paths", "允许路径");
       document.getElementById("workgroupMemberAllowedPaths").placeholder = inlineText("One path per line", "每行一个路径");
@@ -5645,6 +5683,11 @@
       document.getElementById("taskTitleLabel").textContent = inlineText("Task Title", "任务标题");
       document.getElementById("workgroupTaskName").placeholder = inlineText("Deploy latest build to staging", "部署最新版本到测试环境");
       document.getElementById("taskAssigneeLabel").textContent = inlineText("Assignee", "执行人");
+      document.getElementById("taskDependenciesLabel").textContent = inlineText("Dependencies", "前置任务");
+      document.getElementById("taskDependenciesHint").textContent = inlineText(
+        "Select work that must be completed before this task can be dispatched.",
+        "选择必须先完成的任务；所有前置任务完成后才可派发。"
+      );
       document.getElementById("taskPriorityLabel").textContent = inlineText("Priority", "优先级");
       document.getElementById("workgroupTaskPriority").options[0].text = inlineText("Normal", "中");
       document.getElementById("workgroupTaskPriority").options[1].text = inlineText("High", "高");
@@ -7102,6 +7145,22 @@
       }
     }
 
+    function renderTaskDependencyOptions(selectedIds = []) {
+      const selectEl = document.getElementById("workgroupTaskDependencies");
+      const selectedIdSet = new Set(Array.isArray(selectedIds) ? selectedIds : []);
+      const workgroup = getCurrentWorkgroup();
+      const options = (workgroup?.tasks || [])
+        .filter((task) => task.id !== editingTaskId)
+        .map((task) => `<option value="${escapeHtml(task.id)}"${selectedIdSet.has(task.id) ? " selected" : ""}>${escapeHtml(`[${getTaskStatusLabel(task.status)}] ${task.title}`)}</option>`);
+      const markup = options.length
+        ? options.join("")
+        : `<option value="" disabled>${escapeHtml(inlineText("No other tasks available", "暂无其他任务可选"))}</option>`;
+      if (renderSignatures.workgroupTaskDependencies !== markup) {
+        renderSignatures.workgroupTaskDependencies = markup;
+        selectEl.innerHTML = markup;
+      }
+    }
+
     function resetWorkgroupForm(workgroup) {
       editingWorkgroupId = workgroup?.id || null;
       document.getElementById("workgroupName").value = workgroup?.name || "";
@@ -7119,6 +7178,8 @@
       document.getElementById("workgroupMemberRole").value = member?.role || "member";
       document.getElementById("workgroupMemberAllowedPaths").value = Array.isArray(member?.allowedPaths) ? member.allowedPaths.join("\n") : "";
       document.getElementById("workgroupMemberPrompt").value = member?.systemPrompt || "";
+      document.getElementById("workgroupMemberExecutionMode").value = member?.executionMode || "read";
+      document.getElementById("workgroupMemberSpecialty").value = member?.specialty || "general";
       renderWorkgroupProjectOptions(
         member?.projectId || "",
         member?.projectBindingLabel || (member?.projectName ? `${member.projectName}` : "")
@@ -7145,6 +7206,7 @@
       document.getElementById("workgroupTaskDescription").value = task?.description || "";
       document.getElementById("workgroupTaskCriteria").value = task?.acceptanceCriteria || "";
       renderTaskAssigneeOptions(task?.assigneeMemberId || "");
+      renderTaskDependencyOptions(task?.dependsOnIds || []);
       syncWorkgroupTaskTypeFields();
     }
 
@@ -7275,6 +7337,7 @@
             </div>
             ${task.description ? `<div class="workgroup-subtext">${escapeHtml(task.description)}</div>` : ""}
             ${task.acceptanceCriteria ? `<div class="workgroup-subtext" style="margin-top: 6px;">${escapeHtml(`${inlineText("Acceptance", "验收")}: ${task.acceptanceCriteria}`)}</div>` : ""}
+            ${task.dependencyTasks?.length ? `<div class="workgroup-subtext" style="margin-top: 6px;">${escapeHtml(`${inlineText("Depends on", "依赖")}: ${task.dependencyTasks.map((dependency) => `${dependency.title} (${getTaskStatusLabel(dependency.status)})`).join(" · ")}`)}</div>` : ""}
             <div class="workgroup-subtext" style="margin-top: 6px;">${escapeHtml(getWorkgroupTaskScheduleLabel(task))}</div>
             ${task.scheduleType ? `<div class="workgroup-subtext" style="margin-top: 6px;">${escapeHtml(inlineText(`Next dispatch: ${formatDateTimeLabel(task.nextRunAt)}`, `下次派发：${formatDateTimeLabel(task.nextRunAt)}`))}</div>` : ""}
             ${task.lastDispatchAt ? `<div class="workgroup-subtext" style="margin-top: 6px;">${escapeHtml(inlineText(`Last dispatch: ${formatDateTimeLabel(task.lastDispatchAt)}`, `上次派发：${formatDateTimeLabel(task.lastDispatchAt)}`))}</div>` : ""}
@@ -7576,6 +7639,8 @@
             .map((entry) => entry.trim())
             .filter(Boolean),
           systemPrompt: document.getElementById("workgroupMemberPrompt").value.trim() || null,
+          executionMode: document.getElementById("workgroupMemberExecutionMode").value,
+          specialty: document.getElementById("workgroupMemberSpecialty").value,
         });
         if (!result?.success) {
           showStatus(result?.error || inlineText("Failed to save member.", "保存成员失败。"), true);
@@ -7659,6 +7724,9 @@
           title,
           description: document.getElementById("workgroupTaskDescription").value.trim() || null,
           acceptanceCriteria: document.getElementById("workgroupTaskCriteria").value.trim() || null,
+          dependsOnIds: Array.from(document.getElementById("workgroupTaskDependencies").selectedOptions)
+            .map((option) => option.value)
+            .filter(Boolean),
           assigneeMemberId: document.getElementById("workgroupTaskAssignee").value || null,
           priority: document.getElementById("workgroupTaskPriority").value,
           scheduleType,

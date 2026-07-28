@@ -54,6 +54,7 @@ export interface WorkgroupTask {
   title: string;
   description?: string | null;
   acceptanceCriteria?: string | null;
+  dependsOnIds: string[];
   assigneeMemberId?: string | null;
   priority: WorkgroupTaskPriority;
   status: WorkgroupTaskStatus;
@@ -89,6 +90,16 @@ function normalizeProjectKind(value: string | null | undefined): "local" | "remo
 function normalizeNullableText(value: string | null | undefined): string | null {
   const normalized = String(value ?? "").trim();
   return normalized || null;
+}
+
+function normalizeIdList(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return [...new Set(value
+    .filter((entry): entry is string => typeof entry === "string")
+    .map((entry) => entry.trim())
+    .filter(Boolean))];
 }
 
 function normalizeTimestamp(value: number | null | undefined): number | null {
@@ -321,6 +332,7 @@ class WorkgroupStore {
       ...task,
       description: normalizeNullableText(task.description),
       acceptanceCriteria: normalizeNullableText(task.acceptanceCriteria),
+      dependsOnIds: normalizeIdList(task.dependsOnIds),
       assigneeMemberId: normalizeNullableText(task.assigneeMemberId),
       scheduleType: normalizeScheduleType(task.scheduleType),
       scheduleEnabled: task.scheduleEnabled !== false,
@@ -362,6 +374,9 @@ class WorkgroupStore {
       title: input.title.trim(),
       description: normalizeNullableText(input.description),
       acceptanceCriteria: normalizeNullableText(input.acceptanceCriteria),
+      dependsOnIds: input.dependsOnIds !== undefined
+        ? normalizeIdList(input.dependsOnIds)
+        : (existing?.dependsOnIds ?? []),
       assigneeMemberId: normalizeNullableText(input.assigneeMemberId),
       priority: input.priority === "low" || input.priority === "high" ? input.priority : "normal",
       status: input.status ?? existing?.status ?? "todo",
@@ -396,7 +411,13 @@ class WorkgroupStore {
   }
 
   removeTask(id: string): void {
-    this.store.set("tasks", this.listTasks().filter((entry) => entry.id !== id));
+    this.store.set("tasks", this.listTasks()
+      .filter((entry) => entry.id !== id)
+      .map((entry) => entry.dependsOnIds.includes(id) ? {
+        ...entry,
+        dependsOnIds: entry.dependsOnIds.filter((dependencyId) => dependencyId !== id),
+        updatedAt: Date.now(),
+      } : entry));
   }
 }
 
