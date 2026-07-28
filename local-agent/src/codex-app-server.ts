@@ -90,6 +90,13 @@ export class CodexAppServer {
     return turnId;
   }
 
+  async interrupt(options: { threadId: string; turnId: string }): Promise<void> {
+    await this.request("turn/interrupt", {
+      threadId: options.threadId,
+      turnId: options.turnId,
+    });
+  }
+
   stop(): void {
     if (this.child.exitCode === null && this.child.signalCode === null) this.child.kill();
   }

@@ -295,11 +295,18 @@ class RuntimeManager extends EventEmitter {
 
   stopCurrentRun(projectId: string, reason = "Run interrupted.", notifyAsError = true): boolean {
     const state = this.states.get(projectId);
-    if (!state?.active || !state.process) {
+    if (!state?.active) {
       return false;
     }
     this.appendCliTrace(state, "system", `Interrupt requested: ${reason}`);
     state.pendingStop = { reason, notifyAsError };
+    if (state.provider === "codex" && state.codexAppServer && state.codexThreadId && state.codexActiveTurnId) {
+      this.interruptCodexTurn(state);
+      return true;
+    }
+    if (!state.process) {
+      return true;
+    }
     terminateProcessHandle(state.process);
     return true;
   }
@@ -764,10 +771,12 @@ class RuntimeManager extends EventEmitter {
       let completionDetail = `${this.getProviderLabel(state.provider)} finished successfully.`;
       let handledLocally = false;
       const prepared = await this.prepareRun(state, next, context);
+      this.throwIfStopRequested(state);
       handledLocally = prepared.handledLocally;
       const providerRuntime = prepared.handledLocally
         ? null
         : await this.resolveProviderRuntime(state.projectId, state.provider);
+      this.throwIfStopRequested(state);
 
       if (prepared.handledLocally) {
         completionDetail = prepared.completionDetail ?? completionDetail;
@@ -1089,8 +1098,11 @@ class RuntimeManager extends EventEmitter {
       model: state.model,
       effort: run.reasoningEffort ?? null,
     });
-    await turnFinished;
-    server.stop();
+    try {
+      await turnFinished;
+    } finally {
+      server.stop();
+    }
   }
 
   private handleCodexAppServerEvent(
@@ -1132,12 +1144,53 @@ class RuntimeManager extends EventEmitter {
       if (turn?.id && turn.id !== state.codexActiveTurnId) {
         return;
       }
+      if (state.pendingStop) {
+        rejectTurn?.(new StopRunError(state.pendingStop.reason, state.pendingStop.notifyAsError));
+        return;
+      }
       if (turn?.status === "failed") {
         rejectTurn?.(new Error(String(turn.error?.message ?? "Codex turn failed.")));
       } else {
         if (context.assistantMessageId) this.updateMessage(state, context.assistantMessageId, { status: "done" });
         resolveTurn?.();
       }
+    }
+  }
+
+  private interruptCodexTurn(state: ProjectState): void {
+    const server = state.codexAppServer;
+    const threadId = state.codexThreadId;
+    const turnId = state.codexActiveTurnId;
+    if (!server || !threadId || !turnId) {
+      return;
+    }
+
+    void server.interrupt({ threadId, turnId }).catch((error) => {
+      if (state.codexAppServer !== server || !state.pendingStop) {
+        return;
+      }
+      this.appendCliTrace(
+        state,
+        "system",
+        `Codex interrupt request failed; terminating the process: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      if (state.process) {
+        terminateProcessHandle(state.process);
+      }
+    });
+
+    setTimeout(() => {
+      if (state.codexAppServer !== server || !state.pendingStop || !state.active || !state.process) {
+        return;
+      }
+      this.appendCliTrace(state, "system", "Codex interrupt timed out; terminating the process.");
+      terminateProcessHandle(state.process);
+    }, 5_000);
+  }
+
+  private throwIfStopRequested(state: ProjectState): void {
+    if (state.pendingStop) {
+      throw new StopRunError(state.pendingStop.reason, state.pendingStop.notifyAsError);
     }
   }
 

@@ -136,6 +136,34 @@ test("RuntimeManager merges a queued message into the active Codex turn as guida
   runtimeManager.dispose();
 });
 
+test("RuntimeManager interrupts the active Codex turn before using process termination", async () => {
+  const runtimeManager = createRuntimeManager();
+  const state = runtimeManager.ensureState("project-codex-stop");
+  state.active = true;
+  state.provider = "codex";
+  state.codexThreadId = "thread-1";
+  state.codexActiveTurnId = "turn-1";
+  state.process = {
+    killCalled: false,
+    kill() {
+      this.killCalled = true;
+    },
+  };
+  const interruptions = [];
+  state.codexAppServer = {
+    async interrupt(request) {
+      interruptions.push(request);
+    },
+  };
+
+  assert.equal(runtimeManager.stopCurrentRun("project-codex-stop", "Stopped by test."), true);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(interruptions, [{ threadId: "thread-1", turnId: "turn-1" }]);
+  assert.equal(state.process.killCalled, false);
+
+  runtimeManager.dispose();
+});
+
 test("RuntimeManager keeps the steered Codex turn running when the replaced turn completes", () => {
   const runtimeManager = createRuntimeManager();
   const state = runtimeManager.ensureState("project-steer-completion");
@@ -163,6 +191,26 @@ test("RuntimeManager keeps the steered Codex turn running when the replaced turn
     rejectTurn,
   );
   assert.deepEqual(completions, ["resolved"]);
+
+  runtimeManager.dispose();
+});
+
+test("RuntimeManager treats an interrupted Codex completion as a stopped run", () => {
+  const runtimeManager = createRuntimeManager();
+  const state = runtimeManager.ensureState("project-codex-interrupted");
+  state.codexActiveTurnId = "turn-1";
+  state.pendingStop = { reason: "Stopped by test.", notifyAsError: true };
+  const completions = [];
+
+  runtimeManager.handleCodexAppServerEvent(
+    state,
+    { runId: "run-1", source: "desktop" },
+    { activityIdsByKey: new Map() },
+    { method: "turn/completed", params: { turn: { id: "turn-1", status: "interrupted" } } },
+    () => completions.push("resolved"),
+    (error) => completions.push(error.message),
+  );
+  assert.deepEqual(completions, ["Stopped by test."]);
 
   runtimeManager.dispose();
 });
