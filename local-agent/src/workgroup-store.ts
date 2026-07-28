@@ -7,6 +7,9 @@ import {
 } from "./scheduled-task-store";
 
 export type WorkgroupRole = "member" | "project_manager";
+export type WorkgroupMode = "swarm";
+export type WorkgroupMemberExecutionMode = "read" | "write";
+export type WorkgroupMemberSpecialty = "planner" | "implementer" | "reviewer" | "tester" | "researcher" | "general";
 export type WorkgroupTaskPriority = "low" | "normal" | "high";
 export type WorkgroupTaskStatus = "todo" | "assigned" | "running" | "blocked" | "done" | "error";
 export type WorkgroupMemberKind = "project" | "pm";
@@ -19,6 +22,10 @@ export interface Workgroup {
   groupNumber?: string | null;
   planWorkspacePath?: string | null;
   registryUpdatedAt?: number | null;
+  mode: WorkgroupMode;
+  swarmSchemaVersion: 2;
+  requireWriteApproval: boolean;
+  singleWriterPerWorkspace: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -35,6 +42,8 @@ export interface WorkgroupMember {
   projectKind?: "local" | "remote" | null;
   allowedPaths: string[];
   systemPrompt?: string | null;
+  executionMode: WorkgroupMemberExecutionMode;
+  specialty: WorkgroupMemberSpecialty;
   createdAt: number;
   updatedAt: number;
 }
@@ -133,6 +142,23 @@ function normalizeWorkgroupRole(
   return "member";
 }
 
+function normalizeExecutionMode(value: unknown): WorkgroupMemberExecutionMode {
+  return value === "write" ? "write" : "read";
+}
+
+function normalizeSpecialty(value: unknown): WorkgroupMemberSpecialty {
+  switch (value) {
+    case "planner":
+    case "implementer":
+    case "reviewer":
+    case "tester":
+    case "researcher":
+      return value;
+    default:
+      return "general";
+  }
+}
+
 class WorkgroupStore {
   private readonly store = new Store<WorkgroupStoreSchema>({
     name: "workgroups",
@@ -144,13 +170,32 @@ class WorkgroupStore {
   });
 
   listWorkgroups(): Workgroup[] {
-    return this.store.get("workgroups", []).map((workgroup) => ({
+    const stored = this.store.get("workgroups", []);
+    const workgroups = stored.map((workgroup) => this.normalizeWorkgroup(workgroup));
+    if (stored.some((workgroup, index) => workgroup.mode !== "swarm" || workgroup.swarmSchemaVersion !== 2 || JSON.stringify(workgroup) !== JSON.stringify(workgroups[index]))) {
+      this.store.set("workgroups", workgroups);
+    }
+    return workgroups;
+  }
+
+  private normalizeWorkgroup(workgroup: Partial<Workgroup>): Workgroup {
+    return {
       ...workgroup,
+      id: String(workgroup.id ?? "").trim(),
+      name: String(workgroup.name ?? "").trim(),
       description: normalizeNullableText(workgroup.description),
+      allowDirectMemberMessages: Boolean(workgroup.allowDirectMemberMessages),
       groupNumber: normalizeNullableText(workgroup.groupNumber),
       planWorkspacePath: normalizeNullableText(workgroup.planWorkspacePath),
       registryUpdatedAt: workgroup.registryUpdatedAt ? Number(workgroup.registryUpdatedAt) : null,
-    }));
+      // All legacy workgroups are intentionally upgraded to the swarm model.
+      mode: "swarm",
+      swarmSchemaVersion: 2,
+      requireWriteApproval: workgroup.requireWriteApproval !== false,
+      singleWriterPerWorkspace: workgroup.singleWriterPerWorkspace !== false,
+      createdAt: Number(workgroup.createdAt) || Date.now(),
+      updatedAt: Number(workgroup.updatedAt) || Date.now(),
+    };
   }
 
   getWorkgroupById(id: string): Workgroup | undefined {
@@ -175,6 +220,14 @@ class WorkgroupStore {
       registryUpdatedAt: input.registryUpdatedAt !== undefined
         ? (input.registryUpdatedAt ? Number(input.registryUpdatedAt) : null)
         : (workgroups[existingIndex]?.registryUpdatedAt ?? null),
+      mode: "swarm",
+      swarmSchemaVersion: 2,
+      requireWriteApproval: input.requireWriteApproval !== undefined
+        ? input.requireWriteApproval !== false
+        : (workgroups[existingIndex]?.requireWriteApproval ?? true),
+      singleWriterPerWorkspace: input.singleWriterPerWorkspace !== undefined
+        ? input.singleWriterPerWorkspace !== false
+        : (workgroups[existingIndex]?.singleWriterPerWorkspace ?? true),
       createdAt: existingIndex >= 0 ? workgroups[existingIndex].createdAt : now,
       updatedAt: now,
     };
@@ -206,6 +259,8 @@ class WorkgroupStore {
         projectPath: normalizeNullableText(member.projectPath),
         projectKind: normalizeProjectKind(member.projectKind),
         systemPrompt: normalizeNullableText(member.systemPrompt),
+        executionMode: normalizeExecutionMode(member.executionMode),
+        specialty: normalizeSpecialty(member.specialty),
         allowedPaths: normalizeAllowedPaths(member.allowedPaths),
       };
     });
@@ -237,6 +292,8 @@ class WorkgroupStore {
       projectKind: normalizeProjectKind(input.projectKind),
       allowedPaths: normalizeAllowedPaths(input.allowedPaths),
       systemPrompt: normalizeNullableText(input.systemPrompt),
+      executionMode: normalizeExecutionMode(input.executionMode ?? existing?.executionMode),
+      specialty: normalizeSpecialty(input.specialty ?? existing?.specialty),
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     };

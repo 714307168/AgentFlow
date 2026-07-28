@@ -58,3 +58,34 @@ test("workgroup store normalizes legacy member roles to member while preserving 
 
   workgroupStore.removeWorkgroup(workgroupId);
 });
+
+test("workgroup store force-migrates legacy groups to guarded swarm defaults", () => {
+  const workgroupId = "workgroup-swarm-migration";
+  workgroupStore.removeWorkgroup(workgroupId);
+
+  workgroupStore.store.set("workgroups", [{
+    id: workgroupId,
+    name: "Legacy collaboration",
+    allowDirectMemberMessages: true,
+    createdAt: 1,
+    updatedAt: 1,
+  }]);
+
+  const migrated = workgroupStore.getWorkgroupById(workgroupId);
+  assert.equal(migrated?.mode, "swarm");
+  assert.equal(migrated?.swarmSchemaVersion, 2);
+  assert.equal(migrated?.requireWriteApproval, true);
+  assert.equal(migrated?.singleWriterPerWorkspace, true);
+
+  const member = workgroupStore.saveMember({
+    workgroupId,
+    name: "Implementation agent",
+    role: "member",
+    executionMode: "write",
+    specialty: "implementer",
+  });
+  assert.equal(member.executionMode, "write");
+  assert.equal(member.specialty, "implementer");
+
+  workgroupStore.removeWorkgroup(workgroupId);
+});
