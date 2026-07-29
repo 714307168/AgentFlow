@@ -535,6 +535,57 @@ func TestEffectiveScopeListsOwnedAndGrantedAgentScopesForDevice(t *testing.T) {
 	}
 }
 
+func TestWorkgroupExecutionRequestRequiresOwnerApprovalAndCreatesScopedGrant(t *testing.T) {
+	dataDir := t.TempDir()
+	database, err := db.Open(dataDir)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer database.Close()
+
+	owner, _ := database.CreateUser("swarm-owner", "Owner12345A", false)
+	member, _ := database.CreateUser("swarm-member", "Member12345A", false)
+	if err := database.RegisterAgent("swarm-owner-agent", owner.ID, "Owner desktop"); err != nil {
+		t.Fatalf("register owner agent: %v", err)
+	}
+	if err := database.RegisterAgent("swarm-member-agent", member.ID, "Member desktop"); err != nil {
+		t.Fatalf("register member agent: %v", err)
+	}
+
+	server := newAccessAndWorkgroupTestServer(t, database, dataDir)
+	defer server.Close()
+	ownerToken := mustLoginClientToken(t, server.URL, "swarm-owner", "Owner12345A", "agent", "swarm-owner-agent")
+	memberToken := mustLoginClientToken(t, server.URL, "swarm-member", "Member12345A", "agent", "swarm-member-agent")
+	groupNumber := mustPublishWorkgroupRegistry(t, server.URL, ownerToken, "swarm-wg", "Swarm")
+	doJSONRequest(t, http.MethodPost, server.URL+"/api/workgroups/registry/join", map[string]any{"group_number": groupNumber}, http.StatusOK, memberToken, nil)
+
+	var requestResponse struct {
+		Request struct {
+			ID       string   `json:"id"`
+			Status   string   `json:"status"`
+			Projects []string `json:"project_ids"`
+		} `json:"request"`
+	}
+	doJSONRequest(t, http.MethodPost, server.URL+"/api/workgroups/execution-requests/request", map[string]any{
+		"group_number": groupNumber,
+		"project_ids":  []string{"member-project"},
+	}, http.StatusOK, memberToken, &requestResponse)
+	if requestResponse.Request.ID == "" || requestResponse.Request.Status != "pending" {
+		t.Fatalf("unexpected execution request: %+v", requestResponse.Request)
+	}
+	assertControllableAgent(t, server.URL, ownerToken, "swarm-member-agent", false)
+
+	doJSONRequest(t, http.MethodPost, server.URL+"/api/workgroups/execution-requests/approve", map[string]any{
+		"request_id": requestResponse.Request.ID,
+	}, http.StatusOK, ownerToken, nil)
+	assertControllableAgent(t, server.URL, ownerToken, "swarm-member-agent", true)
+
+	doJSONRequest(t, http.MethodPost, server.URL+"/api/workgroups/execution-requests/revoke", map[string]any{
+		"request_id": requestResponse.Request.ID,
+	}, http.StatusOK, ownerToken, nil)
+	assertControllableAgent(t, server.URL, ownerToken, "swarm-member-agent", false)
+}
+
 func TestEffectiveScopeTreatsLegacyGrantWithoutProjectRowsAsAllProjects(t *testing.T) {
 	dataDir := t.TempDir()
 	database, err := db.Open(dataDir)
@@ -947,6 +998,11 @@ func newAccessAndWorkgroupTestServer(t *testing.T, database *db.DB, dataDir stri
 	mux.HandleFunc("/api/workgroups/registry/leave", handler.WorkgroupRegistryHandler(cfg, database))
 	mux.HandleFunc("/api/workgroups/registry/kick", handler.WorkgroupRegistryHandler(cfg, database))
 	mux.HandleFunc("/api/workgroups/registry", handler.WorkgroupRegistryHandler(cfg, database))
+	mux.HandleFunc("/api/workgroups/execution-requests/request", handler.WorkgroupExecutionRequestsHandler(cfg, database))
+	mux.HandleFunc("/api/workgroups/execution-requests/approve", handler.WorkgroupExecutionRequestsHandler(cfg, database))
+	mux.HandleFunc("/api/workgroups/execution-requests/reject", handler.WorkgroupExecutionRequestsHandler(cfg, database))
+	mux.HandleFunc("/api/workgroups/execution-requests/revoke", handler.WorkgroupExecutionRequestsHandler(cfg, database))
+	mux.HandleFunc("/api/workgroups/execution-requests", handler.WorkgroupExecutionRequestsHandler(cfg, database))
 	return httptest.NewServer(mux)
 }
 

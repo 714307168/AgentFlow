@@ -169,6 +169,25 @@ func (db *DB) initSchema() error {
 		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 	);
 
+	-- An execution request is distinct from group participation. It becomes an
+	-- access grant only after the group owner explicitly approves it.
+	CREATE TABLE IF NOT EXISTS collaboration_execution_requests (
+		id TEXT PRIMARY KEY,
+		group_id INTEGER NOT NULL,
+		requester_user_id INTEGER NOT NULL,
+		target_agent_id TEXT NOT NULL,
+		project_ids TEXT NOT NULL DEFAULT '[]',
+		status TEXT NOT NULL DEFAULT 'pending',
+		decision_note TEXT NOT NULL DEFAULT '',
+		decided_by_user_id INTEGER,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (group_id) REFERENCES collaboration_groups(id) ON DELETE CASCADE,
+		FOREIGN KEY (requester_user_id) REFERENCES users(id) ON DELETE CASCADE,
+		FOREIGN KEY (target_agent_id) REFERENCES agents(id) ON DELETE CASCADE,
+		FOREIGN KEY (decided_by_user_id) REFERENCES users(id) ON DELETE SET NULL
+	);
+
 	-- Cross-client file transfer metadata.
 	CREATE TABLE IF NOT EXISTS transfers (
 		id TEXT PRIMARY KEY,
@@ -257,6 +276,8 @@ func (db *DB) initSchema() error {
 	CREATE INDEX IF NOT EXISTS idx_collaboration_groups_owner ON collaboration_groups(owner_user_id, updated_at);
 	CREATE INDEX IF NOT EXISTS idx_collaboration_groups_host_agent ON collaboration_groups(host_agent_id, updated_at);
 	CREATE INDEX IF NOT EXISTS idx_collaboration_group_memberships_user ON collaboration_group_memberships(user_id, created_at);
+	CREATE INDEX IF NOT EXISTS idx_collaboration_execution_requests_group ON collaboration_execution_requests(group_id, status, created_at DESC);
+	CREATE INDEX IF NOT EXISTS idx_collaboration_execution_requests_requester ON collaboration_execution_requests(requester_user_id, status, created_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_transfers_user_created ON transfers(user_id, created_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_transfers_target ON transfers(user_id, target_type, target_id, created_at DESC);
 	CREATE INDEX IF NOT EXISTS idx_transfers_sender_project_created ON transfers(sender_agent_id, project_id, created_at DESC);

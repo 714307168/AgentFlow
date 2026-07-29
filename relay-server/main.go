@@ -82,6 +82,11 @@ func main() {
 	mux.HandleFunc("/api/workgroups/registry/members", handler.WorkgroupRegistryHandler(cfg, database))
 	mux.HandleFunc("/api/workgroups/registry/mine", handler.WorkgroupRegistryHandler(cfg, database))
 	mux.HandleFunc("/api/workgroups/registry", handler.WorkgroupRegistryHandler(cfg, database))
+	mux.HandleFunc("/api/workgroups/execution-requests/request", handler.WorkgroupExecutionRequestsHandler(cfg, database))
+	mux.HandleFunc("/api/workgroups/execution-requests/approve", handler.WorkgroupExecutionRequestsHandler(cfg, database))
+	mux.HandleFunc("/api/workgroups/execution-requests/reject", handler.WorkgroupExecutionRequestsHandler(cfg, database))
+	mux.HandleFunc("/api/workgroups/execution-requests/revoke", handler.WorkgroupExecutionRequestsHandler(cfg, database))
+	mux.HandleFunc("/api/workgroups/execution-requests", handler.WorkgroupExecutionRequestsHandler(cfg, database))
 
 	// Legacy endpoints (kept for backward compatibility)
 	mux.HandleFunc("/api/session", handler.SessionHandler(cfg, st))
