@@ -7423,7 +7423,7 @@
     function renderWorkgroupExecutionProjectScope() {
       const selectEl = document.getElementById("workgroupExecutionProjectScope");
       const selectedIds = new Set(Array.from(selectEl.selectedOptions).map((option) => option.value));
-      const projects = (latestProjectCatalog || []).filter((project) => project?.kind !== "remote");
+      const projects = (latestProjectCatalog || []).filter((project) => !project?.isRemote);
       const markup = projects.length
         ? projects.map((project) => `<option value="${escapeHtml(project.id)}"${selectedIds.has(project.id) ? " selected" : ""}>${escapeHtml(project.name || project.path || project.id)}</option>`).join("")
         : `<option value="" disabled>${escapeHtml(inlineText("No local projects available", "暂无本地项目"))}</option>`;
@@ -7445,7 +7445,7 @@
           </div>
           <div class="project-actions">
             ${request.status === "pending" ? `<button class="btn-primary btn-small" onclick="decideWorkgroupExecutionRequest('${request.id}', true)">${escapeHtml(inlineText("Approve", "批准"))}</button><button class="btn-secondary btn-small" onclick="decideWorkgroupExecutionRequest('${request.id}', false)">${escapeHtml(inlineText("Reject", "拒绝"))}</button>` : ""}
-            ${request.status === "approved" ? `<button class="btn-danger btn-small" onclick="revokeWorkgroupExecutionRequest('${request.id}')">${escapeHtml(inlineText("Revoke", "撤销"))}</button>` : ""}
+            ${request.status === "approved" ? `<button class="btn-primary btn-small" onclick="addExecutionRequestToWorkgroup('${request.id}')">${escapeHtml(inlineText("Add to Swarm", "加入蜂群"))}</button><button class="btn-danger btn-small" onclick="revokeWorkgroupExecutionRequest('${request.id}')">${escapeHtml(inlineText("Revoke", "撤销"))}</button>` : ""}
           </div>
         </div>
       `).join("") : `<div class="empty-state">${escapeHtml(listEl.dataset.emptyMessage || inlineText("No execution requests.", "暂无执行成员申请。"))}</div>`;
@@ -7651,6 +7651,10 @@
           showStatus(result?.error || inlineText("Failed to update execution request.", "更新执行成员申请失败。"), true);
           return;
         }
+        if (approve) {
+          paneLoadState.projectsDirty = true;
+          await loadWorkgroups({ force: true });
+        }
         await loadWorkgroupExecutionRequests(getCurrentWorkgroup());
         showStatus(approve ? inlineText("Execution request approved.", "已批准执行成员申请。") : inlineText("Execution request rejected.", "已拒绝执行成员申请。"), false);
       } catch (error) {
@@ -7672,6 +7676,51 @@
         }
         await loadWorkgroupExecutionRequests(getCurrentWorkgroup());
         showStatus(inlineText("Execution access revoked.", "执行权限已撤销。"), false);
+      } catch (error) {
+        showStatus(getErrorMessage(error), true);
+      }
+    }
+
+    async function addExecutionRequestToWorkgroup(requestId) {
+      const workgroup = getCurrentWorkgroup();
+      const requests = workgroup?.groupNumber ? (latestWorkgroupExecutionRequestsByGroupNumber.get(workgroup.groupNumber) || []) : [];
+      const request = requests.find((entry) => entry.id === requestId);
+      if (!workgroup || !request) {
+        showStatus(inlineText("Execution request is no longer available.", "执行成员申请已不可用。"), true);
+        return;
+      }
+      const alreadyBoundIds = new Set((workgroup.members || []).map((member) => member.projectId).filter(Boolean));
+      const projects = (request.project_ids || [])
+        .map((projectId) => latestProjectCatalog.find((project) => project.id === projectId))
+        .filter((project) => project?.isRemote && !alreadyBoundIds.has(project.id));
+      if (!projects.length) {
+        showStatus(inlineText("No newly approved remote projects are available to add.", "没有可加入的新获批远端项目。"), true);
+        return;
+      }
+      if (!confirmRiskAction({
+        action: inlineText("Add approved remote projects as write-capable swarm members?", "将获批远端项目作为可写蜂群成员加入？"),
+        impact: inlineText("They can receive approved tasks, but still follow the single-writer workspace lock.", "它们可接收获批任务，但仍受同工作区单写入锁限制。"),
+        recovery: inlineText("You can change each member to read-only or remove it later.", "后续可以将成员改为只读或移除。"),
+      })) return;
+      try {
+        for (const project of projects) {
+          const result = await api.saveWorkgroupMember({
+            workgroupId: workgroup.id,
+            name: project.name || request.requester_name || project.id,
+            role: "member",
+            projectId: project.id,
+            allowedPaths: [],
+            systemPrompt: null,
+            executionMode: "write",
+            specialty: "general",
+          });
+          if (!result?.success) {
+            throw new Error(result?.error || inlineText("Failed to add a swarm member.", "添加蜂群成员失败。"));
+          }
+        }
+        paneLoadState.workgroupsDirty = true;
+        await loadWorkgroups({ force: true });
+        showStatus(inlineText("Approved remote projects were added to the swarm.", "获批远端项目已加入蜂群。"), false);
       } catch (error) {
         showStatus(getErrorMessage(error), true);
       }
