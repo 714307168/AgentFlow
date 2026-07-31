@@ -199,6 +199,21 @@ interface WorkgroupRegistryMembersResponse {
   members: WorkgroupRegistryMemberRecord[];
 }
 
+interface WorkgroupExecutionRequestRecord {
+  id: string;
+  group_id: number;
+  group_number: string;
+  workgroup_id: string;
+  requester_user_id: number;
+  requester_name: string;
+  target_agent_id: string;
+  project_ids: string[];
+  status: "pending" | "approved" | "rejected" | "revoked";
+  decision_note: string;
+  created_at: string;
+  updated_at: string;
+}
+
 interface RelayTransferRecord {
   id: string;
   sender_type: string;
@@ -7282,6 +7297,58 @@ ipcMain.handle("kick-workgroup-registry-member", async (_event, data: {
       success: false,
       error: error instanceof Error ? error.message : String(error),
     };
+  }
+});
+
+ipcMain.handle("request-workgroup-execution", async (_event, data: { groupNumber: string; projectIds: string[] }) => {
+  try {
+    const response = await requestWorkgroupRegistry<{ success: boolean; request: WorkgroupExecutionRequestRecord }>(
+      "/api/workgroups/execution-requests/request",
+      { method: "POST", body: { group_number: String(data?.groupNumber ?? "").trim(), project_ids: Array.isArray(data?.projectIds) ? data.projectIds : [] } },
+    );
+    clearAccessGrantCache();
+    return { ...response, success: response.success !== false };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
+});
+
+ipcMain.handle("list-workgroup-execution-requests", async (_event, groupNumber: string) => {
+  try {
+    const response = await requestWorkgroupRegistry<{ requests: WorkgroupExecutionRequestRecord[] }>(
+      `/api/workgroups/execution-requests?group_number=${encodeURIComponent(String(groupNumber ?? "").trim())}`,
+    );
+    return { success: true, requests: Array.isArray(response.requests) ? response.requests : [] };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
+});
+
+ipcMain.handle("decide-workgroup-execution-request", async (_event, data: { requestId: string; approve: boolean; note?: string | null }) => {
+  try {
+    const endpoint = data?.approve ? "/api/workgroups/execution-requests/approve" : "/api/workgroups/execution-requests/reject";
+    const response = await requestWorkgroupRegistry<{ success: boolean; request: WorkgroupExecutionRequestRecord }>(endpoint, {
+      method: "POST",
+      body: { request_id: String(data?.requestId ?? "").trim(), note: String(data?.note ?? "").trim() || undefined },
+    });
+    clearAccessGrantCache();
+    void refreshRemoteWorkgroupCatalog(true);
+    return { ...response, success: response.success !== false };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
+});
+
+ipcMain.handle("revoke-workgroup-execution-request", async (_event, data: { requestId: string; note?: string | null }) => {
+  try {
+    const response = await requestWorkgroupRegistry<{ success: boolean; request: WorkgroupExecutionRequestRecord }>("/api/workgroups/execution-requests/revoke", {
+      method: "POST",
+      body: { request_id: String(data?.requestId ?? "").trim(), note: String(data?.note ?? "").trim() || undefined },
+    });
+    clearAccessGrantCache();
+    return { ...response, success: response.success !== false };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
   }
 });
 

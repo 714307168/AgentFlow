@@ -96,6 +96,10 @@ contextBridge.exposeInMainWorld('claudeAgent', {
   getWorkgroupRegistryMembers: (data: { groupNumber?: string | null; workgroupId?: string | null; hostAgentId?: string | null }) => ipcRenderer.invoke('get-workgroup-registry-members', data),
   leaveWorkgroupRegistry: (data: { groupNumber?: string | null; workgroupId?: string | null; hostAgentId?: string | null }) => ipcRenderer.invoke('leave-workgroup-registry', data),
   kickWorkgroupRegistryMember: (data: { groupNumber?: string | null; workgroupId?: string | null; hostAgentId?: string | null; userId: number }) => ipcRenderer.invoke('kick-workgroup-registry-member', data),
+  requestWorkgroupExecution: (data: { groupNumber: string; projectIds: string[] }) => ipcRenderer.invoke('request-workgroup-execution', data),
+  listWorkgroupExecutionRequests: (groupNumber: string) => ipcRenderer.invoke('list-workgroup-execution-requests', groupNumber),
+  decideWorkgroupExecutionRequest: (data: { requestId: string; approve: boolean; note?: string | null }) => ipcRenderer.invoke('decide-workgroup-execution-request', data),
+  revokeWorkgroupExecutionRequest: (data: { requestId: string; note?: string | null }) => ipcRenderer.invoke('revoke-workgroup-execution-request', data),
   saveWorkgroupMember: (data: {
     id?: string;
     workgroupId: string;

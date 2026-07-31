@@ -2806,7 +2806,7 @@
                 <div class="project-list" id="workgroupMemberList" data-empty-message="No members yet."></div>
               </div>
               </div>
-              <div class="workgroup-card" style="display:none; margin-top: 14px;">
+              <div class="workgroup-card" style="margin-top: 14px;">
               <div class="workgroup-card-title" id="workgroupRegistryTitle">Join Workgroup</div>
               <div class="field">
                 <label id="workgroupRegistryQueryLabel">Group Number</label>
@@ -2815,7 +2815,15 @@
                   <button class="btn-secondary btn-small" id="searchWorkgroupRegistryBtn">Search</button>
                 </div>
               </div>
+              <div class="field">
+                <label id="workgroupExecutionScopeLabel">Projects to share if execution is approved</label>
+                <select id="workgroupExecutionProjectScope" multiple size="4"></select>
+              </div>
               <div class="project-list" id="workgroupRegistryResultList" data-empty-message="No matching workgroup."></div>
+              </div>
+              <div class="workgroup-card" style="margin-top: 14px;">
+                <div class="workgroup-card-title" id="workgroupExecutionRequestTitle">Execution Requests</div>
+                <div class="project-list" id="workgroupExecutionRequestList" data-empty-message="No execution requests."></div>
               </div>
               <div class="workgroup-card" style="margin-top: 14px;">
               <div class="workgroup-card-title" id="workgroupTaskTitle">Tasks</div>
@@ -3491,6 +3499,7 @@
     let latestWorkgroups = [];
     let latestWorkgroupRegistryResults = [];
     const latestWorkgroupRegistryMembersById = new Map();
+    const latestWorkgroupExecutionRequestsByGroupNumber = new Map();
     const renderSignatures = {
       accessIncoming: "",
       accessControllable: "",
@@ -3508,6 +3517,8 @@
       workgroupMembers: "",
       workgroupTasks: "",
       workgroupRegistry: "",
+      workgroupExecutionScope: "",
+      workgroupExecutionRequests: "",
     };
     let currentWorkgroupId = "";
     let editingAccessGrantId = null;
@@ -5729,6 +5740,9 @@
       document.getElementById("cancelWorkgroupTaskBtn").textContent = inlineText("Reset", "重置");
       document.getElementById("workgroupTaskList").setAttribute("data-empty-message", inlineText("No tasks yet.", "还没有任务。"));
       document.getElementById("workgroupRegistryTitle").textContent = inlineText("Join Workgroup", "加入协作组");
+      document.getElementById("workgroupExecutionScopeLabel").textContent = inlineText("Projects to share if execution is approved", "获批后允许执行的项目");
+      document.getElementById("workgroupExecutionRequestTitle").textContent = inlineText("Execution Requests", "执行成员申请");
+      document.getElementById("workgroupExecutionRequestList").setAttribute("data-empty-message", inlineText("No execution requests.", "暂无执行成员申请。"));
       document.getElementById("workgroupRegistryQueryLabel").textContent = inlineText("Group Number", "群号");
       document.getElementById("workgroupRegistryQuery").placeholder = inlineText("Enter group number", "输入群号");
       document.getElementById("searchWorkgroupRegistryBtn").textContent = inlineText("Search", "搜索");
@@ -7369,6 +7383,7 @@
       resetTaskForm(null);
       renderWorkgroupMembers(workgroup);
       renderWorkgroupTasks(workgroup);
+      renderWorkgroupExecutionRequests(workgroup);
       document.getElementById("saveWorkgroupMemberBtn").disabled = !workgroup;
       document.getElementById("saveWorkgroupTaskBtn").disabled = !workgroup;
       document.getElementById("publishWorkgroupBtn").disabled = !workgroup;
@@ -7393,12 +7408,49 @@
             <div class="project-path">${escapeHtml(`${inlineText("Owner", "所有者")}: ${record.ownerUsername || "-"}`)}</div>
           </div>
           <div class="project-actions">
-            <button class="btn-primary btn-small" onclick="joinWorkgroupRegistry('${record.groupNumber}')">${escapeHtml(inlineText("Join", "加入"))}</button>
+            ${record.joined
+              ? `<button class="btn-primary btn-small" onclick="requestWorkgroupExecution('${record.groupNumber}')">${escapeHtml(inlineText("Request Execution", "申请执行权限"))}</button>`
+              : `<button class="btn-primary btn-small" onclick="joinWorkgroupRegistry('${record.groupNumber}')">${escapeHtml(inlineText("Join", "加入"))}</button>`}
           </div>
         </div>
       `).join("");
       if (renderSignatures.workgroupRegistry !== markup) {
         renderSignatures.workgroupRegistry = markup;
+        listEl.innerHTML = markup;
+      }
+    }
+
+    function renderWorkgroupExecutionProjectScope() {
+      const selectEl = document.getElementById("workgroupExecutionProjectScope");
+      const selectedIds = new Set(Array.from(selectEl.selectedOptions).map((option) => option.value));
+      const projects = (latestProjectCatalog || []).filter((project) => project?.kind !== "remote");
+      const markup = projects.length
+        ? projects.map((project) => `<option value="${escapeHtml(project.id)}"${selectedIds.has(project.id) ? " selected" : ""}>${escapeHtml(project.name || project.path || project.id)}</option>`).join("")
+        : `<option value="" disabled>${escapeHtml(inlineText("No local projects available", "暂无本地项目"))}</option>`;
+      if (renderSignatures.workgroupExecutionScope !== markup) {
+        renderSignatures.workgroupExecutionScope = markup;
+        selectEl.innerHTML = markup;
+      }
+    }
+
+    function renderWorkgroupExecutionRequests(workgroup) {
+      const listEl = document.getElementById("workgroupExecutionRequestList");
+      const requests = workgroup?.groupNumber ? (latestWorkgroupExecutionRequestsByGroupNumber.get(workgroup.groupNumber) || []) : [];
+      const markup = requests.length ? requests.map((request) => `
+        <div class="project-item">
+          <div class="project-info">
+            <div class="project-name">${escapeHtml(request.requester_name || request.target_agent_id)}</div>
+            <div class="workgroup-subtext">${escapeHtml(`${inlineText("Projects", "项目")}: ${(request.project_ids || []).join(", ") || "-"}`)}</div>
+            <div class="workgroup-subtext">${escapeHtml(`${inlineText("Status", "状态")}: ${request.status}`)}</div>
+          </div>
+          <div class="project-actions">
+            ${request.status === "pending" ? `<button class="btn-primary btn-small" onclick="decideWorkgroupExecutionRequest('${request.id}', true)">${escapeHtml(inlineText("Approve", "批准"))}</button><button class="btn-secondary btn-small" onclick="decideWorkgroupExecutionRequest('${request.id}', false)">${escapeHtml(inlineText("Reject", "拒绝"))}</button>` : ""}
+            ${request.status === "approved" ? `<button class="btn-danger btn-small" onclick="revokeWorkgroupExecutionRequest('${request.id}')">${escapeHtml(inlineText("Revoke", "撤销"))}</button>` : ""}
+          </div>
+        </div>
+      `).join("") : `<div class="empty-state">${escapeHtml(listEl.dataset.emptyMessage || inlineText("No execution requests.", "暂无执行成员申请。"))}</div>`;
+      if (renderSignatures.workgroupExecutionRequests !== markup) {
+        renderSignatures.workgroupExecutionRequests = markup;
         listEl.innerHTML = markup;
       }
     }
@@ -7433,6 +7485,7 @@
         await paneLoadState.workgroupsPromise;
         renderWorkgroups();
         renderWorkgroupRegistryResults();
+        renderWorkgroupExecutionProjectScope();
         renderOverviewDashboard();
         renderTransferControlOptions();
         void loadCurrentWorkgroupRegistryMembers();
@@ -7516,14 +7569,27 @@
           showStatus(result?.error || inlineText("Failed to join workgroup.", "加入协作组失败。"), true);
           return;
         }
-        paneLoadState.accessDirty = true;
-        await loadAccessGrants({ force: true });
-        showStatus(
-          result.granted_access
-            ? inlineText("Joined workgroup and granted remote access.", "已加入协作组，并已开通远程访问。")
-            : inlineText("Already joined this workgroup.", "你已经加入过这个协作组。"),
-          false,
-        );
+        latestWorkgroupRegistryResults = latestWorkgroupRegistryResults.map((record) => record.groupNumber === groupNumber ? { ...record, joined: true } : record);
+        renderWorkgroupRegistryResults();
+        showStatus(inlineText("Joined. Select projects, then request execution access explicitly.", "已加入。请选择项目后，再显式申请执行权限。"), false);
+      } catch (error) {
+        showStatus(getErrorMessage(error), true);
+      }
+    }
+
+    async function requestWorkgroupExecution(groupNumber) {
+      const projectIds = Array.from(document.getElementById("workgroupExecutionProjectScope").selectedOptions).map((option) => option.value).filter(Boolean);
+      if (!projectIds.length) {
+        showStatus(inlineText("Select at least one local project first.", "请先选择至少一个本地项目。"), true);
+        return;
+      }
+      try {
+        const result = await api.requestWorkgroupExecution({ groupNumber, projectIds });
+        if (!result?.success) {
+          showStatus(result?.error || inlineText("Failed to request execution access.", "申请执行权限失败。"), true);
+          return;
+        }
+        showStatus(inlineText("Execution request sent to the group owner.", "执行成员申请已发送给群主。"), false);
       } catch (error) {
         showStatus(getErrorMessage(error), true);
       }
@@ -7554,8 +7620,60 @@
         if (getCurrentWorkgroup()?.id === workgroup.id) {
           renderWorkgroupMembers(workgroup);
         }
+        await loadWorkgroupExecutionRequests(workgroup);
       } catch (error) {
         console.error("Failed to load workgroup registry members:", error);
+      }
+    }
+
+    async function loadWorkgroupExecutionRequests(workgroup) {
+      if (!workgroup?.groupNumber) {
+        renderWorkgroupExecutionRequests(workgroup);
+        return;
+      }
+      try {
+        const result = await api.listWorkgroupExecutionRequests(workgroup.groupNumber);
+        if (result?.success) {
+          latestWorkgroupExecutionRequestsByGroupNumber.set(workgroup.groupNumber, Array.isArray(result.requests) ? result.requests : []);
+          if (getCurrentWorkgroup()?.id === workgroup.id) {
+            renderWorkgroupExecutionRequests(workgroup);
+          }
+        }
+      } catch (error) {
+        console.error("Failed to load execution requests:", error);
+      }
+    }
+
+    async function decideWorkgroupExecutionRequest(requestId, approve) {
+      try {
+        const result = await api.decideWorkgroupExecutionRequest({ requestId, approve });
+        if (!result?.success) {
+          showStatus(result?.error || inlineText("Failed to update execution request.", "更新执行成员申请失败。"), true);
+          return;
+        }
+        await loadWorkgroupExecutionRequests(getCurrentWorkgroup());
+        showStatus(approve ? inlineText("Execution request approved.", "已批准执行成员申请。") : inlineText("Execution request rejected.", "已拒绝执行成员申请。"), false);
+      } catch (error) {
+        showStatus(getErrorMessage(error), true);
+      }
+    }
+
+    async function revokeWorkgroupExecutionRequest(requestId) {
+      if (!confirmRiskAction({
+        action: inlineText("Revoke this swarm execution access?", "撤销该蜂群执行权限？"),
+        impact: inlineText("The remote Agent will immediately lose this swarm-scoped project access.", "远端 Agent 会立即失去该蜂群范围内的项目访问权限。"),
+        recovery: inlineText("The member can submit a new request if access is needed again.", "后续如有需要，成员可以重新提交申请。"),
+      })) return;
+      try {
+        const result = await api.revokeWorkgroupExecutionRequest({ requestId });
+        if (!result?.success) {
+          showStatus(result?.error || inlineText("Failed to revoke execution access.", "撤销执行权限失败。"), true);
+          return;
+        }
+        await loadWorkgroupExecutionRequests(getCurrentWorkgroup());
+        showStatus(inlineText("Execution access revoked.", "执行权限已撤销。"), false);
+      } catch (error) {
+        showStatus(getErrorMessage(error), true);
       }
     }
 
