@@ -48,6 +48,7 @@ import androidx.compose.ui.res.stringResource
 import com.claudecode.remote.R
 import com.claudecode.remote.data.model.AgentWorkgroups
 import com.claudecode.remote.data.model.Workgroup
+import com.claudecode.remote.data.model.WorkgroupExecutionRequest
 
 @Composable
 fun WorkgroupScreen(
@@ -206,6 +207,9 @@ fun WorkgroupScreen(
                             items(uiState.agentWorkgroups, key = { it.agentId }) { agentGroup ->
                                 AgentWorkgroupCard(
                                     agentGroup = agentGroup,
+                                    executionRequests = uiState.executionRequests,
+                                    onDecideExecutionRequest = viewModel::decideExecutionRequest,
+                                    onRevokeExecutionRequest = viewModel::revokeExecutionRequest,
                                     onOpenWorkgroupChat = onOpenWorkgroupChat
                                 )
                             }
@@ -235,6 +239,9 @@ fun WorkgroupScreen(
 @Composable
 private fun AgentWorkgroupCard(
     agentGroup: AgentWorkgroups,
+    executionRequests: Map<String, List<WorkgroupExecutionRequest>>,
+    onDecideExecutionRequest: (String, String, Boolean) -> Unit,
+    onRevokeExecutionRequest: (String, String) -> Unit,
     onOpenWorkgroupChat: (agentId: String, workgroupId: String, workgroupName: String) -> Unit
 ) {
     Card(
@@ -266,6 +273,9 @@ private fun AgentWorkgroupCard(
                     .forEach { workgroup ->
                         WorkgroupCard(
                             workgroup = workgroup,
+                            executionRequests = workgroup.groupNumber?.let { executionRequests[it].orEmpty() }.orEmpty(),
+                            onDecideExecutionRequest = onDecideExecutionRequest,
+                            onRevokeExecutionRequest = onRevokeExecutionRequest,
                             onClick = {
                                 onOpenWorkgroupChat(agentGroup.agentId, workgroup.id, workgroup.name)
                             }
@@ -279,6 +289,9 @@ private fun AgentWorkgroupCard(
 @Composable
 private fun WorkgroupCard(
     workgroup: Workgroup,
+    executionRequests: List<WorkgroupExecutionRequest>,
+    onDecideExecutionRequest: (String, String, Boolean) -> Unit,
+    onRevokeExecutionRequest: (String, String) -> Unit,
     onClick: () -> Unit
 ) {
     Surface(
@@ -287,13 +300,13 @@ private fun WorkgroupCard(
         shape = RoundedCornerShape(18.dp),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Surface(
                 color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
                 shape = RoundedCornerShape(16.dp)
@@ -361,6 +374,20 @@ private fun WorkgroupCard(
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
+        }
+        workgroup.groupNumber?.let { groupNumber ->
+            executionRequests.forEach { request ->
+                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("${request.requesterName} · ${request.status}", style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
+                    if (request.status == "pending") {
+                        TextButton(onClick = { onDecideExecutionRequest(groupNumber, request.id, true) }) { Text("批准") }
+                        TextButton(onClick = { onDecideExecutionRequest(groupNumber, request.id, false) }) { Text("拒绝") }
+                    } else if (request.status == "approved") {
+                        TextButton(onClick = { onRevokeExecutionRequest(groupNumber, request.id) }) { Text("撤销") }
+                    }
+                }
+            }
+        }
         }
     }
 }

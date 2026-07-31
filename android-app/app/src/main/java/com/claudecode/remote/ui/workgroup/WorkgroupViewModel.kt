@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.claudecode.remote.data.model.AgentWorkgroups
 import com.claudecode.remote.data.model.WorkgroupRegistryEntry
+import com.claudecode.remote.data.model.WorkgroupExecutionRequest
 import com.claudecode.remote.data.remote.RelayWebSocket
 import com.claudecode.remote.domain.SessionRepository
 import com.claudecode.remote.domain.WorkgroupRepository
@@ -28,6 +29,7 @@ data class WorkgroupUiState(
     val registryResults: List<WorkgroupRegistryEntry> = emptyList(),
     val isSearchingRegistry: Boolean = false,
     val joiningGroupNumber: String? = null,
+    val executionRequests: Map<String, List<WorkgroupExecutionRequest>> = emptyMap(),
     val isLoading: Boolean = false,
     val error: String? = null
 )
@@ -50,6 +52,7 @@ class WorkgroupViewModel(
         viewModelScope.launch {
             workgroupRepository.agentWorkgroups.collect { groups ->
                 _uiState.update { it.copy(agentWorkgroups = groups, isLoading = false) }
+                groups.flatMap { it.workgroups }.mapNotNull { it.groupNumber }.distinct().forEach(::refreshExecutionRequests)
             }
         }
 
@@ -205,6 +208,31 @@ class WorkgroupViewModel(
     }
 
     fun isConnected(): Boolean = webSocket.connectionState.value == RelayWebSocket.ConnectionState.CONNECTED
+
+    fun refreshExecutionRequests(groupNumber: String) {
+        if (groupNumber.isBlank()) return
+        viewModelScope.launch {
+            workgroupRepository.listExecutionRequests(groupNumber).onSuccess { requests ->
+                _uiState.update { it.copy(executionRequests = it.executionRequests + (groupNumber to requests)) }
+            }
+        }
+    }
+
+    fun decideExecutionRequest(groupNumber: String, requestId: String, approve: Boolean) {
+        viewModelScope.launch {
+            workgroupRepository.decideExecutionRequest(requestId, approve)
+                .onSuccess { refreshExecutionRequests(groupNumber) }
+                .onFailure { error -> _uiState.update { it.copy(error = error.message) } }
+        }
+    }
+
+    fun revokeExecutionRequest(groupNumber: String, requestId: String) {
+        viewModelScope.launch {
+            workgroupRepository.revokeExecutionRequest(requestId)
+                .onSuccess { refreshExecutionRequests(groupNumber) }
+                .onFailure { error -> _uiState.update { it.copy(error = error.message) } }
+        }
+    }
 
     private suspend fun resolveAgentIds(forceSyncIfEmpty: Boolean): List<String> {
         var sessions = sessionRepository.getSessions()

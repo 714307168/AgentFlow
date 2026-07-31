@@ -8,10 +8,13 @@ import com.claudecode.remote.data.model.WorkgroupMember
 import com.claudecode.remote.data.model.WorkgroupMessage
 import com.claudecode.remote.data.model.WorkgroupTask
 import com.claudecode.remote.data.model.WorkgroupRegistryEntry
+import com.claudecode.remote.data.model.WorkgroupExecutionRequest
 import com.claudecode.remote.data.model.WorkgroupSession
 import com.claudecode.remote.data.local.TokenStore
 import com.claudecode.remote.data.remote.AuthSessionManager
 import com.claudecode.remote.data.remote.JoinWorkgroupRegistryRequest
+import com.claudecode.remote.data.remote.DecideWorkgroupExecutionRequest
+import com.claudecode.remote.data.remote.WorkgroupExecutionRequestRecord
 import com.claudecode.remote.data.remote.RelayApi
 import com.claudecode.remote.data.remote.RelayWebSocket
 import com.claudecode.remote.data.remote.WakeupRequest
@@ -445,6 +448,42 @@ class WorkgroupRepository(
             entry
         }
     }
+
+    suspend fun listExecutionRequests(groupNumber: String): Result<List<WorkgroupExecutionRequest>> = runCatching {
+        relayApiProvider().listWorkgroupExecutionRequests(buildAuthHeader(), groupNumber.trim())
+            .requests
+            .map(::mapExecutionRequest)
+    }
+
+    suspend fun decideExecutionRequest(requestId: String, approve: Boolean): Result<WorkgroupExecutionRequest> = runCatching {
+        val request = DecideWorkgroupExecutionRequest(requestId = requestId.trim())
+        val response = if (approve) {
+            relayApiProvider().approveWorkgroupExecutionRequest(buildAuthHeader(), request)
+        } else {
+            relayApiProvider().rejectWorkgroupExecutionRequest(buildAuthHeader(), request)
+        }
+        mapExecutionRequest(response.request)
+    }
+
+    suspend fun revokeExecutionRequest(requestId: String): Result<WorkgroupExecutionRequest> = runCatching {
+        mapExecutionRequest(
+            relayApiProvider().revokeWorkgroupExecutionRequest(
+                buildAuthHeader(),
+                DecideWorkgroupExecutionRequest(requestId = requestId.trim())
+            ).request
+        )
+    }
+
+    private fun mapExecutionRequest(record: WorkgroupExecutionRequestRecord) = WorkgroupExecutionRequest(
+        id = record.id,
+        groupNumber = record.groupNumber,
+        requesterName = record.requesterName,
+        targetAgentId = record.targetAgentId,
+        projectIds = record.projectIds,
+        status = record.status,
+        decisionNote = record.decisionNote,
+        updatedAt = record.updatedAt
+    )
 
     private suspend fun refreshMyRegistry(): Result<List<WorkgroupRegistryEntry>> {
         return runCatching {

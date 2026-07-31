@@ -94,3 +94,14 @@ data class WorkgroupRegistryEntry(
     val joined: Boolean = false,
     val updatedAt: Long = 0L
 )
+
+data class WorkgroupExecutionRequest(
+    val id: String,
+    val groupNumber: String,
+    val requesterName: String,
+    val targetAgentId: String,
+    val projectIds: List<String> = emptyList(),
+    val status: String = "pending",
+    val decisionNote: String? = null,
+    val updatedAt: Long = 0L
+)

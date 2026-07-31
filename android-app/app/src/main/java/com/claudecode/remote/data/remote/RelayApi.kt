@@ -139,6 +139,30 @@ interface RelayApi {
         @Header("Authorization") auth: String,
         @Body request: KickWorkgroupRegistryMemberRequest
     ): SuccessResponse
+
+    @GET("api/workgroups/execution-requests")
+    suspend fun listWorkgroupExecutionRequests(
+        @Header("Authorization") auth: String,
+        @Query("group_number") groupNumber: String
+    ): WorkgroupExecutionRequestsResponse
+
+    @POST("api/workgroups/execution-requests/approve")
+    suspend fun approveWorkgroupExecutionRequest(
+        @Header("Authorization") auth: String,
+        @Body request: DecideWorkgroupExecutionRequest
+    ): WorkgroupExecutionRequestResponse
+
+    @POST("api/workgroups/execution-requests/reject")
+    suspend fun rejectWorkgroupExecutionRequest(
+        @Header("Authorization") auth: String,
+        @Body request: DecideWorkgroupExecutionRequest
+    ): WorkgroupExecutionRequestResponse
+
+    @POST("api/workgroups/execution-requests/revoke")
+    suspend fun revokeWorkgroupExecutionRequest(
+        @Header("Authorization") auth: String,
+        @Body request: DecideWorkgroupExecutionRequest
+    ): WorkgroupExecutionRequestResponse
 }
 
 @Serializable
@@ -373,6 +397,35 @@ data class KickWorkgroupRegistryMemberRequest(
 @Serializable
 data class SuccessResponse(
     val success: Boolean = false
+)
+
+@Serializable
+data class DecideWorkgroupExecutionRequest(
+    @SerialName("request_id") val requestId: String,
+    val note: String? = null
+)
+
+@Serializable
+data class WorkgroupExecutionRequestsResponse(
+    val requests: List<WorkgroupExecutionRequestRecord> = emptyList()
+)
+
+@Serializable
+data class WorkgroupExecutionRequestResponse(
+    val success: Boolean = false,
+    val request: WorkgroupExecutionRequestRecord
+)
+
+@Serializable
+data class WorkgroupExecutionRequestRecord(
+    val id: String,
+    @SerialName("group_number") val groupNumber: String,
+    @SerialName("requester_name") val requesterName: String,
+    @SerialName("target_agent_id") val targetAgentId: String,
+    @SerialName("project_ids") val projectIds: List<String> = emptyList(),
+    val status: String = "pending",
+    @SerialName("decision_note") val decisionNote: String? = null,
+    @SerialName("updated_at") val updatedAt: Long = 0L
 )
 
 @Serializable
