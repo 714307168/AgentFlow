@@ -129,6 +129,12 @@ contextBridge.exposeInMainWorld('claudeAgent', {
     weeklyDay?: number | null;
     scheduleEnabled?: boolean;
   }) => ipcRenderer.invoke('save-workgroup-task', data),
+  recommendWorkgroupTaskAssignee: (data: {
+    workgroupId: string;
+    title?: string | null;
+    description?: string | null;
+    acceptanceCriteria?: string | null;
+  }) => ipcRenderer.invoke('recommend-workgroup-task-assignee', data),
   deleteWorkgroupTask: (taskId: string) => ipcRenderer.invoke('delete-workgroup-task', taskId),
   setWorkgroupTaskScheduleEnabled: (data: {
     taskId: string;

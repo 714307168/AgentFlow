@@ -2834,7 +2834,8 @@
                 </div>
                 <div class="field">
                   <label id="taskAssigneeLabel">Assignee</label>
-                  <select id="workgroupTaskAssignee"></select>
+                  <select id="workgroupTaskAssignee" aria-describedby="taskAssigneeHint"></select>
+                  <div class="toggle-help" id="taskAssigneeHint" aria-live="polite">Describe the task to see an available specialist recommendation.</div>
                 </div>
                 <div class="field workgroup-field--wide">
                   <label id="taskDependenciesLabel">Dependencies</label>
@@ -3526,6 +3527,10 @@
     let editingWorkgroupId = null;
     let editingMemberId = null;
     let editingTaskId = null;
+    let taskAssigneeRecommendationTimer = null;
+    let taskAssigneeRecommendationRequest = 0;
+    let taskAssigneeManuallySelected = false;
+    let recommendedTaskAssigneeId = "";
     const CONNECTION_STATUS_POLL_MS = 15000;
     const PROJECT_PANE_REFRESH_DEBOUNCE_MS = 300;
     let connectionStatusTimer = null;
@@ -5694,6 +5699,10 @@
       document.getElementById("taskTitleLabel").textContent = inlineText("Task Title", "任务标题");
       document.getElementById("workgroupTaskName").placeholder = inlineText("Deploy latest build to staging", "部署最新版本到测试环境");
       document.getElementById("taskAssigneeLabel").textContent = inlineText("Assignee", "执行人");
+      document.getElementById("taskAssigneeHint").textContent = inlineText(
+        "Describe the task to see an available specialist recommendation.",
+        "填写任务后会推荐可用且专长匹配的成员。"
+      );
       document.getElementById("taskDependenciesLabel").textContent = inlineText("Dependencies", "前置任务");
       document.getElementById("taskDependenciesHint").textContent = inlineText(
         "Select work that must be completed before this task can be dispatched.",
@@ -7159,6 +7168,84 @@
       }
     }
 
+    function getTaskAssigneeRecommendationHint(recommendation) {
+      if (!recommendation) {
+        return inlineText(
+          "No available member matches this task yet.",
+          "暂时没有可用的匹配成员。"
+        );
+      }
+      const specialtyLabels = {
+        planner: inlineText("planning", "规划"),
+        implementer: inlineText("implementation", "实现"),
+        reviewer: inlineText("review", "审查"),
+        tester: inlineText("testing", "测试"),
+        researcher: inlineText("research", "研究"),
+        general: inlineText("general work", "通用任务"),
+      };
+      const reason = recommendation.specialty === "general"
+        ? inlineText("available generalist fallback", "可用的通用成员兜底")
+        : inlineText(`matches ${specialtyLabels[recommendation.specialty]} work`, `匹配${specialtyLabels[recommendation.specialty]}类任务`);
+      return inlineText(
+        `Recommended: ${recommendation.memberName} — ${reason}.`,
+        `推荐：${recommendation.memberName}（${reason}）。`
+      );
+    }
+
+    function scheduleTaskAssigneeRecommendation() {
+      if (taskAssigneeRecommendationTimer) {
+        clearTimeout(taskAssigneeRecommendationTimer);
+      }
+      taskAssigneeRecommendationTimer = setTimeout(() => {
+        taskAssigneeRecommendationTimer = null;
+        void refreshTaskAssigneeRecommendation();
+      }, 180);
+    }
+
+    async function refreshTaskAssigneeRecommendation() {
+      const workgroup = getCurrentWorkgroup();
+      const title = document.getElementById("workgroupTaskName").value.trim();
+      const description = document.getElementById("workgroupTaskDescription").value.trim();
+      const acceptanceCriteria = document.getElementById("workgroupTaskCriteria").value.trim();
+      const hintEl = document.getElementById("taskAssigneeHint");
+      const requestId = ++taskAssigneeRecommendationRequest;
+      if (!workgroup || !(title || description || acceptanceCriteria)) {
+        recommendedTaskAssigneeId = "";
+        hintEl.textContent = inlineText(
+          "Describe the task to see an available specialist recommendation.",
+          "填写任务后会推荐可用且专长匹配的成员。"
+        );
+        return;
+      }
+      try {
+        const result = await api.recommendWorkgroupTaskAssignee({
+          workgroupId: workgroup.id,
+          title,
+          description: description || null,
+          acceptanceCriteria: acceptanceCriteria || null,
+        });
+        if (requestId !== taskAssigneeRecommendationRequest) {
+          return;
+        }
+        const recommendation = result?.success ? result.recommendation : null;
+        hintEl.textContent = getTaskAssigneeRecommendationHint(recommendation);
+        const selectEl = document.getElementById("workgroupTaskAssignee");
+        const canAutoSelect = !editingTaskId && !taskAssigneeManuallySelected
+          && (!selectEl.value || selectEl.value === recommendedTaskAssigneeId);
+        recommendedTaskAssigneeId = recommendation?.memberId || "";
+        if (canAutoSelect && recommendation?.memberId) {
+          selectEl.value = recommendation.memberId;
+        }
+      } catch (_error) {
+        if (requestId === taskAssigneeRecommendationRequest) {
+          hintEl.textContent = inlineText(
+            "Assignee recommendation is temporarily unavailable.",
+            "负责人推荐暂时不可用。"
+          );
+        }
+      }
+    }
+
     function renderTaskDependencyOptions(selectedIds = []) {
       const selectEl = document.getElementById("workgroupTaskDependencies");
       const selectedIdSet = new Set(Array.isArray(selectedIds) ? selectedIds : []);
@@ -7205,6 +7292,9 @@
 
     function resetTaskForm(task) {
       editingTaskId = task?.id || null;
+      taskAssigneeManuallySelected = Boolean(task?.assigneeMemberId);
+      recommendedTaskAssigneeId = "";
+      taskAssigneeRecommendationRequest += 1;
       document.getElementById("workgroupTaskName").value = task?.title || "";
       document.getElementById("workgroupTaskPriority").value = task?.priority || "normal";
       document.getElementById("workgroupTaskScheduleType").value = task?.scheduleType || "manual";
@@ -7222,6 +7312,7 @@
       renderTaskAssigneeOptions(task?.assigneeMemberId || "");
       renderTaskDependencyOptions(task?.dependsOnIds || []);
       syncWorkgroupTaskTypeFields();
+      scheduleTaskAssigneeRecommendation();
     }
 
     function renderWorkgroupSelect() {
@@ -8877,6 +8968,12 @@
     document.getElementById("cancelWorkgroupMemberBtn").addEventListener("click", () => { resetMemberForm(null); });
     document.getElementById("saveWorkgroupTaskBtn").addEventListener("click", () => { void saveWorkgroupTask(); });
     document.getElementById("cancelWorkgroupTaskBtn").addEventListener("click", () => { resetTaskForm(null); });
+    document.getElementById("workgroupTaskAssignee").addEventListener("change", () => {
+      taskAssigneeManuallySelected = true;
+    });
+    ["workgroupTaskName", "workgroupTaskDescription", "workgroupTaskCriteria"].forEach((id) => {
+      document.getElementById(id).addEventListener("input", scheduleTaskAssigneeRecommendation);
+    });
     document.getElementById("overviewReconnectBtn").addEventListener("click", () => { document.getElementById("reconnectBtn").click(); });
     document.getElementById("overviewUploadLogsBtn").addEventListener("click", () => { document.getElementById("uploadDesktopLogsBtn").click(); });
     document.getElementById("overviewCheckUpdatesBtn").addEventListener("click", () => { document.getElementById("checkUpdatesBtn").click(); });

@@ -33,6 +33,7 @@ import scheduledTaskStore, {
   ScheduledTaskScheduleType,
 } from "./scheduled-task-store";
 import workgroupStore, { Workgroup, WorkgroupMember, WorkgroupRole, WorkgroupTask, WorkgroupTaskStatus } from "./workgroup-store";
+import { recommendWorkgroupTaskAssignee, WorkgroupTaskAssigneeRecommendation } from "./workgroup-assignment";
 import WorkgroupCollaborationService, {
   CollaborationBoundProject,
   WorkgroupCollaborationSessionSnapshot,
@@ -2096,6 +2097,34 @@ const workgroupTaskScheduler = new WorkgroupTaskScheduler({
   },
 });
 const worktreeManager = new WorktreeManager();
+
+function cleanUpMemberWorktree(member: WorkgroupMember): void {
+  if (member.executionMode !== "write") {
+    return;
+  }
+  const binding = resolveWorkgroupProjectBinding(member.projectId, member);
+  if (binding.projectKind !== "local" || !binding.projectPath) {
+    return;
+  }
+  void worktreeManager.removeMemberWorktree(binding.projectPath, member.workgroupId, member.id)
+    .then((removed) => {
+      if (removed) {
+        appLogger.info("worktree", "Removed clean member worktree while preserving its branch.", {
+          workgroupId: member.workgroupId,
+          memberId: member.id,
+          projectId: member.projectId ?? null,
+        });
+      }
+    })
+    .catch((error) => {
+      appLogger.warn("worktree", "Kept member worktree during cleanup.", {
+        workgroupId: member.workgroupId,
+        memberId: member.id,
+        projectId: member.projectId ?? null,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+}
 const workgroupCollaborationService = new WorkgroupCollaborationService({
   runtimeManager,
   getBoundProject: (projectId: string): CollaborationBoundProject | null => {
@@ -3326,6 +3355,22 @@ function serializeWorkgroupTask(
       };
     }),
   };
+}
+
+function getWorkgroupTaskAssigneeRecommendation(data: {
+  workgroupId: string;
+  title?: string | null;
+  description?: string | null;
+  acceptanceCriteria?: string | null;
+}): WorkgroupTaskAssigneeRecommendation | null {
+  const workgroup = workgroupStore.getWorkgroupById(data.workgroupId);
+  if (!workgroup) {
+    return null;
+  }
+  ensurePmMember(workgroup);
+  return recommendWorkgroupTaskAssignee(data, workgroupStore
+    .listMembers(workgroup.id)
+    .map(serializeWorkgroupMember));
 }
 
 function loadSerializedWorkgroups(): WorkgroupView[] {
@@ -7168,6 +7213,7 @@ ipcMain.handle("delete-workgroup", (_event, workgroupId: string) => {
       });
     });
   }
+  workgroupStore.listMembers(workgroup.id).forEach(cleanUpMemberWorktree);
   workgroupStore.removeWorkgroup(workgroupId);
   workgroupCollaborationService.removeWorkgroup(workgroupId);
   broadcastWorkgroupsChanged();
@@ -7410,6 +7456,7 @@ ipcMain.handle("delete-workgroup-member", (_event, memberId: string) => {
     return { success: false, error: "Member not found" };
   }
 
+  cleanUpMemberWorktree(member);
   workgroupStore.removeMember(memberId);
   touchWorkgroup(member.workgroupId);
   broadcastWorkgroupsChanged();
@@ -7432,6 +7479,22 @@ ipcMain.handle("save-workgroup-task", (_event, data: {
   weeklyDay?: number | null;
   scheduleEnabled?: boolean;
 }) => handleSaveWorkgroupTaskRequest(data));
+
+ipcMain.handle("recommend-workgroup-task-assignee", (_event, data: {
+  workgroupId: string;
+  title?: string | null;
+  description?: string | null;
+  acceptanceCriteria?: string | null;
+}) => {
+  const workgroupId = typeof data?.workgroupId === "string" ? data.workgroupId.trim() : "";
+  if (!workgroupStore.getWorkgroupById(workgroupId)) {
+    return { success: false, error: "Workgroup not found" };
+  }
+  return {
+    success: true,
+    recommendation: getWorkgroupTaskAssigneeRecommendation({ ...data, workgroupId }),
+  };
+});
 
 ipcMain.handle("delete-workgroup-task", (_event, taskId: string) => {
   return handleDeleteWorkgroupTaskRequest(taskId);
