@@ -23,6 +23,7 @@ import RemoteSessionStore, { RemoteProjectRecord } from "./remote-session-store"
 import RemoteWorkgroupStore, { RemoteWorkgroupRegistryRecord, parseCompositeWorkgroupId } from "./remote-workgroup-store";
 import LocalScheduler from "./local-scheduler";
 import WorkgroupTaskScheduler from "./workgroup-task-scheduler";
+import WorktreeManager from "./worktree-manager";
 import RuntimeManager, { CliProvider, ProjectSessionSnapshot, RunAttachment } from "./runtime-manager";
 import scheduledTaskStore, {
   computeScheduledTaskNextRunAt,
@@ -2094,6 +2095,7 @@ const workgroupTaskScheduler = new WorkgroupTaskScheduler({
     broadcastWorkgroupsChanged();
   },
 });
+const worktreeManager = new WorktreeManager();
 const workgroupCollaborationService = new WorkgroupCollaborationService({
   runtimeManager,
   getBoundProject: (projectId: string): CollaborationBoundProject | null => {
@@ -2125,6 +2127,7 @@ const workgroupCollaborationService = new WorkgroupCollaborationService({
   },
   getProjectSessionSnapshot: (projectId: string) => getProjectSnapshot(projectId),
   getRemoteSessionStore: () => remoteSessionStore,
+  resolveWriteWorkspace: (workgroup, member, project) => worktreeManager.ensureMemberWorktree(project.path, workgroup.id, member.id),
 });
 
 async function captureProjectScreenshot(projectId: string): Promise<RunAttachment> {

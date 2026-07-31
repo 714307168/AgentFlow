@@ -71,6 +71,7 @@ interface CollaborationServiceOptions {
   getBoundProject: (projectId: string) => CollaborationBoundProject | null;
   getProjectSessionSnapshot: (projectId: string) => ProjectSessionSnapshot | null;
   getRemoteSessionStore: () => RemoteSessionStore | null;
+  resolveWriteWorkspace?: (workgroup: Workgroup, member: WorkgroupMember, project: CollaborationBoundProject) => Promise<string>;
 }
 
 function normalizeText(value: string | null | undefined): string | null {
@@ -980,8 +981,19 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       return { memberId: member.id, memberName: member.name, projectId, accepted: false, reason };
     }
 
+    let executionProject = project;
+    if (project.kind === "local" && member.executionMode === "write" && this.options.resolveWriteWorkspace) {
+      try {
+        executionProject = { ...project, path: await this.options.resolveWriteWorkspace(workgroup, member, project) };
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        this.appendDispatchError(workgroup.id, member, reason);
+        return { memberId: member.id, memberName: member.name, projectId: project.id, accepted: false, reason };
+      }
+    }
+
     const runId = uuidv4();
-    const writeLockReason = this.acquireWriteSlot(workgroup, member, project, runId, userMessage);
+    const writeLockReason = this.acquireWriteSlot(workgroup, member, executionProject, runId, userMessage);
     if (writeLockReason) {
       this.appendDispatchError(workgroup.id, member, writeLockReason);
       return { memberId: member.id, memberName: member.name, projectId: project.id, accepted: false, reason: writeLockReason };
@@ -1136,7 +1148,7 @@ export default class WorkgroupCollaborationService extends EventEmitter {
 
     this.options.runtimeManager.enqueueMessage({
       projectId: project.id,
-      cwd: project.path,
+      cwd: executionProject.path,
       prompt,
       source: "workgroup",
       runId,
