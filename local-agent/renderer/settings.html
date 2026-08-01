@@ -920,6 +920,86 @@
       color: var(--muted);
       background: var(--panel-2);
     }
+    .task-graph-scroll {
+      overflow: auto;
+      padding: 2px 0 10px;
+      scrollbar-color: var(--border) transparent;
+    }
+    .task-graph-canvas {
+      position: relative;
+      min-height: 142px;
+      background:
+        linear-gradient(90deg, rgba(88, 166, 255, 0.055) 1px, transparent 1px),
+        linear-gradient(rgba(88, 166, 255, 0.045) 1px, transparent 1px),
+        var(--panel-2);
+      background-size: 24px 24px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+    }
+    .task-graph-links {
+      position: absolute;
+      inset: 0;
+      overflow: visible;
+      color: rgba(88, 166, 255, 0.72);
+      pointer-events: none;
+    }
+    .task-graph-link {
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      opacity: 0.88;
+    }
+    .task-graph-node {
+      position: absolute;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      justify-content: center;
+      gap: 7px;
+      width: 236px;
+      min-height: 88px;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--muted);
+      border-radius: 10px;
+      background: var(--panel);
+      color: var(--text);
+      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+      text-align: left;
+      cursor: pointer;
+    }
+    .task-graph-node:hover {
+      border-color: var(--accent);
+      transform: translateY(-1px);
+    }
+    .task-graph-node:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+    .task-graph-node.status-assigned { border-left-color: var(--warning); }
+    .task-graph-node.status-running { border-left-color: var(--accent); }
+    .task-graph-node.status-blocked,
+    .task-graph-node.status-error { border-left-color: var(--error); }
+    .task-graph-node.status-done { border-left-color: var(--success); }
+    .task-graph-node-title {
+      display: -webkit-box;
+      overflow: hidden;
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1.35;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+    }
+    .task-graph-node-meta {
+      max-width: 100%;
+      overflow: hidden;
+      color: var(--muted);
+      font-size: 11px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
     .workgroup-agent-picker-item {
       display: flex;
       align-items: center;
@@ -2827,6 +2907,10 @@
               </div>
               <div class="workgroup-card" style="margin-top: 14px;">
               <div class="workgroup-card-title" id="workgroupTaskTitle">Tasks</div>
+              <div class="workgroup-card" style="margin: 0 0 14px;">
+                <div class="workgroup-card-title" id="workgroupTaskGraphTitle">Task Flow</div>
+                <div id="workgroupTaskGraph" aria-live="polite"></div>
+              </div>
               <div class="workgroup-form-grid">
                 <div class="field">
                   <label id="taskTitleLabel">Task Title</label>
@@ -3514,6 +3598,7 @@
       workgroupProjectOptions: "",
       workgroupTaskAssignees: "",
       workgroupTaskDependencies: "",
+      workgroupTaskGraph: "",
       workgroupSelect: "",
       workgroupMembers: "",
       workgroupTasks: "",
@@ -5696,6 +5781,7 @@
       document.getElementById("cancelWorkgroupMemberBtn").textContent = inlineText("Reset", "重置");
       document.getElementById("workgroupMemberList").setAttribute("data-empty-message", inlineText("No members yet.", "还没有成员。"));
       document.getElementById("workgroupTaskTitle").textContent = inlineText("Tasks", "任务");
+      document.getElementById("workgroupTaskGraphTitle").textContent = inlineText("Task Flow", "任务流");
       document.getElementById("taskTitleLabel").textContent = inlineText("Task Title", "任务标题");
       document.getElementById("workgroupTaskName").placeholder = inlineText("Deploy latest build to staging", "部署最新版本到测试环境");
       document.getElementById("taskAssigneeLabel").textContent = inlineText("Assignee", "执行人");
@@ -7466,6 +7552,80 @@
       }
     }
 
+    function renderWorkgroupTaskGraph(workgroup) {
+      const graphEl = document.getElementById("workgroupTaskGraph");
+      if (!workgroup) {
+        const markup = `<div class="workgroup-empty">${escapeHtml(inlineText("Create or select a workgroup first.", "请先创建或选择工作组。"))}</div>`;
+        if (renderSignatures.workgroupTaskGraph !== markup) {
+          renderSignatures.workgroupTaskGraph = markup;
+          graphEl.innerHTML = markup;
+        }
+        return;
+      }
+      const graph = workgroup.taskGraph;
+      if (!graph?.nodes?.length) {
+        const markup = `<div class="workgroup-empty">${escapeHtml(inlineText("Add tasks to see their dependency flow.", "添加任务后会在这里显示依赖流。"))}</div>`;
+        if (renderSignatures.workgroupTaskGraph !== markup) {
+          renderSignatures.workgroupTaskGraph = markup;
+          graphEl.innerHTML = markup;
+        }
+        return;
+      }
+
+      const nodeWidth = 236;
+      const nodeHeight = 88;
+      const columnGap = 58;
+      const rowGap = 26;
+      const padding = 18;
+      const columnStep = nodeWidth + columnGap;
+      const rowStep = nodeHeight + rowGap;
+      const width = Math.max(650, padding * 2 + nodeWidth + (Math.max(1, graph.columnCount) - 1) * columnStep);
+      const height = padding * 2 + nodeHeight + (Math.max(1, graph.rowCount) - 1) * rowStep;
+      const nodesById = new Map(graph.nodes.map((node) => [node.id, node]));
+      const tasksById = new Map((workgroup.tasks || []).map((task) => [task.id, task]));
+      const pointForNode = (node, isSource) => ({
+        x: padding + node.column * columnStep + (isSource ? nodeWidth : 0),
+        y: padding + node.row * rowStep + nodeHeight / 2,
+      });
+      const links = (graph.edges || []).map((edge) => {
+        const source = nodesById.get(edge.fromTaskId);
+        const target = nodesById.get(edge.toTaskId);
+        if (!source || !target) {
+          return "";
+        }
+        const from = pointForNode(source, true);
+        const to = pointForNode(target, false);
+        const bend = Math.max(22, (to.x - from.x) / 2);
+        return `<path class="task-graph-link" d="M ${from.x} ${from.y} C ${from.x + bend} ${from.y}, ${to.x - bend} ${to.y}, ${to.x} ${to.y}" marker-end="url(#taskGraphArrow)"></path>`;
+      }).join("");
+      const nodes = graph.nodes.map((node) => {
+        const task = tasksById.get(node.id) || {};
+        const left = padding + node.column * columnStep;
+        const top = padding + node.row * rowStep;
+        const assignee = task.assigneeMemberName || inlineText("Unassigned", "未分配");
+        return `
+          <button type="button" class="task-graph-node status-${escapeHtml(node.status)}" style="left:${left}px;top:${top}px;" onclick="editWorkgroupTask('${node.id}')" aria-label="${escapeHtml(inlineText(`Edit task ${node.title}`, `编辑任务 ${node.title}`))}">
+            <span class="workgroup-pill status-${escapeHtml(node.status)}">${escapeHtml(getTaskStatusLabel(node.status))}</span>
+            <span class="task-graph-node-title">${escapeHtml(node.title)}</span>
+            <span class="task-graph-node-meta">${escapeHtml(assignee)}</span>
+          </button>`;
+      }).join("");
+      const markup = `
+        <div class="task-graph-scroll" aria-label="${escapeHtml(inlineText("Task dependency flow", "任务依赖流"))}">
+          <div class="task-graph-canvas" style="width:${width}px;height:${height}px;">
+            <svg class="task-graph-links" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" aria-hidden="true">
+              <defs><marker id="taskGraphArrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M 0 0 L 8 4 L 0 8 z" fill="currentColor"></path></marker></defs>
+              ${links}
+            </svg>
+            ${nodes}
+          </div>
+        </div>`;
+      if (renderSignatures.workgroupTaskGraph !== markup) {
+        renderSignatures.workgroupTaskGraph = markup;
+        graphEl.innerHTML = markup;
+      }
+    }
+
     function renderWorkgroups() {
       renderWorkgroupSelect();
       const workgroup = getCurrentWorkgroup();
@@ -7473,6 +7633,7 @@
       resetMemberForm(null);
       resetTaskForm(null);
       renderWorkgroupMembers(workgroup);
+      renderWorkgroupTaskGraph(workgroup);
       renderWorkgroupTasks(workgroup);
       renderWorkgroupExecutionRequests(workgroup);
       document.getElementById("saveWorkgroupMemberBtn").disabled = !workgroup;

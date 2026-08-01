@@ -34,6 +34,7 @@ import scheduledTaskStore, {
 } from "./scheduled-task-store";
 import workgroupStore, { Workgroup, WorkgroupMember, WorkgroupRole, WorkgroupTask, WorkgroupTaskStatus } from "./workgroup-store";
 import { recommendWorkgroupTaskAssignee, WorkgroupTaskAssigneeRecommendation } from "./workgroup-assignment";
+import { buildWorkgroupTaskGraph, WorkgroupTaskGraph } from "./workgroup-task-graph";
 import WorkgroupCollaborationService, {
   CollaborationBoundProject,
   WorkgroupCollaborationSessionSnapshot,
@@ -353,6 +354,7 @@ interface WorkgroupTaskView extends WorkgroupTask {
 interface WorkgroupView extends Workgroup {
   members: WorkgroupMemberView[];
   tasks: WorkgroupTaskView[];
+  taskGraph: WorkgroupTaskGraph;
   selectedProjectIds: string[];
 }
 
@@ -3400,6 +3402,7 @@ function loadSerializedWorkgroups(): WorkgroupView[] {
         ...workgroup,
         members,
         tasks: serializedTasks,
+        taskGraph: buildWorkgroupTaskGraph(tasks),
         selectedProjectIds: members
           .filter((member) => member.kind !== "pm" && member.projectId)
           .map((member) => member.projectId as string),
