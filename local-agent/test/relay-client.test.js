@@ -286,6 +286,66 @@ test("RelayClient retries a room-key offer after its offline agent comes online"
   await new Promise((resolve) => wss.close(resolve));
 });
 
+test("RelayClient renews a stale room key when an agent comes online after restarting", async () => {
+  const wss = new WebSocketServer({ port: 0 });
+  await waitForListening(wss);
+  const address = wss.address();
+  if (!address || typeof address === "string") {
+    throw new Error("failed to resolve test websocket address");
+  }
+
+  let socket = null;
+  const renewedOffer = new Promise((resolve) => {
+    wss.on("connection", (nextSocket) => {
+      socket = nextSocket;
+      nextSocket.on("message", (raw) => {
+        const env = JSON.parse(raw.toString());
+        if (env.event === Events.AUTH_LOGIN) {
+          nextSocket.send(JSON.stringify({
+            id: "auth-ok",
+            event: Events.AUTH_OK,
+            ts: Date.now(),
+            payload: {},
+          }));
+          return;
+        }
+        if (env.event === Events.E2E_OFFER) {
+          resolve(env);
+        }
+      });
+    });
+  });
+
+  const client = new RelayClient(
+    "ws://127.0.0.1:" + address.port,
+    "controller-agent",
+    "token-test",
+    true,
+    {
+      clientType: "device",
+      deviceId: "controller-device",
+    },
+  );
+  client.getE2E().setRoomKey("owner-agent", Buffer.alloc(32, 7).toString("base64"));
+  const authenticated = once(client, "authenticated");
+  client.connect();
+  await authenticated;
+
+  socket.send(JSON.stringify({
+    id: "owner-online",
+    event: Events.AGENT_STATUS,
+    ts: Date.now(),
+    payload: { agent_id: "owner-agent", online: true },
+  }));
+
+  const offer = await renewedOffer;
+  assert.equal(offer.payload.agent_id, "owner-agent");
+  assert.equal(client.getE2E().hasRoomKey("owner-agent"), false);
+
+  client.disconnect();
+  await new Promise((resolve) => wss.close(resolve));
+});
+
 test("RelayClient records close metadata and recent connection events", async () => {
   const wss = new WebSocketServer({ port: 0 });
   await waitForListening(wss);

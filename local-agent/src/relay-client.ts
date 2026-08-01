@@ -27,6 +27,7 @@ interface QueuedOutgoingEnvelope {
 }
 
 const RECENT_CONNECTION_EVENT_LIMIT = 24;
+const ROOM_KEY_RENEWAL_DEDUPE_MS = 3_000;
 
 export function normalizeRelayWebSocketUrl(serverUrl: string): string {
   const trimmed = serverUrl.trim();
@@ -135,6 +136,7 @@ class RelayClient extends EventEmitter {
   private readonly pendingRoomKeyOffers: Set<string> = new Set();
   private readonly pendingRoomKeyOfferTargets = new Map<string, string>();
   private readonly pendingEncryptedEnvelopes: Map<string, Envelope[]> = new Map();
+  private readonly lastRoomKeyRenewalAtByAgent = new Map<string, number>();
   private readonly pendingOutgoingEnvelopes: QueuedOutgoingEnvelope[] = [];
   private connectionGeneration = 0;
   private connectionState: RelayConnectionState = "disconnected";
@@ -504,6 +506,9 @@ class RelayClient extends EventEmitter {
           }
         }
         return;
+      }
+      if (env.event === Events.AGENT_STATUS) {
+        this.refreshRoomKeyForAgentStatus(env);
       }
       // Decrypt E2E payload if needed
       if (this.e2eEnabled && env.payload && (env.payload as any)?.encrypted) {
@@ -904,6 +909,39 @@ class RelayClient extends EventEmitter {
         device_id: this.deviceId,
       },
     });
+  }
+
+  private refreshRoomKeyForAgentStatus(env: Envelope): void {
+    if (!this.e2eEnabled || this.clientType !== "device") {
+      return;
+    }
+    const payload = env.payload as { agent_id?: unknown; online?: unknown } | undefined;
+    const agentId = typeof payload?.agent_id === "string" ? payload.agent_id.trim() : "";
+    if (!agentId) {
+      return;
+    }
+    if (payload?.online === false) {
+      this.e2e.removeRoomKey(agentId);
+      this.clearPendingRoomKeyOffer(agentId);
+      this.lastRoomKeyRenewalAtByAgent.delete(agentId);
+      return;
+    }
+    if (payload?.online !== true) {
+      return;
+    }
+
+    const now = Date.now();
+    const lastRenewedAt = this.lastRoomKeyRenewalAtByAgent.get(agentId) ?? 0;
+    if (now - lastRenewedAt < ROOM_KEY_RENEWAL_DEDUPE_MS) {
+      return;
+    }
+    this.lastRoomKeyRenewalAtByAgent.set(agentId, now);
+    if (this.e2e.hasRoomKey(agentId)) {
+      this.e2e.removeRoomKey(agentId);
+      this.clearPendingRoomKeyOffer(agentId);
+      appLogger.info("RelayClient", "Renewing room key after agent came online.", { agentId });
+    }
+    this.ensureRoomKey(agentId);
   }
 
   private releaseRejectedRoomKeyOffer(env: Envelope): void {
