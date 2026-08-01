@@ -50,3 +50,39 @@ test("member worktree cleanup preserves uncommitted work", async () => {
   );
   assert.equal(fs.existsSync(path.join(worktreePath, "draft.txt")), true);
 });
+
+test("member worktree merge is inspectable and can be reverted without resetting history", async () => {
+  const root = createRepository();
+  const manager = new WorktreeManager();
+  const worktreePath = await manager.ensureMemberWorktree(root, "group", "member");
+  fs.writeFileSync(path.join(worktreePath, "result.txt"), "ready\n");
+  git(worktreePath, ["add", "result.txt"]);
+  git(worktreePath, ["commit", "-m", "Member result"]);
+
+  const preview = await manager.inspectMemberMerge(root, "group", "member");
+  assert.equal(preview.clean, true);
+  assert.equal(preview.ahead, 1);
+  const merged = await manager.mergeMemberWorktree(root, "group", "member");
+  assert.equal(merged.success, true);
+  assert.equal(fs.existsSync(path.join(root, "result.txt")), true);
+
+  assert.deepEqual(await manager.rollbackMerge(root, merged.commit), { success: true });
+  assert.equal(fs.existsSync(path.join(root, "result.txt")), false);
+});
+
+test("member merge reports conflicts and leaves the primary worktree usable", async () => {
+  const root = createRepository();
+  const manager = new WorktreeManager();
+  const worktreePath = await manager.ensureMemberWorktree(root, "group", "member");
+  fs.writeFileSync(path.join(worktreePath, "README.md"), "member\n");
+  git(worktreePath, ["add", "README.md"]);
+  git(worktreePath, ["commit", "-m", "Member change"]);
+  fs.writeFileSync(path.join(root, "README.md"), "primary\n");
+  git(root, ["add", "README.md"]);
+  git(root, ["commit", "-m", "Primary change"]);
+
+  const result = await manager.mergeMemberWorktree(root, "group", "member");
+  assert.equal(result.success, false);
+  assert.deepEqual(result.conflicts, ["README.md"]);
+  assert.equal(git(root, ["status", "--porcelain"]), "");
+});

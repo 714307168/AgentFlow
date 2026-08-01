@@ -2101,6 +2101,19 @@ const localScheduler = new LocalScheduler({
 });
 const workgroupTaskScheduler = new WorkgroupTaskScheduler({
   dispatchTask: async (taskId: string) => handleDispatchWorkgroupTaskRequest(taskId),
+  shouldAutoStartReadOnlyTask: (task) => {
+    const workgroup = workgroupStore.getWorkgroupById(task.workgroupId);
+    const member = task.assigneeMemberId ? workgroupStore.getMemberById(task.assigneeMemberId) : null;
+    if (!workgroup?.autoStartReadOnlyResearch || task.status !== "todo" || !member) {
+      return false;
+    }
+    if (member.executionMode !== "read" || member.specialty !== "researcher") {
+      return false;
+    }
+    const serializedMember = serializeWorkgroupMember(member);
+    const tasksById = new Map(workgroupStore.listTasks(task.workgroupId).map((entry) => [entry.id, entry]));
+    return !getWorkgroupDispatchBlockedReason(task, serializedMember, tasksById);
+  },
   onTasksChanged: () => {
     broadcastWorkgroupsChanged();
   },
@@ -2133,6 +2146,21 @@ function cleanUpMemberWorktree(member: WorkgroupMember): void {
         error: error instanceof Error ? error.message : String(error),
       });
     });
+}
+
+function getLocalWriteMember(memberId: string): { member: WorkgroupMember; projectPath: string } | { error: string } {
+  const member = workgroupStore.getMemberById(memberId);
+  if (!member) {
+    return { error: "Member not found" };
+  }
+  if (member.executionMode !== "write") {
+    return { error: "Only write-capable members have an isolated worktree." };
+  }
+  const binding = resolveWorkgroupProjectBinding(member.projectId, member);
+  if (binding.projectKind !== "local" || !binding.projectPath) {
+    return { error: "This member is not bound to a local Git project." };
+  }
+  return { member, projectPath: binding.projectPath };
 }
 const workgroupCollaborationService = new WorkgroupCollaborationService({
   runtimeManager,
@@ -3920,6 +3948,7 @@ function touchWorkgroup(workgroupId: string): void {
     name: workgroup.name,
     description: workgroup.description ?? null,
     allowDirectMemberMessages: workgroup.allowDirectMemberMessages,
+    autoStartReadOnlyResearch: workgroup.autoStartReadOnlyResearch,
     groupNumber: workgroup.groupNumber ?? null,
     planWorkspacePath,
     registryUpdatedAt: workgroup.registryUpdatedAt ?? null,
@@ -7395,6 +7424,7 @@ ipcMain.handle("save-workgroup", (_event, data: {
   name: string;
   description?: string | null;
   allowDirectMemberMessages?: boolean;
+  autoStartReadOnlyResearch?: boolean;
   selectedProjectIds?: string[] | null;
 }) => {
   const name = String(data?.name ?? "").trim();
@@ -7414,6 +7444,7 @@ ipcMain.handle("save-workgroup", (_event, data: {
     name,
     description: data?.description ?? null,
     allowDirectMemberMessages: Boolean(data?.allowDirectMemberMessages),
+    autoStartReadOnlyResearch: Boolean(data?.autoStartReadOnlyResearch),
     groupNumber: existing?.groupNumber ?? null,
     planWorkspacePath,
     registryUpdatedAt: existing?.registryUpdatedAt ?? null,
@@ -7689,6 +7720,61 @@ ipcMain.handle("delete-workgroup-member", (_event, memberId: string) => {
   touchWorkgroup(member.workgroupId);
   broadcastWorkgroupsChanged();
   return { success: true };
+});
+
+ipcMain.handle("inspect-workgroup-member-merge", async (_event, memberId: string) => {
+  const resolved = getLocalWriteMember(String(memberId ?? "").trim());
+  if ("error" in resolved) {
+    return { success: false, error: resolved.error };
+  }
+  try {
+    return { success: true, preview: await worktreeManager.inspectMemberMerge(resolved.projectPath, resolved.member.workgroupId, resolved.member.id) };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
+});
+
+ipcMain.handle("merge-workgroup-member-worktree", async (_event, memberId: string) => {
+  const resolved = getLocalWriteMember(String(memberId ?? "").trim());
+  if ("error" in resolved) {
+    return { success: false, error: resolved.error };
+  }
+  const result = await worktreeManager.mergeMemberWorktree(resolved.projectPath, resolved.member.workgroupId, resolved.member.id);
+  if (result.success) {
+    appLogger.info("worktree", "Merged approved member branch.", {
+      workgroupId: resolved.member.workgroupId,
+      memberId: resolved.member.id,
+      commit: result.commit ?? null,
+    });
+  } else {
+    appLogger.warn("worktree", "Member branch merge was not applied.", {
+      workgroupId: resolved.member.workgroupId,
+      memberId: resolved.member.id,
+      conflicts: result.conflicts ?? [],
+      error: result.error ?? null,
+    });
+  }
+  return result;
+});
+
+ipcMain.handle("rollback-workgroup-member-merge", async (_event, data: { memberId: string; mergeCommit: string }) => {
+  const resolved = getLocalWriteMember(String(data?.memberId ?? "").trim());
+  const mergeCommit = String(data?.mergeCommit ?? "").trim();
+  if ("error" in resolved) {
+    return { success: false, error: resolved.error };
+  }
+  if (!/^[0-9a-f]{7,64}$/i.test(mergeCommit)) {
+    return { success: false, error: "Choose a valid merge commit to revert." };
+  }
+  const result = await worktreeManager.rollbackMerge(resolved.projectPath, mergeCommit);
+  if (result.success) {
+    appLogger.info("worktree", "Reverted approved member merge.", {
+      workgroupId: resolved.member.workgroupId,
+      memberId: resolved.member.id,
+      commit: mergeCommit,
+    });
+  }
+  return result;
 });
 
 ipcMain.handle("save-workgroup-task", (_event, data: {

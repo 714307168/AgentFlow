@@ -209,6 +209,7 @@
     <string name="workgroups_task_last_dispatch_label">&#19978;&#27425;&#27966;&#21457;&#65306;%1$s</string>
     <string name="workgroups_task_artifacts_label">&#20135;&#29289;&#65306;%1$s</string>
     <string name="workgroups_task_validation_label">&#39564;&#35777;&#65306;%1$s</string>
+    <string name="workgroups_task_dependencies_label">&#20381;&#36182;&#65306;%1$s</string>
     <string name="workgroups_task_acceptance_status_label">&#39564;&#25910;&#65306;%1$s</string>
     <string name="workgroups_task_review_note_label">&#39564;&#25910;&#35828;&#26126;&#65306;%1$s</string>
     <string name="workgroups_task_acceptance_pending">&#24453;&#39564;&#25910;</string>

@@ -7,6 +7,7 @@ import com.claudecode.remote.data.model.Workgroup
 import com.claudecode.remote.data.model.WorkgroupMember
 import com.claudecode.remote.data.model.WorkgroupMessage
 import com.claudecode.remote.data.model.WorkgroupTask
+import com.claudecode.remote.data.model.WorkgroupTaskDependency
 import com.claudecode.remote.data.model.WorkgroupRegistryEntry
 import com.claudecode.remote.data.model.WorkgroupExecutionRequest
 import com.claudecode.remote.data.model.WorkgroupSession
@@ -815,6 +816,19 @@ class WorkgroupRepository(
             title = obj["title"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty().ifEmpty { id },
             description = obj["description"]?.jsonPrimitive?.contentOrNull?.trim().takeUnless { it.isNullOrEmpty() },
             acceptanceCriteria = obj["acceptanceCriteria"]?.jsonPrimitive?.contentOrNull?.trim().takeUnless { it.isNullOrEmpty() },
+            dependsOnIds = obj["dependsOnIds"]?.jsonArray
+                ?.mapNotNull { it.jsonPrimitive.contentOrNull?.trim()?.takeUnless { value -> value.isEmpty() } }
+                .orEmpty(),
+            dependencyTasks = obj["dependencyTasks"]?.jsonArray?.mapNotNull { dependency ->
+                val dependencyObject = dependency as? JsonObject ?: return@mapNotNull null
+                val dependencyId = dependencyObject["id"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+                if (dependencyId.isBlank()) return@mapNotNull null
+                WorkgroupTaskDependency(
+                    id = dependencyId,
+                    title = dependencyObject["title"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty().ifEmpty { dependencyId },
+                    status = dependencyObject["status"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty().ifEmpty { "todo" }
+                )
+            }.orEmpty(),
             assigneeMemberId = obj["assigneeMemberId"]?.jsonPrimitive?.contentOrNull?.trim().takeUnless { it.isNullOrEmpty() },
             assigneeMemberName = obj["assigneeMemberName"]?.jsonPrimitive?.contentOrNull?.trim().takeUnless { it.isNullOrEmpty() },
             priority = obj["priority"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty().ifEmpty { "normal" },

@@ -28,6 +28,7 @@ export interface Workgroup {
   swarmSchemaVersion: 2;
   requireWriteApproval: boolean;
   singleWriterPerWorkspace: boolean;
+  autoStartReadOnlyResearch: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -268,6 +269,7 @@ class WorkgroupStore {
       swarmSchemaVersion: 2,
       requireWriteApproval: workgroup.requireWriteApproval !== false,
       singleWriterPerWorkspace: workgroup.singleWriterPerWorkspace !== false,
+      autoStartReadOnlyResearch: Boolean(workgroup.autoStartReadOnlyResearch),
       createdAt: Number(workgroup.createdAt) || Date.now(),
       updatedAt: Number(workgroup.updatedAt) || Date.now(),
     };
@@ -303,6 +305,9 @@ class WorkgroupStore {
       singleWriterPerWorkspace: input.singleWriterPerWorkspace !== undefined
         ? input.singleWriterPerWorkspace !== false
         : (workgroups[existingIndex]?.singleWriterPerWorkspace ?? true),
+      autoStartReadOnlyResearch: input.autoStartReadOnlyResearch !== undefined
+        ? Boolean(input.autoStartReadOnlyResearch)
+        : Boolean(workgroups[existingIndex]?.autoStartReadOnlyResearch),
       createdAt: existingIndex >= 0 ? workgroups[existingIndex].createdAt : now,
       updatedAt: now,
     };

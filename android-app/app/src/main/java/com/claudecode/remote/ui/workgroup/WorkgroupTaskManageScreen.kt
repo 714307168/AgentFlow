@@ -387,6 +387,18 @@ private fun WorkgroupTaskCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+            if (task.dependencyTasks.isNotEmpty()) {
+                Text(
+                    text = stringResource(
+                        R.string.workgroups_task_dependencies_label,
+                        task.dependencyTasks.joinToString(" · ") { dependency ->
+                            "${dependency.title} (${dependency.status})"
+                        }
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
             Text(
                 text = stringResource(
                     R.string.workgroups_task_acceptance_status_label,

@@ -14,6 +14,7 @@ interface WorkgroupTaskDispatchResult {
 
 interface WorkgroupTaskSchedulerConfig {
   dispatchTask: (taskId: string) => Promise<WorkgroupTaskDispatchResult>;
+  shouldAutoStartReadOnlyTask?: (task: WorkgroupTask) => boolean;
   onTasksChanged?: () => void;
 }
 
@@ -58,9 +59,13 @@ class WorkgroupTaskScheduler {
         enabled: task.scheduleEnabled !== false,
         nextRunAt: task.nextRunAt,
       }, now));
+    const autoStartTasks = workgroupStore
+      .listTasks()
+      .filter((task) => !this.inFlightTaskIds.has(task.id))
+      .filter((task) => this.config.shouldAutoStartReadOnlyTask?.(task) === true);
 
-    for (const task of dueTasks) {
-      void this.executeTask(task, "scheduled");
+    for (const task of [...dueTasks, ...autoStartTasks]) {
+      void this.executeTask(task, this.isScheduledTask(task) ? "scheduled" : "auto-research");
     }
   }
 
@@ -161,7 +166,7 @@ class WorkgroupTaskScheduler {
     }
   }
 
-  private async executeTask(task: WorkgroupTask, trigger: "scheduled" | "manual"): Promise<void> {
+  private async executeTask(task: WorkgroupTask, trigger: "scheduled" | "manual" | "auto-research"): Promise<void> {
     const latestTask = workgroupStore.getTaskById(task.id);
     if (!latestTask || this.inFlightTaskIds.has(task.id)) {
       return;

@@ -77,4 +77,63 @@ export default class WorktreeManager {
     await git(root, ["worktree", "prune"]);
     return true;
   }
+
+  async inspectMemberMerge(basePath: string, workgroupId: string, memberId: string): Promise<{
+    root: string;
+    branchName: string;
+    worktreePath: string;
+    ahead: number;
+    behind: number;
+    clean: boolean;
+    conflicts: string[];
+  }> {
+    const root = await this.getRepositoryRoot(basePath);
+    const branchName = this.getMemberBranchName(workgroupId, memberId);
+    const worktreePath = this.getMemberWorktreePath(root, workgroupId, memberId);
+    const status = await git(worktreePath, ["status", "--porcelain"]);
+    const counts = await git(root, ["rev-list", "--left-right", "--count", `HEAD...${branchName}`]);
+    const [behind, ahead] = counts.split(/\s+/).map((value) => Number(value) || 0);
+    return { root, branchName, worktreePath, ahead, behind, clean: !status, conflicts: [] };
+  }
+
+  async mergeMemberWorktree(basePath: string, workgroupId: string, memberId: string): Promise<{
+    success: boolean;
+    merged: boolean;
+    commit?: string;
+    conflicts?: string[];
+    error?: string;
+  }> {
+    const root = await this.getRepositoryRoot(basePath);
+    const branchName = this.getMemberBranchName(workgroupId, memberId);
+    try {
+      await git(root, ["merge", "--no-ff", "--no-edit", branchName]);
+      return { success: true, merged: true, commit: await git(root, ["rev-parse", "HEAD"]) };
+    } catch (error) {
+      let conflicts: string[] = [];
+      try {
+        conflicts = (await git(root, ["diff", "--name-only", "--diff-filter=U"]))
+          .split(/\r?\n/).map((entry) => entry.trim()).filter(Boolean);
+        await git(root, ["merge", "--abort"]);
+      } catch {
+        // Preserve the original failure when Git cannot report or abort cleanly.
+      }
+      return {
+        success: false,
+        merged: false,
+        conflicts,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  async rollbackMerge(basePath: string, mergeCommit: string): Promise<{ success: boolean; error?: string }> {
+    const root = await this.getRepositoryRoot(basePath);
+    try {
+      await git(root, ["revert", "--no-edit", "-m", "1", mergeCommit]);
+      return { success: true };
+    } catch (error) {
+      try { await git(root, ["revert", "--abort"]); } catch { /* best effort */ }
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
 }

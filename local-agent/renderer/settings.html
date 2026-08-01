@@ -2829,6 +2829,16 @@
                       <span class="slider"></span>
                     </div>
                   </div>
+                  <div class="toggle-row workgroup-field--wide">
+                    <div class="toggle-copy">
+                      <label for="workgroupAutoStartResearch">Auto-start read-only research</label>
+                      <div class="toggle-help">Dispatch ready researcher tasks automatically. Only read-only members qualify; write tasks still require explicit approval.</div>
+                    </div>
+                    <div class="toggle">
+                      <input type="checkbox" id="workgroupAutoStartResearch">
+                      <span class="slider"></span>
+                    </div>
+                  </div>
                 </div>
                 <div class="workgroup-card-actions">
                   <button class="btn-primary btn-small" id="saveWorkgroupBtn">Save Workgroup</button>
@@ -3609,6 +3619,7 @@
     let latestWorkgroupRegistryResults = [];
     const latestWorkgroupRegistryMembersById = new Map();
     const latestWorkgroupExecutionRequestsByGroupNumber = new Map();
+    const latestWorkgroupMergeCommitByMemberId = new Map();
     const renderSignatures = {
       accessIncoming: "",
       accessControllable: "",
@@ -7404,6 +7415,7 @@
       document.getElementById("workgroupPlanPath").value = workgroup?.planWorkspacePath || "";
       document.getElementById("workgroupDescription").value = workgroup?.description || "";
       document.getElementById("workgroupAllowDirectMessages").checked = Boolean(workgroup?.allowDirectMemberMessages);
+      document.getElementById("workgroupAutoStartResearch").checked = Boolean(workgroup?.autoStartReadOnlyResearch);
       renderWorkgroupProjectPicker(workgroup?.selectedProjectIds || []);
     }
 
@@ -7521,6 +7533,9 @@
             </div>
             <div class="workgroup-subtext">${escapeHtml(member.projectBindingLabel || inlineText("No bound project yet.", "暂未绑定项目。"))}</div>
           </div>
+          ${member.executionMode === "write" && member.projectKind === "local"
+            ? `<div class="project-actions"><button class="btn-small" onclick="inspectWorkgroupMemberMerge('${escapeHtml(member.id)}')">${escapeHtml(inlineText("Review branch", "检查分支"))}</button><button class="btn-primary btn-small" onclick="mergeWorkgroupMemberBranch('${escapeHtml(member.id)}')">${escapeHtml(inlineText("Approve merge", "批准合并"))}</button>${latestWorkgroupMergeCommitByMemberId.has(member.id) ? `<button class="btn-danger btn-small" onclick="rollbackWorkgroupMemberMerge('${escapeHtml(member.id)}')">${escapeHtml(inlineText("Revert merge", "回退合并"))}</button>` : ""}</div>`
+            : ""}
         </div>
       `).join("");
       const registryState = latestWorkgroupRegistryMembersById.get(workgroup.id) || null;
@@ -7924,6 +7939,7 @@
           name,
           description: document.getElementById("workgroupDescription").value.trim() || null,
           allowDirectMemberMessages: document.getElementById("workgroupAllowDirectMessages").checked,
+          autoStartReadOnlyResearch: document.getElementById("workgroupAutoStartResearch").checked,
           selectedProjectIds: getSelectedWorkgroupProjectIds(),
         });
         if (!result?.success) {
@@ -8262,6 +8278,78 @@
         paneLoadState.workgroupsDirty = true;
         await loadWorkgroups({ force: true });
         flashSaved();
+      } catch (error) {
+        showStatus(getErrorMessage(error), true);
+      }
+    }
+
+    async function inspectWorkgroupMemberMerge(memberId) {
+      try {
+        const result = await api.inspectWorkgroupMemberMerge(memberId);
+        if (!result?.success) {
+          showStatus(result?.error || inlineText("Unable to inspect the member branch.", "无法检查成员分支。"), true);
+          return;
+        }
+        const preview = result.preview || {};
+        showStatus(inlineText(
+          `Branch review: ${preview.ahead || 0} commit(s) ready to merge, ${preview.behind || 0} commit(s) behind the primary branch${preview.clean ? "." : "; the member worktree has uncommitted changes."}`,
+          `分支检查：有 ${preview.ahead || 0} 个提交可合并，落后主分支 ${preview.behind || 0} 个提交${preview.clean ? "。" : "；成员工作树还有未提交改动。"}`
+        ), !preview.clean);
+      } catch (error) {
+        showStatus(getErrorMessage(error), true);
+      }
+    }
+
+    async function mergeWorkgroupMemberBranch(memberId) {
+      const previewResult = await api.inspectWorkgroupMemberMerge(memberId);
+      if (!previewResult?.success) {
+        showStatus(previewResult?.error || inlineText("Unable to inspect the member branch.", "无法检查成员分支。"), true);
+        return;
+      }
+      const preview = previewResult.preview || {};
+      if (!preview.clean) {
+        showStatus(inlineText("The member worktree has uncommitted changes and cannot be merged yet.", "成员工作树还有未提交改动，暂不能合并。"), true);
+        return;
+      }
+      if (!confirmRiskAction({
+        action: inlineText("Approve and merge this member branch?", "批准并合并此成员分支？"),
+        impact: inlineText(`${preview.ahead || 0} commit(s) will be merged into the primary project branch.`, `将把 ${preview.ahead || 0} 个提交合并到项目主分支。`),
+        recovery: inlineText("A successful merge can be reverted from this member card without rewriting history.", "合并成功后可从此成员卡片回退，不会改写历史。"),
+      })) {
+        return;
+      }
+      try {
+        const result = await api.mergeWorkgroupMemberWorktree(memberId);
+        if (!result?.success) {
+          const conflicts = Array.isArray(result?.conflicts) && result.conflicts.length ? ` ${result.conflicts.join(", ")}` : "";
+          showStatus((result?.error || inlineText("Merge was not applied.", "未执行合并。")) + conflicts, true);
+          return;
+        }
+        latestWorkgroupMergeCommitByMemberId.set(memberId, result.commit);
+        renderWorkgroupMembers(getCurrentWorkgroup());
+        showStatus(inlineText("Member branch merged. Review the result, or revert the merge from this card.", "成员分支已合并。请检查结果；如需撤销，可从此卡片回退合并。"), false);
+      } catch (error) {
+        showStatus(getErrorMessage(error), true);
+      }
+    }
+
+    async function rollbackWorkgroupMemberMerge(memberId) {
+      const mergeCommit = latestWorkgroupMergeCommitByMemberId.get(memberId);
+      if (!mergeCommit) return;
+      if (!confirmRiskAction({
+        action: inlineText("Revert this approved merge?", "回退这次已批准的合并？"),
+        impact: inlineText("A new revert commit will undo the member branch changes.", "会新建一个回退提交，撤销成员分支的改动。"),
+        recovery: inlineText("You can review the revert commit and merge the member branch again later.", "可检查回退提交，之后仍可重新合并成员分支。"),
+      })) return;
+      try {
+        const result = await api.rollbackWorkgroupMemberMerge({ memberId, mergeCommit });
+        if (!result?.success) {
+          showStatus(result?.error || inlineText("Merge rollback was not applied.", "未执行合并回退。"), true);
+          return;
+        }
+        latestWorkgroupMergeCommitByMemberId.delete(memberId);
+        renderWorkgroupMembers(getCurrentWorkgroup());
+        showStatus(inlineText("Member merge reverted with a new Git commit.", "已通过新的 Git 提交回退成员合并。"), false);
       } catch (error) {
         showStatus(getErrorMessage(error), true);
       }

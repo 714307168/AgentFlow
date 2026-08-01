@@ -31,6 +31,8 @@ data class WorkgroupTask(
     val title: String,
     val description: String? = null,
     val acceptanceCriteria: String? = null,
+    val dependsOnIds: List<String> = emptyList(),
+    val dependencyTasks: List<WorkgroupTaskDependency> = emptyList(),
     val assigneeMemberId: String? = null,
     val assigneeMemberName: String? = null,
     val priority: String = "normal",
@@ -51,6 +53,12 @@ data class WorkgroupTask(
     val dispatchReady: Boolean = false,
     val dispatchBlockedReason: String? = null,
     val updatedAt: Long = 0L
+)
+
+data class WorkgroupTaskDependency(
+    val id: String,
+    val title: String,
+    val status: String = "todo"
 )
 
 data class Workgroup(

@@ -112,6 +112,9 @@ contextBridge.exposeInMainWorld('claudeAgent', {
     specialty?: 'planner' | 'implementer' | 'reviewer' | 'tester' | 'researcher' | 'general';
   }) => ipcRenderer.invoke('save-workgroup-member', data),
   deleteWorkgroupMember: (memberId: string) => ipcRenderer.invoke('delete-workgroup-member', memberId),
+  inspectWorkgroupMemberMerge: (memberId: string) => ipcRenderer.invoke('inspect-workgroup-member-merge', memberId),
+  mergeWorkgroupMemberWorktree: (memberId: string) => ipcRenderer.invoke('merge-workgroup-member-worktree', memberId),
+  rollbackWorkgroupMemberMerge: (data: { memberId: string; mergeCommit: string }) => ipcRenderer.invoke('rollback-workgroup-member-merge', data),
   saveWorkgroupTask: (data: {
     id?: string;
     workgroupId: string;
