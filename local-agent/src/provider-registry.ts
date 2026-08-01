@@ -237,6 +237,14 @@ export const MODEL_PROVIDER_PRESETS: ModelProviderPreset[] = [
     description: "Alibaba DashScope OpenAI-compatible API mode.",
   },
   {
+    id: "google-gemini",
+    name: "Google Gemini",
+    protocol: "openai",
+    baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+    defaultModel: "gemini-2.5-pro",
+    description: "Google Gemini through its official OpenAI-compatible endpoint.",
+  },
+  {
     id: "anthropic",
     name: "Anthropic Claude",
     protocol: "anthropic",

@@ -216,6 +216,12 @@
     <string name="workgroups_task_acceptance_passed">&#39564;&#25910;&#36890;&#36807;</string>
     <string name="workgroups_task_acceptance_failed">&#39564;&#25910;&#19981;&#36890;&#36807;</string>
     <string name="workgroups_task_create">&#26032;&#24314;&#20219;&#21153;</string>
+    <string name="workgroups_pm_plan">&#35753; PM &#35268;&#21010;</string>
+    <string name="workgroups_pm_goal_label">PM &#35268;&#21010;&#30446;&#26631;</string>
+    <string name="workgroups_pm_generate">&#29983;&#25104;&#26041;&#26696;</string>
+    <string name="workgroups_pm_confirm">&#30830;&#35748;&#24182;&#20445;&#23384;</string>
+    <string name="workgroups_pm_discard">&#20002;&#24323;</string>
+    <string name="workgroups_task_graph_title">&#20219;&#21153;&#27969;&#31243;</string>
     <string name="workgroups_task_edit">&#32534;&#36753;</string>
     <string name="workgroups_task_delete">&#21024;&#38500;</string>
     <string name="workgroups_task_delete_title">&#21024;&#38500;&#20219;&#21153;</string>

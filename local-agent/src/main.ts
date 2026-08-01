@@ -5457,6 +5457,16 @@ function initRelay(config: AgentConfig): void {
     saveWorkgroupTask: (data) => handleSaveWorkgroupTaskRequest(data),
     deleteWorkgroupTask: (taskId: string) => handleDeleteWorkgroupTaskRequest(taskId),
     updateWorkgroupTaskScheduleEnabled: (data) => handleSetWorkgroupTaskScheduleEnabledRequest(data),
+    generateWorkgroupTaskDraft: (data) => handleGenerateWorkgroupTaskDraftRequest(data),
+    applyWorkgroupTaskDraft: (draftId) => handleApplyWorkgroupTaskDraftRequest(draftId),
+    deleteWorkgroupTaskDraft: (draftId) => {
+      const draft = workgroupStore.getTaskDraftById(draftId);
+      if (!draft) return { success: false, error: "Task draft not found" };
+      workgroupStore.removeTaskDraft(draft.id);
+      touchWorkgroup(draft.workgroupId);
+      broadcastWorkgroupsChanged();
+      return { success: true, workgroup: getSerializedWorkgroupById(draft.workgroupId) };
+    },
     getWorkgroupCollaborationRelayPayload: () => buildWorkgroupCollaborationRelayPayload(),
     getWorkgroupCollaborationSessionPayload: (data) => buildWorkgroupCollaborationSessionRelayPayload(data),
     sendWorkgroupCollaborationMessage: (data) => workgroupCollaborationService.sendUserMessage(

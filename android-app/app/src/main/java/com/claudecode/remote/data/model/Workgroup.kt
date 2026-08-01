@@ -61,6 +61,25 @@ data class WorkgroupTaskDependency(
     val status: String = "todo"
 )
 
+data class WorkgroupTaskDraftProposal(
+    val key: String,
+    val title: String,
+    val description: String? = null,
+    val acceptanceCriteria: String? = null,
+    val priority: String = "normal",
+    val assigneeMemberId: String? = null,
+    val dependsOnKeys: List<String> = emptyList()
+)
+
+data class WorkgroupTaskPlanDraft(
+    val id: String,
+    val goal: String,
+    val status: String = "generating",
+    val summary: String? = null,
+    val tasks: List<WorkgroupTaskDraftProposal> = emptyList(),
+    val error: String? = null
+)
+
 data class Workgroup(
     val id: String,
     val name: String,
@@ -71,7 +90,8 @@ data class Workgroup(
     val lastMessagePreview: String? = null,
     val messageCount: Int = 0,
     val memberCount: Int = 0,
-    val tasks: List<WorkgroupTask> = emptyList()
+    val tasks: List<WorkgroupTask> = emptyList(),
+    val taskDrafts: List<WorkgroupTaskPlanDraft> = emptyList()
 )
 
 data class WorkgroupSession(

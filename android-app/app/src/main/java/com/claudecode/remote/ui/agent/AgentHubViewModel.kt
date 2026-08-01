@@ -342,6 +342,24 @@ class AgentHubViewModel(
         }
     }
 
+    fun generateWorkgroupTaskDraft(agentId: String, workgroupId: String, goal: String) {
+        submitWorkgroupCommand {
+            workgroupRepository.generateTaskDraft(agentId, workgroupId, goal)
+        }
+    }
+
+    fun applyWorkgroupTaskDraft(agentId: String, draftId: String) {
+        submitWorkgroupCommand {
+            workgroupRepository.applyTaskDraft(agentId, draftId)
+        }
+    }
+
+    fun deleteWorkgroupTaskDraft(agentId: String, draftId: String) {
+        submitWorkgroupCommand {
+            workgroupRepository.deleteTaskDraft(agentId, draftId)
+        }
+    }
+
     fun isConnected(): Boolean = webSocket.connectionState.value == RelayWebSocket.ConnectionState.CONNECTED
 
     private suspend fun resolveAgentIds(): List<String> {

@@ -135,4 +135,5 @@ test("model provider presets include domestic OpenAI-compatible providers", () =
   assert.equal(presetIds.includes("minimax-mimo"), true);
   assert.equal(presetIds.includes("hunyuan"), true);
   assert.equal(presetIds.includes("aliyun-qwen"), true);
+  assert.equal(presetIds.includes("google-gemini"), true);
 });

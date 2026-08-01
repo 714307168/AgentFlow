@@ -54,6 +54,9 @@ interface MessageRouterOptions {
     taskId: string;
     enabled: boolean;
   }) => { success: boolean; error?: string; workgroup?: unknown };
+  generateWorkgroupTaskDraft?: (data: { workgroupId: string; goal: string }) => { success: boolean; error?: string; workgroup?: unknown };
+  applyWorkgroupTaskDraft?: (draftId: string) => { success: boolean; error?: string; workgroup?: unknown };
+  deleteWorkgroupTaskDraft?: (draftId: string) => { success: boolean; error?: string; workgroup?: unknown };
   getWorkgroupCollaborationRelayPayload?: () => { agent_id: string; workgroups: unknown[] } | null;
   getWorkgroupCollaborationSessionPayload?: (data: {
     workgroupId: string;
@@ -485,12 +488,36 @@ class MessageRouter {
       daily_time?: string;
       weekly_day?: number;
       enabled?: boolean;
+      goal?: string;
+      draft_id?: string;
     } | undefined;
     const action = String(payload?.action ?? "").trim().toLowerCase();
     const taskId = String(payload?.task_id ?? "").trim();
 
     let result: { success: boolean; error?: string; workgroup?: unknown };
-    if (action === "save_task") {
+    if (action === "generate_task_draft") {
+      const workgroupId = String(payload?.workgroup_id ?? "").trim();
+      const goal = String(payload?.goal ?? "").trim();
+      if (!this.options.generateWorkgroupTaskDraft) {
+        result = { success: false, error: "PM task drafts are unavailable" };
+      } else if (!workgroupId || !goal) {
+        result = { success: false, error: "Workgroup id and PM goal are required" };
+      } else {
+        result = this.options.generateWorkgroupTaskDraft({ workgroupId, goal });
+      }
+    } else if (action === "apply_task_draft" || action === "delete_task_draft") {
+      const draftId = String(payload?.draft_id ?? "").trim();
+      const handler = action === "apply_task_draft"
+        ? this.options.applyWorkgroupTaskDraft
+        : this.options.deleteWorkgroupTaskDraft;
+      if (!handler) {
+        result = { success: false, error: "PM task drafts are unavailable" };
+      } else if (!draftId) {
+        result = { success: false, error: "Task draft id is required" };
+      } else {
+        result = handler(draftId);
+      }
+    } else if (action === "save_task") {
       if (!this.options.saveWorkgroupTask) {
         result = { success: false, error: "Workgroup task saves are unavailable" };
       } else {

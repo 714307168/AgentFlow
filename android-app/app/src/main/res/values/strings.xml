@@ -244,6 +244,12 @@
     <string name="workgroups_task_acceptance_passed">Accepted</string>
     <string name="workgroups_task_acceptance_failed">Rejected</string>
     <string name="workgroups_task_create">New task</string>
+    <string name="workgroups_pm_plan">Plan with PM</string>
+    <string name="workgroups_pm_goal_label">Goal for the PM</string>
+    <string name="workgroups_pm_generate">Generate plan</string>
+    <string name="workgroups_pm_confirm">Confirm and save</string>
+    <string name="workgroups_pm_discard">Discard</string>
+    <string name="workgroups_task_graph_title">Task flow</string>
     <string name="workgroups_task_edit">Edit</string>
     <string name="workgroups_task_delete">Delete</string>
     <string name="workgroups_task_delete_title">Delete task</string>

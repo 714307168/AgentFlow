@@ -62,6 +62,11 @@ const BUILTIN_MODEL_CATALOG_BY_PROFILE_ID: Record<string, string[]> = {
     "qwen-long",
     "qwen-vl-plus",
   ],
+  "google-gemini": [
+    "gemini-2.5-pro",
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+  ],
   anthropic: [
     "claude-3-7-sonnet-latest",
     "claude-3-5-sonnet-latest",

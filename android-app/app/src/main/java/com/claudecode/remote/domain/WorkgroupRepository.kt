@@ -8,6 +8,8 @@ import com.claudecode.remote.data.model.WorkgroupMember
 import com.claudecode.remote.data.model.WorkgroupMessage
 import com.claudecode.remote.data.model.WorkgroupTask
 import com.claudecode.remote.data.model.WorkgroupTaskDependency
+import com.claudecode.remote.data.model.WorkgroupTaskDraftProposal
+import com.claudecode.remote.data.model.WorkgroupTaskPlanDraft
 import com.claudecode.remote.data.model.WorkgroupRegistryEntry
 import com.claudecode.remote.data.model.WorkgroupExecutionRequest
 import com.claudecode.remote.data.model.WorkgroupSession
@@ -380,6 +382,33 @@ class WorkgroupRepository(
             agentId = agentId,
             taskId = taskId,
             action = "delete_task"
+        )
+
+    suspend fun generateTaskDraft(agentId: String, workgroupId: String, goal: String): Result<Unit> =
+        sendWorkgroupCommand(
+            agentId = agentId,
+            taskId = null,
+            action = "generate_task_draft",
+            extraPayload = mapOf(
+                "workgroup_id" to JsonPrimitive(workgroupId),
+                "goal" to JsonPrimitive(goal)
+            )
+        )
+
+    suspend fun applyTaskDraft(agentId: String, draftId: String): Result<Unit> =
+        sendWorkgroupCommand(
+            agentId = agentId,
+            taskId = null,
+            action = "apply_task_draft",
+            extraPayload = mapOf("draft_id" to JsonPrimitive(draftId))
+        )
+
+    suspend fun deleteTaskDraft(agentId: String, draftId: String): Result<Unit> =
+        sendWorkgroupCommand(
+            agentId = agentId,
+            taskId = null,
+            action = "delete_task_draft",
+            extraPayload = mapOf("draft_id" to JsonPrimitive(draftId))
         )
 
     fun getSession(agentId: String, workgroupId: String): WorkgroupSession? =
@@ -755,7 +784,8 @@ class WorkgroupRepository(
             lastMessagePreview = obj["lastMessagePreview"]?.jsonPrimitive?.contentOrNull?.trim().takeUnless { it.isNullOrEmpty() },
             messageCount = obj["messageCount"]?.jsonPrimitive?.intOrNull ?: 0,
             memberCount = obj["memberCount"]?.jsonPrimitive?.intOrNull ?: 0,
-            tasks = obj["tasks"]?.jsonArray?.mapNotNull(::parseTask).orEmpty()
+            tasks = obj["tasks"]?.jsonArray?.mapNotNull(::parseTask).orEmpty(),
+            taskDrafts = obj["taskDrafts"]?.jsonArray?.mapNotNull(::parseTaskDraft).orEmpty()
         )
     }
 
@@ -849,6 +879,37 @@ class WorkgroupRepository(
             dispatchReady = obj["dispatchReady"]?.jsonPrimitive?.booleanOrNull == true,
             dispatchBlockedReason = obj["dispatchBlockedReason"]?.jsonPrimitive?.contentOrNull?.trim().takeUnless { it.isNullOrEmpty() },
             updatedAt = obj["updatedAt"]?.jsonPrimitive?.longOrNull ?: 0L
+        )
+    }
+
+    private fun parseTaskDraft(element: JsonElement): WorkgroupTaskPlanDraft? {
+        val obj = element as? JsonObject ?: return null
+        val id = obj["id"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        val goal = obj["goal"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        if (id.isBlank() || goal.isBlank()) return null
+        return WorkgroupTaskPlanDraft(
+            id = id,
+            goal = goal,
+            status = obj["status"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty().ifEmpty { "generating" },
+            summary = obj["summary"]?.jsonPrimitive?.contentOrNull?.trim().takeUnless { it.isNullOrEmpty() },
+            tasks = obj["tasks"]?.jsonArray?.mapNotNull { task ->
+                val taskObject = task as? JsonObject ?: return@mapNotNull null
+                val key = taskObject["key"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+                val title = taskObject["title"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+                if (key.isBlank() || title.isBlank()) return@mapNotNull null
+                WorkgroupTaskDraftProposal(
+                    key = key,
+                    title = title,
+                    description = taskObject["description"]?.jsonPrimitive?.contentOrNull?.trim().takeUnless { it.isNullOrEmpty() },
+                    acceptanceCriteria = taskObject["acceptanceCriteria"]?.jsonPrimitive?.contentOrNull?.trim().takeUnless { it.isNullOrEmpty() },
+                    priority = taskObject["priority"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty().ifEmpty { "normal" },
+                    assigneeMemberId = taskObject["assigneeMemberId"]?.jsonPrimitive?.contentOrNull?.trim().takeUnless { it.isNullOrEmpty() },
+                    dependsOnKeys = taskObject["dependsOnKeys"]?.jsonArray
+                        ?.mapNotNull { value -> value.jsonPrimitive.contentOrNull?.trim()?.takeUnless { it.isEmpty() } }
+                        .orEmpty()
+                )
+            }.orEmpty(),
+            error = obj["error"]?.jsonPrimitive?.contentOrNull?.trim().takeUnless { it.isNullOrEmpty() }
         )
     }
 
@@ -957,7 +1018,7 @@ class WorkgroupRepository(
         if (normalizedAgentId.isEmpty()) {
             return Result.failure(IllegalArgumentException("agentId is required"))
         }
-        if (action != "save_task" && normalizedTaskId.isEmpty()) {
+        if (action !in setOf("save_task", "generate_task_draft", "apply_task_draft", "delete_task_draft") && normalizedTaskId.isEmpty()) {
             return Result.failure(IllegalArgumentException("taskId is required"))
         }
 

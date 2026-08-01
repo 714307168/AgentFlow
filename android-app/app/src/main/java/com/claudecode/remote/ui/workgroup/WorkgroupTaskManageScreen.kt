@@ -90,6 +90,8 @@ fun WorkgroupTaskManageScreen(
     val invalidDraftMessage = stringResource(R.string.workgroups_task_error_invalid)
     var editingDraft by remember { mutableStateOf<WorkgroupTaskDraft?>(null) }
     var deleteTask by remember { mutableStateOf<WorkgroupTask?>(null) }
+    var showPmPlanDialog by remember { mutableStateOf(false) }
+    var pmGoal by remember { mutableStateOf("") }
     var dialogError by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(agentId, workgroupId) {
@@ -164,6 +166,9 @@ fun WorkgroupTaskManageScreen(
                             )
                             Text(stringResource(R.string.workgroups_task_create))
                         }
+                        TextButton(onClick = { showPmPlanDialog = true }) {
+                            Text(stringResource(R.string.workgroups_pm_plan))
+                        }
                         TextButton(onClick = onOpenChat) {
                             Text(stringResource(R.string.workgroups_summary_title))
                         }
@@ -190,7 +195,7 @@ fun WorkgroupTaskManageScreen(
                             }
                         }
 
-                        workgroup.tasks.isEmpty() -> {
+                        workgroup.tasks.isEmpty() && workgroup.taskDrafts.isEmpty() -> {
                             Surface(
                                 color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
                                 shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp)
@@ -210,6 +215,18 @@ fun WorkgroupTaskManageScreen(
                                 contentPadding = PaddingValues(bottom = 20.dp),
                                 verticalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
+                                if (workgroup.taskDrafts.isNotEmpty()) {
+                                    item(key = "pm-drafts") {
+                                        WorkgroupTaskPlanDrafts(
+                                            drafts = workgroup.taskDrafts,
+                                            onApply = { viewModel.applyWorkgroupTaskDraft(agentId, it) },
+                                            onDelete = { viewModel.deleteWorkgroupTaskDraft(agentId, it) }
+                                        )
+                                    }
+                                }
+                                item(key = "task-graph") {
+                                    WorkgroupTaskFlow(tasks = workgroup.tasks)
+                                }
                                 items(workgroup.tasks, key = { it.id }) { task ->
                                     WorkgroupTaskCard(
                                         task = task,
@@ -291,6 +308,35 @@ fun WorkgroupTaskManageScreen(
                 TextButton(onClick = { deleteTask = null }) {
                     Text(stringResource(R.string.cancel))
                 }
+            }
+        )
+    }
+
+    if (showPmPlanDialog) {
+        AlertDialog(
+            onDismissRequest = { showPmPlanDialog = false },
+            title = { Text(stringResource(R.string.workgroups_pm_plan)) },
+            text = {
+                OutlinedTextField(
+                    value = pmGoal,
+                    onValueChange = { pmGoal = it },
+                    label = { Text(stringResource(R.string.workgroups_pm_goal_label)) },
+                    minLines = 3,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = pmGoal.isNotBlank(),
+                    onClick = {
+                        viewModel.generateWorkgroupTaskDraft(agentId, workgroupId, pmGoal.trim())
+                        pmGoal = ""
+                        showPmPlanDialog = false
+                    }
+                ) { Text(stringResource(R.string.workgroups_pm_generate)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPmPlanDialog = false }) { Text(stringResource(R.string.cancel)) }
             }
         )
     }
