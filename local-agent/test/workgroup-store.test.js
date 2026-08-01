@@ -108,3 +108,32 @@ test("workgroup store normalizes task dependencies and removes deleted reference
 
   workgroupStore.removeWorkgroup(workgroupId);
 });
+
+test("workgroup store keeps PM task drafts separate until they are confirmed", () => {
+  const workgroupId = "workgroup-task-drafts";
+  workgroupStore.removeWorkgroup(workgroupId);
+  workgroupStore.saveWorkgroup({ id: workgroupId, name: "Draft planning" });
+
+  const draft = workgroupStore.saveTaskDraft({
+    workgroupId,
+    goal: "Prepare a safe release",
+    status: "ready",
+    tasks: [{
+      key: "verify",
+      title: "Verify release",
+      description: null,
+      acceptanceCriteria: "Smoke test passes",
+      priority: "normal",
+      assigneeMemberId: null,
+      dependsOnKeys: [],
+    }],
+  });
+
+  assert.equal(workgroupStore.listTasks(workgroupId).length, 0);
+  assert.equal(workgroupStore.getTaskDraftById(draft.id)?.status, "ready");
+  assert.equal(workgroupStore.listTaskDrafts(workgroupId)[0]?.tasks[0]?.title, "Verify release");
+
+  workgroupStore.removeTaskDraft(draft.id);
+  assert.equal(workgroupStore.listTaskDrafts(workgroupId).length, 0);
+  workgroupStore.removeWorkgroup(workgroupId);
+});

@@ -5,6 +5,7 @@ import {
   normalizeWeeklyDay,
   ScheduledTaskScheduleType,
 } from "./scheduled-task-store";
+import type { WorkgroupTaskDraftProposal, WorkgroupTaskDraftStatus } from "./workgroup-task-draft";
 
 export type WorkgroupRole = "member" | "project_manager";
 export type WorkgroupMode = "swarm";
@@ -74,10 +75,24 @@ export interface WorkgroupTask {
   updatedAt: number;
 }
 
+export interface WorkgroupTaskDraft {
+  id: string;
+  workgroupId: string;
+  goal: string;
+  status: WorkgroupTaskDraftStatus;
+  summary?: string | null;
+  tasks: WorkgroupTaskDraftProposal[];
+  error?: string | null;
+  generationRunId?: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
 interface WorkgroupStoreSchema {
   workgroups: Workgroup[];
   members: WorkgroupMember[];
   tasks: WorkgroupTask[];
+  taskDrafts: WorkgroupTaskDraft[];
 }
 
 function normalizeProjectKind(value: string | null | undefined): "local" | "remote" | null {
@@ -138,6 +153,45 @@ function normalizeAllowedPaths(paths: Array<string | null | undefined> | null | 
   );
 }
 
+function normalizeDraftStatus(value: unknown): WorkgroupTaskDraftStatus {
+  return value === "ready" || value === "error" ? value : "generating";
+}
+
+function normalizeDraftTasks(value: unknown): WorkgroupTaskDraftProposal[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const usedKeys = new Set<string>();
+  return value.slice(0, 20).flatMap((entry, index) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      return [];
+    }
+    const task = entry as Partial<WorkgroupTaskDraftProposal>;
+    const title = String(task.title ?? "").trim().slice(0, 240);
+    if (!title) {
+      return [];
+    }
+    const requestedKey = String(task.key ?? "").trim().toLowerCase();
+    const baseKey = /^[a-z0-9][a-z0-9_-]{0,63}$/i.test(requestedKey) ? requestedKey : `task-${index + 1}`;
+    let key = baseKey;
+    let suffix = 2;
+    while (usedKeys.has(key)) {
+      key = `${baseKey.slice(0, Math.max(1, 61 - String(suffix).length))}-${suffix}`;
+      suffix += 1;
+    }
+    usedKeys.add(key);
+    return [{
+      key,
+      title,
+      description: normalizeNullableText(task.description),
+      acceptanceCriteria: normalizeNullableText(task.acceptanceCriteria),
+      priority: task.priority === "high" || task.priority === "low" ? task.priority : "normal",
+      assigneeMemberId: normalizeNullableText(task.assigneeMemberId),
+      dependsOnKeys: normalizeIdList(task.dependsOnKeys).filter((dependencyKey) => dependencyKey !== key),
+    }];
+  });
+}
+
 function normalizeMemberKind(value: string | null | undefined): WorkgroupMemberKind {
   return value === "pm" ? "pm" : "project";
 }
@@ -177,6 +231,7 @@ class WorkgroupStore {
       workgroups: [],
       members: [],
       tasks: [],
+      taskDrafts: [],
     },
   });
 
@@ -256,6 +311,7 @@ class WorkgroupStore {
     this.store.set("workgroups", this.listWorkgroups().filter((entry) => entry.id !== id));
     this.store.set("members", this.listMembers().filter((entry) => entry.workgroupId !== id));
     this.store.set("tasks", this.listTasks().filter((entry) => entry.workgroupId !== id));
+    this.store.set("taskDrafts", this.listTaskDrafts().filter((entry) => entry.workgroupId !== id));
   }
 
   listMembers(workgroupId?: string | null): WorkgroupMember[] {
@@ -418,6 +474,64 @@ class WorkgroupStore {
         dependsOnIds: entry.dependsOnIds.filter((dependencyId) => dependencyId !== id),
         updatedAt: Date.now(),
       } : entry));
+  }
+
+  listTaskDrafts(workgroupId?: string | null): WorkgroupTaskDraft[] {
+    const drafts = this.store.get("taskDrafts", []).map((draft) => this.normalizeTaskDraft(draft));
+    if (!workgroupId) {
+      return drafts;
+    }
+    return drafts.filter((entry) => entry.workgroupId === workgroupId);
+  }
+
+  getTaskDraftById(id: string): WorkgroupTaskDraft | undefined {
+    return this.listTaskDrafts().find((entry) => entry.id === id);
+  }
+
+  private normalizeTaskDraft(draft: Partial<WorkgroupTaskDraft>): WorkgroupTaskDraft {
+    const status = normalizeDraftStatus(draft.status);
+    return {
+      id: String(draft.id ?? "").trim(),
+      workgroupId: String(draft.workgroupId ?? "").trim(),
+      goal: String(draft.goal ?? "").trim(),
+      status,
+      summary: normalizeNullableText(draft.summary),
+      tasks: normalizeDraftTasks(draft.tasks),
+      error: normalizeNullableText(draft.error),
+      generationRunId: normalizeNullableText(draft.generationRunId),
+      createdAt: Number(draft.createdAt) || Date.now(),
+      updatedAt: Number(draft.updatedAt) || Date.now(),
+    };
+  }
+
+  saveTaskDraft(input: Partial<WorkgroupTaskDraft> & { id?: string; workgroupId: string; goal: string }): WorkgroupTaskDraft {
+    const drafts = this.listTaskDrafts();
+    const now = Date.now();
+    const existingIndex = input.id ? drafts.findIndex((entry) => entry.id === input.id) : -1;
+    const existing = existingIndex >= 0 ? drafts[existingIndex] : null;
+    const next = this.normalizeTaskDraft({
+      id: existing?.id || input.id?.trim() || uuidv4(),
+      workgroupId: input.workgroupId,
+      goal: input.goal,
+      status: input.status ?? existing?.status ?? "generating",
+      summary: input.summary !== undefined ? input.summary : (existing?.summary ?? null),
+      tasks: input.tasks !== undefined ? input.tasks : (existing?.tasks ?? []),
+      error: input.error !== undefined ? input.error : (existing?.error ?? null),
+      generationRunId: input.generationRunId !== undefined ? input.generationRunId : (existing?.generationRunId ?? null),
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    });
+    if (existingIndex >= 0) {
+      drafts[existingIndex] = next;
+    } else {
+      drafts.push(next);
+    }
+    this.store.set("taskDrafts", drafts);
+    return next;
+  }
+
+  removeTaskDraft(id: string): void {
+    this.store.set("taskDrafts", this.listTaskDrafts().filter((entry) => entry.id !== id));
   }
 }
 

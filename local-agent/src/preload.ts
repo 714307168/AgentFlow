@@ -135,6 +135,9 @@ contextBridge.exposeInMainWorld('claudeAgent', {
     description?: string | null;
     acceptanceCriteria?: string | null;
   }) => ipcRenderer.invoke('recommend-workgroup-task-assignee', data),
+  generateWorkgroupTaskDraft: (data: { workgroupId: string; goal: string }) => ipcRenderer.invoke('generate-workgroup-task-draft', data),
+  applyWorkgroupTaskDraft: (draftId: string) => ipcRenderer.invoke('apply-workgroup-task-draft', draftId),
+  deleteWorkgroupTaskDraft: (draftId: string) => ipcRenderer.invoke('delete-workgroup-task-draft', draftId),
   deleteWorkgroupTask: (taskId: string) => ipcRenderer.invoke('delete-workgroup-task', taskId),
   setWorkgroupTaskScheduleEnabled: (data: {
     taskId: string;

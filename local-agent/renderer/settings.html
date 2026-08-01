@@ -2908,6 +2908,18 @@
               <div class="workgroup-card" style="margin-top: 14px;">
               <div class="workgroup-card-title" id="workgroupTaskTitle">Tasks</div>
               <div class="workgroup-card" style="margin: 0 0 14px;">
+                <div class="workgroup-card-title" id="workgroupTaskDraftTitle">Plan with PM</div>
+                <div class="field">
+                  <label id="workgroupTaskDraftGoalLabel" for="workgroupTaskDraftGoal">Goal</label>
+                  <textarea id="workgroupTaskDraftGoal" rows="3" placeholder="Describe the outcome that needs a task plan."></textarea>
+                  <div class="toggle-help" id="workgroupTaskDraftHint">The PM proposes inactive tasks. Review and confirm before anything is saved or dispatched.</div>
+                </div>
+                <div class="workgroup-card-actions">
+                  <button class="btn-secondary btn-small" id="generateWorkgroupTaskDraftBtn">Generate Task Draft</button>
+                </div>
+                <div class="project-list" id="workgroupTaskDraftList" data-empty-message="No PM task drafts yet."></div>
+              </div>
+              <div class="workgroup-card" style="margin: 0 0 14px;">
                 <div class="workgroup-card-title" id="workgroupTaskGraphTitle">Task Flow</div>
                 <div id="workgroupTaskGraph" aria-live="polite"></div>
               </div>
@@ -3599,6 +3611,7 @@
       workgroupTaskAssignees: "",
       workgroupTaskDependencies: "",
       workgroupTaskGraph: "",
+      workgroupTaskDrafts: "",
       workgroupSelect: "",
       workgroupMembers: "",
       workgroupTasks: "",
@@ -5781,6 +5794,15 @@
       document.getElementById("cancelWorkgroupMemberBtn").textContent = inlineText("Reset", "重置");
       document.getElementById("workgroupMemberList").setAttribute("data-empty-message", inlineText("No members yet.", "还没有成员。"));
       document.getElementById("workgroupTaskTitle").textContent = inlineText("Tasks", "任务");
+      document.getElementById("workgroupTaskDraftTitle").textContent = inlineText("Plan with PM", "让 PM 规划");
+      document.getElementById("workgroupTaskDraftGoalLabel").textContent = inlineText("Goal", "目标");
+      document.getElementById("workgroupTaskDraftGoal").placeholder = inlineText("Describe the outcome that needs a task plan.", "描述需要拆解为任务图的目标。");
+      document.getElementById("workgroupTaskDraftHint").textContent = inlineText(
+        "The PM proposes inactive tasks. Review and confirm before anything is saved or dispatched.",
+        "PM 只会生成未激活的任务草案；确认前不会保存或派发任何任务。"
+      );
+      document.getElementById("generateWorkgroupTaskDraftBtn").textContent = inlineText("Generate Task Draft", "生成任务草案");
+      document.getElementById("workgroupTaskDraftList").setAttribute("data-empty-message", inlineText("No PM task drafts yet.", "还没有 PM 任务草案。"));
       document.getElementById("workgroupTaskGraphTitle").textContent = inlineText("Task Flow", "任务流");
       document.getElementById("taskTitleLabel").textContent = inlineText("Task Title", "任务标题");
       document.getElementById("workgroupTaskName").placeholder = inlineText("Deploy latest build to staging", "部署最新版本到测试环境");
@@ -7626,6 +7648,113 @@
       }
     }
 
+    function getWorkgroupTaskDraftStatusLabel(status) {
+      if (status === "generating") return inlineText("Planning", "规划中");
+      if (status === "ready") return inlineText("Ready to review", "等待确认");
+      return inlineText("Needs attention", "需要处理");
+    }
+
+    function renderWorkgroupTaskDrafts(workgroup) {
+      const listEl = document.getElementById("workgroupTaskDraftList");
+      const drafts = Array.isArray(workgroup?.taskDrafts) ? workgroup.taskDrafts : [];
+      const membersById = new Map((workgroup?.members || []).map((member) => [member.id, member]));
+      const markup = !workgroup
+        ? `<div class="workgroup-empty">${escapeHtml(inlineText("Create or select a workgroup first.", "请先创建或选择工作组。"))}</div>`
+        : drafts.length === 0
+          ? `<div class="workgroup-empty">${escapeHtml(listEl.dataset.emptyMessage || inlineText("No PM task drafts yet.", "还没有 PM 任务草案。"))}</div>`
+          : drafts.map((draft) => {
+            const taskTitlesByKey = new Map((draft.tasks || []).map((task) => [task.key, task.title]));
+            const tasksMarkup = (draft.tasks || []).map((task) => {
+              const assignee = task.assigneeMemberId ? membersById.get(task.assigneeMemberId)?.name : null;
+              const dependencies = (task.dependsOnKeys || [])
+                .map((key) => taskTitlesByKey.get(key) || key)
+                .join(" · ");
+              return `<div class="workgroup-subtext" style="margin-top: 6px;"><strong>${escapeHtml(task.title)}</strong>${assignee ? ` · ${escapeHtml(assignee)}` : ""}${dependencies ? ` · ${escapeHtml(inlineText(`After: ${dependencies}`, `依赖：${dependencies}`))}` : ""}</div>`;
+            }).join("");
+            return `
+              <div class="project-item">
+                <div class="project-info">
+                  <div class="project-name">${escapeHtml(draft.goal)}</div>
+                  <div class="workgroup-inline-meta"><span class="workgroup-pill status-${escapeHtml(draft.status === "ready" ? "assigned" : (draft.status === "error" ? "error" : "running"))}">${escapeHtml(getWorkgroupTaskDraftStatusLabel(draft.status))}</span></div>
+                  ${draft.summary ? `<div class="workgroup-subtext">${escapeHtml(draft.summary)}</div>` : ""}
+                  ${draft.status === "generating" ? `<div class="workgroup-subtext">${escapeHtml(inlineText("The PM is preparing a proposal. No tasks will run from this step.", "PM 正在生成草案；此过程不会运行任务。"))}</div>` : ""}
+                  ${draft.error ? `<div class="workgroup-subtext">${escapeHtml(draft.error)}</div>` : ""}
+                  ${tasksMarkup}
+                </div>
+                <div class="project-actions">
+                  ${draft.status === "ready" ? `<button class="btn-primary btn-small" onclick="applyWorkgroupTaskDraft('${escapeHtml(draft.id)}')">${escapeHtml(inlineText("Confirm & Save", "确认并保存"))}</button>` : ""}
+                  <button class="btn-danger btn-small" onclick="deleteWorkgroupTaskDraft('${escapeHtml(draft.id)}')">${escapeHtml(inlineText("Discard", "丢弃"))}</button>
+                </div>
+              </div>`;
+          }).join("");
+      if (renderSignatures.workgroupTaskDrafts !== markup) {
+        renderSignatures.workgroupTaskDrafts = markup;
+        listEl.innerHTML = markup;
+      }
+    }
+
+    async function generateWorkgroupTaskDraft() {
+      const workgroup = getCurrentWorkgroup();
+      const goal = document.getElementById("workgroupTaskDraftGoal").value.trim();
+      if (!workgroup) {
+        showStatus(inlineText("Create or select a workgroup first.", "请先创建或选择工作组。"), true);
+        return;
+      }
+      if (!goal) {
+        showStatus(inlineText("Describe the goal for the PM task draft.", "请描述要由 PM 拆解的目标。"), true);
+        return;
+      }
+      try {
+        const result = await api.generateWorkgroupTaskDraft({ workgroupId: workgroup.id, goal });
+        if (!result?.success) {
+          showStatus(result?.error || inlineText("Failed to generate PM task draft.", "生成 PM 任务草案失败。"), true);
+          return;
+        }
+        document.getElementById("workgroupTaskDraftGoal").value = "";
+        paneLoadState.workgroupsDirty = true;
+        await loadWorkgroups({ force: true });
+        flashSaved();
+      } catch (error) {
+        showStatus(getErrorMessage(error), true);
+      }
+    }
+
+    async function applyWorkgroupTaskDraft(draftId) {
+      if (!confirmRiskAction({
+        action: inlineText("Save this PM task draft?", "保存这份 PM 任务草案？"),
+        impact: inlineText("This creates the proposed tasks as manual, inactive work. Nothing is dispatched automatically.", "这会创建建议任务，且全部保持手动、未派发状态。"),
+        recovery: inlineText("You can edit, delete, or dispatch each saved task separately afterwards.", "之后仍可分别编辑、删除或派发每个任务。"),
+      })) {
+        return;
+      }
+      try {
+        const result = await api.applyWorkgroupTaskDraft(draftId);
+        if (!result?.success) {
+          showStatus(result?.error || inlineText("Failed to save PM task draft.", "保存 PM 任务草案失败。"), true);
+          return;
+        }
+        paneLoadState.workgroupsDirty = true;
+        await loadWorkgroups({ force: true });
+        flashSaved();
+      } catch (error) {
+        showStatus(getErrorMessage(error), true);
+      }
+    }
+
+    async function deleteWorkgroupTaskDraft(draftId) {
+      try {
+        const result = await api.deleteWorkgroupTaskDraft(draftId);
+        if (!result?.success) {
+          showStatus(result?.error || inlineText("Failed to discard PM task draft.", "丢弃 PM 任务草案失败。"), true);
+          return;
+        }
+        paneLoadState.workgroupsDirty = true;
+        await loadWorkgroups({ force: true });
+      } catch (error) {
+        showStatus(getErrorMessage(error), true);
+      }
+    }
+
     function renderWorkgroups() {
       renderWorkgroupSelect();
       const workgroup = getCurrentWorkgroup();
@@ -7633,11 +7762,13 @@
       resetMemberForm(null);
       resetTaskForm(null);
       renderWorkgroupMembers(workgroup);
+      renderWorkgroupTaskDrafts(workgroup);
       renderWorkgroupTaskGraph(workgroup);
       renderWorkgroupTasks(workgroup);
       renderWorkgroupExecutionRequests(workgroup);
       document.getElementById("saveWorkgroupMemberBtn").disabled = !workgroup;
       document.getElementById("saveWorkgroupTaskBtn").disabled = !workgroup;
+      document.getElementById("generateWorkgroupTaskDraftBtn").disabled = !workgroup;
       document.getElementById("publishWorkgroupBtn").disabled = !workgroup;
     }
 
@@ -9129,6 +9260,7 @@
     document.getElementById("cancelWorkgroupMemberBtn").addEventListener("click", () => { resetMemberForm(null); });
     document.getElementById("saveWorkgroupTaskBtn").addEventListener("click", () => { void saveWorkgroupTask(); });
     document.getElementById("cancelWorkgroupTaskBtn").addEventListener("click", () => { resetTaskForm(null); });
+    document.getElementById("generateWorkgroupTaskDraftBtn").addEventListener("click", () => { void generateWorkgroupTaskDraft(); });
     document.getElementById("workgroupTaskAssignee").addEventListener("change", () => {
       taskAssigneeManuallySelected = true;
     });

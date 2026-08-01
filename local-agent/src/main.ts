@@ -32,9 +32,14 @@ import scheduledTaskStore, {
   ScheduledTask,
   ScheduledTaskScheduleType,
 } from "./scheduled-task-store";
-import workgroupStore, { Workgroup, WorkgroupMember, WorkgroupRole, WorkgroupTask, WorkgroupTaskStatus } from "./workgroup-store";
+import workgroupStore, { Workgroup, WorkgroupMember, WorkgroupRole, WorkgroupTask, WorkgroupTaskDraft, WorkgroupTaskStatus } from "./workgroup-store";
 import { recommendWorkgroupTaskAssignee, WorkgroupTaskAssigneeRecommendation } from "./workgroup-assignment";
 import { buildWorkgroupTaskGraph, WorkgroupTaskGraph } from "./workgroup-task-graph";
+import {
+  buildWorkgroupTaskDraftPrompt,
+  parseWorkgroupTaskDraftResponse,
+  WorkgroupTaskDraftMember,
+} from "./workgroup-task-draft";
 import WorkgroupCollaborationService, {
   CollaborationBoundProject,
   WorkgroupCollaborationSessionSnapshot,
@@ -354,6 +359,7 @@ interface WorkgroupTaskView extends WorkgroupTask {
 interface WorkgroupView extends Workgroup {
   members: WorkgroupMemberView[];
   tasks: WorkgroupTaskView[];
+  taskDrafts: WorkgroupTaskDraft[];
   taskGraph: WorkgroupTaskGraph;
   selectedProjectIds: string[];
 }
@@ -3375,6 +3381,184 @@ function getWorkgroupTaskAssigneeRecommendation(data: {
     .map(serializeWorkgroupMember));
 }
 
+function getWorkgroupTaskDraftMembers(workgroupId: string): WorkgroupTaskDraftMember[] {
+  return workgroupStore
+    .listMembers(workgroupId)
+    .filter((member) => member.kind !== "pm")
+    .map((member) => {
+      const binding = resolveWorkgroupProjectBinding(member.projectId, member);
+      return {
+        id: member.id,
+        name: member.name,
+        specialty: member.specialty,
+        available: Boolean(binding.projectId && binding.projectExists && (binding.projectKind !== "remote" || binding.projectOnline)),
+      };
+    });
+}
+
+function completeWorkgroupTaskDraft(
+  draftId: string,
+  result: ReturnType<typeof parseWorkgroupTaskDraftResponse>,
+): void {
+  const draft = workgroupStore.getTaskDraftById(draftId);
+  if (!draft || draft.status !== "generating") {
+    return;
+  }
+  workgroupStore.saveTaskDraft({
+    ...draft,
+    id: draft.id,
+    workgroupId: draft.workgroupId,
+    goal: draft.goal,
+    status: "ready",
+    summary: result.summary,
+    tasks: result.tasks,
+    error: null,
+  });
+  touchWorkgroup(draft.workgroupId);
+  broadcastWorkgroupsChanged();
+}
+
+function failWorkgroupTaskDraft(draftId: string, error: unknown): void {
+  const draft = workgroupStore.getTaskDraftById(draftId);
+  if (!draft || draft.status !== "generating") {
+    return;
+  }
+  const message = error instanceof Error ? error.message : String(error || "PM task draft generation failed.");
+  workgroupStore.saveTaskDraft({
+    ...draft,
+    id: draft.id,
+    workgroupId: draft.workgroupId,
+    goal: draft.goal,
+    status: "error",
+    summary: null,
+    tasks: [],
+    error: message.slice(0, 1_200),
+  });
+  touchWorkgroup(draft.workgroupId);
+  broadcastWorkgroupsChanged();
+}
+
+function handleGenerateWorkgroupTaskDraftRequest(data: { workgroupId: string; goal: string }) {
+  const workgroupId = String(data?.workgroupId ?? "").trim();
+  const goal = String(data?.goal ?? "").trim();
+  const workgroup = workgroupStore.getWorkgroupById(workgroupId);
+  if (!workgroup) {
+    return { success: false, error: "Workgroup not found" };
+  }
+  if (!goal) {
+    return { success: false, error: "Describe the goal for the PM task draft." };
+  }
+  if (goal.length > 8_000) {
+    return { success: false, error: "PM task draft goal is too long." };
+  }
+
+  const pmMember = ensurePmMember(workgroup);
+  const binding = resolveWorkgroupProjectBinding(pmMember.projectId, pmMember);
+  if (!binding.projectId || !binding.projectPath) {
+    return { success: false, error: "PM planning workspace is unavailable." };
+  }
+
+  const draft = workgroupStore.saveTaskDraft({
+    workgroupId: workgroup.id,
+    goal,
+    status: "generating",
+    summary: null,
+    tasks: [],
+    error: null,
+    generationRunId: uuidv4(),
+  });
+  touchWorkgroup(workgroup.id);
+  broadcastWorkgroupsChanged();
+
+  const members = getWorkgroupTaskDraftMembers(workgroup.id);
+  const prompt = buildWorkgroupTaskDraftPrompt({
+    workgroupName: workgroup.name,
+    goal,
+    members,
+  });
+  let response = "";
+  runtimeManager.enqueueMessage({
+    projectId: binding.projectId,
+    cwd: binding.projectPath,
+    prompt,
+    source: "desktop",
+    runId: draft.generationRunId ?? undefined,
+    onTextDelta: (chunk) => {
+      if (response.length < 100_000) {
+        response += chunk.slice(0, 100_000 - response.length);
+      }
+    },
+    onDone: () => {
+      try {
+        completeWorkgroupTaskDraft(draft.id, parseWorkgroupTaskDraftResponse(response, members));
+      } catch (error) {
+        failWorkgroupTaskDraft(draft.id, error);
+      }
+    },
+    onError: (error) => failWorkgroupTaskDraft(draft.id, error),
+  });
+  return {
+    success: true,
+    draft: workgroupStore.getTaskDraftById(draft.id),
+    workgroup: getSerializedWorkgroupById(workgroup.id),
+  };
+}
+
+function handleApplyWorkgroupTaskDraftRequest(draftId: string) {
+  const draft = workgroupStore.getTaskDraftById(String(draftId ?? "").trim());
+  if (!draft) {
+    return { success: false, error: "Task draft not found" };
+  }
+  if (draft.status !== "ready" || draft.tasks.length === 0) {
+    return { success: false, error: "Only a ready PM task draft can be applied." };
+  }
+  const workgroup = workgroupStore.getWorkgroupById(draft.workgroupId);
+  if (!workgroup) {
+    return { success: false, error: "Workgroup not found" };
+  }
+  const membersById = new Map(workgroupStore.listMembers(workgroup.id).map((member) => [member.id, member]));
+  const taskIdByKey = new Map(draft.tasks.map((task) => [task.key, uuidv4()]));
+  const savedTasks = draft.tasks.map((proposal) => workgroupStore.saveTask({
+    id: taskIdByKey.get(proposal.key),
+    workgroupId: workgroup.id,
+    title: proposal.title,
+    description: proposal.description,
+    acceptanceCriteria: proposal.acceptanceCriteria,
+    dependsOnIds: [],
+    assigneeMemberId: proposal.assigneeMemberId && membersById.has(proposal.assigneeMemberId)
+      ? proposal.assigneeMemberId
+      : null,
+    priority: proposal.priority,
+    status: "todo",
+    scheduleType: null,
+    scheduleEnabled: false,
+  }));
+  for (const task of savedTasks) {
+    const proposal = draft.tasks.find((entry) => taskIdByKey.get(entry.key) === task.id);
+    if (!proposal) {
+      continue;
+    }
+    workgroupStore.saveTask({
+      ...task,
+      id: task.id,
+      workgroupId: task.workgroupId,
+      title: task.title,
+      dependsOnIds: proposal.dependsOnKeys
+        .map((dependencyKey) => taskIdByKey.get(dependencyKey))
+        .filter((dependencyId): dependencyId is string => Boolean(dependencyId)),
+    });
+  }
+  workgroupStore.removeTaskDraft(draft.id);
+  touchWorkgroup(workgroup.id);
+  workgroupTaskScheduler.syncTasks("apply-workgroup-task-draft");
+  broadcastWorkgroupsChanged();
+  return {
+    success: true,
+    taskCount: savedTasks.length,
+    workgroup: getSerializedWorkgroupById(workgroup.id),
+  };
+}
+
 function loadSerializedWorkgroups(): WorkgroupView[] {
   return workgroupStore
     .listWorkgroups()
@@ -3402,6 +3586,9 @@ function loadSerializedWorkgroups(): WorkgroupView[] {
         ...workgroup,
         members,
         tasks: serializedTasks,
+        taskDrafts: workgroupStore
+          .listTaskDrafts(workgroup.id)
+          .sort((left, right) => right.updatedAt - left.updatedAt),
         taskGraph: buildWorkgroupTaskGraph(tasks),
         selectedProjectIds: members
           .filter((member) => member.kind !== "pm" && member.projectId)
@@ -7497,6 +7684,25 @@ ipcMain.handle("recommend-workgroup-task-assignee", (_event, data: {
     success: true,
     recommendation: getWorkgroupTaskAssigneeRecommendation({ ...data, workgroupId }),
   };
+});
+
+ipcMain.handle("generate-workgroup-task-draft", (_event, data: { workgroupId: string; goal: string }) => {
+  return handleGenerateWorkgroupTaskDraftRequest(data);
+});
+
+ipcMain.handle("apply-workgroup-task-draft", (_event, draftId: string) => {
+  return handleApplyWorkgroupTaskDraftRequest(draftId);
+});
+
+ipcMain.handle("delete-workgroup-task-draft", (_event, draftId: string) => {
+  const draft = workgroupStore.getTaskDraftById(String(draftId ?? "").trim());
+  if (!draft) {
+    return { success: false, error: "Task draft not found" };
+  }
+  workgroupStore.removeTaskDraft(draft.id);
+  touchWorkgroup(draft.workgroupId);
+  broadcastWorkgroupsChanged();
+  return { success: true, workgroup: getSerializedWorkgroupById(draft.workgroupId) };
 });
 
 ipcMain.handle("delete-workgroup-task", (_event, taskId: string) => {
