@@ -137,3 +137,26 @@ test("workgroup store keeps PM task drafts separate until they are confirmed", (
   assert.equal(workgroupStore.listTaskDrafts(workgroupId).length, 0);
   workgroupStore.removeWorkgroup(workgroupId);
 });
+
+test("workgroup store preserves task evidence and acceptance records", () => {
+  const workgroupId = "workgroup-task-evidence";
+  workgroupStore.removeWorkgroup(workgroupId);
+  workgroupStore.saveWorkgroup({ id: workgroupId, name: "Evidence" });
+
+  const task = workgroupStore.saveTask({
+    workgroupId,
+    title: "Verify change",
+    artifactSummary: "src/auth.ts",
+    validationEvidence: "npm test passed",
+    acceptanceStatus: "passed",
+    acceptanceNote: "Reviewed by release owner",
+  });
+
+  const stored = workgroupStore.getTaskById(task.id);
+  assert.equal(stored?.artifactSummary, "src/auth.ts");
+  assert.equal(stored?.validationEvidence, "npm test passed");
+  assert.equal(stored?.acceptanceStatus, "passed");
+  assert.equal(stored?.acceptanceNote, "Reviewed by release owner");
+
+  workgroupStore.removeWorkgroup(workgroupId);
+});

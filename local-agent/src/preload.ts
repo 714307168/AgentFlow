@@ -118,6 +118,8 @@ contextBridge.exposeInMainWorld('claudeAgent', {
     title: string;
     description?: string | null;
     acceptanceCriteria?: string | null;
+    acceptanceStatus?: 'pending' | 'passed' | 'failed';
+    acceptanceNote?: string | null;
     dependsOnIds?: string[];
     assigneeMemberId?: string | null;
     priority?: 'low' | 'normal' | 'high';

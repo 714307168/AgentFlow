@@ -6,6 +6,7 @@ import {
   ScheduledTaskScheduleType,
 } from "./scheduled-task-store";
 import type { WorkgroupTaskDraftProposal, WorkgroupTaskDraftStatus } from "./workgroup-task-draft";
+import type { WorkgroupTaskAcceptanceStatus } from "./workgroup-task-evidence";
 
 export type WorkgroupRole = "member" | "project_manager";
 export type WorkgroupMode = "swarm";
@@ -71,6 +72,10 @@ export interface WorkgroupTask {
   dispatchRunId?: string | null;
   lastDispatchAt?: number | null;
   lastDispatchResult?: string | null;
+  artifactSummary?: string | null;
+  validationEvidence?: string | null;
+  acceptanceStatus: WorkgroupTaskAcceptanceStatus;
+  acceptanceNote?: string | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -155,6 +160,10 @@ function normalizeAllowedPaths(paths: Array<string | null | undefined> | null | 
 
 function normalizeDraftStatus(value: unknown): WorkgroupTaskDraftStatus {
   return value === "ready" || value === "error" ? value : "generating";
+}
+
+function normalizeAcceptanceStatus(value: unknown): WorkgroupTaskAcceptanceStatus {
+  return value === "passed" || value === "failed" ? value : "pending";
 }
 
 function normalizeDraftTasks(value: unknown): WorkgroupTaskDraftProposal[] {
@@ -401,6 +410,10 @@ class WorkgroupStore {
       dispatchProjectId: normalizeNullableText(task.dispatchProjectId),
       dispatchRunId: normalizeNullableText(task.dispatchRunId),
       lastDispatchResult: normalizeNullableText(task.lastDispatchResult),
+      artifactSummary: normalizeNullableText(task.artifactSummary),
+      validationEvidence: normalizeNullableText(task.validationEvidence),
+      acceptanceStatus: normalizeAcceptanceStatus(task.acceptanceStatus),
+      acceptanceNote: normalizeNullableText(task.acceptanceNote),
       lastDispatchAt: task.lastDispatchAt ? Number(task.lastDispatchAt) : null,
     }));
     if (!workgroupId) {
@@ -454,6 +467,10 @@ class WorkgroupStore {
         : (existing?.dispatchRunId ?? null),
       lastDispatchAt: input.lastDispatchAt !== undefined ? (input.lastDispatchAt ? Number(input.lastDispatchAt) : null) : (existing?.lastDispatchAt ?? null),
       lastDispatchResult: input.lastDispatchResult !== undefined ? normalizeNullableText(input.lastDispatchResult) : (existing?.lastDispatchResult ?? null),
+      artifactSummary: input.artifactSummary !== undefined ? normalizeNullableText(input.artifactSummary) : (existing?.artifactSummary ?? null),
+      validationEvidence: input.validationEvidence !== undefined ? normalizeNullableText(input.validationEvidence) : (existing?.validationEvidence ?? null),
+      acceptanceStatus: normalizeAcceptanceStatus(input.acceptanceStatus ?? existing?.acceptanceStatus),
+      acceptanceNote: input.acceptanceNote !== undefined ? normalizeNullableText(input.acceptanceNote) : (existing?.acceptanceNote ?? null),
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     };

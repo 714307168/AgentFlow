@@ -44,6 +44,10 @@ data class WorkgroupTask(
     val nextRunAt: Long? = null,
     val lastDispatchAt: Long? = null,
     val lastDispatchResult: String? = null,
+    val artifactSummary: String? = null,
+    val validationEvidence: String? = null,
+    val acceptanceStatus: String = "pending",
+    val acceptanceNote: String? = null,
     val dispatchReady: Boolean = false,
     val dispatchBlockedReason: String? = null,
     val updatedAt: Long = 0L

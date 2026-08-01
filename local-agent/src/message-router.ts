@@ -37,6 +37,8 @@ interface MessageRouterOptions {
     title: string;
     description?: string | null;
     acceptanceCriteria?: string | null;
+    acceptanceStatus?: "pending" | "passed" | "failed";
+    acceptanceNote?: string | null;
     assigneeMemberId?: string | null;
     priority?: "low" | "normal" | "high";
     status?: "todo" | "assigned" | "running" | "blocked" | "done" | "error";
@@ -472,6 +474,8 @@ class MessageRouter {
       title?: string;
       description?: string;
       acceptance_criteria?: string;
+      acceptance_status?: "pending" | "passed" | "failed";
+      acceptance_note?: string;
       assignee_member_id?: string;
       priority?: "low" | "normal" | "high";
       status?: "todo" | "assigned" | "running" | "blocked" | "done" | "error";
@@ -503,6 +507,8 @@ class MessageRouter {
             title,
             description: typeof payload?.description === "string" ? payload.description : null,
             acceptanceCriteria: typeof payload?.acceptance_criteria === "string" ? payload.acceptance_criteria : null,
+            acceptanceStatus: payload?.acceptance_status,
+            acceptanceNote: typeof payload?.acceptance_note === "string" ? payload.acceptance_note : null,
             assigneeMemberId: typeof payload?.assignee_member_id === "string" ? payload.assignee_member_id : null,
             priority: payload?.priority,
             status: payload?.status,

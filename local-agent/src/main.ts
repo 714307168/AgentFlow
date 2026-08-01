@@ -40,6 +40,7 @@ import {
   parseWorkgroupTaskDraftResponse,
   WorkgroupTaskDraftMember,
 } from "./workgroup-task-draft";
+import { extractWorkgroupTaskEvidence, WorkgroupTaskAcceptanceStatus } from "./workgroup-task-evidence";
 import WorkgroupCollaborationService, {
   CollaborationBoundProject,
   WorkgroupCollaborationSessionSnapshot,
@@ -3898,7 +3899,7 @@ function buildWorkgroupDispatchPrompt(
     `Acceptance criteria: ${acceptanceCriteria}`,
     "",
     "Response format",
-    "Provide a concise execution report with: outcome, changed files or commands, validation result, blockers or handoff notes.",
+    "Provide a concise execution report with exactly these labeled sections: Outcome:, Artifacts: (changed files, commands, or generated outputs), Validation: (tests or checks and their result), Blockers: or Handoff:.",
   ]
     .filter((entry, index, source) => !(entry === "" && source[index - 1] === ""))
     .join("\n");
@@ -3976,6 +3977,8 @@ function syncWorkgroupTasksForProjectSnapshot(snapshot: ProjectSessionSnapshot):
 
     let nextStatus: WorkgroupTaskStatus | null = null;
     let nextResult: string | null | undefined;
+    let nextArtifactSummary: string | null | undefined;
+    let nextValidationEvidence: string | null | undefined;
 
     if (errorMessage) {
       nextStatus = "error";
@@ -3989,6 +3992,9 @@ function syncWorkgroupTasksForProjectSnapshot(snapshot: ProjectSessionSnapshot):
     } else if (assistantMessage?.status === "done") {
       nextStatus = "done";
       nextResult = "Completed by assigned member project.";
+      const evidence = extractWorkgroupTaskEvidence(assistantMessage.content ?? "");
+      nextArtifactSummary = evidence.artifactSummary;
+      nextValidationEvidence = evidence.validationEvidence;
     } else if (
       snapshot.isRunning
       && (
@@ -4008,13 +4014,20 @@ function syncWorkgroupTasksForProjectSnapshot(snapshot: ProjectSessionSnapshot):
       continue;
     }
 
-    if (task.status === nextStatus && (nextResult === undefined || task.lastDispatchResult === nextResult)) {
+    if (
+      task.status === nextStatus
+      && (nextResult === undefined || task.lastDispatchResult === nextResult)
+      && (nextArtifactSummary === undefined || task.artifactSummary === nextArtifactSummary)
+      && (nextValidationEvidence === undefined || task.validationEvidence === nextValidationEvidence)
+    ) {
       continue;
     }
 
     updateWorkgroupTask(task.id, {
       status: nextStatus,
       lastDispatchResult: nextResult,
+      artifactSummary: nextArtifactSummary,
+      validationEvidence: nextValidationEvidence,
     });
     changed = true;
   }
@@ -5599,6 +5612,10 @@ function handleUpdateWorkgroupTaskStatusRequest(data: {
     dispatchProjectId: data.status === "todo" ? null : undefined,
     dispatchRunId: data.status === "todo" ? null : undefined,
     lastDispatchResult: data.lastDispatchResult ?? undefined,
+    artifactSummary: data.status === "todo" ? null : undefined,
+    validationEvidence: data.status === "todo" ? null : undefined,
+    acceptanceStatus: data.status === "todo" ? "pending" : undefined,
+    acceptanceNote: data.status === "todo" ? null : undefined,
   });
   if (!nextTask) {
     return { success: false, error: "Task not found" };
@@ -5654,6 +5671,8 @@ function handleSaveWorkgroupTaskRequest(data: {
   title: string;
   description?: string | null;
   acceptanceCriteria?: string | null;
+  acceptanceStatus?: WorkgroupTaskAcceptanceStatus;
+  acceptanceNote?: string | null;
   dependsOnIds?: string[];
   assigneeMemberId?: string | null;
   priority?: "low" | "normal" | "high";
@@ -5740,6 +5759,8 @@ function handleSaveWorkgroupTaskRequest(data: {
     title,
     description: data?.description ?? null,
     acceptanceCriteria: data?.acceptanceCriteria ?? null,
+    acceptanceStatus: data?.acceptanceStatus,
+    acceptanceNote: data?.acceptanceNote ?? null,
     dependsOnIds,
     assigneeMemberId,
     priority: data?.priority,
@@ -5872,6 +5893,10 @@ async function handleDispatchWorkgroupTaskRequest(taskId: string) {
       dispatchProjectId: project.id,
       dispatchRunId: result.runId || dispatchRunId,
       lastDispatchAt: dispatchAt,
+      artifactSummary: null,
+      validationEvidence: null,
+      acceptanceStatus: "pending",
+      acceptanceNote: null,
       lastDispatchResult: initialStatus === "assigned"
         ? "Waiting in the assigned remote member project queue."
         : "Assigned remote member project is executing the task.",
@@ -5890,12 +5915,18 @@ async function handleDispatchWorkgroupTaskRequest(taskId: string) {
     };
   }
 
+  let executionReport = "";
   runtimeManager.enqueueMessage({
     projectId: project.id,
     cwd: project.path,
     prompt,
     source: "desktop",
     runId: dispatchRunId,
+    onTextDelta: (chunk) => {
+      if (executionReport.length < 100_000) {
+        executionReport += chunk.slice(0, 100_000 - executionReport.length);
+      }
+    },
     onDone: () => {
       const latestTask = workgroupStore.getTaskById(task.id);
       if (!latestTask || latestTask.dispatchRunId !== dispatchRunId) {
@@ -5904,9 +5935,12 @@ async function handleDispatchWorkgroupTaskRequest(taskId: string) {
       if (latestTask.status !== "running" && latestTask.status !== "assigned") {
         return;
       }
+      const evidence = extractWorkgroupTaskEvidence(executionReport);
       updateWorkgroupTask(task.id, {
         status: "done",
         lastDispatchResult: "Completed by assigned member project.",
+        artifactSummary: evidence.artifactSummary,
+        validationEvidence: evidence.validationEvidence,
       });
       const finishedTask = workgroupStore.getTaskById(task.id);
       workgroupTaskScheduler.syncTasks("dispatch-workgroup-task-done");
@@ -5942,6 +5976,10 @@ async function handleDispatchWorkgroupTaskRequest(taskId: string) {
     dispatchProjectId: project.id,
     dispatchRunId,
     lastDispatchAt: dispatchAt,
+    artifactSummary: null,
+    validationEvidence: null,
+    acceptanceStatus: "pending",
+    acceptanceNote: null,
     lastDispatchResult: initialStatus === "assigned"
       ? "Queued for the assigned local member project."
       : "Assigned local member project is executing the task.",
@@ -7659,6 +7697,8 @@ ipcMain.handle("save-workgroup-task", (_event, data: {
   title: string;
   description?: string | null;
   acceptanceCriteria?: string | null;
+  acceptanceStatus?: WorkgroupTaskAcceptanceStatus;
+  acceptanceNote?: string | null;
   assigneeMemberId?: string | null;
   priority?: "low" | "normal" | "high";
   status?: WorkgroupTaskStatus;

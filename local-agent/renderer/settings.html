@@ -2998,6 +2998,18 @@
                   <label id="taskCriteriaLabel">Acceptance Criteria</label>
                   <textarea id="workgroupTaskCriteria" rows="4" placeholder="Service starts normally, smoke test passes, and key logs are clean."></textarea>
                 </div>
+                <div class="field">
+                  <label id="taskAcceptanceStatusLabel">Acceptance</label>
+                  <select id="workgroupTaskAcceptanceStatus">
+                    <option value="pending">Pending review</option>
+                    <option value="passed">Accepted</option>
+                    <option value="failed">Rejected</option>
+                  </select>
+                </div>
+                <div class="field workgroup-field--wide">
+                  <label id="taskAcceptanceNoteLabel">Acceptance Note</label>
+                  <textarea id="workgroupTaskAcceptanceNote" rows="3" placeholder="Record the review decision, remaining gap, or reason for acceptance."></textarea>
+                </div>
               </div>
               <div class="workgroup-card-actions">
                 <button class="btn-primary btn-small" id="saveWorkgroupTaskBtn">Save Task</button>
@@ -5853,6 +5865,15 @@
         "Service starts normally, smoke test passes, and key logs are clean.",
         "服务启动正常，冒烟通过，关键日志无异常。"
       );
+      document.getElementById("taskAcceptanceStatusLabel").textContent = inlineText("Acceptance", "验收结论");
+      document.getElementById("workgroupTaskAcceptanceStatus").options[0].text = inlineText("Pending review", "待验收");
+      document.getElementById("workgroupTaskAcceptanceStatus").options[1].text = inlineText("Accepted", "验收通过");
+      document.getElementById("workgroupTaskAcceptanceStatus").options[2].text = inlineText("Rejected", "验收不通过");
+      document.getElementById("taskAcceptanceNoteLabel").textContent = inlineText("Acceptance Note", "验收说明");
+      document.getElementById("workgroupTaskAcceptanceNote").placeholder = inlineText(
+        "Record the review decision, remaining gap, or reason for acceptance.",
+        "记录验收结论、遗留问题或通过原因。"
+      );
       document.getElementById("saveWorkgroupTaskBtn").textContent = inlineText("Save Task", "保存任务");
       document.getElementById("cancelWorkgroupTaskBtn").textContent = inlineText("Reset", "重置");
       document.getElementById("workgroupTaskList").setAttribute("data-empty-message", inlineText("No tasks yet.", "还没有任务。"));
@@ -7276,6 +7297,12 @@
       }
     }
 
+    function getTaskAcceptanceLabel(status) {
+      if (status === "passed") return inlineText("Accepted", "验收通过");
+      if (status === "failed") return inlineText("Rejected", "验收不通过");
+      return inlineText("Pending review", "待验收");
+    }
+
     function getTaskAssigneeRecommendationHint(recommendation) {
       if (!recommendation) {
         return inlineText(
@@ -7417,6 +7444,8 @@
       document.getElementById("workgroupTaskScheduleEnabled").checked = task ? task.scheduleEnabled !== false : true;
       document.getElementById("workgroupTaskDescription").value = task?.description || "";
       document.getElementById("workgroupTaskCriteria").value = task?.acceptanceCriteria || "";
+      document.getElementById("workgroupTaskAcceptanceStatus").value = task?.acceptanceStatus || "pending";
+      document.getElementById("workgroupTaskAcceptanceNote").value = task?.acceptanceNote || "";
       renderTaskAssigneeOptions(task?.assigneeMemberId || "");
       renderTaskDependencyOptions(task?.dependsOnIds || []);
       syncWorkgroupTaskTypeFields();
@@ -7542,6 +7571,7 @@
             <div class="project-name">${escapeHtml(task.title)}</div>
             <div class="workgroup-inline-meta">
               <span class="workgroup-pill status-${escapeHtml(task.status)}">${escapeHtml(getTaskStatusLabel(task.status))}</span>
+              <span class="workgroup-pill status-${escapeHtml(task.acceptanceStatus === "passed" ? "done" : (task.acceptanceStatus === "failed" ? "error" : "todo"))}">${escapeHtml(getTaskAcceptanceLabel(task.acceptanceStatus))}</span>
               <span class="workgroup-pill">${escapeHtml(getTaskPriorityLabel(task.priority))}</span>
               <span class="workgroup-pill">${escapeHtml(task.scheduleType ? inlineText("Scheduled", "定时") : inlineText("Manual", "手动"))}</span>
               ${task.scheduleType ? `<span class="workgroup-pill">${escapeHtml(task.scheduleEnabled === false ? inlineText("Disabled", "已关闭") : inlineText("Enabled", "已启用"))}</span>` : ""}
@@ -7550,6 +7580,9 @@
             </div>
             ${task.description ? `<div class="workgroup-subtext">${escapeHtml(task.description)}</div>` : ""}
             ${task.acceptanceCriteria ? `<div class="workgroup-subtext" style="margin-top: 6px;">${escapeHtml(`${inlineText("Acceptance", "验收")}: ${task.acceptanceCriteria}`)}</div>` : ""}
+            ${task.artifactSummary ? `<div class="workgroup-subtext" style="margin-top: 6px;">${escapeHtml(`${inlineText("Artifacts", "产物")}: ${task.artifactSummary}`)}</div>` : ""}
+            ${task.validationEvidence ? `<div class="workgroup-subtext" style="margin-top: 6px;">${escapeHtml(`${inlineText("Validation", "验证")}: ${task.validationEvidence}`)}</div>` : ""}
+            ${task.acceptanceNote ? `<div class="workgroup-subtext" style="margin-top: 6px;">${escapeHtml(`${inlineText("Review", "验收说明")}: ${task.acceptanceNote}`)}</div>` : ""}
             ${task.dependencyTasks?.length ? `<div class="workgroup-subtext" style="margin-top: 6px;">${escapeHtml(`${inlineText("Depends on", "依赖")}: ${task.dependencyTasks.map((dependency) => `${dependency.title} (${getTaskStatusLabel(dependency.status)})`).join(" · ")}`)}</div>` : ""}
             <div class="workgroup-subtext" style="margin-top: 6px;">${escapeHtml(getWorkgroupTaskScheduleLabel(task))}</div>
             ${task.scheduleType ? `<div class="workgroup-subtext" style="margin-top: 6px;">${escapeHtml(inlineText(`Next dispatch: ${formatDateTimeLabel(task.nextRunAt)}`, `下次派发：${formatDateTimeLabel(task.nextRunAt)}`))}</div>` : ""}
@@ -8274,6 +8307,8 @@
           title,
           description: document.getElementById("workgroupTaskDescription").value.trim() || null,
           acceptanceCriteria: document.getElementById("workgroupTaskCriteria").value.trim() || null,
+          acceptanceStatus: document.getElementById("workgroupTaskAcceptanceStatus").value || "pending",
+          acceptanceNote: document.getElementById("workgroupTaskAcceptanceNote").value.trim() || null,
           dependsOnIds: Array.from(document.getElementById("workgroupTaskDependencies").selectedOptions)
             .map((option) => option.value)
             .filter(Boolean),

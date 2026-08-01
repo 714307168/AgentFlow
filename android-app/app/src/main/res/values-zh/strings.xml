@@ -207,6 +207,13 @@
     <string name="workgroups_task_schedule_label">&#35843;&#24230;&#65306;%1$s</string>
     <string name="workgroups_task_next_run_label">&#19979;&#27425;&#36816;&#34892;&#65306;%1$s</string>
     <string name="workgroups_task_last_dispatch_label">&#19978;&#27425;&#27966;&#21457;&#65306;%1$s</string>
+    <string name="workgroups_task_artifacts_label">&#20135;&#29289;&#65306;%1$s</string>
+    <string name="workgroups_task_validation_label">&#39564;&#35777;&#65306;%1$s</string>
+    <string name="workgroups_task_acceptance_status_label">&#39564;&#25910;&#65306;%1$s</string>
+    <string name="workgroups_task_review_note_label">&#39564;&#25910;&#35828;&#26126;&#65306;%1$s</string>
+    <string name="workgroups_task_acceptance_pending">&#24453;&#39564;&#25910;</string>
+    <string name="workgroups_task_acceptance_passed">&#39564;&#25910;&#36890;&#36807;</string>
+    <string name="workgroups_task_acceptance_failed">&#39564;&#25910;&#19981;&#36890;&#36807;</string>
     <string name="workgroups_task_create">&#26032;&#24314;&#20219;&#21153;</string>
     <string name="workgroups_task_edit">&#32534;&#36753;</string>
     <string name="workgroups_task_delete">&#21024;&#38500;</string>

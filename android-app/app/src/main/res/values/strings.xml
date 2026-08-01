@@ -235,6 +235,13 @@
     <string name="workgroups_task_schedule_label">Schedule: %1$s</string>
     <string name="workgroups_task_next_run_label">Next run: %1$s</string>
     <string name="workgroups_task_last_dispatch_label">Last dispatch: %1$s</string>
+    <string name="workgroups_task_artifacts_label">Artifacts: %1$s</string>
+    <string name="workgroups_task_validation_label">Validation: %1$s</string>
+    <string name="workgroups_task_acceptance_status_label">Acceptance: %1$s</string>
+    <string name="workgroups_task_review_note_label">Review: %1$s</string>
+    <string name="workgroups_task_acceptance_pending">Pending review</string>
+    <string name="workgroups_task_acceptance_passed">Accepted</string>
+    <string name="workgroups_task_acceptance_failed">Rejected</string>
     <string name="workgroups_task_create">New task</string>
     <string name="workgroups_task_edit">Edit</string>
     <string name="workgroups_task_delete">Delete</string>

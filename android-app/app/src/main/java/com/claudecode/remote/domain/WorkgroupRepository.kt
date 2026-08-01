@@ -360,6 +360,8 @@ class WorkgroupRepository(
                 put("title", JsonPrimitive(task.title))
                 put("description", task.description.toJsonString())
                 put("acceptance_criteria", task.acceptanceCriteria.toJsonString())
+                put("acceptance_status", JsonPrimitive(task.acceptanceStatus))
+                put("acceptance_note", task.acceptanceNote.toJsonString())
                 put("assignee_member_id", task.assigneeMemberId.toJsonString())
                 put("priority", JsonPrimitive(task.priority))
                 put("status", JsonPrimitive(task.status))
@@ -826,6 +828,10 @@ class WorkgroupRepository(
             nextRunAt = obj["nextRunAt"]?.jsonPrimitive?.longOrNull,
             lastDispatchAt = obj["lastDispatchAt"]?.jsonPrimitive?.longOrNull,
             lastDispatchResult = obj["lastDispatchResult"]?.jsonPrimitive?.contentOrNull?.trim().takeUnless { it.isNullOrEmpty() },
+            artifactSummary = obj["artifactSummary"]?.jsonPrimitive?.contentOrNull?.trim().takeUnless { it.isNullOrEmpty() },
+            validationEvidence = obj["validationEvidence"]?.jsonPrimitive?.contentOrNull?.trim().takeUnless { it.isNullOrEmpty() },
+            acceptanceStatus = obj["acceptanceStatus"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty().ifEmpty { "pending" },
+            acceptanceNote = obj["acceptanceNote"]?.jsonPrimitive?.contentOrNull?.trim().takeUnless { it.isNullOrEmpty() },
             dispatchReady = obj["dispatchReady"]?.jsonPrimitive?.booleanOrNull == true,
             dispatchBlockedReason = obj["dispatchBlockedReason"]?.jsonPrimitive?.contentOrNull?.trim().takeUnless { it.isNullOrEmpty() },
             updatedAt = obj["updatedAt"]?.jsonPrimitive?.longOrNull ?: 0L

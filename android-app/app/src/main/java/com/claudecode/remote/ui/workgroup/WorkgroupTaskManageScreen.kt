@@ -60,6 +60,10 @@ private data class WorkgroupTaskDraft(
     val title: String = "",
     val description: String = "",
     val acceptanceCriteria: String = "",
+    val artifactSummary: String? = null,
+    val validationEvidence: String? = null,
+    val acceptanceStatus: String = "pending",
+    val acceptanceNote: String? = null,
     val assigneeMemberId: String? = null,
     val assigneeMemberName: String? = null,
     val priority: String = "normal",
@@ -369,6 +373,35 @@ private fun WorkgroupTaskCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+            task.artifactSummary?.takeIf { it.isNotBlank() }?.let {
+                Text(
+                    text = stringResource(R.string.workgroups_task_artifacts_label, it),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            task.validationEvidence?.takeIf { it.isNotBlank() }?.let {
+                Text(
+                    text = stringResource(R.string.workgroups_task_validation_label, it),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Text(
+                text = stringResource(
+                    R.string.workgroups_task_acceptance_status_label,
+                    acceptanceStatusLabel(task.acceptanceStatus)
+                ),
+                style = MaterialTheme.typography.labelMedium,
+                color = if (task.acceptanceStatus == "failed") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            task.acceptanceNote?.takeIf { it.isNotBlank() }?.let {
+                Text(
+                    text = stringResource(R.string.workgroups_task_review_note_label, it),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
             task.dispatchBlockedReason?.takeIf { it.isNotBlank() }?.let {
                 Text(
                     text = it,
@@ -670,12 +703,23 @@ private fun scheduleTypeLabel(value: String): String = when (value) {
     else -> stringResource(R.string.workgroups_task_schedule_manual)
 }
 
+@Composable
+private fun acceptanceStatusLabel(value: String): String = when (value) {
+    "passed" -> stringResource(R.string.workgroups_task_acceptance_passed)
+    "failed" -> stringResource(R.string.workgroups_task_acceptance_failed)
+    else -> stringResource(R.string.workgroups_task_acceptance_pending)
+}
+
 private fun WorkgroupTask.toDraft(): WorkgroupTaskDraft =
     WorkgroupTaskDraft(
         id = id,
         title = title,
         description = description.orEmpty(),
         acceptanceCriteria = acceptanceCriteria.orEmpty(),
+        artifactSummary = artifactSummary,
+        validationEvidence = validationEvidence,
+        acceptanceStatus = acceptanceStatus,
+        acceptanceNote = acceptanceNote,
         assigneeMemberId = assigneeMemberId,
         assigneeMemberName = assigneeMemberName,
         priority = priority,
@@ -715,6 +759,10 @@ private fun WorkgroupTaskDraft.toTask(): WorkgroupTask? {
         title = normalizedTitle,
         description = description.trim().takeIf { it.isNotEmpty() },
         acceptanceCriteria = acceptanceCriteria.trim().takeIf { it.isNotEmpty() },
+        artifactSummary = artifactSummary,
+        validationEvidence = validationEvidence,
+        acceptanceStatus = acceptanceStatus,
+        acceptanceNote = acceptanceNote,
         assigneeMemberId = assigneeMemberId,
         assigneeMemberName = assigneeMemberName,
         priority = priority,
