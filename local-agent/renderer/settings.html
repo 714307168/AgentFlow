@@ -8333,9 +8333,13 @@
           showStatus((result?.error || inlineText("Merge was not applied.", "未执行合并。")) + conflicts, true);
           return;
         }
-        latestWorkgroupMergeCommitByMemberId.set(memberId, result.commit);
+        if (result.merged && result.commit) {
+          latestWorkgroupMergeCommitByMemberId.set(memberId, result.commit);
+        }
         renderWorkgroupMembers(getCurrentWorkgroup());
-        showStatus(inlineText("Member branch merged. Review the result, or revert the merge from this card.", "成员分支已合并。请检查结果；如需撤销，可从此卡片回退合并。"), false);
+        showStatus(result.merged
+          ? inlineText("Member branch merged. Review the result, or revert the merge from this card.", "成员分支已合并。请检查结果；如需撤销，可从此卡片回退合并。")
+          : inlineText("The member branch has no new commits to merge.", "成员分支没有新的提交可合并。"), false);
       } catch (error) {
         showStatus(getErrorMessage(error), true);
       }

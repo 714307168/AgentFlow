@@ -86,3 +86,16 @@ test("member merge reports conflicts and leaves the primary worktree usable", as
   assert.deepEqual(result.conflicts, ["README.md"]);
   assert.equal(git(root, ["status", "--porcelain"]), "");
 });
+
+test("member merge does not expose an unrelated primary commit for rollback when there is nothing new", async () => {
+  const root = createRepository();
+  const manager = new WorktreeManager();
+  await manager.ensureMemberWorktree(root, "group", "member");
+  const before = git(root, ["rev-parse", "HEAD"]);
+
+  assert.deepEqual(await manager.mergeMemberWorktree(root, "group", "member"), {
+    success: true,
+    merged: false,
+  });
+  assert.equal(git(root, ["rev-parse", "HEAD"]), before);
+});

@@ -155,6 +155,22 @@ fun WorkgroupTaskManageScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
+                        TextButton(onClick = onOpenChat) {
+                            Text(stringResource(R.string.workgroups_summary_title))
+                        }
+                        IconButton(onClick = viewModel::refresh) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = stringResource(R.string.action_refresh)
+                            )
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         TextButton(onClick = {
                             dialogError = null
                             editingDraft = WorkgroupTaskDraft()
@@ -168,15 +184,6 @@ fun WorkgroupTaskManageScreen(
                         }
                         TextButton(onClick = { showPmPlanDialog = true }) {
                             Text(stringResource(R.string.workgroups_pm_plan))
-                        }
-                        TextButton(onClick = onOpenChat) {
-                            Text(stringResource(R.string.workgroups_summary_title))
-                        }
-                        IconButton(onClick = viewModel::refresh) {
-                            Icon(
-                                imageVector = Icons.Default.Refresh,
-                                contentDescription = stringResource(R.string.action_refresh)
-                            )
                         }
                     }
 

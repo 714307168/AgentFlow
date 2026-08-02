@@ -195,6 +195,35 @@ test("executeProviderSdkRun does not append duplicate v1 when the base URL alrea
   }
 });
 
+test("executeProviderSdkRun uses Google's OpenAI-compatible chat path without an extra v1", async () => {
+  const originalFetch = global.fetch;
+  global.fetch = async (input) => {
+    assert.equal(String(input), "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions");
+    return {
+      ok: true,
+      async json() {
+        return { model: "gemini-2.5-pro", choices: [{ message: { content: "Gemini response" } }] };
+      },
+    };
+  };
+
+  try {
+    const result = await executeProviderSdkRun({
+      provider: "codex",
+      config: {
+        apiKey: "test-key",
+        baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+        defaultModel: "gemini-2.5-pro",
+      },
+      model: null,
+      prompt: "hello",
+    });
+    assert.equal(result.text, "Gemini response");
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test("generateProviderSdkImage falls back to the HTTP image endpoint when no managed SDK is installed", async () => {
   const originalFetch = global.fetch;
   global.fetch = async (input, init) => {

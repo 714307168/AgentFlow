@@ -105,6 +105,11 @@ export default class WorktreeManager {
   }> {
     const root = await this.getRepositoryRoot(basePath);
     const branchName = this.getMemberBranchName(workgroupId, memberId);
+    const counts = await git(root, ["rev-list", "--left-right", "--count", `HEAD...${branchName}`]);
+    const [, ahead] = counts.split(/\s+/).map((value) => Number(value) || 0);
+    if (ahead === 0) {
+      return { success: true, merged: false };
+    }
     try {
       await git(root, ["merge", "--no-ff", "--no-edit", branchName]);
       return { success: true, merged: true, commit: await git(root, ["rev-parse", "HEAD"]) };

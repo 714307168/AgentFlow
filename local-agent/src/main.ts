@@ -7750,13 +7750,13 @@ ipcMain.handle("merge-workgroup-member-worktree", async (_event, memberId: strin
     return { success: false, error: resolved.error };
   }
   const result = await worktreeManager.mergeMemberWorktree(resolved.projectPath, resolved.member.workgroupId, resolved.member.id);
-  if (result.success) {
+  if (result.success && result.merged) {
     appLogger.info("worktree", "Merged approved member branch.", {
       workgroupId: resolved.member.workgroupId,
       memberId: resolved.member.id,
       commit: result.commit ?? null,
     });
-  } else {
+  } else if (!result.success) {
     appLogger.warn("worktree", "Member branch merge was not applied.", {
       workgroupId: resolved.member.workgroupId,
       memberId: resolved.member.id,

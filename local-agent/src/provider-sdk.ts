@@ -879,6 +879,11 @@ function resolveManagedAnthropicClientConstructor(): new (options: Record<string
 function joinBaseUrl(baseUrl: string, suffix: string): string {
   const normalizedBaseUrl = baseUrl.replace(/\/+$/u, "");
   const normalizedSuffix = suffix.replace(/^\/+/, "/");
+  // Google's OpenAI-compatible endpoint is itself rooted at `/openai` and
+  // expects `/chat/completions`, not another `/v1` prefix.
+  if (/\/openai$/iu.test(normalizedBaseUrl) && /^\/v\d+(?:\.\d+)?\//iu.test(normalizedSuffix)) {
+    return `${normalizedBaseUrl}${normalizedSuffix.replace(/^\/v\d+(?:\.\d+)?/iu, "")}`;
+  }
   if (/\/v\d+(?:\.\d+)?$/iu.test(normalizedBaseUrl) && /^\/v\d+(?:\.\d+)?\//iu.test(normalizedSuffix)) {
     return `${normalizedBaseUrl}${normalizedSuffix.replace(/^\/v\d+(?:\.\d+)?/iu, "")}`;
   }
