@@ -374,15 +374,25 @@ export function normalizeActiveModelProviderProfileMap(
   const normalized: Partial<Record<ModelProviderProtocol, string>> = {};
   for (const protocol of ["openai", "anthropic"] as const) {
     const configured = normalizeConfigText(activeMap?.[protocol]);
+    const enabledProfiles = profiles.filter((profile) => (
+      profile.protocol === protocol && profile.enabled !== false
+    ));
     const configuredProfile = configured
-      ? profiles.find((profile) => profile.id === configured && profile.protocol === protocol && profile.enabled !== false)
+      ? enabledProfiles.find((profile) => profile.id === configured)
       : null;
-    const fallbackProfile = profiles.find((profile) => (
-      profile.protocol === protocol
-      && profile.enabled !== false
-      && Boolean(normalizeConfigText(profile.apiKey))
-    )) || profiles.find((profile) => profile.protocol === protocol && profile.enabled !== false);
-    const selected = configuredProfile || fallbackProfile;
+    const configuredCredentialProfile = enabledProfiles.find((profile) => (
+      Boolean(normalizeConfigText(profile.apiKey))
+    ));
+    const fallbackProfile = configuredCredentialProfile || enabledProfiles[0];
+    // The initial profile is often an empty official-provider placeholder. Do
+    // not let it mask a credential the user has just configured for another
+    // provider of the same protocol; otherwise child CLIs receive no key.
+    const selected = configuredProfile && (
+      Boolean(normalizeConfigText(configuredProfile.apiKey))
+      || !configuredCredentialProfile
+    )
+      ? configuredProfile
+      : fallbackProfile;
     if (selected) {
       normalized[protocol] = selected.id;
     }

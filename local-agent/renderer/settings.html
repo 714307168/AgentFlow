@@ -3956,10 +3956,13 @@
       const active = {};
       ["openai", "anthropic"].forEach((protocol) => {
         const configuredId = String(configured[protocol] || "");
-        const configuredProfile = profiles.find((profile) => profile.id === configuredId && profile.protocol === protocol && profile.enabled !== false);
-        const fallbackProfile = profiles.find((profile) => (profile.protocol === protocol && profile.enabled !== false && String(profile.apiKey || "").trim()))
-          || profiles.find((profile) => profile.protocol === protocol && profile.enabled !== false);
-        const selected = configuredProfile || fallbackProfile;
+        const enabledProfiles = profiles.filter((profile) => profile.protocol === protocol && profile.enabled !== false);
+        const configuredProfile = enabledProfiles.find((profile) => profile.id === configuredId);
+        const credentialProfile = enabledProfiles.find((profile) => String(profile.apiKey || "").trim());
+        const fallbackProfile = credentialProfile || enabledProfiles[0];
+        const selected = configuredProfile && (String(configuredProfile.apiKey || "").trim() || !credentialProfile)
+          ? configuredProfile
+          : fallbackProfile;
         if (selected) {
           active[protocol] = selected.id;
         }

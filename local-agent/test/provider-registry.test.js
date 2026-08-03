@@ -128,6 +128,33 @@ test("model provider profiles override legacy sdk config through the active prof
   });
 });
 
+test("an empty default profile cannot mask a configured compatible provider", () => {
+  const profiles = normalizeModelProviderProfiles([
+    {
+      id: "openai",
+      name: "OpenAI",
+      protocol: "openai",
+      apiKey: "",
+      baseUrl: "https://api.openai.com",
+    },
+    {
+      id: "deepseek",
+      name: "DeepSeek",
+      protocol: "openai",
+      apiKey: "sk-deepseek",
+      baseUrl: "https://api.deepseek.com",
+    },
+  ]);
+  const activeMap = normalizeActiveModelProviderProfileMap({ openai: "openai" }, profiles);
+  const config = { modelProviderProfiles: profiles, activeModelProviderProfileByProtocol: activeMap };
+
+  assert.equal(activeMap.openai, "deepseek");
+  assert.deepEqual(buildProviderEnvironment(config, "codex"), {
+    OPENAI_API_KEY: "sk-deepseek",
+    OPENAI_BASE_URL: "https://api.deepseek.com",
+  });
+});
+
 test("model provider presets include domestic OpenAI-compatible providers", () => {
   const presetIds = listModelProviderPresets().map((preset) => preset.id);
   assert.equal(presetIds.includes("deepseek"), true);
