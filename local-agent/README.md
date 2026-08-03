@@ -142,12 +142,14 @@ This mode disables hardware acceleration before Electron finishes bootstrapping 
 The desktop now keeps provider runtimes healthier with two automatic behaviors:
 
 - if a local Claude Code or Codex CLI is already installed and a newer compatible release is detected, the desktop will try to upgrade it automatically
-- if no local CLI is available, the desktop can bootstrap a managed provider runtime through npm so the machine does not stay permanently blocked on a missing CLI
+- if the selected CLI is missing, the desktop installs it automatically through npm; when npm itself is missing, Windows uses non-interactive Winget installation of Node.js LTS first, then continues the CLI installation
 
-For npm-based provider runtime downloads and upgrades, the desktop automatically prefers a domestic npm mirror by default:
+For npm-based provider runtime downloads and upgrades, the desktop selects a registry by region:
 
-- default registry: `https://registry.npmmirror.com`
+- China (timezone or `zh_CN` locale): `https://registry.npmmirror.com`
+- other regions: `https://registry.npmjs.org`
 - override with `AGENTFLOW_NPM_REGISTRY` when you want to use another internal or regional mirror
+- set `AGENTFLOW_REGION=cn` or `AGENTFLOW_REGION=global` to override automatic region detection
 
 ## Environment Doctor
 

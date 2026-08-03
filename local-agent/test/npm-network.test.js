@@ -3,6 +3,8 @@ const assert = require("node:assert/strict");
 
 const {
   DEFAULT_NPM_REGISTRY,
+  OFFICIAL_NPM_REGISTRY,
+  isLikelyChinaEnvironment,
   appendNpmRegistryArgs,
   buildNpmCommandEnvironment,
   resolvePreferredNpmRegistry,
@@ -15,8 +17,12 @@ test("resolvePreferredNpmRegistry prefers explicit AgentFlow mirror", () => {
   }), "https://registry.example.com");
 });
 
-test("resolvePreferredNpmRegistry falls back to default domestic mirror", () => {
-  assert.equal(resolvePreferredNpmRegistry({}), DEFAULT_NPM_REGISTRY);
+test("resolvePreferredNpmRegistry uses the domestic mirror for China and the official registry elsewhere", () => {
+  assert.equal(resolvePreferredNpmRegistry({}, "Asia/Shanghai"), DEFAULT_NPM_REGISTRY);
+  assert.equal(resolvePreferredNpmRegistry({}, "America/Los_Angeles"), OFFICIAL_NPM_REGISTRY);
+  assert.equal(resolvePreferredNpmRegistry({ AGENTFLOW_REGION: "cn" }, "UTC"), DEFAULT_NPM_REGISTRY);
+  assert.equal(resolvePreferredNpmRegistry({ AGENTFLOW_REGION: "global" }, "Asia/Shanghai"), OFFICIAL_NPM_REGISTRY);
+  assert.equal(isLikelyChinaEnvironment({ LANG: "zh_CN.UTF-8" }, "UTC"), true);
 });
 
 test("appendNpmRegistryArgs appends a registry flag", () => {

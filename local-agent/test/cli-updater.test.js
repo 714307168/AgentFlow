@@ -8,6 +8,7 @@ const {
   formatCliUpgradeCommandPreview,
   maintainCliProvider,
 } = require("../dist/src/cli-updater.js");
+const { resolvePreferredNpmRegistry } = require("../dist/src/npm-network.js");
 
 test("detectCliInstallMethod recognizes common install sources", () => {
   assert.equal(detectCliInstallMethod("C:/Users/test/scoop/apps/codex/current/codex.cmd", "win32"), "scoop");
@@ -21,11 +22,11 @@ test("detectCliInstallMethod recognizes common install sources", () => {
 test("buildCliUpgradeCommand returns provider-specific package manager commands", () => {
   assert.deepEqual(buildCliUpgradeCommand("codex", "npm", "win32"), {
     command: "npm.cmd",
-    args: ["install", "-g", "@openai/codex@latest", "--registry", "https://registry.npmmirror.com"],
+    args: ["install", "-g", "@openai/codex@latest", "--registry", resolvePreferredNpmRegistry()],
     env: {
       ...process.env,
-      npm_config_registry: "https://registry.npmmirror.com",
-      NPM_CONFIG_REGISTRY: "https://registry.npmmirror.com",
+      npm_config_registry: resolvePreferredNpmRegistry(),
+      NPM_CONFIG_REGISTRY: resolvePreferredNpmRegistry(),
     },
   });
 
@@ -49,11 +50,11 @@ test("buildCliUpgradeCommand returns provider-specific package manager commands"
 test("buildCliInstallCommand bootstraps a provider package through npm mirror", () => {
   assert.deepEqual(buildCliInstallCommand("claude", "win32"), {
     command: "npm.cmd",
-    args: ["install", "-g", "@anthropic-ai/claude-code@latest", "--registry", "https://registry.npmmirror.com"],
+    args: ["install", "-g", "@anthropic-ai/claude-code@latest", "--registry", resolvePreferredNpmRegistry()],
     env: {
       ...process.env,
-      npm_config_registry: "https://registry.npmmirror.com",
-      NPM_CONFIG_REGISTRY: "https://registry.npmmirror.com",
+      npm_config_registry: resolvePreferredNpmRegistry(),
+      NPM_CONFIG_REGISTRY: resolvePreferredNpmRegistry(),
     },
   });
 });

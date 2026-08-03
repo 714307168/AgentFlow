@@ -77,6 +77,7 @@ import {
 import { playSystemNotificationSound } from "./desktop-sound";
 import { getCliProviderRuntimeStatuses, probeCliProviderRuntime, type CliProviderRuntimeStatus } from "./cli-runtime-status";
 import { installCliProvider, upgradeCliProvider } from "./cli-updater";
+import { ensureNpmRuntime } from "./node-runtime-bootstrap";
 import { resolvePreferredNpmRegistry } from "./npm-network";
 import { selectProviderRuntime, type ProviderRuntimeSelection } from "./provider-runtime";
 import {
@@ -715,9 +716,25 @@ async function maybeAutoMaintainCliProvider(status: CliProviderRuntimeStatus): P
       npmRegistry: resolvePreferredNpmRegistry(),
     });
 
-    const result = status.installed
+    let result = status.installed
       ? await upgradeCliProvider(provider, installMethod)
       : await installCliProvider(provider);
+    if (!status.installed && result.skipped) {
+      const npmRuntime = await ensureNpmRuntime();
+      appLogger.info("runtime", "Attempted automatic Node.js/npm bootstrap for missing CLI.", {
+        provider,
+        success: npmRuntime.success,
+        available: npmRuntime.available,
+        installed: npmRuntime.installed,
+        command: npmRuntime.commandPreview,
+        error: npmRuntime.error ?? null,
+      });
+      if (npmRuntime.available) {
+        result = await installCliProvider(provider);
+      } else if (npmRuntime.error) {
+        result = { ...result, error: `${result.error ?? "npm is unavailable."} ${npmRuntime.error}` };
+      }
+    }
     if (result.skipped) {
       appLogger.warn("runtime", `Skipped automatic CLI ${action}.`, {
         provider,
@@ -7909,9 +7926,13 @@ app.whenReady().then(async () => {
     runRelayMaintenanceTask("unlock-screen");
   });
   updateManager.start();
+  const startupProvider = normalizeRegisteredCliProvider(config.cliProvider, "claude");
   void Promise.all((["claude", "codex"] as CliProvider[]).map(async (provider) => {
     try {
-      const cliStatus = await getCliProviderRuntimeStatus(provider, { allowAutoUpgrade: true });
+      const cliStatus = await getCliProviderRuntimeStatus(provider, { allowAutoUpgrade: provider === startupProvider });
+      if (provider !== startupProvider) {
+        return;
+      }
       const sdkConfig = getProviderSdkConfig(provider);
       const runtime = selectProviderRuntime({
         provider,
