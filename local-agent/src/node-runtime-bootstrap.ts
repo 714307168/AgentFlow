@@ -1,5 +1,4 @@
 import { execFile } from "child_process";
-import * as fs from "fs";
 import path from "path";
 import { promisify } from "util";
 import { isNpmCommandAvailable } from "./npm-package-manager";
@@ -46,23 +45,32 @@ export function formatNodeRuntimeBootstrapPlan(plan: NodeRuntimeBootstrapPlan | 
   return plan ? [plan.command, ...plan.args].join(" ") : null;
 }
 
-function exposeWindowsNodePath(env: NodeJS.ProcessEnv = process.env): void {
+export function exposeWindowsNodeRuntimePaths(env: NodeJS.ProcessEnv = process.env): void {
   const programFiles = String(env.ProgramFiles ?? "C:\\Program Files").trim();
+  const appData = String(env.APPDATA ?? "").trim();
   const nodeDirectory = path.join(programFiles, "nodejs");
-  if (!fs.existsSync(path.join(nodeDirectory, "npm.cmd"))) {
-    return;
-  }
+  const npmBinDirectory = appData ? path.join(appData, "npm") : "";
   const delimiter = path.delimiter;
   const currentPath = String(env.Path ?? env.PATH ?? "");
   const entries = currentPath.split(delimiter).filter(Boolean);
-  if (!entries.some((entry) => entry.toLowerCase() === nodeDirectory.toLowerCase())) {
-    env.PATH = [nodeDirectory, ...entries].join(delimiter);
+  const normalizedEntries = new Set(entries.map((entry) => entry.toLowerCase()));
+  const runtimePaths = [nodeDirectory, npmBinDirectory]
+    .filter(Boolean)
+    .filter((entry) => !normalizedEntries.has(entry.toLowerCase()));
+  if (runtimePaths.length > 0) {
+    env.PATH = [...runtimePaths, ...entries].join(delimiter);
   }
 }
 
 export async function ensureNpmRuntime(
   platform: NodeJS.Platform = process.platform,
 ): Promise<NodeRuntimeBootstrapResult> {
+  if (platform === "win32") {
+    // npm installs global CLIs in %APPDATA%\\npm. Electron keeps the PATH it
+    // had at launch, so explicitly include both runtime directories before
+    // probing or spawning a CLI.
+    exposeWindowsNodeRuntimePaths();
+  }
   if (await isNpmCommandAvailable(platform)) {
     return { success: true, available: true, installed: false, commandPreview: null };
   }
@@ -85,7 +93,7 @@ export async function ensureNpmRuntime(
       windowsHide: true,
     });
     if (platform === "win32") {
-      exposeWindowsNodePath();
+      exposeWindowsNodeRuntimePaths();
     }
     const available = await isNpmCommandAvailable(platform);
     return available

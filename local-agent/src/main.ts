@@ -781,6 +781,12 @@ async function getCliProviderRuntimeStatus(
   provider: CliProvider,
   options: { force?: boolean; allowAutoUpgrade?: boolean } = {},
 ): Promise<CliProviderRuntimeStatus> {
+  if (options.allowAutoUpgrade) {
+    // Prepare the current Electron process before probing. In particular,
+    // globally installed npm CLIs live under %APPDATA%\\npm on Windows and
+    // are not visible until that directory is added to this process PATH.
+    await ensureNpmRuntime();
+  }
   const statuses = await loadCliProviderRuntimeStatuses({ force: options.force === true });
   const status = statuses[provider] ?? await probeCliProviderRuntime(provider);
   if (!options.allowAutoUpgrade) {
