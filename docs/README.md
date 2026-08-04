@@ -26,6 +26,7 @@ Use this page as the main documentation entry. The root README should stay produ
 - [Architecture Overview](./architecture-overview.md) - desktop, Android, relay, and sync boundaries.
 - [Mobile To Desktop Execution Chain](./mobile-to-desktop-execution-chain.md) - how a phone message becomes desktop-side execution.
 - [Controlled Remote Authorization](./controlled-remote-authorization.md) - remote authorization and controlled collaboration model.
+- [Field Node Design](./field-node-design.md) - site-machine identity, project mounts, and safe diagnostics boundary.
 - [Local Agent README](../local-agent/README.md) - desktop runtime notes, local files, and migration details.
 - [English README](../README.en.md) - English product introduction.
 

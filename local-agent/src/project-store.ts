@@ -1,6 +1,38 @@
 import Store from "electron-store";
 
 export type ProjectCliProvider = "claude" | "codex";
+export type FieldNodeMountRole = "field_environment" | "remote_machine";
+
+export interface FieldNodeMount {
+  agentId: string;
+  nodeId: string;
+  role: FieldNodeMountRole;
+  label: string | null;
+  attachedAt: number;
+}
+
+export function normalizeFieldNodeMounts(value: unknown): FieldNodeMount[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  return value.flatMap((item): FieldNodeMount[] => {
+    if (!item || typeof item !== "object") return [];
+    const candidate = item as Partial<FieldNodeMount>;
+    const agentId = String(candidate.agentId ?? "").trim();
+    const nodeId = String(candidate.nodeId ?? agentId).trim();
+    if (!agentId || !nodeId) return [];
+    const role = candidate.role === "remote_machine" ? "remote_machine" : "field_environment";
+    const key = `${agentId}:${nodeId}:${role}`;
+    if (seen.has(key)) return [];
+    seen.add(key);
+    return [{
+      agentId,
+      nodeId,
+      role,
+      label: String(candidate.label ?? "").trim().slice(0, 120) || null,
+      attachedAt: Number.isFinite(candidate.attachedAt) ? Number(candidate.attachedAt) : Date.now(),
+    }];
+  });
+}
 
 export function normalizeProjectGroupName(rawValue: string | null | undefined): string | null {
   const normalized = String(rawValue ?? "").trim();
@@ -21,6 +53,7 @@ interface Project {
   codexWebSearchEnabled?: boolean;
   groupName?: string | null;
   projectPrompt?: string | null;
+  mountedNodes?: FieldNodeMount[];
   createdAt: number;
 }
 
@@ -44,6 +77,7 @@ class ProjectStore {
       codexWebSearchEnabled: normalizeCodexWebSearchEnabled(project.codexWebSearchEnabled),
       groupName: normalizeProjectGroupName(project.groupName),
       projectPrompt: typeof project.projectPrompt === "string" ? project.projectPrompt.trim() || null : null,
+      mountedNodes: normalizeFieldNodeMounts(project.mountedNodes),
     });
     this.store.set("projects", projects);
   }
@@ -59,6 +93,7 @@ class ProjectStore {
       codexWebSearchEnabled: normalizeCodexWebSearchEnabled(project.codexWebSearchEnabled),
       groupName: normalizeProjectGroupName(project.groupName),
       projectPrompt: typeof project.projectPrompt === "string" ? project.projectPrompt.trim() || null : null,
+      mountedNodes: normalizeFieldNodeMounts(project.mountedNodes),
     }));
   }
 
@@ -81,6 +116,9 @@ class ProjectStore {
             projectPrompt: updates.projectPrompt !== undefined
               ? (typeof updates.projectPrompt === "string" ? updates.projectPrompt.trim() || null : null)
               : (typeof p.projectPrompt === "string" ? p.projectPrompt.trim() || null : null),
+            mountedNodes: updates.mountedNodes !== undefined
+              ? normalizeFieldNodeMounts(updates.mountedNodes)
+              : normalizeFieldNodeMounts(p.mountedNodes),
           }
         : p
     );

@@ -184,6 +184,12 @@ contextBridge.exposeInMainWorld('claudeAgent', {
     ipcRenderer.send('open-project-window', projectId);
   },
   getConfig: () => ipcRenderer.invoke('get-config'),
+  getFieldNodeProfile: () => ipcRenderer.invoke('get-field-node-profile'),
+  saveFieldNodeProfile: (data: Record<string, unknown>) => ipcRenderer.invoke('save-field-node-profile', data),
+  listFieldNodes: (options?: { force?: boolean }) => ipcRenderer.invoke('list-field-nodes', options ?? null),
+  requestFieldNodeDiagnostics: (agentId: string) => ipcRenderer.invoke('request-field-node-diagnostics', agentId),
+  mountFieldNode: (data: { projectId: string; agentId: string; role?: string; label?: string | null }) => ipcRenderer.invoke('mount-field-node', data),
+  unmountFieldNode: (data: { projectId: string; agentId: string; role?: string }) => ipcRenderer.invoke('unmount-field-node', data),
   listModelOptions: (options?: { force?: boolean; projectId?: string | null }) => ipcRenderer.invoke('list-model-options', options ?? null),
   listAccessGrants: (options?: { force?: boolean }) => ipcRenderer.invoke('list-access-grants', options ?? null),
   grantAccessToUser: (data: { controllerUsername: string; projectIds?: string[] | null; note?: string | null }) => ipcRenderer.invoke('grant-access-to-user', data),

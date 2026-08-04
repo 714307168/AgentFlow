@@ -44,6 +44,13 @@ const (
 	// Agent events
 	EventAgentStatus = "agent.status"
 	EventAgentWakeup = "agent.wakeup"
+	// Field node events. A field node is an Agent installed at a site. It only
+	// exposes an explicit profile and a small, sanitized diagnostic snapshot;
+	// it is never a general-purpose remote shell.
+	EventNodeProfileRequest     = "node.profile.request"
+	EventNodeProfile            = "node.profile"
+	EventNodeDiagnosticsRequest = "node.diagnostics.request"
+	EventNodeDiagnostics        = "node.diagnostics"
 
 	// File events
 	EventFileSync   = "file.sync"
@@ -143,6 +150,14 @@ type ProjectListPayload struct {
 
 type AgentScopedPayload struct {
 	AgentID string `json:"agent_id"`
+}
+
+// NodeRequestPayload targets one controller device so replies are never
+// broadcast to every device that can access an agent.
+type NodeRequestPayload struct {
+	AgentID            string `json:"agent_id"`
+	ControllerDeviceID string `json:"controller_device_id,omitempty"`
+	RequestID          string `json:"request_id,omitempty"`
 }
 
 type WorkgroupCommandPayload struct {

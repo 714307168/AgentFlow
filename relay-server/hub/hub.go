@@ -473,6 +473,75 @@ func (h *Hub) HandleMessage(from *Client, env *model.Envelope) {
 			h.scheduleAgentOffline(from.AgentID)
 		}
 
+	case model.EventNodeProfileRequest:
+		if from.Type != model.ClientTypeDevice {
+			h.sendError(from, env, "forbidden", "only devices can request node profiles")
+			return
+		}
+		var payload model.NodeRequestPayload
+		if err := json.Unmarshal(env.Payload, &payload); err != nil || strings.TrimSpace(payload.AgentID) == "" {
+			h.sendError(from, env, "bad_request", "agent_id is required for node profile")
+			return
+		}
+		if !h.authorizeAgentAccess(from, env, payload.AgentID) {
+			return
+		}
+		payload.ControllerDeviceID = from.DeviceID
+		env.AgentID = payload.AgentID
+		env.Payload, _ = json.Marshal(payload)
+		if !h.SendToAgent(payload.AgentID, env) {
+			h.sendError(from, env, "agent_offline", "field node is offline")
+		}
+
+	case model.EventNodeDiagnosticsRequest:
+		if from.Type != model.ClientTypeDevice {
+			h.sendError(from, env, "forbidden", "only devices can request node diagnostics")
+			return
+		}
+		var payload model.NodeRequestPayload
+		if err := json.Unmarshal(env.Payload, &payload); err != nil || strings.TrimSpace(payload.AgentID) == "" {
+			h.sendError(from, env, "bad_request", "agent_id is required for node diagnostics")
+			return
+		}
+		if !h.authorizeAgentDiagnosticsAccess(from, env, payload.AgentID) {
+			return
+		}
+		payload.ControllerDeviceID = from.DeviceID
+		env.AgentID = payload.AgentID
+		env.Payload, _ = json.Marshal(payload)
+		if !h.SendToAgent(payload.AgentID, env) {
+			h.sendError(from, env, "agent_offline", "field node is offline")
+		}
+
+	case model.EventNodeProfile, model.EventNodeDiagnostics:
+		if from.Type != model.ClientTypeAgent {
+			h.sendError(from, env, "forbidden", "only agents can publish node data")
+			return
+		}
+		var payload map[string]json.RawMessage
+		if err := json.Unmarshal(env.Payload, &payload); err != nil {
+			h.sendError(from, env, "bad_request", "invalid node response payload")
+			return
+		}
+		var controllerDeviceID string
+		if raw := payload["controller_device_id"]; raw != nil {
+			_ = json.Unmarshal(raw, &controllerDeviceID)
+		}
+		if strings.TrimSpace(controllerDeviceID) == "" {
+			h.sendError(from, env, "bad_request", "controller_device_id is required for node response")
+			return
+		}
+		agentIDPayload, _ := json.Marshal(from.AgentID)
+		payload["agent_id"] = agentIDPayload
+		env.AgentID = from.AgentID
+		env.Payload, _ = json.Marshal(payload)
+		if env.Event == model.EventNodeDiagnostics && !h.deviceCanAccessAgentDiagnostics(controllerDeviceID, from.AgentID, env.ID) {
+			return
+		}
+		if !h.SendToDevice(controllerDeviceID, env, from.AgentID) {
+			h.sendError(from, env, "device_offline", "device is offline or unauthorized")
+		}
+
 	case model.EventProjectListRequest:
 		if from.Type != model.ClientTypeDevice {
 			log.Warn().Str("client_id", from.ID).Msg("project.list.request ignored for non-device client")
@@ -943,6 +1012,32 @@ func (h *Hub) authorizeAgentAccess(from *Client, env *model.Envelope, agentID st
 	}
 
 	return true
+}
+
+func (h *Hub) authorizeAgentDiagnosticsAccess(from *Client, env *model.Envelope, agentID string) bool {
+	if !h.authorizeAgentAccess(from, env, agentID) {
+		return false
+	}
+	if from.Type != model.ClientTypeDevice || h.store == nil || from.UserID <= 0 {
+		return true
+	}
+	if !h.store.UserCanAccessAgentDiagnostics(from.UserID, agentID) {
+		h.sendError(from, env, "forbidden", "device is not authorized for node diagnostics")
+		return false
+	}
+	return true
+}
+
+func (h *Hub) deviceCanAccessAgentDiagnostics(deviceID, agentID, refID string) bool {
+	value, ok := h.devices.Load(deviceID)
+	if !ok {
+		return false
+	}
+	device := value.(*Client)
+	if !h.refreshDeviceAccess(device, refID) || h.store == nil || device.UserID <= 0 {
+		return false
+	}
+	return h.store.UserCanAccessAgentDiagnostics(device.UserID, agentID)
 }
 
 func (h *Hub) authorizePublishedWorkgroupAccess(from *Client, env *model.Envelope, agentID, workgroupID string) bool {

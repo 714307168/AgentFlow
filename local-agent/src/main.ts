@@ -14,10 +14,15 @@ import { createTimedAsyncCache } from "./timed-async-cache";
 import RelayClient, { RelayConnectionSnapshot } from "./relay-client";
 import MessageRouter from "./message-router";
 import projectStore, {
+  FieldNodeMount,
+  normalizeFieldNodeMounts,
   normalizeCodexWebSearchEnabled,
   normalizeProjectGroupName,
   Project,
 } from "./project-store";
+import fieldNodeStore, { FieldNodeProfile, normalizeFieldNodeProfile } from "./field-node-store";
+import { collectFieldNodeDiagnostics } from "./field-node-diagnostics";
+import RemoteFieldNodeStore from "./remote-field-node-store";
 import ptyManager from "./pty-manager";
 import RemoteSessionStore, { RemoteProjectRecord } from "./remote-session-store";
 import RemoteWorkgroupStore, { RemoteWorkgroupRegistryRecord, parseCompositeWorkgroupId } from "./remote-workgroup-store";
@@ -519,6 +524,7 @@ let relayClient: RelayClient | null = null;
 let controllerRelayClient: RelayClient | null = null;
 let remoteSessionStore: RemoteSessionStore | null = null;
 let remoteWorkgroupStore: RemoteWorkgroupStore | null = null;
+let remoteFieldNodeStore: RemoteFieldNodeStore | null = null;
 const lastBroadcastSyncSeqByProject = new Map<string, number>();
 const updateManager = new UpdateManager({
   getServerUrl: () => loadConfig().serverUrl,
@@ -4532,6 +4538,25 @@ function ensureRemoteRelayReady(configOverride?: AgentConfig): boolean {
   return true;
 }
 
+function requestRemoteFieldNode(agentId: string, diagnostics: boolean = false): boolean {
+  const normalizedAgentId = agentId.trim();
+  if (!normalizedAgentId || !ensureRemoteRelayReady() || !controllerRelayClient) {
+    return false;
+  }
+  controllerRelayClient.send({
+    id: uuidv4(),
+    event: diagnostics ? Events.NODE_DIAGNOSTICS_REQUEST : Events.NODE_PROFILE_REQUEST,
+    agent_id: normalizedAgentId,
+    ts: Date.now(),
+    payload: {
+      agent_id: normalizedAgentId,
+      controller_device_id: getControllerDeviceId(),
+      request_id: uuidv4(),
+    },
+  });
+  return true;
+}
+
 async function recoverAgentRelayAuthentication(reason: string): Promise<void> {
   const refreshed = await refreshAgentToken(true);
   if (!refreshed) {
@@ -5493,6 +5518,51 @@ function initRelay(config: AgentConfig): void {
     },
   });
 
+  relayClient.on("message", (env: { event?: string; payload?: unknown }) => {
+    const payload = (env.payload ?? {}) as Record<string, unknown>;
+    const controllerDeviceId = String(payload.controller_device_id ?? "").trim();
+    const requestId = String(payload.request_id ?? "").trim();
+    if (!controllerDeviceId || !requestId) return;
+    if (env.event === Events.NODE_PROFILE_REQUEST) {
+      const profile = fieldNodeStore.getProfile();
+      relayClient?.send({
+        id: uuidv4(), event: Events.NODE_PROFILE, ts: Date.now(),
+        payload: {
+          agent_id: config.agentId,
+          controller_device_id: controllerDeviceId,
+          request_id: requestId,
+          profile: {
+            node_id: config.agentId,
+            kind: profile.kind,
+            display_name: profile.displayName || os.hostname(),
+            location: profile.location,
+            diagnostics_enabled: profile.diagnosticsEnabled,
+          },
+        },
+      });
+      return;
+    }
+    if (env.event === Events.NODE_DIAGNOSTICS_REQUEST) {
+      const profile = fieldNodeStore.getProfile();
+      relayClient?.send({
+        id: uuidv4(), event: Events.NODE_DIAGNOSTICS, ts: Date.now(),
+        payload: {
+          agent_id: config.agentId,
+          controller_device_id: controllerDeviceId,
+          request_id: requestId,
+          profile: {
+            node_id: config.agentId,
+            kind: profile.kind,
+            display_name: profile.displayName || os.hostname(),
+            location: profile.location,
+            diagnostics_enabled: profile.diagnosticsEnabled,
+          },
+          diagnostics: collectFieldNodeDiagnostics(profile),
+        },
+      });
+    }
+  });
+
   relayClient.on("connected", () => {
     appLogger.info("relay", "Relay connected.");
     clearRelaySyncState();
@@ -5574,6 +5644,8 @@ function initRemoteRelay(config: AgentConfig): void {
   remoteWorkgroupStore = new RemoteWorkgroupStore(controllerRelayClient, {
     localAgentId: () => loadConfig().agentId,
   });
+  remoteFieldNodeStore = new RemoteFieldNodeStore();
+  remoteFieldNodeStore.on("changed", () => broadcastProjectsChanged());
 
   remoteSessionStore.on("projects-changed", (projects: unknown) => {
     appLogger.info("relay", "Remote project catalog updated.", {
@@ -5643,6 +5715,7 @@ function initRemoteRelay(config: AgentConfig): void {
   controllerRelayClient.on("message", (env: any) => {
     remoteSessionStore?.handleEnvelope(env);
     remoteWorkgroupStore?.handleEnvelope(env);
+    remoteFieldNodeStore?.handleEnvelope(env);
   });
   controllerRelayClient.on("error", () => {
     void 0;
@@ -6055,6 +6128,71 @@ ipcMain.handle("get-projects", (_event, options?: { refreshRemote?: boolean } | 
     requestUiRemoteProjectListRefresh("refresh-remote-project-list");
   }
   return getAllProjects();
+});
+
+ipcMain.handle("get-field-node-profile", () => fieldNodeStore.getProfile());
+
+ipcMain.handle("save-field-node-profile", (_event, data: Partial<FieldNodeProfile>) => {
+  return { success: true, profile: fieldNodeStore.saveProfile(normalizeFieldNodeProfile(data)) };
+});
+
+ipcMain.handle("list-field-nodes", async (_event, options?: { force?: boolean } | null) => {
+  try {
+    const access = await accessGrantCache.get({ force: options?.force === true }) as {
+      controllable_agents?: Array<{ agent_id?: string; online?: boolean; owner_username?: string }>;
+    };
+    const candidates = (access.controllable_agents ?? []).flatMap((item) => {
+      const agentId = String(item.agent_id ?? "").trim();
+      if (!agentId) return [];
+      requestRemoteFieldNode(agentId, false);
+      const node = remoteFieldNodeStore?.get(agentId);
+      return [{
+        agentId,
+        online: item.online === true,
+        ownerUsername: String(item.owner_username ?? ""),
+        profile: node?.profile ?? null,
+        diagnostics: node?.diagnostics ?? null,
+      }];
+    });
+    return { success: true, nodes: candidates };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : String(error), nodes: [] };
+  }
+});
+
+ipcMain.handle("request-field-node-diagnostics", (_event, agentId: string) => {
+  return { success: requestRemoteFieldNode(String(agentId ?? ""), true) };
+});
+
+ipcMain.handle("mount-field-node", (_event, data: {
+  projectId: string;
+  agentId: string;
+  role?: FieldNodeMount["role"];
+  label?: string | null;
+}) => {
+  const project = projectStore.getById(String(data.projectId ?? "").trim());
+  const agentId = String(data.agentId ?? "").trim();
+  if (!project || !agentId) return { success: false, error: "Project and field node are required" };
+  const node = remoteFieldNodeStore?.get(agentId);
+  const mount: FieldNodeMount = {
+    agentId,
+    nodeId: agentId,
+    role: data.role === "remote_machine" ? "remote_machine" : "field_environment",
+    label: String(data.label ?? node?.profile.displayName ?? "").trim() || null,
+    attachedAt: Date.now(),
+  };
+  projectStore.update(project.id, { mountedNodes: normalizeFieldNodeMounts([...(project.mountedNodes ?? []), mount]) });
+  broadcastProjectsChanged();
+  return { success: true, project: projectStore.getById(project.id) };
+});
+
+ipcMain.handle("unmount-field-node", (_event, data: { projectId: string; agentId: string; role?: FieldNodeMount["role"] }) => {
+  const project = projectStore.getById(String(data.projectId ?? "").trim());
+  if (!project) return { success: false, error: "Project not found" };
+  const role = data.role === "remote_machine" ? "remote_machine" : "field_environment";
+  projectStore.update(project.id, { mountedNodes: (project.mountedNodes ?? []).filter((node) => node.agentId !== data.agentId || node.role !== role) });
+  broadcastProjectsChanged();
+  return { success: true };
 });
 
 ipcMain.handle("add-project", async (_event, data: {

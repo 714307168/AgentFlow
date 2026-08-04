@@ -197,6 +197,35 @@ func (db *DB) UserCanAccessAgent(userID int, agentID string) (bool, error) {
 	return count > 0, nil
 }
 
+// UserCanAccessAgentDiagnostics checks the explicit diagnostics permission.
+// Agent owners retain access; delegated users must have an active grant with
+// allow_diagnostics enabled. Keeping this separate from UserCanAccessAgent
+// prevents a future broad agent-scope feature from silently exposing machine
+// state.
+func (db *DB) UserCanAccessAgentDiagnostics(userID int, agentID string) (bool, error) {
+	var count int
+	err := db.QueryRow(`
+		SELECT COUNT(*)
+		FROM agents a
+		WHERE a.id = ? AND (
+			a.user_id = ?
+			OR EXISTS (
+				SELECT 1
+				FROM agent_access_grants g
+				WHERE g.controller_user_id = ?
+					AND g.target_agent_id = a.id
+					AND g.allow_diagnostics = 1
+					AND g.revoked_at IS NULL
+					AND (g.expires_at IS NULL OR g.expires_at > CURRENT_TIMESTAMP)
+			)
+		)
+	`, agentID, userID, userID).Scan(&count)
+	if err != nil {
+		return false, fmt.Errorf("failed to check agent diagnostics access: %w", err)
+	}
+	return count > 0, nil
+}
+
 func (db *DB) UserCanAccessProject(userID int, agentID string, projectID string) (bool, error) {
 	if strings.TrimSpace(projectID) == "" {
 		return db.UserCanAccessAgent(userID, agentID)

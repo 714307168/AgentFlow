@@ -2702,6 +2702,15 @@
               <div class="project-list" id="controllableAgentList" data-empty-message="No remote desktops available."></div>
             </div>
           </div>
+          <div class="section">
+            <div class="section-title">This Device as a Field Node</div>
+            <div class="field-help">Use this on a site computer. Authorize your account above, then attach this node to a project from Project Management. Diagnostics are a sanitized system snapshot only.</div>
+            <div class="field"><label>Node Type</label><select id="fieldNodeKind"><option value="standard">Standard desktop</option><option value="field_environment">Field environment</option><option value="remote_machine">Remote machine</option></select></div>
+            <div class="field"><label>Display Name</label><input id="fieldNodeDisplayName" type="text" placeholder="e.g. Zhonghao Hotel Front Desk"></div>
+            <div class="field"><label>Location</label><input id="fieldNodeLocation" type="text" placeholder="Optional site location"></div>
+            <div class="toggle-row field"><div class="toggle-copy"><div>Allow Sanitized Diagnostics</div><div class="toggle-help">No environment variables, secrets, file contents, addresses, or command history are shared.</div></div><label class="toggle"><input id="fieldNodeDiagnosticsEnabled" type="checkbox" checked><span class="slider"></span></label></div>
+            <div class="btn-row"><button class="btn-primary btn-small" id="saveFieldNodeProfileBtn">Save Field Node</button></div>
+          </div>
         </section>
 
         <section class="settings-pane project-management-pane hidden" id="projectPane" data-pane-content="project">
@@ -6227,6 +6236,55 @@
       });
     }
 
+    async function loadFieldNodeProfile() {
+      if (!api.getFieldNodeProfile) return;
+      const profile = await api.getFieldNodeProfile();
+      document.getElementById("fieldNodeKind").value = profile?.kind || "standard";
+      document.getElementById("fieldNodeDisplayName").value = profile?.displayName || "";
+      document.getElementById("fieldNodeLocation").value = profile?.location || "";
+      document.getElementById("fieldNodeDiagnosticsEnabled").checked = profile?.diagnosticsEnabled !== false;
+    }
+
+    async function saveFieldNodeProfile() {
+      const result = await api.saveFieldNodeProfile({
+        kind: document.getElementById("fieldNodeKind").value,
+        displayName: document.getElementById("fieldNodeDisplayName").value,
+        location: document.getElementById("fieldNodeLocation").value,
+        diagnosticsEnabled: document.getElementById("fieldNodeDiagnosticsEnabled").checked,
+      });
+      showStatus(result?.success ? inlineText("Field node saved.", "现场节点已保存。") : getErrorMessage(result?.error), !result?.success);
+    }
+
+    async function attachFieldNode(projectId) {
+      const agentId = prompt(inlineText("Enter the authorized field node Agent ID.", "输入已授权现场节点的 Agent ID。"));
+      if (!agentId?.trim()) return;
+      const remoteMachine = confirm(inlineText("Mount as a remote machine? Cancel to mount as a field environment.", "挂载为远程机器吗？取消则挂载为现场环境。"));
+      const result = await api.mountFieldNode({ projectId, agentId: agentId.trim(), role: remoteMachine ? "remote_machine" : "field_environment" });
+      if (!result?.success) {
+        showStatus(result?.error || inlineText("Could not attach field node.", "无法挂载现场节点。"), true);
+        return;
+      }
+      await loadProjects({ force: true });
+      showStatus(inlineText("Field node attached.", "现场节点已挂载。"), false);
+    }
+
+    async function inspectFieldNode(agentId) {
+      if (!agentId?.trim()) return;
+      const requested = await api.requestFieldNodeDiagnostics(agentId);
+      if (!requested?.success) {
+        showStatus(inlineText("Could not request node diagnostics. Check authorization and connection.", "无法请求节点诊断，请检查授权和连接。"), true);
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 900));
+      const result = await api.listFieldNodes({ force: false });
+      const node = (result?.nodes || []).find((item) => item.agentId === agentId);
+      if (!node?.diagnostics) {
+        showStatus(inlineText("Diagnostic response has not arrived yet. Try again in a moment.", "诊断响应尚未到达，请稍后重试。"), true);
+        return;
+      }
+      alert(JSON.stringify(node.diagnostics, null, 2));
+    }
+
     async function saveConnectionConfig() {
       const password = readSecretFieldValue("password");
       const githubToken = readSecretFieldValue("githubToken");
@@ -6442,6 +6500,9 @@
                 <div class="project-path">${escapeHtml(buildAccessGrantMeta(agent))}</div>
                 <div class="project-path">${escapeHtml(agent.owner_note || "")}</div>
               </div>
+              <div class="project-actions">
+                <button class="btn-secondary btn-small" onclick="inspectFieldNode('${escapeHtml(agent.agent_id || "")}')">${escapeHtml(inlineText("Inspect node", "查看节点"))}</button>
+              </div>
             </div>
           `).join("");
       if (renderSignatures.accessControllable !== controllableMarkup) {
@@ -6472,6 +6533,7 @@
             </div>
             <div class="project-path">${escapeHtml((project.groupName || "").trim() || inlineText("Default", "默认分组"))}</div>
             <div class="project-path">${escapeHtml(project.path)}</div>
+            ${(project.mountedNodes || []).map((node) => `<div class="project-path">${escapeHtml(`${inlineText("Field node", "现场节点")}: ${node.label || node.agentId} · ${node.role === "remote_machine" ? inlineText("Remote machine", "远程机器") : inlineText("Field environment", "现场环境")}`)}</div>`).join("")}
           </div>
           <div class="project-actions">
             <div class="project-edit-grid">
@@ -6534,6 +6596,7 @@
               </div>
             </div>
             <div class="project-action-row">
+              <button class="btn-secondary btn-small" onclick="attachFieldNode('${project.id}')">${escapeHtml(inlineText("Attach field node", "挂载现场节点"))}</button>
               <button class="btn-secondary btn-small" onclick="openProject('${project.id}')">${escapeHtml(msg("settings.projectOpen", "Open"))}</button>
               <button class="btn-danger btn-small" onclick="deleteProject('${project.id}')">${escapeHtml(msg("settings.projectDelete", "Delete"))}</button>
             </div>
@@ -8669,6 +8732,7 @@
       document.getElementById("serverUrl").value = config.serverUrl || "";
       document.getElementById("username").value = config.username || "";
       document.getElementById("agentId").value = config.agentId || "";
+      await loadFieldNodeProfile();
       syncCachedSecretFieldDisplays(config);
       renderModelProviderPresetOptions();
       renderModelProviderProfiles();
@@ -9324,6 +9388,8 @@
       document.getElementById("addProjectForm").classList.add("visible");
       document.getElementById("projectName").focus();
     });
+
+    document.getElementById("saveFieldNodeProfileBtn").addEventListener("click", () => { void saveFieldNodeProfile(); });
 
     document.getElementById("cancelProjectBtn").addEventListener("click", () => {
       resetAddProjectForm();
