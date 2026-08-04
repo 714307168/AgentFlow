@@ -46,3 +46,7 @@ Project records persist a small `mountedNodes` list. Each mount contains the Age
 ## Deliberate v1 Boundary
 
 No arbitrary remote command execution or remote desktop streaming is included. Future controlled actions must use a separately designed allowlist with an explicit local confirmation model.
+
+## Distribution
+
+`AgentFlow Node` is a separate, lightweight Windows installer target. It has a dedicated Electron entry and renderer and excludes the full workbench's native runtime dependencies. The release workflow publishes it alongside the desktop installer as `AgentFlow Node-<version>-x64-setup.exe`.

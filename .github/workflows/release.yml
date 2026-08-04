@@ -74,6 +74,11 @@ jobs:
             Write-Error "Windows portable build failed with exit code $LASTEXITCODE"
             exit $LASTEXITCODE
           }
+          npm run dist:node:win 2>&1 | Tee-Object -FilePath field-node-build.log
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Field node installer build failed with exit code $LASTEXITCODE"
+            exit $LASTEXITCODE
+          }
           Get-ChildItem -Path release -File | Sort-Object Name | Format-Table Name,Length
           if (-not (Get-ChildItem -Path release -Filter *-setup.exe -File -ErrorAction SilentlyContinue)) {
             Write-Error "Windows installer was not generated under local-agent/release."
@@ -81,6 +86,10 @@ jobs:
           }
           if (-not (Get-ChildItem -Path release -Filter *-portable.exe -File -ErrorAction SilentlyContinue)) {
             Write-Error "Windows portable package was not generated under local-agent/release."
+            exit 1
+          }
+          if (-not (Get-ChildItem -Path release-node -Filter *-setup.exe -File -ErrorAction SilentlyContinue)) {
+            Write-Error "Field node installer was not generated under local-agent/release-node."
             exit 1
           }
 
@@ -92,6 +101,7 @@ jobs:
           path: |
             local-agent/windows-build.log
             local-agent/windows-portable-build.log
+            local-agent/field-node-build.log
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
@@ -100,6 +110,7 @@ jobs:
           path: |
             local-agent/release/*-setup.exe
             local-agent/release/*-portable.exe
+            local-agent/release-node/*-setup.exe
           if-no-files-found: error
 
   macos:

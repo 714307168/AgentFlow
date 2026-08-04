@@ -25,6 +25,7 @@ local-agent/.env
 local-agent/*.log
 local-agent/*token*.txt
 local-agent/release/
+local-agent/release-node/
 local-agent/test-appdata-*/
 local-agent/tmp-extracted/
 local-agent/renderer/*.js

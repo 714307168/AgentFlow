@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AgentFlow Node</title>
+  <style>
+    :root { color-scheme: dark; font-family: "Microsoft YaHei", system-ui, sans-serif; background: #10151f; color: #e8eefb; }
+    body { margin: 0; padding: 24px; background: radial-gradient(circle at top right, #1d3150, #10151f 45%); }
+    h1 { margin: 0; font-size: 24px; } .sub { color: #9aa8bd; font-size: 13px; margin: 7px 0 22px; line-height: 1.5; }
+    .card { background: rgba(22,30,44,.94); border: 1px solid #2d3a51; border-radius: 12px; padding: 16px; margin: 12px 0; }
+    h2 { font-size: 14px; margin: 0 0 13px; color: #c9d7ee; } label { font-size: 12px; color: #aebbd0; display: block; margin: 10px 0 5px; }
+    input, select { box-sizing: border-box; width: 100%; border: 1px solid #3a4962; border-radius: 7px; background: #111b2b; color: #eef4ff; padding: 9px; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; } .checks { display: flex; gap: 12px; flex-wrap: wrap; margin: 12px 0; }
+    .checks label { margin: 0; display: flex; align-items: center; gap: 5px; } .checks input { width: auto; }
+    button { border: 0; border-radius: 7px; background: #3d7cff; color: white; padding: 9px 13px; cursor: pointer; font-weight: 600; }
+    button.secondary { background: #29374d; } .actions { display: flex; gap: 8px; margin-top: 13px; }
+    .status { font-size: 13px; color: #aab7ca; } .online { color: #62d49a; } .error { color: #ff9b9b; }
+    .id { font-family: ui-monospace, monospace; font-size: 11px; word-break: break-all; color: #94a6c3; }
+  </style>
+</head>
+<body>
+  <h1>AgentFlow Node</h1>
+  <div class="sub">现场节点端：授权、状态诊断，以及后续受控文件与命令能力。不会加载项目工作台或大模型运行环境。</div>
+  <div class="card"><h2>连接</h2><div id="status" class="status">正在读取配置…</div><div id="agentId" class="id"></div><label>中继地址</label><input id="serverUrl"><div class="row"><div><label>现场账号</label><input id="username"></div><div><label>密码</label><input id="password" type="password" autocomplete="current-password"></div></div><div class="actions"><button id="login">登录并连接</button><button class="secondary" id="reconnect">重新连接</button></div></div>
+  <div class="card"><h2>节点身份</h2><div class="row"><div><label>节点类型</label><select id="kind"><option value="field_environment">现场环境</option><option value="remote_machine">远程机器</option><option value="standard">标准节点</option></select></div><div><label>地点</label><input id="location" placeholder="可选"></div></div><label>显示名称</label><input id="displayName" placeholder="例如：中豪家酒店前台"><div class="checks"><label><input id="diagnostics" type="checkbox" checked>允许脱敏诊断</label></div><div class="actions"><button id="saveProfile">保存节点身份</button></div></div>
+  <div class="card"><h2>授权控制端</h2><div class="sub">现场人员输入要授权的账号。命令能力需要“操作”权限；文件与诊断可独立关闭。</div><label>控制端用户名</label><input id="controllerUsername" placeholder="例如：admin"><div class="checks"><label><input id="allowDiagnostics" type="checkbox" checked>诊断</label><label><input id="allowFiles" type="checkbox" checked>文件</label><label><input id="allowOperate" type="checkbox">受控命令</label></div><div class="actions"><button id="grant">保存授权</button></div></div>
+  <script>
+    const api = window.nodeApi;
+    const $ = (id) => document.getElementById(id);
+    function setStatus(text, error = false) { $("status").textContent = text; $("status").className = "status" + (error ? " error" : ""); }
+    function apply(state) {
+      $("serverUrl").value = state.serverUrl || ""; $("username").value = state.username || ""; $("agentId").textContent = "节点 ID：" + (state.agentId || "—");
+      const p = state.profile || {}; $("kind").value = p.kind || "field_environment"; $("displayName").value = p.displayName || ""; $("location").value = p.location || ""; $("diagnostics").checked = p.diagnosticsEnabled !== false;
+      setStatus(state.connected ? "已连接，等待控制端请求" : "连接状态：" + (state.connectionState || "未连接")); if (state.connected) $("status").classList.add("online");
+    }
+    $("login").onclick = async () => { try { await api.login({ serverUrl: $("serverUrl").value, username: $("username").value, password: $("password").value }); $("password").value = ""; setStatus("正在连接…"); } catch (e) { setStatus(e.message || String(e), true); } };
+    $("reconnect").onclick = async () => { await api.reconnect(); setStatus("正在重新连接…"); };
+    $("saveProfile").onclick = async () => { try { await api.saveProfile({ kind: $("kind").value, displayName: $("displayName").value, location: $("location").value, diagnosticsEnabled: $("diagnostics").checked }); setStatus("节点身份已保存"); } catch (e) { setStatus(e.message || String(e), true); } };
+    $("grant").onclick = async () => { try { await api.grantAccess({ controllerUsername: $("controllerUsername").value, allowDiagnostics: $("allowDiagnostics").checked, allowFileDownload: $("allowFiles").checked, allowOperate: $("allowOperate").checked }); setStatus("授权已保存"); } catch (e) { setStatus(e.message || String(e), true); } };
+    api.onState(apply); api.getState().then(apply).catch((e) => setStatus(e.message || String(e), true));
+  </script>
+</body>
+</html>

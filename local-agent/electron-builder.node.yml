@@ -1,0 +1,43 @@
+appId: com.claudecode.agentflow.node
+productName: "AgentFlow Node"
+asar: true
+publish: null
+extraMetadata:
+  main: "dist/src/node-main.js"
+  dependencies:
+    electron-store: "^8.1.0"
+    uuid: "^9.0.0"
+    ws: "^8.16.0"
+
+files:
+  - "dist/src/node-*.js"
+  - "dist/src/relay-client.js"
+  - "dist/src/relay-connection-recovery.js"
+  - "dist/src/crypto.js"
+  - "dist/src/api-version.js"
+  - "dist/src/app-logger.js"
+  - "dist/src/relay-http.js"
+  - "dist/src/field-node-*.js"
+  - "dist/src/types.js"
+  - "renderer/node.html"
+  - "assets/**/*"
+  - "package.json"
+  - "!node_modules/better-sqlite3/**/*"
+  - "!node_modules/node-pty/**/*"
+  - "!node_modules/xterm/**/*"
+  - "!node_modules/xterm-addon-fit/**/*"
+
+directories:
+  output: release-node
+  buildResources: assets
+
+win:
+  icon: app-icon.ico
+  artifactName: "${productName}-${version}-${arch}-setup.${ext}"
+  target:
+    - target: nsis
+      arch: [x64]
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
