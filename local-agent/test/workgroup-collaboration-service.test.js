@@ -169,7 +169,7 @@ test("workgroup collaboration service does not recurse when remote streaming con
   }
 });
 
-test("workgroup collaboration service keeps plain chat messages inside the workgroup when nobody is mentioned", async () => {
+test("workgroup collaboration service broadcasts plain messages and honors mentions", async () => {
   const workgroupId = "workgroup-passive-chat";
   const workgroup = {
     id: workgroupId,
@@ -183,39 +183,55 @@ test("workgroup collaboration service keeps plain chat messages inside the workg
     updatedAt: 1,
   };
   const originalGetWorkgroupById = workgroupStore.getWorkgroupById.bind(workgroupStore);
+  workgroupStore.removeWorkgroup(workgroupId);
   workgroupStore.getWorkgroupById = (id) => (id === workgroupId ? workgroup : undefined);
-  const member = workgroupStore.saveMember({
-    workgroupId,
-    name: "Desktop member",
-    role: "member",
-    kind: "project",
-    projectId: "local-project-1",
-    projectName: "Local project",
-    projectPath: "D:/repo/local-project-1",
-    projectKind: "local",
-    allowedPaths: [],
-  });
+  const members = [
+    workgroupStore.saveMember({
+      workgroupId,
+      name: "Desktop member",
+      role: "member",
+      kind: "project",
+      projectId: "local-project-1",
+      projectName: "Local project",
+      projectPath: "D:/repo/local-project-1",
+      projectKind: "local",
+      allowedPaths: [],
+    }),
+    workgroupStore.saveMember({
+      workgroupId,
+      name: "Second member",
+      role: "member",
+      kind: "project",
+      projectId: "local-project-2",
+      projectName: "Second local project",
+      projectPath: "D:/repo/local-project-2",
+      projectKind: "local",
+      allowedPaths: [],
+    }),
+  ];
   workgroupCollaborationStore.removeSession(workgroupId);
   const enqueued = [];
 
   try {
+    assert.equal(workgroupStore.listMembers(workgroupId).length, 2);
     const service = new WorkgroupCollaborationService({
       runtimeManager: {
         enqueueMessage(options) {
           enqueued.push(options);
+          queueMicrotask(() => options.onDone?.());
         },
         getSnapshot() {
           return null;
         },
       },
       getBoundProject(projectId) {
-        if (projectId !== "local-project-1") {
+        if (!members.some((member) => member.projectId === projectId)) {
           return null;
         }
         return {
           id: projectId,
-          name: "Local project",
-          path: "D:/repo/local-project-1",
+          name: projectId === "local-project-1" ? "Local project" : "Second local project",
+          path: `D:/repo/${projectId}`,
           kind: "local",
           online: true,
         };
@@ -229,16 +245,33 @@ test("workgroup collaboration service keeps plain chat messages inside the workg
     });
 
     const result = await service.sendUserMessage(workgroupId, "大家先看下这个问题");
+    await new Promise((resolve) => setImmediate(resolve));
 
     assert.equal(result.success, true);
-    assert.equal(enqueued.length, 0);
+    assert.equal(enqueued.length, 2);
+    assert.deepEqual(enqueued.map((entry) => entry.projectId).sort(), ["local-project-1", "local-project-2"]);
+    assert.ok(enqueued.every((entry) => entry.prompt.includes("大家先看下这个问题")));
     assert.ok(result.session);
-    assert.equal(result.session.messages.length, 1);
-    assert.equal(result.session.messages[0].senderType, "user");
-    assert.equal(result.session.messages[0].content, "大家先看下这个问题");
+    assert.ok(result.session.messages.some((message) => (
+      message.senderType === "user" && message.content === "大家先看下这个问题"
+    )));
+
+    enqueued.length = 0;
+    await service.sendUserMessage(workgroupId, "@Desktop member 只检查本地项目");
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(enqueued.length, 1);
+    assert.equal(enqueued[0].projectId, "local-project-1");
+
+    enqueued.length = 0;
+    const unmatchedResult = await service.sendUserMessage(workgroupId, "@不存在的成员 请处理");
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(enqueued.length, 0);
+    assert.ok(unmatchedResult.session.messages.some((message) => (
+      message.senderType === "error" && message.content.includes("@不存在的成员")
+    )));
   } finally {
     workgroupStore.getWorkgroupById = originalGetWorkgroupById;
-    workgroupStore.removeMember(member.id);
+    workgroupStore.removeWorkgroup(workgroupId);
     workgroupCollaborationStore.removeSession(workgroupId);
   }
 });

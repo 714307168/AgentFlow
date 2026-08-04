@@ -2087,8 +2087,6 @@ function buildProjectListPayload(agentId: string): {
   };
 }
 
-normalizeAllWorkgroupPmMembers();
-
 const runtimeManager = new RuntimeManager(() => ({
   getProjectProvider: getProjectCliProvider,
   getProjectModel: getProjectCliModel,
@@ -3616,7 +3614,6 @@ function loadSerializedWorkgroups(): WorkgroupView[] {
     .listWorkgroups()
     .sort((left, right) => right.updatedAt - left.updatedAt)
     .map((workgroup) => {
-      ensurePmMember(workgroup);
       const members = workgroupStore
         .listMembers(workgroup.id)
         .map(serializeWorkgroupMember)
@@ -3790,12 +3787,6 @@ function ensurePmMember(workgroup: Workgroup): WorkgroupMember {
   });
 }
 
-function normalizeAllWorkgroupPmMembers(): void {
-  for (const workgroup of workgroupStore.listWorkgroups()) {
-    ensurePmMember(workgroup);
-  }
-}
-
 function syncWorkgroupMembersFromSelection(workgroup: Workgroup, selectedProjectIds: string[]): void {
   const selectedIds = Array.from(
     new Set(
@@ -3839,8 +3830,6 @@ function syncWorkgroupMembersFromSelection(workgroup: Workgroup, selectedProject
       systemPrompt: existing?.systemPrompt ?? null,
     });
   }
-
-  ensurePmMember(workgroup);
 }
 
 async function publishWorkgroupRegistry(workgroupId: string): Promise<WorkgroupRegistryRecord> {
@@ -7467,19 +7456,15 @@ ipcMain.handle("save-workgroup", (_event, data: {
 
   const existing = typeof data?.id === "string" ? workgroupStore.getWorkgroupById(data.id.trim()) : null;
   const workgroupId = existing?.id || (typeof data?.id === "string" && data.id.trim() ? data.id.trim() : uuidv4());
-  const planWorkspacePath = ensureWorkgroupPlanDirectory(
-    existing?.planWorkspacePath
-    ?? getDefaultWorkgroupPlanPath(workgroupId),
-  );
 
   const workgroup = workgroupStore.saveWorkgroup({
     id: workgroupId,
     name,
     description: data?.description ?? null,
     allowDirectMemberMessages: Boolean(data?.allowDirectMemberMessages),
-    autoStartReadOnlyResearch: Boolean(data?.autoStartReadOnlyResearch),
+    autoStartReadOnlyResearch: false,
     groupNumber: existing?.groupNumber ?? null,
-    planWorkspacePath,
+    planWorkspacePath: existing?.planWorkspacePath ?? null,
     registryUpdatedAt: existing?.registryUpdatedAt ?? null,
   });
   syncWorkgroupMembersFromSelection(workgroup, Array.isArray(data?.selectedProjectIds) ? data.selectedProjectIds : []);

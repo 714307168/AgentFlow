@@ -69,7 +69,6 @@ fun AgentHubScreen(
     webSocket: RelayWebSocket,
     onNavigateToChat: (Session) -> Unit,
     onOpenWorkgroupChat: (agentId: String, workgroupId: String, workgroupName: String) -> Unit,
-    onOpenWorkgroupTasks: (agentId: String, workgroupId: String, workgroupName: String) -> Unit,
     onToggleConnection: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -251,8 +250,7 @@ fun AgentHubScreen(
                                         SimpleWorkgroupCard(
                                             agentId = agentId,
                                             workgroup = workgroup,
-                                            onOpenChat = { onOpenWorkgroupChat(agentId, workgroup.id, workgroup.name) },
-                                            onOpenTasks = { onOpenWorkgroupTasks(agentId, workgroup.id, workgroup.name) }
+                                            onOpenChat = { onOpenWorkgroupChat(agentId, workgroup.id, workgroup.name) }
                                         )
                                     }
                                 }
@@ -550,8 +548,7 @@ private fun SimpleProjectCard(session: Session, onClick: () -> Unit) {
 private fun SimpleWorkgroupCard(
     agentId: String,
     workgroup: Workgroup,
-    onOpenChat: () -> Unit,
-    onOpenTasks: () -> Unit
+    onOpenChat: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -590,15 +587,6 @@ private fun SimpleWorkgroupCard(
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.primary
                     )
-                    Text(
-                        text = stringResource(
-                            R.string.workgroups_member_task_count,
-                            workgroup.memberCount,
-                            workgroup.tasks.size
-                        ),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
                 }
                 Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -609,9 +597,6 @@ private fun SimpleWorkgroupCard(
             ) {
                 TextButton(onClick = onOpenChat) {
                     Text(stringResource(R.string.workgroups_summary_title))
-                }
-                TextButton(onClick = onOpenTasks) {
-                    Text(stringResource(R.string.workgroups_tasks_manage))
                 }
             }
         }

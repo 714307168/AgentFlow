@@ -209,7 +209,7 @@ function formatMemberMentionList(members: Pick<WorkgroupMember, "name">[]): stri
 
 interface ResolvedTargetSelection {
   targets: WorkgroupMember[];
-  mode: "passive" | "explicit";
+  mode: "broadcast" | "explicit";
   unmatchedMentions?: string[];
 }
 
@@ -445,25 +445,6 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       }),
     );
 
-    if (selection.mode === "passive") {
-      this.logWorkgroupEvent(
-        "info",
-        "Workgroup user message was kept in collaboration chat without dispatch.",
-        this.buildWorkgroupLogMeta(workgroup, {
-          traceId: userMessage.id,
-          clientMessageId: normalizedClientMessageId || null,
-          contentPreview: summarizeMessageContent(trimmedContent),
-        }),
-      );
-      this.emitSnapshot(workgroup.id);
-      this.emitSummaries();
-      const session = this.getSession(workgroup.id);
-      return {
-        success: true,
-        session: session ?? undefined,
-      };
-    }
-
     if (selection.targets.length === 0) {
       this.appendMentionRoutingFailure(workgroup.id, userMessage.id, selection);
       this.logWorkgroupEvent(
@@ -485,7 +466,9 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       };
     }
 
-    this.appendRoutingNote(workgroup.id, userMessage.id, selection);
+    if (selection.mode === "explicit") {
+      this.appendRoutingNote(workgroup.id, userMessage.id, selection);
+    }
     this.logWorkgroupEvent(
       "info",
       "Workgroup user message routed to members.",
@@ -717,7 +700,7 @@ export default class WorkgroupCollaborationService extends EventEmitter {
         return false;
       }
       const project = this.options.getBoundProject(member.projectId);
-      return Boolean(project);
+      return Boolean(project && (project.kind !== "remote" || project.online));
     });
 
     if (allMentioned) {
@@ -732,7 +715,7 @@ export default class WorkgroupCollaborationService extends EventEmitter {
       const unmatchedMentions = extractMentionTokens(content);
       return {
         targets: [],
-        mode: unmatchedMentions.length > 0 || options.requireExplicitMention ? "explicit" : "passive",
+        mode: unmatchedMentions.length > 0 || options.requireExplicitMention ? "explicit" : "broadcast",
         unmatchedMentions,
       };
     }
@@ -771,8 +754,8 @@ export default class WorkgroupCollaborationService extends EventEmitter {
     }
 
     return {
-      targets: [],
-      mode: "passive",
+      targets: boundMembers,
+      mode: "broadcast",
       unmatchedMentions: [],
     };
   }
@@ -809,7 +792,9 @@ export default class WorkgroupCollaborationService extends EventEmitter {
   ): void {
     const unmatchedMentions = selection.unmatchedMentions ?? [];
     const content = unmatchedMentions.length === 0
-      ? "Explicit routing failed: no available bound members matched this message."
+      ? (selection.mode === "broadcast"
+        ? "Broadcast skipped: no available bound members are online or connected."
+        : "Explicit routing failed: no available bound members matched this message.")
       : unmatchedMentions.length === 1 && isProjectManagerMentionToken(unmatchedMentions[0] ?? "")
         ? `PM routing failed: no available PM matched @${unmatchedMentions[0]}.`
         : `Mention routing failed: no member matched ${formatMentionList(unmatchedMentions)}.`;

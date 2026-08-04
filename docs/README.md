@@ -56,7 +56,7 @@ Use this page as the main documentation entry. The root README should stay produ
 - [Cold Project Sync Acceptance](./cold-project-sync-acceptance.md) - cold project sync and project signature acceptance.
 - [Transfer Protocol And Receipt Checklist](./transfer-protocol-and-receipt-checklist.md) - cross-end file transfer and receipt rules.
 - [Android Interaction Optimization](./android-interaction-optimization.md) - Android interaction design optimization.
-- [Swarm Workspace Design](./swarm-workspace-design.md) - forced workgroup migration, multi-account/multi-model collaboration, and execution isolation.
+- [Workgroup Chat Design](./swarm-workspace-design.md) - simple multi-device Agent groups, message routing, and cross-account authorization.
 - [Scheduled Tasks Design](./scheduled-tasks-design.md) - scheduled task design.
 - [Project Scope Access MVP](./project-scope-access-mvp.md) - project-scoped access MVP design.
 - [Project Scope Access Checklist](./project-scope-access-checklist.md) - three-end implementation and release checklist.

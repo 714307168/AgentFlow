@@ -8,7 +8,6 @@ import com.claudecode.remote.data.local.TokenStore
 import com.claudecode.remote.data.model.AgentWorkgroups
 import com.claudecode.remote.data.model.Session
 import com.claudecode.remote.data.model.Workgroup
-import com.claudecode.remote.data.model.WorkgroupTask
 import com.claudecode.remote.data.model.WorkgroupRegistryEntry
 import com.claudecode.remote.data.remote.RelayWebSocket
 import com.claudecode.remote.domain.MessageRepository
@@ -310,54 +309,6 @@ class AgentHubViewModel(
             .find { it.agentId == normalizedAgentId }
             ?.workgroups
             ?.find { it.id == normalizedWorkgroupId }
-    }
-
-    fun dispatchWorkgroupTask(agentId: String, taskId: String) {
-        submitWorkgroupCommand {
-            workgroupRepository.dispatchTask(agentId, taskId)
-        }
-    }
-
-    fun updateWorkgroupTaskStatus(agentId: String, taskId: String, status: String) {
-        submitWorkgroupCommand {
-            workgroupRepository.updateTaskStatus(agentId, taskId, status)
-        }
-    }
-
-    fun setWorkgroupTaskScheduleEnabled(agentId: String, taskId: String, enabled: Boolean) {
-        submitWorkgroupCommand {
-            workgroupRepository.setTaskScheduleEnabled(agentId, taskId, enabled)
-        }
-    }
-
-    fun saveWorkgroupTask(agentId: String, workgroupId: String, task: WorkgroupTask) {
-        submitWorkgroupCommand {
-            workgroupRepository.saveTask(agentId, workgroupId, task)
-        }
-    }
-
-    fun deleteWorkgroupTask(agentId: String, taskId: String) {
-        submitWorkgroupCommand {
-            workgroupRepository.deleteTask(agentId, taskId)
-        }
-    }
-
-    fun generateWorkgroupTaskDraft(agentId: String, workgroupId: String, goal: String) {
-        submitWorkgroupCommand {
-            workgroupRepository.generateTaskDraft(agentId, workgroupId, goal)
-        }
-    }
-
-    fun applyWorkgroupTaskDraft(agentId: String, draftId: String) {
-        submitWorkgroupCommand {
-            workgroupRepository.applyTaskDraft(agentId, draftId)
-        }
-    }
-
-    fun deleteWorkgroupTaskDraft(agentId: String, draftId: String) {
-        submitWorkgroupCommand {
-            workgroupRepository.deleteTaskDraft(agentId, draftId)
-        }
     }
 
     fun isConnected(): Boolean = webSocket.connectionState.value == RelayWebSocket.ConnectionState.CONNECTED

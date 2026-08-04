@@ -1,4 +1,5 @@
 import Store from "electron-store";
+import { app } from "electron";
 import { v4 as uuidv4 } from "uuid";
 import {
   normalizeDailyTime,
@@ -237,6 +238,7 @@ function normalizeSpecialty(value: unknown): WorkgroupMemberSpecialty {
 class WorkgroupStore {
   private readonly store = new Store<WorkgroupStoreSchema>({
     name: "workgroups",
+    cwd: app.getPath("userData"),
     defaults: {
       workgroups: [],
       members: [],

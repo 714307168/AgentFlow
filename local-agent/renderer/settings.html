@@ -2780,7 +2780,7 @@
               <div>
                 <div class="section-kicker" id="workgroupSectionKicker">Collaboration</div>
                 <div class="section-title" id="workgroupSection">Workgroups</div>
-                <div class="section-subtitle" id="workgroupSectionHint">Create a lightweight collaboration group: pick the agents, write one group announcement, and coordinate directly in the chat.</div>
+                <div class="section-subtitle" id="workgroupSectionHint">Bring local and remote agents into one chat. Plain messages go to everyone; use @name to direct one agent.</div>
               </div>
               <div class="workgroup-hub-actions">
                 <button class="btn-secondary btn-small" id="newWorkgroupBtn">New Workgroup</button>
@@ -2792,7 +2792,7 @@
               <div class="workgroup-toolbar">
                 <select id="workgroupSelect"></select>
               </div>
-              <div class="split-grid">
+              <div class="split-grid" style="grid-template-columns: minmax(0, 1fr);">
               <div class="workgroup-card">
                 <div class="workgroup-card-title" id="workgroupFormTitle">Collaboration Group</div>
                 <div class="workgroup-form-grid">
@@ -2816,8 +2816,8 @@
                     <div class="project-list" id="workgroupProjectPicker" data-empty-message="No projects available."></div>
                   </div>
                   <div class="field workgroup-field--wide">
-                    <label id="workgroupDescriptionLabel">Group Announcement</label>
-                    <textarea id="workgroupDescription" rows="4" placeholder="Write the shared collaboration rules, context, and long-term notes for this group."></textarea>
+                    <label id="workgroupDescriptionLabel">Group Description</label>
+                    <textarea id="workgroupDescription" rows="3" placeholder="Optional shared context for every agent in this group."></textarea>
                   </div>
                   <div class="toggle-row workgroup-field--wide" style="display:none;">
                     <div class="toggle-copy">
@@ -2829,7 +2829,7 @@
                       <span class="slider"></span>
                     </div>
                   </div>
-                  <div class="toggle-row workgroup-field--wide">
+                  <div class="toggle-row workgroup-field--wide" style="display:none;">
                     <div class="toggle-copy">
                       <label for="workgroupAutoStartResearch">Auto-start read-only research</label>
                       <div class="toggle-help">Dispatch ready researcher tasks automatically. Only read-only members qualify; write tasks still require explicit approval.</div>
@@ -2845,7 +2845,7 @@
                   <button class="btn-secondary btn-small" id="cancelWorkgroupBtn">Reset</button>
                 </div>
               </div>
-              <div class="workgroup-card">
+              <div class="workgroup-card" style="display:none;">
                 <div class="workgroup-card-title" id="workgroupMemberTitle">Agents</div>
                 <div>
                 <div class="field">
@@ -2915,7 +2915,7 @@
                 <div class="workgroup-card-title" id="workgroupExecutionRequestTitle">Execution Requests</div>
                 <div class="project-list" id="workgroupExecutionRequestList" data-empty-message="No execution requests."></div>
               </div>
-              <div class="workgroup-card" style="margin-top: 14px;">
+              <div class="workgroup-card" style="display:none; margin-top: 14px;">
               <div class="workgroup-card-title" id="workgroupTaskTitle">Tasks</div>
               <div class="workgroup-card" style="margin: 0 0 14px;">
                 <div class="workgroup-card-title" id="workgroupTaskDraftTitle">Plan with PM</div>
@@ -5770,8 +5770,8 @@
       document.getElementById("workgroupSectionKicker").textContent = inlineText("Collaboration", "协作");
       document.getElementById("workgroupSection").textContent = inlineText("Workgroups", "工作组");
       document.getElementById("workgroupSectionHint").textContent = inlineText(
-        "Create a lightweight collaboration group: pick the agents, write one group announcement, and coordinate directly in the chat.",
-        "协作组保持轻量：选择成员 Agent，写一条群公告，然后直接在群聊里协作。"
+        "Bring local and remote agents into one chat. Plain messages go to everyone; use @name to direct one agent.",
+        "把本地和远程 Agent 拉进同一个群。普通消息发给所有成员，使用 @成员名 定向指挥。"
       );
       document.getElementById("newWorkgroupBtn").textContent = inlineText("New Workgroup", "新建工作组");
       document.getElementById("deleteWorkgroupBtn").textContent = inlineText("Delete", "删除");
@@ -5784,10 +5784,10 @@
       document.getElementById("publishWorkgroupBtn").textContent = inlineText("Publish", "发布");
       document.getElementById("workgroupPlanPathLabel").textContent = inlineText("Planning Workspace", "规划空间");
       document.getElementById("workgroupAgentsLabel").textContent = inlineText("Agents", "成员 Agent");
-      document.getElementById("workgroupDescriptionLabel").textContent = inlineText("Group Announcement", "群公告");
+      document.getElementById("workgroupDescriptionLabel").textContent = inlineText("Group Description", "群说明");
       document.getElementById("workgroupDescription").placeholder = inlineText(
-        "Write the shared collaboration rules, context, and long-term notes for this group.",
-        "写下这个协作组共享的协作规则、背景信息和长期说明。"
+        "Optional shared context for every agent in this group.",
+        "可选：填写所有成员都需要了解的共享背景。"
       );
       document.getElementById("workgroupProjectPicker").setAttribute("data-empty-message", inlineText("No projects available.", "暂无可选项目。"));
       document.getElementById("workgroupDirectMessageLabel").textContent = inlineText("Allow member-to-member handoff notes", "允许成员间交接备注");
