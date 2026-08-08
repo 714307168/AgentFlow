@@ -529,6 +529,13 @@ class RelayClient extends EventEmitter {
         }
         if (decrypted) {
           env.payload = JSON.parse(decrypted);
+        } else {
+          // A stale room key must never be forwarded as an opaque payload: the
+          // receiving store would treat it as a valid message and the remote
+          // agent appears to have ignored the request. Drop that envelope and
+          // actively negotiate a new key for the next request.
+          this.recoverFromEncryptedPayloadFailure(keyId, encryptedPayload);
+          return;
         }
       }
       if (env.event === Events.PROJECT_LISTED && this.clientType === "device") {
@@ -909,6 +916,31 @@ class RelayClient extends EventEmitter {
         device_id: this.deviceId,
       },
     });
+  }
+
+  private recoverFromEncryptedPayloadFailure(keyId: string, payload: RelayEncryptedEnvelopePayload): void {
+    const roomAgentId = keyId.startsWith("agent:") ? keyId.slice("agent:".length).trim() : "";
+    const senderId = typeof payload.sender_id === "string" ? payload.sender_id.trim() : "";
+    const targetAgentId = roomAgentId || senderId;
+    appLogger.warn("RelayClient", "Discarded an undecryptable relay payload and renewing E2E state.", {
+      clientType: this.clientType,
+      agentId: targetAgentId || null,
+      keyId: keyId || null,
+    });
+
+    if (roomAgentId) {
+      this.e2e.removeRoomKey(roomAgentId);
+    }
+    if (this.clientType === "device" && targetAgentId) {
+      this.clearPendingRoomKeyOffer(targetAgentId);
+      this.ensureRoomKey(targetAgentId);
+      return;
+    }
+    // Agents issue a fresh room key on the next device offer. Removing the
+    // local key prevents the stale one from being reused in that exchange.
+    if (this.clientType === "agent") {
+      this.e2e.removeRoomKey(this.agentId);
+    }
   }
 
   private refreshRoomKeyForAgentStatus(env: Envelope): void {
