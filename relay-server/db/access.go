@@ -226,6 +226,28 @@ func (db *DB) UserCanAccessAgentDiagnostics(userID int, agentID string) (bool, e
 	return count > 0, nil
 }
 
+// UserCanOperateAgent requires an explicit operate/admin grant. It is used by
+// field-node actions and intentionally does not inherit observe/collaborate.
+func (db *DB) UserCanOperateAgent(userID int, agentID string) (bool, error) {
+	var count int
+	err := db.QueryRow(`
+		SELECT COUNT(*) FROM agents a
+		WHERE a.id = ? AND (
+			a.user_id = ? OR EXISTS (
+				SELECT 1 FROM agent_access_grants g
+				WHERE g.controller_user_id = ? AND g.target_agent_id = a.id
+					AND g.capability_bundle IN ('operate', 'admin')
+					AND g.revoked_at IS NULL
+					AND (g.expires_at IS NULL OR g.expires_at > CURRENT_TIMESTAMP)
+			)
+		)
+	`, agentID, userID, userID).Scan(&count)
+	if err != nil {
+		return false, fmt.Errorf("failed to check agent operation access: %w", err)
+	}
+	return count > 0, nil
+}
+
 func (db *DB) UserCanAccessProject(userID int, agentID string, projectID string) (bool, error) {
 	if strings.TrimSpace(projectID) == "" {
 		return db.UserCanAccessAgent(userID, agentID)

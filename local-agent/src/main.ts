@@ -22,6 +22,7 @@ import projectStore, {
 } from "./project-store";
 import fieldNodeStore, { FieldNodeProfile, normalizeFieldNodeProfile } from "./field-node-store";
 import { collectFieldNodeDiagnostics } from "./field-node-diagnostics";
+import { isFieldNodeCommandAction, runFieldNodeCommand } from "./field-node-command";
 import RemoteFieldNodeStore from "./remote-field-node-store";
 import ptyManager from "./pty-manager";
 import RemoteSessionStore, { RemoteProjectRecord } from "./remote-session-store";
@@ -4557,6 +4558,26 @@ function requestRemoteFieldNode(agentId: string, diagnostics: boolean = false): 
   return true;
 }
 
+function requestRemoteFieldNodeCommand(agentId: string, action: string): boolean {
+  const normalizedAgentId = agentId.trim();
+  if (!normalizedAgentId || !isFieldNodeCommandAction(action) || !ensureRemoteRelayReady() || !controllerRelayClient) {
+    return false;
+  }
+  controllerRelayClient.send({
+    id: uuidv4(),
+    event: Events.NODE_COMMAND_REQUEST,
+    agent_id: normalizedAgentId,
+    ts: Date.now(),
+    payload: {
+      agent_id: normalizedAgentId,
+      action,
+      controller_device_id: getControllerDeviceId(),
+      request_id: uuidv4(),
+    },
+  });
+  return true;
+}
+
 async function recoverAgentRelayAuthentication(reason: string): Promise<void> {
   const refreshed = await refreshAgentToken(true);
   if (!refreshed) {
@@ -5560,6 +5581,33 @@ function initRelay(config: AgentConfig): void {
           diagnostics: collectFieldNodeDiagnostics(profile),
         },
       });
+      return;
+    }
+    if (env.event === Events.NODE_COMMAND_REQUEST) {
+      const action = payload.action;
+      if (!isFieldNodeCommandAction(action)) {
+        relayClient?.send({
+          id: uuidv4(), event: Events.NODE_COMMAND_RESULT, ts: Date.now(),
+          payload: {
+            agent_id: config.agentId,
+            controller_device_id: controllerDeviceId,
+            request_id: requestId,
+            result: { action: String(action ?? ""), ok: false, output: "Unsupported field-node action.", executedAt: Date.now() },
+          },
+        });
+        return;
+      }
+      void runFieldNodeCommand(action).then((result) => {
+        relayClient?.send({
+          id: uuidv4(), event: Events.NODE_COMMAND_RESULT, ts: Date.now(),
+          payload: {
+            agent_id: config.agentId,
+            controller_device_id: controllerDeviceId,
+            request_id: requestId,
+            result,
+          },
+        });
+      });
     }
   });
 
@@ -6162,6 +6210,10 @@ ipcMain.handle("list-field-nodes", async (_event, options?: { force?: boolean } 
 
 ipcMain.handle("request-field-node-diagnostics", (_event, agentId: string) => {
   return { success: requestRemoteFieldNode(String(agentId ?? ""), true) };
+});
+
+ipcMain.handle("request-field-node-command", (_event, data: { agentId?: string; action?: string } | null) => {
+  return { success: requestRemoteFieldNodeCommand(String(data?.agentId ?? ""), String(data?.action ?? "")) };
 });
 
 ipcMain.handle("mount-field-node", (_event, data: {

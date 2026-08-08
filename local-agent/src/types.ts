@@ -64,6 +64,8 @@ export const Events = {
   NODE_PROFILE: "node.profile",
   NODE_DIAGNOSTICS_REQUEST: "node.diagnostics.request",
   NODE_DIAGNOSTICS: "node.diagnostics",
+  NODE_COMMAND_REQUEST: "node.command.request",
+  NODE_COMMAND_RESULT: "node.command.result",
   TASK_STOP:     "task.stop",
   FILE_SYNC:     "file.sync",
   FILE_UPLOAD:   "file.upload",

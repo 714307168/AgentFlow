@@ -6285,6 +6285,25 @@
       alert(JSON.stringify(node.diagnostics, null, 2));
     }
 
+    async function runFieldNodeCommand(agentId, action) {
+      if (!agentId?.trim() || !api.requestFieldNodeCommand) return;
+      const requestedAt = Date.now();
+      const requested = await api.requestFieldNodeCommand({ agentId, action });
+      if (!requested?.success) {
+        showStatus(inlineText("Could not send the controlled node action. Check operation permission and connection.", "无法发送受控节点操作，请检查操作权限和连接。"), true);
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 900));
+      const result = await api.listFieldNodes({ force: false });
+      const node = (result?.nodes || []).find((item) => item.agentId === agentId);
+      const commandResult = node?.commandResults?.[action];
+      if (!commandResult || Number(commandResult.executedAt || 0) < requestedAt) {
+        showStatus(inlineText("The node has not returned a result yet. Try again in a moment.", "节点尚未返回结果，请稍后重试。"), true);
+        return;
+      }
+      alert(`${commandResult.ok ? inlineText("Completed", "已完成") : inlineText("Failed", "失败")} · ${commandResult.action}\n\n${commandResult.output}`);
+    }
+
     async function saveConnectionConfig() {
       const password = readSecretFieldValue("password");
       const githubToken = readSecretFieldValue("githubToken");
@@ -6491,7 +6510,13 @@
 
       const controllableMarkup = controllable.length === 0
         ? `<div class="empty-state">${escapeHtml(controllableList.dataset.emptyMessage || inlineText("No remote desktops available.", "暂无可控制桌面。"))}</div>`
-        : controllable.map((agent) => `
+        : controllable.map((agent) => {
+            const canOperate = agent.is_owned === true || agent.capability_bundle === "operate" || agent.capability_bundle === "admin";
+            const commandActions = canOperate ? `
+                <button class="btn-secondary btn-small" onclick="runFieldNodeCommand('${escapeHtml(agent.agent_id || "")}', 'ping')">${escapeHtml(inlineText("Ping", "连通测试"))}</button>
+                <button class="btn-secondary btn-small" onclick="runFieldNodeCommand('${escapeHtml(agent.agent_id || "")}', 'runtime-status')">${escapeHtml(inlineText("Runtime", "运行环境"))}</button>
+                <button class="btn-secondary btn-small" onclick="runFieldNodeCommand('${escapeHtml(agent.agent_id || "")}', 'disk-status')">${escapeHtml(inlineText("Disk", "磁盘状态"))}</button>` : "";
+            return `
             <div class="project-item">
               <div class="project-info">
                 <div class="project-name">${escapeHtml(agent.owner_username || "")}</div>
@@ -6502,9 +6527,11 @@
               </div>
               <div class="project-actions">
                 <button class="btn-secondary btn-small" onclick="inspectFieldNode('${escapeHtml(agent.agent_id || "")}')">${escapeHtml(inlineText("Inspect node", "查看节点"))}</button>
+                ${commandActions}
               </div>
             </div>
-          `).join("");
+          `;
+          }).join("");
       if (renderSignatures.accessControllable !== controllableMarkup) {
         renderSignatures.accessControllable = controllableMarkup;
         controllableList.innerHTML = controllableMarkup;

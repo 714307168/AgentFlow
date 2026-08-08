@@ -6,6 +6,7 @@ import fieldNodeStore from "./field-node-store";
 import { getNodeConfig, grantFieldNodeAccess, loginFieldNode } from "./node-auth";
 import { Events } from "./types";
 import { v4 as uuidv4 } from "uuid";
+import { isFieldNodeCommandAction, runFieldNodeCommand } from "./field-node-command";
 
 app.setName("AgentFlow Node");
 
@@ -77,6 +78,14 @@ function connectRelay(): void {
       sendNodeResponse(Events.NODE_DIAGNOSTICS, request, {
         diagnostics: collectFieldNodeDiagnostics(fieldNodeStore.getProfile()),
       });
+    }
+    if (env.event === Events.NODE_COMMAND_REQUEST) {
+      const action = request.action;
+      if (!isFieldNodeCommandAction(action)) {
+        sendNodeResponse(Events.NODE_COMMAND_RESULT, request, { result: { action: String(action ?? ""), ok: false, output: "Unsupported field-node action.", executedAt: Date.now() } });
+        return;
+      }
+      void runFieldNodeCommand(action).then((result) => sendNodeResponse(Events.NODE_COMMAND_RESULT, request, { result }));
     }
   });
   connectionState = "connecting";

@@ -513,7 +513,32 @@ func (h *Hub) HandleMessage(from *Client, env *model.Envelope) {
 			h.sendError(from, env, "agent_offline", "field node is offline")
 		}
 
-	case model.EventNodeProfile, model.EventNodeDiagnostics:
+	case model.EventNodeCommandRequest:
+		if from.Type != model.ClientTypeDevice {
+			h.sendError(from, env, "forbidden", "only devices can request node commands")
+			return
+		}
+		var payload model.NodeRequestPayload
+		if err := json.Unmarshal(env.Payload, &payload); err != nil || strings.TrimSpace(payload.AgentID) == "" {
+			h.sendError(from, env, "bad_request", "agent_id is required for node command")
+			return
+		}
+		if !h.authorizeAgentOperationAccess(from, env, payload.AgentID) {
+			return
+		}
+		payload.ControllerDeviceID = from.DeviceID
+		env.AgentID = payload.AgentID
+		var raw map[string]json.RawMessage
+		if err := json.Unmarshal(env.Payload, &raw); err == nil {
+			device, _ := json.Marshal(payload.ControllerDeviceID)
+			raw["controller_device_id"] = device
+			env.Payload, _ = json.Marshal(raw)
+		}
+		if !h.SendToAgent(payload.AgentID, env) {
+			h.sendError(from, env, "agent_offline", "field node is offline")
+		}
+
+	case model.EventNodeProfile, model.EventNodeDiagnostics, model.EventNodeCommandResult:
 		if from.Type != model.ClientTypeAgent {
 			h.sendError(from, env, "forbidden", "only agents can publish node data")
 			return
@@ -536,6 +561,9 @@ func (h *Hub) HandleMessage(from *Client, env *model.Envelope) {
 		env.AgentID = from.AgentID
 		env.Payload, _ = json.Marshal(payload)
 		if env.Event == model.EventNodeDiagnostics && !h.deviceCanAccessAgentDiagnostics(controllerDeviceID, from.AgentID, env.ID) {
+			return
+		}
+		if env.Event == model.EventNodeCommandResult && !h.deviceCanOperateAgent(controllerDeviceID, from.AgentID, env.ID) {
 			return
 		}
 		if !h.SendToDevice(controllerDeviceID, env, from.AgentID) {
@@ -1028,6 +1056,20 @@ func (h *Hub) authorizeAgentDiagnosticsAccess(from *Client, env *model.Envelope,
 	return true
 }
 
+func (h *Hub) authorizeAgentOperationAccess(from *Client, env *model.Envelope, agentID string) bool {
+	if !h.authorizeAgentAccess(from, env, agentID) {
+		return false
+	}
+	if from.Type != model.ClientTypeDevice || h.store == nil || from.UserID <= 0 {
+		return true
+	}
+	if !h.store.UserCanOperateAgent(from.UserID, agentID) {
+		h.sendError(from, env, "forbidden", "device is not authorized to operate the field node")
+		return false
+	}
+	return true
+}
+
 func (h *Hub) deviceCanAccessAgentDiagnostics(deviceID, agentID, refID string) bool {
 	value, ok := h.devices.Load(deviceID)
 	if !ok {
@@ -1038,6 +1080,15 @@ func (h *Hub) deviceCanAccessAgentDiagnostics(deviceID, agentID, refID string) b
 		return false
 	}
 	return h.store.UserCanAccessAgentDiagnostics(device.UserID, agentID)
+}
+
+func (h *Hub) deviceCanOperateAgent(deviceID, agentID, refID string) bool {
+	value, ok := h.devices.Load(deviceID)
+	if !ok {
+		return false
+	}
+	device := value.(*Client)
+	return h.refreshDeviceAccess(device, refID) && h.store != nil && device.UserID > 0 && h.store.UserCanOperateAgent(device.UserID, agentID)
 }
 
 func (h *Hub) authorizePublishedWorkgroupAccess(from *Client, env *model.Envelope, agentID, workgroupID string) bool {

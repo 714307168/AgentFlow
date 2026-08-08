@@ -191,6 +191,11 @@ func (s *Store) UserCanAccessAgentDiagnostics(userID int, agentID string) bool {
 	return err == nil && ok
 }
 
+func (s *Store) UserCanOperateAgent(userID int, agentID string) bool {
+	ok, err := s.db.UserCanOperateAgent(userID, agentID)
+	return err == nil && ok
+}
+
 func (s *Store) UserCanAccessProject(userID int, agentID string, projectID string) bool {
 	ok, err := s.db.UserCanAccessProject(userID, agentID, projectID)
 	return err == nil && ok

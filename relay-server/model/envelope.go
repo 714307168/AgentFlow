@@ -51,6 +51,8 @@ const (
 	EventNodeProfile            = "node.profile"
 	EventNodeDiagnosticsRequest = "node.diagnostics.request"
 	EventNodeDiagnostics        = "node.diagnostics"
+	EventNodeCommandRequest     = "node.command.request"
+	EventNodeCommandResult      = "node.command.result"
 
 	// File events
 	EventFileSync   = "file.sync"

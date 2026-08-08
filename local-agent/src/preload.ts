@@ -188,6 +188,7 @@ contextBridge.exposeInMainWorld('claudeAgent', {
   saveFieldNodeProfile: (data: Record<string, unknown>) => ipcRenderer.invoke('save-field-node-profile', data),
   listFieldNodes: (options?: { force?: boolean }) => ipcRenderer.invoke('list-field-nodes', options ?? null),
   requestFieldNodeDiagnostics: (agentId: string) => ipcRenderer.invoke('request-field-node-diagnostics', agentId),
+  requestFieldNodeCommand: (data: { agentId: string; action: "ping" | "runtime-status" | "disk-status" }) => ipcRenderer.invoke('request-field-node-command', data),
   mountFieldNode: (data: { projectId: string; agentId: string; role?: string; label?: string | null }) => ipcRenderer.invoke('mount-field-node', data),
   unmountFieldNode: (data: { projectId: string; agentId: string; role?: string }) => ipcRenderer.invoke('unmount-field-node', data),
   listModelOptions: (options?: { force?: boolean; projectId?: string | null }) => ipcRenderer.invoke('list-model-options', options ?? null),
