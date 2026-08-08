@@ -4558,11 +4558,12 @@ function requestRemoteFieldNode(agentId: string, diagnostics: boolean = false): 
   return true;
 }
 
-function requestRemoteFieldNodeCommand(agentId: string, action: string): boolean {
+function requestRemoteFieldNodeCommand(agentId: string, action: string): string | null {
   const normalizedAgentId = agentId.trim();
   if (!normalizedAgentId || !isFieldNodeCommandAction(action) || !ensureRemoteRelayReady() || !controllerRelayClient) {
-    return false;
+    return null;
   }
+  const requestId = uuidv4();
   controllerRelayClient.send({
     id: uuidv4(),
     event: Events.NODE_COMMAND_REQUEST,
@@ -4572,10 +4573,10 @@ function requestRemoteFieldNodeCommand(agentId: string, action: string): boolean
       agent_id: normalizedAgentId,
       action,
       controller_device_id: getControllerDeviceId(),
-      request_id: uuidv4(),
+      request_id: requestId,
     },
   });
-  return true;
+  return requestId;
 }
 
 async function recoverAgentRelayAuthentication(reason: string): Promise<void> {
@@ -6213,7 +6214,8 @@ ipcMain.handle("request-field-node-diagnostics", (_event, agentId: string) => {
 });
 
 ipcMain.handle("request-field-node-command", (_event, data: { agentId?: string; action?: string } | null) => {
-  return { success: requestRemoteFieldNodeCommand(String(data?.agentId ?? ""), String(data?.action ?? "")) };
+  const requestId = requestRemoteFieldNodeCommand(String(data?.agentId ?? ""), String(data?.action ?? ""));
+  return { success: requestId !== null, requestId };
 });
 
 ipcMain.handle("mount-field-node", (_event, data: {

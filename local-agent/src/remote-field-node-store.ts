@@ -10,7 +10,7 @@ export interface RemoteFieldNodeRecord {
   online: boolean;
   updatedAt: number;
   diagnostics: FieldNodeDiagnostics | null;
-  commandResults: Partial<Record<FieldNodeCommandAction, FieldNodeCommandResult>>;
+  commandResults: Partial<Record<FieldNodeCommandAction, FieldNodeCommandResult & { requestId: string }>>;
 }
 
 export default class RemoteFieldNodeStore extends EventEmitter {
@@ -52,8 +52,9 @@ export default class RemoteFieldNodeStore extends EventEmitter {
     }
     if (env.event === Events.NODE_COMMAND_RESULT && payload.result && typeof payload.result === "object") {
       const result = payload.result as Partial<FieldNodeCommandResult>;
-      if (isFieldNodeCommandResult(result)) {
-        next.commandResults = { ...next.commandResults, [result.action]: result };
+      const requestId = String(payload.request_id ?? "").trim();
+      if (requestId && isFieldNodeCommandResult(result)) {
+        next.commandResults = { ...next.commandResults, [result.action]: { ...result, requestId } };
       }
     }
     this.nodes.set(agentId, next);

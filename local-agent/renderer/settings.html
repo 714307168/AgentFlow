@@ -6287,7 +6287,6 @@
 
     async function runFieldNodeCommand(agentId, action) {
       if (!agentId?.trim() || !api.requestFieldNodeCommand) return;
-      const requestedAt = Date.now();
       const requested = await api.requestFieldNodeCommand({ agentId, action });
       if (!requested?.success) {
         showStatus(inlineText("Could not send the controlled node action. Check operation permission and connection.", "无法发送受控节点操作，请检查操作权限和连接。"), true);
@@ -6297,7 +6296,7 @@
       const result = await api.listFieldNodes({ force: false });
       const node = (result?.nodes || []).find((item) => item.agentId === agentId);
       const commandResult = node?.commandResults?.[action];
-      if (!commandResult || Number(commandResult.executedAt || 0) < requestedAt) {
+      if (!commandResult || commandResult.requestId !== requested.requestId) {
         showStatus(inlineText("The node has not returned a result yet. Try again in a moment.", "节点尚未返回结果，请稍后重试。"), true);
         return;
       }
