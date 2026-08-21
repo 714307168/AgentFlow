@@ -19,7 +19,7 @@ test("provider ui exposes model provider presets", () => {
   assert.equal(presetIds.includes("aliyun-qwen"), true);
   assert.equal(
     providerUi.listModelProviderPresets().find((preset) => preset.id === "anthropic")?.defaultModel,
-    "claude-sonnet-4-6",
+    "claude-sonnet-4-5",
   );
 });
 

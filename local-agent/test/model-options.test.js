@@ -58,8 +58,8 @@ test("listConfiguredModelOptions merges configured defaults with built-in provid
     assert.equal(options[0].error, undefined);
     assert.deepEqual(options[0].models, [
       "claude-custom",
-      "claude-opus-4-6",
-      "claude-sonnet-4-6",
+      "claude-opus-4-5",
+      "claude-sonnet-4-5",
       "claude-haiku-4-5",
     ]);
   } finally {

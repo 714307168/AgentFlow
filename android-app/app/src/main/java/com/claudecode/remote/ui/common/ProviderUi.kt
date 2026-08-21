@@ -21,7 +21,7 @@ object ProviderUi {
             )
         } else {
             listOf(
-                ModelPreset("Anthropic Claude", "claude-sonnet-4-6")
+                ModelPreset("Anthropic Claude", "claude-sonnet-4-5")
             )
         }
 }

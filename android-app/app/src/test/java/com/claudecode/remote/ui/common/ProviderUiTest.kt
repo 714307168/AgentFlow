@@ -17,7 +17,7 @@ class ProviderUiTest {
     @Test
     fun claudeDefaultUsesTheCurrentSonnetModel() {
         assertEquals(
-            "claude-sonnet-4-6",
+            "claude-sonnet-4-5",
             ProviderUi.defaultModels("claude").single().model
         )
     }
