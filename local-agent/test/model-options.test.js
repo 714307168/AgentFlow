@@ -120,3 +120,74 @@ test("listConfiguredModelOptions exposes current Codex model choices without ups
     "gpt-5.4-mini",
   ]);
 });
+
+test("listConfiguredModelOptions refreshes Anthropic models with the configured base URL and key", async () => {
+  const requests = [];
+  const fetch = async (url, init) => {
+    requests.push({ url: String(url), headers: init.headers });
+    return {
+      ok: true,
+      status: 200,
+      async json() {
+        return {
+          data: [
+            { id: "claude-opus-4-5-20251101" },
+            { id: "claude-sonnet-4-5-20250929" },
+            { id: "not-a-claude-model" },
+          ],
+          has_more: true,
+          last_id: "claude-sonnet-4-5-20250929",
+        };
+      },
+    };
+  };
+
+  const options = await listConfiguredModelOptions({
+    modelProviderProfiles: [{
+      id: "anthropic",
+      name: "Anthropic Claude",
+      protocol: "anthropic",
+      apiKey: "test-key",
+      baseUrl: "https://models.example.test/v1",
+      defaultModel: "claude-sonnet-4-5",
+      enabled: true,
+    }],
+  }, {}, { fetchRemote: true, fetch });
+
+  assert.deepEqual(requests, [
+    {
+      url: "https://models.example.test/v1/models",
+      headers: { "x-api-key": "test-key", "anthropic-version": "2023-06-01" },
+    },
+    {
+      url: "https://models.example.test/v1/models?after_id=claude-sonnet-4-5-20250929",
+      headers: { "x-api-key": "test-key", "anthropic-version": "2023-06-01" },
+    },
+  ]);
+  assert.deepEqual(options[0].models.slice(0, 3), [
+    "claude-sonnet-4-5",
+    "claude-opus-4-5-20251101",
+    "claude-sonnet-4-5-20250929",
+  ]);
+  assert.equal(options[0].models.includes("not-a-claude-model"), false);
+});
+
+test("listConfiguredModelOptions keeps local choices when a model endpoint fails", async () => {
+  const options = await listConfiguredModelOptions({
+    modelProviderProfiles: [{
+      id: "anthropic",
+      name: "Anthropic Claude",
+      protocol: "anthropic",
+      apiKey: "test-key",
+      baseUrl: "https://models.example.test",
+      defaultModel: "claude-sonnet-4-5",
+      enabled: true,
+    }],
+  }, {}, {
+    fetchRemote: true,
+    fetch: async () => ({ ok: false, status: 401 }),
+  });
+
+  assert.equal(options[0].error, "Model endpoint returned HTTP 401.");
+  assert.equal(options[0].models.includes("claude-sonnet-4-5"), true);
+});

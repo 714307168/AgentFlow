@@ -615,7 +615,7 @@ const cliProviderRuntimeStatusCache = createTimedAsyncCache<Record<CliProvider, 
 
 const modelOptionsCache = createTimedAsyncCache<ModelProviderOption[]>({
   ttlMs: MODEL_OPTIONS_CACHE_TTL_MS,
-  load: async () => await listConfiguredModelOptions(loadConfig()),
+  load: async () => await listConfiguredModelOptions(loadConfig(), process.env, { fetchRemote: true }),
 });
 
 function syncLoginItemSettings(): void {
