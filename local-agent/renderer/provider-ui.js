@@ -91,7 +91,7 @@
       name: "Anthropic Claude",
       protocol: "anthropic",
       baseUrl: "https://api.anthropic.com",
-      defaultModel: "claude-3-7-sonnet-latest",
+      defaultModel: "claude-sonnet-4-6",
       description: "Official Anthropic Messages API endpoint.",
     },
   ];

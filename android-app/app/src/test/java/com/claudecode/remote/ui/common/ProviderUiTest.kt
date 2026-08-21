@@ -15,6 +15,14 @@ class ProviderUiTest {
     }
 
     @Test
+    fun claudeDefaultUsesTheCurrentSonnetModel() {
+        assertEquals(
+            "claude-sonnet-4-6",
+            ProviderUi.defaultModels("claude").single().model
+        )
+    }
+
+    @Test
     fun androidClientCapabilitiesExposeAttachmentSupportInTheSharedLayer() {
         assertTrue(ClientCapabilities.supportsMessageAttachments)
         assertTrue(ClientCapabilities.supportsInlineAttachmentPreview)

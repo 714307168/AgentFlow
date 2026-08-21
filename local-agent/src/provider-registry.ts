@@ -107,7 +107,7 @@ const PROVIDER_REGISTRY: Record<CliProvider, ProviderRegistryEntry> = {
       baseUrlConfigKey: "anthropicBaseUrl",
       defaultModelConfigKey: "anthropicDefaultModel",
       defaultBaseUrl: "https://api.anthropic.com",
-      defaultModel: "claude-3-7-sonnet-latest",
+      defaultModel: "claude-sonnet-4-6",
       env: {
         apiKey: "ANTHROPIC_API_KEY",
         authToken: "ANTHROPIC_AUTH_TOKEN",
@@ -249,7 +249,7 @@ export const MODEL_PROVIDER_PRESETS: ModelProviderPreset[] = [
     name: "Anthropic Claude",
     protocol: "anthropic",
     baseUrl: "https://api.anthropic.com",
-    defaultModel: "claude-3-7-sonnet-latest",
+    defaultModel: "claude-sonnet-4-6",
     description: "Official Anthropic Messages API endpoint.",
   },
 ];

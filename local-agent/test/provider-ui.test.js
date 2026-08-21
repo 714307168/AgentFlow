@@ -17,6 +17,10 @@ test("provider ui exposes model provider presets", () => {
   assert.equal(presetIds.includes("zhipu"), true);
   assert.equal(presetIds.includes("hunyuan"), true);
   assert.equal(presetIds.includes("aliyun-qwen"), true);
+  assert.equal(
+    providerUi.listModelProviderPresets().find((preset) => preset.id === "anthropic")?.defaultModel,
+    "claude-sonnet-4-6",
+  );
 });
 
 test("desktop client capabilities expose attachment and gateway support", () => {

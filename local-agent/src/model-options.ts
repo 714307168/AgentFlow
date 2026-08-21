@@ -68,10 +68,9 @@ const BUILTIN_MODEL_CATALOG_BY_PROFILE_ID: Record<string, string[]> = {
     "gemini-2.0-flash",
   ],
   anthropic: [
-    "claude-3-7-sonnet-latest",
-    "claude-3-5-sonnet-latest",
-    "claude-3-5-haiku-latest",
-    "claude-3-opus-latest",
+    "claude-opus-4-6",
+    "claude-sonnet-4-6",
+    "claude-haiku-4-5",
   ],
 };
 

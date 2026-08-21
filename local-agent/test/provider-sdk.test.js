@@ -33,7 +33,7 @@ test("generateProviderSdkImage rejects unsupported providers", async () => {
       config: {
         apiKey: "test-key",
         baseUrl: "https://api.anthropic.com",
-        defaultModel: "claude-3-7-sonnet-latest",
+        defaultModel: "claude-sonnet-4-6",
       },
       model: null,
       prompt: "create an icon",
