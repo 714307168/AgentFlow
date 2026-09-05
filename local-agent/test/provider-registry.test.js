@@ -165,3 +165,16 @@ test("model provider presets include domestic OpenAI-compatible providers", () =
   assert.equal(presetIds.includes("aliyun-qwen"), true);
   assert.equal(presetIds.includes("google-gemini"), true);
 });
+
+test("normalizing the official OpenAI profile upgrades its default model to GPT-6", () => {
+  const profiles = normalizeModelProviderProfiles([{
+    id: "openai",
+    name: "OpenAI",
+    protocol: "openai",
+    apiKey: "sk-test",
+    baseUrl: "https://api.openai.com",
+    defaultModel: "gpt-5.4",
+  }]);
+
+  assert.equal(profiles[0].defaultModel, "gpt-6-astra");
+});

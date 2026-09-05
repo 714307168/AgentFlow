@@ -101,6 +101,7 @@ test("executeProviderSdkRun streams OpenAI Responses guidance for GPT-6 models",
     const payload = JSON.parse(String(init?.body || "{}"));
     assert.equal(payload.model, "gpt-6-astra");
     assert.equal(payload.instructions, "Follow project rules.");
+    assert.equal(payload.reasoning.effort, "xhigh");
     assert.equal(payload.reasoning.summary, "auto");
     assert.equal(payload.stream, true);
     assert.equal(payload.input[0].role, "user");

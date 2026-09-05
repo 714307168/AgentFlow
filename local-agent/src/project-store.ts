@@ -43,6 +43,20 @@ export function normalizeCodexWebSearchEnabled(rawValue: unknown): boolean {
   return rawValue === true;
 }
 
+const OPENAI_DEFAULT_MODEL = "gpt-6-astra";
+
+function normalizeProjectModel(project: Project): Project {
+  if (project.cliProvider !== "codex") {
+    return project;
+  }
+  const model = String(project.cliModel ?? "").trim();
+  // Migrate OpenAI projects while leaving compatible providers such as DeepSeek intact.
+  if (!model || /^(?:gpt-|o\d(?:[.-]|$))/iu.test(model)) {
+    return { ...project, cliModel: OPENAI_DEFAULT_MODEL };
+  }
+  return project;
+}
+
 interface Project {
   id: string;
   name: string;
@@ -68,12 +82,17 @@ class ProjectStore {
     this.store = new Store<StoreSchema>({
       defaults: { projects: [] },
     });
+    const projects = this.store.get("projects", []);
+    const migratedProjects = projects.map(normalizeProjectModel);
+    if (JSON.stringify(projects) !== JSON.stringify(migratedProjects)) {
+      this.store.set("projects", migratedProjects);
+    }
   }
 
   add(project: Project): void {
     const projects = this.getAll();
     projects.push({
-      ...project,
+      ...normalizeProjectModel(project),
       codexWebSearchEnabled: normalizeCodexWebSearchEnabled(project.codexWebSearchEnabled),
       groupName: normalizeProjectGroupName(project.groupName),
       projectPrompt: typeof project.projectPrompt === "string" ? project.projectPrompt.trim() || null : null,

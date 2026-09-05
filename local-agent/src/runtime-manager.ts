@@ -275,6 +275,7 @@ class RuntimeManager extends EventEmitter {
       ...options,
       prompt: normalizedPrompt,
       attachments,
+      reasoningEffort: options.reasoningEffort ?? (state.provider === "codex" ? "xhigh" : null),
       runId: options.runId ?? uuidv4(),
       queuedAt: Number.isFinite(options.queuedAt) && Number(options.queuedAt) > 0
         ? Number(options.queuedAt)
@@ -2024,6 +2025,7 @@ class RuntimeManager extends EventEmitter {
         provider: state.provider,
         config: sdkConfig,
         model: state.model,
+        reasoningEffort: run.reasoningEffort ?? null,
         prompt: run.prompt,
         projectPrompt: this.getConfig().getProjectPrompt?.(state.projectId) ?? null,
         messages: state.messages,

@@ -354,13 +354,16 @@ export function normalizeModelProviderProfiles(
     const baseId = normalizeProfileId(profile?.id) || fallbackId;
     const id = makeUniqueProfileId(baseId, usedIds);
     const name = normalizeConfigText(profile?.name) || profileDisplayNameFromId(id);
+    const defaultModel = protocol === "openai" && id === "openai"
+      ? "gpt-6-astra"
+      : normalizeConfigText(profile?.defaultModel);
     normalized.push({
       id,
       name,
       protocol,
       apiKey: normalizeConfigText(profile?.apiKey),
       baseUrl: normalizeConfigText(profile?.baseUrl),
-      defaultModel: normalizeConfigText(profile?.defaultModel),
+      defaultModel,
       enabled: profile?.enabled !== false,
     });
   }

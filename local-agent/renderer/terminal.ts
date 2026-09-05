@@ -515,7 +515,7 @@ const state: {
   messageSearchLoading: false,
   pendingAttachments: [],
   composerRunMode: "normal",
-  composerReasoningEffort: "auto",
+  composerReasoningEffort: "xhigh",
   draftsByWorkspaceKey: new Map<string, WorkspaceDraftState>(),
   preferredViews: {
     claude: "messages",
@@ -1229,7 +1229,7 @@ function syncComposerReasoningSelect(enabled: boolean, disabledTitle?: string): 
     }
   }
   if (!enabled) {
-    state.composerReasoningEffort = "auto";
+    state.composerReasoningEffort = "xhigh";
   }
   select.value = state.composerReasoningEffort;
   select.disabled = !enabled;
@@ -5890,7 +5890,7 @@ elements.composerReasoningSelect?.addEventListener("change", (event) => {
   const session = getCurrentSession();
   const provider = getConfiguredProvider(project, session);
   const enabled = Boolean(project && provider === "codex" && !state.workgroupId);
-  state.composerReasoningEffort = enabled ? nextEffort : "auto";
+  state.composerReasoningEffort = enabled ? nextEffort : "xhigh";
   syncComposerReasoningSelect(
     enabled,
     inlineText("Reasoning effort is available for Codex projects", "推理强度仅在 Codex 项目中可用"),

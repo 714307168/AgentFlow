@@ -7210,7 +7210,9 @@ ipcMain.handle("send-project-prompt", (_event, data: {
     cwd: project.path,
     prompt: data.prompt,
     attachments,
-    reasoningEffort: normalizeCodexReasoningEffort(data.reasoningEffort),
+    reasoningEffort: normalizeCodexReasoningEffort(data.reasoningEffort) ?? (
+      project.cliProvider === "codex" ? "xhigh" : null
+    ),
     source: "desktop",
   });
 

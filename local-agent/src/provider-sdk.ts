@@ -5,6 +5,7 @@ import {
   getProviderDefaultSdkModel,
 } from "./provider-registry";
 import type { CliProvider, RunAttachment, SessionMessage } from "./runtime-types";
+import type { CodexReasoningEffort } from "./codex-command-support";
 
 export interface ProviderSdkConfig {
   apiKey: string | null;
@@ -16,6 +17,7 @@ export interface ProviderSdkExecutionOptions {
   provider: CliProvider;
   config: ProviderSdkConfig;
   model: string | null;
+  reasoningEffort?: CodexReasoningEffort | null;
   prompt: string;
   projectPrompt?: string | null;
   messages?: SessionMessage[];
@@ -174,9 +176,11 @@ async function executeManagedOpenAiChatCompletion(
     : messages;
   const payloadModel =
     normalizeText(options.model) || normalizeText(options.config.defaultModel) || getProviderDefaultSdkModel("codex");
+  const reasoningEffort = isOpenAiReasoningModel(payloadModel) ? options.reasoningEffort : null;
   const response = await client.chat.completions.create({
     model: payloadModel,
     messages: payloadMessages,
+    ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
   });
   const content = response?.choices?.[0]?.message?.content;
   const text = typeof content === "string"
@@ -215,6 +219,10 @@ function buildManagedOpenAiClientOptions(config: ProviderSdkConfig): Record<stri
   return clientOptions;
 }
 
+function isOpenAiReasoningModel(model: string): boolean {
+  return /^(?:gpt-|o\d(?:[.-]|$))/iu.test(model.trim());
+}
+
 async function executeOpenAiResponsesStream(
   options: ProviderSdkExecutionOptions,
 ): Promise<ProviderSdkExecutionResult> {
@@ -233,6 +241,7 @@ async function executeOpenAiResponsesStream(
       instructions: normalizeText(options.projectPrompt) || undefined,
       input: await buildOpenAiResponsesInput(options),
       reasoning: {
+        effort: options.reasoningEffort ?? "xhigh",
         summary: "auto",
       },
       stream: true,
@@ -369,6 +378,8 @@ async function executeOpenAiChatCompletion(
   const payloadMessages = systemPrompt
     ? [{ role: "system", content: systemPrompt }, ...messages]
     : messages;
+  const payloadModel =
+    normalizeText(options.model) || normalizeText(options.config.defaultModel) || getProviderDefaultSdkModel("codex");
 
   const response = await fetch(url, {
     method: "POST",
@@ -377,8 +388,11 @@ async function executeOpenAiChatCompletion(
       Authorization: `Bearer ${options.config.apiKey!.trim()}`,
     },
     body: JSON.stringify({
-      model: normalizeText(options.model) || normalizeText(options.config.defaultModel) || getProviderDefaultSdkModel("codex"),
+      model: payloadModel,
       messages: payloadMessages,
+      ...(options.reasoningEffort && isOpenAiReasoningModel(payloadModel)
+        ? { reasoning_effort: options.reasoningEffort }
+        : {}),
     }),
     signal: options.signal,
   });
@@ -403,7 +417,7 @@ async function executeOpenAiChatCompletion(
   }
   return {
     text,
-    model: normalizeText(payload.model) || normalizeText(options.model) || normalizeText(options.config.defaultModel),
+    model: normalizeText(payload.model) || payloadModel,
   };
 }
 
