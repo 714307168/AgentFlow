@@ -5608,11 +5608,14 @@
     }
 
     function openSettingsModal(pane = activeSettingsPane) {
+      const alreadyOpen = settingsModalOpen;
       settingsModalOpen = true;
       document.getElementById("settingsModal").classList.remove("hidden");
       document.getElementById("settingsModalTitle").textContent = getSettingsPaneTitle(pane);
       document.getElementById("settingsModalKicker").textContent = inlineText("Settings", "设置");
-      setSettingsModalLoading(true, pane);
+      // Keep the current pane visible while switching inside an open modal.
+      // Hiding the body here caused a noticeable flash on every menu click.
+      if (!alreadyOpen) setSettingsModalLoading(true, pane);
     }
 
     function closeSettingsModal() {
@@ -5632,9 +5635,6 @@
       const shouldOpen = options.open !== false;
       const requestId = ++settingsPaneOpenRequest;
       activeSettingsPane = normalizeSettingsPane(pane);
-      document.querySelectorAll("[data-pane-content]").forEach((node) => {
-        node.classList.toggle("hidden", node.dataset.paneContent !== activeSettingsPane);
-      });
       document.querySelectorAll("[data-pane]").forEach((node) => {
         const isActive = node.dataset.pane === activeSettingsPane;
         node.classList.toggle("active", isActive);
@@ -5650,6 +5650,12 @@
           await Promise.all([updateConnectionStatus(), updateLoginStatus()]);
         }
         await ensurePaneDataLoaded(activeSettingsPane);
+        // Swap panes only after data is ready so menu changes never reveal a blank panel.
+        if (requestId === settingsPaneOpenRequest) {
+          document.querySelectorAll("[data-pane-content]").forEach((node) => {
+            node.classList.toggle("hidden", node.dataset.paneContent !== activeSettingsPane);
+          });
+        }
         if (requestId === settingsPaneOpenRequest && settingsModalOpen && shouldOpen) {
           document.getElementById("settingsModalTitle").textContent = getSettingsPaneTitle(activeSettingsPane);
           setSettingsModalLoading(false, activeSettingsPane);
