@@ -632,7 +632,7 @@ function shouldUseOpenAiResponsesApi(config: ProviderSdkConfig, model: string | 
   }
   const selectedModel =
     normalizeText(model) || normalizeText(config.defaultModel) || getProviderDefaultSdkModel("codex");
-  return host === "api.openai.com" && /^(gpt-5(?:\.|-|$)|o[134](?:\.|-|$)|o\d(?:\.|-|$))/i.test(selectedModel);
+  return host === "api.openai.com" && /^(gpt-[56](?:\.|-|$)|o[134](?:\.|-|$)|o\d(?:\.|-|$))/i.test(selectedModel);
 }
 
 async function readOpenAiSseStream(

@@ -23,6 +23,14 @@ class ProviderUiTest {
     }
 
     @Test
+    fun codexDefaultUsesTheCurrentGptSixModel() {
+        assertEquals(
+            "gpt-6-astra",
+            ProviderUi.defaultModels("codex").first().model
+        )
+    }
+
+    @Test
     fun androidClientCapabilitiesExposeAttachmentSupportInTheSharedLayer() {
         assertTrue(ClientCapabilities.supportsMessageAttachments)
         assertTrue(ClientCapabilities.supportsInlineAttachmentPreview)

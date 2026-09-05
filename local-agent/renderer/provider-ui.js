@@ -43,7 +43,7 @@
       name: "OpenAI",
       protocol: "openai",
       baseUrl: "https://api.openai.com",
-      defaultModel: "gpt-5.4",
+      defaultModel: "gpt-6-astra",
       description: "Official OpenAI-compatible API endpoint.",
     },
     {

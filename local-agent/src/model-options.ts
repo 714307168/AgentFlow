@@ -25,6 +25,7 @@ export interface ModelOptionLoadOptions {
 
 const BUILTIN_MODEL_CATALOG_BY_PROFILE_ID: Record<string, string[]> = {
   openai: [
+    "gpt-6-astra",
     "gpt-5.6-sol",
     "gpt-5.6-terra",
     "gpt-5.6-luna",

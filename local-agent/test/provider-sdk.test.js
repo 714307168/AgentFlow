@@ -89,7 +89,7 @@ test("executeProviderSdkRun falls back to the HTTP chat endpoint when no managed
   }
 });
 
-test("executeProviderSdkRun streams OpenAI Responses guidance for gpt-5 models", async () => {
+test("executeProviderSdkRun streams OpenAI Responses guidance for GPT-6 models", async () => {
   const originalFetch = global.fetch;
   const textDeltas = [];
   const guidanceEvents = [];
@@ -99,7 +99,7 @@ test("executeProviderSdkRun streams OpenAI Responses guidance for gpt-5 models",
     assert.equal(init?.headers?.Accept, "text/event-stream");
     assert.equal(init?.headers?.Authorization, "Bearer test-key");
     const payload = JSON.parse(String(init?.body || "{}"));
-    assert.equal(payload.model, "gpt-5.6-terra");
+    assert.equal(payload.model, "gpt-6-astra");
     assert.equal(payload.instructions, "Follow project rules.");
     assert.equal(payload.reasoning.summary, "auto");
     assert.equal(payload.stream, true);
@@ -117,7 +117,7 @@ test("executeProviderSdkRun streams OpenAI Responses guidance for gpt-5 models",
       "data: {\"type\":\"response.output_text.delta\",\"delta\":\" world\"}",
       "",
       "event: response.completed",
-      "data: {\"type\":\"response.completed\",\"response\":{\"model\":\"gpt-5.6-terra\"}}",
+      "data: {\"type\":\"response.completed\",\"response\":{\"model\":\"gpt-6-astra\"}}",
       "",
     ].join("\n");
 
@@ -138,7 +138,7 @@ test("executeProviderSdkRun streams OpenAI Responses guidance for gpt-5 models",
       config: {
         apiKey: "test-key",
         baseUrl: "https://api.openai.com",
-        defaultModel: "gpt-5.6-terra",
+        defaultModel: "gpt-6-astra",
       },
       model: null,
       prompt: "hello",
@@ -148,7 +148,7 @@ test("executeProviderSdkRun streams OpenAI Responses guidance for gpt-5 models",
     });
 
     assert.equal(result.text, "Hello world");
-    assert.equal(result.model, "gpt-5.6-terra");
+    assert.equal(result.model, "gpt-6-astra");
     assert.deepEqual(textDeltas, ["Hello", " world"]);
     assert.equal(guidanceEvents[0].key, "openai-reasoning-summary");
     assert.equal(guidanceEvents[0].delta, "Checking context");
