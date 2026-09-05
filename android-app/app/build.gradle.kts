@@ -22,8 +22,8 @@ android {
         applicationId = "com.claudecode.remote"
         minSdk = 26
         targetSdk = 34
-        versionCode = 158
-        versionName = "1.2.74"
+        versionCode = 159
+        versionName = "1.2.75"
         ndk {
             // Vosk ships legacy MIPS and desktop emulator binaries. Keep the
             // production APK focused on Android phone architectures.

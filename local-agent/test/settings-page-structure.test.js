@@ -99,6 +99,14 @@ test("main process warms full and public config snapshots during startup", () =>
   assert.match(mainSource, /ipcMain\.handle\("save-config"[\s\S]*const previousConfig = loadConfig\(\);[\s\S]*invalidateConfigCaches\(\);[\s\S]*warmAgentConfigCache\(\);/);
 });
 
+test("field node results use a non-blocking, copyable in-app dialog", () => {
+  assert.match(settingsHtml, /function showNodeResultDialog\(title, content\)/);
+  assert.match(settingsHtml, /data-node-result-copy/);
+  assert.match(settingsHtml, /navigator\.clipboard\?\.writeText\(content\)/);
+  assert.doesNotMatch(settingsHtml, /alert\(JSON\.stringify\(node\.diagnostics/);
+  assert.doesNotMatch(settingsHtml, /alert\(`\$\{commandResult\.ok/);
+});
+
 test("settings renders cached configuration before slower runtime requests complete", () => {
   const loadSettingsBody = settingsHtml.match(/async function loadSettings\(\) \{([\s\S]*?)\r?\n    \}\r?\n\r?\n    document\.getElementById\("cliProvider"\)/)?.[1] || "";
   assert.match(loadSettingsBody, /const deferredSettings = Promise\.all\(\[/);

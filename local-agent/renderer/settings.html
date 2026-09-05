@@ -2470,6 +2470,44 @@
       }
     }
 
+    .node-result-dialog {
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      background: rgba(0, 0, 0, 0.58);
+    }
+    .node-result-dialog[hidden] { display: none; }
+    .node-result-panel {
+      width: min(760px, 100%);
+      max-height: min(720px, 90vh);
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      padding: 20px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: var(--panel);
+      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
+    }
+    .node-result-title { margin: 0; font-size: 16px; }
+    .node-result-content {
+      min-height: 120px;
+      max-height: 58vh;
+      overflow: auto;
+      margin: 0;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--panel-2);
+      color: var(--text);
+      font: 12px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+    .node-result-actions { display: flex; justify-content: flex-end; gap: 8px; }
   </style>
   <link rel="stylesheet" href="flow-deck.css">
 </head>
@@ -6268,6 +6306,32 @@
       showStatus(inlineText("Field node attached.", "现场节点已挂载。"), false);
     }
 
+    function showNodeResultDialog(title, content) {
+      document.getElementById("nodeResultDialog")?.remove();
+      const overlay = document.createElement("div");
+      overlay.id = "nodeResultDialog";
+      overlay.className = "node-result-dialog";
+      overlay.setAttribute("role", "dialog");
+      overlay.setAttribute("aria-modal", "true");
+      overlay.innerHTML = `<section class="node-result-panel" role="document">
+        <h2 class="node-result-title">${escapeHtml(title)}</h2>
+        <pre class="node-result-content">${escapeHtml(content)}</pre>
+        <div class="node-result-actions">
+          <button type="button" class="btn-secondary" data-node-result-copy>${escapeHtml(inlineText("Copy", "复制"))}</button>
+          <button type="button" class="btn-primary" data-node-result-close>${escapeHtml(inlineText("Close", "关闭"))}</button>
+        </div>
+      </section>`;
+      const close = () => overlay.remove();
+      overlay.addEventListener("click", (event) => { if (event.target === overlay) close(); });
+      overlay.querySelector("[data-node-result-close]")?.addEventListener("click", close);
+      overlay.querySelector("[data-node-result-copy]")?.addEventListener("click", async () => {
+        await navigator.clipboard?.writeText(content);
+        showStatus(inlineText("Copied to clipboard.", "已复制到剪贴板。"), false);
+      });
+      document.body.appendChild(overlay);
+      overlay.querySelector("[data-node-result-close]")?.focus();
+    }
+
     async function inspectFieldNode(agentId) {
       if (!agentId?.trim()) return;
       const requested = await api.requestFieldNodeDiagnostics(agentId);
@@ -6282,7 +6346,7 @@
         showStatus(inlineText("Diagnostic response has not arrived yet. Try again in a moment.", "诊断响应尚未到达，请稍后重试。"), true);
         return;
       }
-      alert(JSON.stringify(node.diagnostics, null, 2));
+      showNodeResultDialog(inlineText("Field node diagnostics", "现场节点诊断"), JSON.stringify(node.diagnostics, null, 2));
     }
 
     async function runFieldNodeCommand(agentId, action) {
@@ -6300,7 +6364,10 @@
         showStatus(inlineText("The node has not returned a result yet. Try again in a moment.", "节点尚未返回结果，请稍后重试。"), true);
         return;
       }
-      alert(`${commandResult.ok ? inlineText("Completed", "已完成") : inlineText("Failed", "失败")} · ${commandResult.action}\n\n${commandResult.output}`);
+      showNodeResultDialog(
+        `${commandResult.ok ? inlineText("Completed", "已完成") : inlineText("Failed", "失败")} · ${commandResult.action}`,
+        commandResult.output || inlineText("The node returned no output.", "节点未返回输出。"),
+      );
     }
 
     async function saveConnectionConfig() {
