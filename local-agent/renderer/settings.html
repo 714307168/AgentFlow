@@ -1497,6 +1497,10 @@
       background: rgba(31, 122, 140, 0.16);
       color: var(--accent-hover);
     }
+    @media (min-width: 961px) {
+      .settings-nav-item:nth-child(3), .settings-nav-item:nth-child(6),
+      .settings-nav-item:nth-child(9), .settings-nav-item:nth-child(12) { margin-top: 12px; }
+    }
     .settings-main {
       padding: 0;
       scrollbar-width: thin;
@@ -2004,7 +2008,7 @@
         border-radius: 22px;
       }
       .settings-nav::before { display: none; }
-      .settings-nav-item { flex: 1 1 210px; }
+      .settings-nav-item { flex: 1 1 210px; min-width: 0; }
       .settings-main {
         padding-right: 0;
       }
@@ -2459,6 +2463,10 @@
     }
 
     @media (max-width: 720px) {
+      .settings-modal { padding: 10px; }
+      .settings-modal-panel { width: 100%; max-height: calc(100vh - 20px); border-radius: 10px; }
+      .settings-nav { gap: 6px; }
+      .settings-nav-item { flex: 1 1 145px; min-height: 38px; padding: 0 10px; font-size: 13px; }
       #shareAccessProjectPicker .access-project-card-topline {
         align-items: flex-start;
         flex-direction: column;
