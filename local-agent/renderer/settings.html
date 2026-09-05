@@ -6293,11 +6293,36 @@
       showStatus(result?.success ? inlineText("Field node saved.", "现场节点已保存。") : getErrorMessage(result?.error), !result?.success);
     }
 
+    function requestFieldNodeMountDetails() {
+      return new Promise((resolve) => {
+        document.getElementById("fieldNodeMountDialog")?.remove();
+        const overlay = document.createElement("div");
+        overlay.id = "fieldNodeMountDialog";
+        overlay.className = "node-result-dialog";
+        overlay.setAttribute("role", "dialog");
+        overlay.setAttribute("aria-modal", "true");
+        overlay.innerHTML = `<section class="node-result-panel" role="document">
+          <h2 class="node-result-title">${escapeHtml(inlineText("Attach field node", "挂载现场节点"))}</h2>
+          <label>${escapeHtml(inlineText("Agent ID", "Agent ID"))}<input data-field-node-agent-id type="text" autocomplete="off"></label>
+          <label>${escapeHtml(inlineText("Node role", "节点角色"))}<select data-field-node-role><option value="field_environment">${escapeHtml(inlineText("Field environment", "现场环境"))}</option><option value="remote_machine">${escapeHtml(inlineText("Remote machine", "远程机器"))}</option></select></label>
+          <div class="node-result-actions"><button type="button" class="btn-secondary" data-field-node-cancel>${escapeHtml(inlineText("Cancel", "取消"))}</button><button type="button" class="btn-primary" data-field-node-submit>${escapeHtml(inlineText("Attach", "挂载"))}</button></div>
+        </section>`;
+        const finish = (value) => { overlay.remove(); resolve(value); };
+        overlay.querySelector("[data-field-node-cancel]").addEventListener("click", () => finish(null));
+        overlay.querySelector("[data-field-node-submit]").addEventListener("click", () => {
+          const agentId = overlay.querySelector("[data-field-node-agent-id]").value.trim();
+          if (agentId) finish({ agentId, role: overlay.querySelector("[data-field-node-role]").value });
+        });
+        overlay.addEventListener("click", (event) => { if (event.target === overlay) finish(null); });
+        document.body.appendChild(overlay);
+        overlay.querySelector("[data-field-node-agent-id]").focus();
+      });
+    }
+
     async function attachFieldNode(projectId) {
-      const agentId = prompt(inlineText("Enter the authorized field node Agent ID.", "输入已授权现场节点的 Agent ID。"));
-      if (!agentId?.trim()) return;
-      const remoteMachine = confirm(inlineText("Mount as a remote machine? Cancel to mount as a field environment.", "挂载为远程机器吗？取消则挂载为现场环境。"));
-      const result = await api.mountFieldNode({ projectId, agentId: agentId.trim(), role: remoteMachine ? "remote_machine" : "field_environment" });
+      const details = await requestFieldNodeMountDetails();
+      if (!details) return;
+      const result = await api.mountFieldNode({ projectId, agentId: details.agentId, role: details.role });
       if (!result?.success) {
         showStatus(result?.error || inlineText("Could not attach field node.", "无法挂载现场节点。"), true);
         return;
