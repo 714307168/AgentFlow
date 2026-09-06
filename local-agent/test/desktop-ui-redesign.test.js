@@ -80,9 +80,11 @@ test("settings window shares the AgentFlow reference visual system", () => {
 
 test("settings launcher stays a full-width card grid under the shared theme", () => {
   assert.match(flowDeckCss, /\.settings-shell \{[\s\S]*grid-template-columns: minmax\(0, 1fr\);/);
-  assert.match(flowDeckCss, /\.settings-nav \{[\s\S]*display: grid;[\s\S]*grid-template-columns: repeat\(auto-fit, minmax\(220px, 1fr\)\);/);
+  assert.match(flowDeckCss, /\.settings-nav \{[\s\S]*display: grid;[\s\S]*grid-template-columns: repeat\(auto-fit, minmax\(200px, 1fr\)\);/);
   assert.match(flowDeckCss, /\.settings-nav \{[\s\S]*position: static;/);
-  assert.match(flowDeckCss, /\.settings-nav-item \{[\s\S]*min-height: 76px;/);
+  assert.match(flowDeckCss, /\.settings-nav-item \{[\s\S]*min-height: 62px;/);
+  assert.match(flowDeckCss, /@media \(max-width: 900px\)[\s\S]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/);
+  assert.match(flowDeckCss, /@media \(max-width: 560px\)[\s\S]*grid-template-columns: 1fr;/);
   assert.doesNotMatch(flowDeckCss, /\.settings-shell \{[\s\S]*grid-template-columns: 250px minmax\(0, 1fr\);/);
 });
 
