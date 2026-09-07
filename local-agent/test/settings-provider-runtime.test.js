@@ -16,6 +16,13 @@ test("getProviderAvailability returns unknown when runtime detection has not pop
   assert.equal(getProviderAvailability({}, "codex"), "unknown");
 });
 
+test("runtime mode distinguishes pending detection from a confirmed missing CLI", () => {
+  assert.equal(getProviderRuntimeMode(null, null, "codex"), "unknown");
+  assert.equal(getProviderRuntimeMode({ claude: {} }, {}, "claude"), "unknown");
+  assert.equal(getProviderRuntimeMode({}, { openaiApiKey: "test-key" }, "codex"), "sdk");
+  assert.equal(getProviderRuntimeMode({ codex: { installed: false } }, {}, "codex"), "unavailable");
+});
+
 test("getProviderOptions disables only missing providers that are not already selected", () => {
   const options = getProviderOptions({
     claude: { installed: true },

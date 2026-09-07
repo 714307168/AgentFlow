@@ -43,7 +43,7 @@ test("settings page presents settings panes through a modal launcher", () => {
   assert.match(settingsHtml, /id="settingsModalBody"/);
   assert.match(settingsHtml, /id="settingsModalCloseBtn"/);
   assert.match(settingsHtml, /function preloadSettingsPaneData\(\)/);
-  assert.match(settingsHtml, /await ensurePaneDataLoaded\(activeSettingsPane\)/);
+  assert.match(settingsHtml, /await ensurePaneDataLoaded\(requestedPane\)/);
 });
 
 test("settings update status card renders download progress as a background bar", () => {

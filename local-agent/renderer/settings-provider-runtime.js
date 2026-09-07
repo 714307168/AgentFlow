@@ -131,6 +131,9 @@
     if (hasProviderApiFallback(config, normalized)) {
       return "sdk";
     }
+    if (!status || typeof status.installed !== "boolean") {
+      return "unknown";
+    }
     return "unavailable";
   }
 

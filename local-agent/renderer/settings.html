@@ -3652,7 +3652,8 @@
     const SECRET_FIELD_IDS = ["password", "modelProviderApiKey", "githubToken"];
     let currentLang = "en";
     let msgs = {};
-    let activeSettingsPane = "overview";
+    let activeSettingsPane = "system";
+    let settingsInitializationPromise = null;
     let settingsModalOpen = false;
     let settingsPaneOpenRequest = 0;
     let latestUpdateState = null;
@@ -3834,13 +3835,14 @@
     }
 
     function normalizeSettingsPane(pane) {
-      if (pane === "advanced" || pane === "system") {
+      if (pane === "advanced") {
         return "runtime";
       }
       if (pane === "message") {
         return "transfer";
       }
       return [
+        "system",
         "overview",
         "connection",
         "project",
@@ -3855,11 +3857,13 @@
         "updates",
         "runtime",
         "security",
-      ].includes(pane) ? pane : "overview";
+      ].includes(pane) ? pane : "system";
     }
 
     function getSettingsPaneTitle(pane = activeSettingsPane) {
       switch (normalizeSettingsPane(pane)) {
+        case "system":
+          return inlineText("System Settings", "系统设置");
         case "overview":
           return inlineText("Settings Overview", "设置总览");
         case "connection":
@@ -4601,11 +4605,15 @@
           ? inlineText("Local CLI Ready", "本地 CLI 可用")
           : (runtimeMode === "sdk"
             ? inlineText("API Fallback Ready", "API 回退可用")
-            : inlineText("Runtime Missing", "运行环境缺失"));
-        const pillClass = runtimeMode === "cli" ? "ok" : (runtimeMode === "sdk" ? "warn" : "error");
+            : (runtimeMode === "unknown"
+              ? inlineText("Awaiting detection", "等待检测结果")
+              : inlineText("Runtime Missing", "运行环境缺失")));
+        const pillClass = runtimeMode === "cli" ? "ok" : (runtimeMode === "sdk" ? "warn" : (runtimeMode === "unknown" ? "" : "error"));
         const versionText = status?.version
           ? escapeHtml(status.version)
-          : escapeHtml(inlineText("No version detected", "未检测到版本"));
+          : escapeHtml(runtimeMode === "unknown"
+            ? inlineText("Awaiting detection", "等待检测结果")
+            : inlineText("No version detected", "未检测到版本"));
         const detailText = status?.detail
           ? escapeHtml(status.detail)
           : escapeHtml(inlineText("Runtime detection has not run yet.", "运行环境检测尚未执行。"));
@@ -4621,11 +4629,15 @@
               ? inlineText("Use local CLI first.", "优先使用本地 CLI。")
               : (runtimeMode === "sdk"
                 ? inlineText("Will fall back to provider API.", "将回退到 provider API。")
-                : inlineText("No usable local CLI or API fallback.", "没有可用的本地 CLI 或 API 回退。")),
+                : (runtimeMode === "unknown"
+                  ? inlineText("Awaiting detection", "等待检测结果")
+                  : inlineText("No usable local CLI or API fallback.", "没有可用的本地 CLI 或 API 回退。"))),
           },
           {
             label: inlineText("API Fallback", "API 回退"),
-            value: apiFallbackReady
+            value: !latestConfig
+              ? inlineText("Loading configuration...", "正在加载配置...")
+              : apiFallbackReady
               ? inlineText("Configured", "已配置")
               : inlineText("Not configured", "未配置"),
           },
@@ -4650,7 +4662,7 @@
           ? `
             <div class="runtime-status-chip-row">
               ${capabilityEntries.map((entry) => `
-                <div class="runtime-status-chip ${entry.available ? "ok" : "error"}">
+                <div class="runtime-status-chip ${entry.available ? "ok" : (status?.capabilities ? "error" : "")}">
                   ${escapeHtml(providerRuntimeApi?.getProviderCapabilityLabel?.(id, entry.key, currentLang) || entry.key)}
                 </div>
               `).join("")}
@@ -5514,6 +5526,7 @@
 
     async function ensurePaneDataLoaded(pane = activeSettingsPane) {
       const normalizedPane = normalizeSettingsPane(pane);
+      if (normalizedPane === "system") return;
       if (normalizedPane === "overview") {
         await settingsPaneLoaders.loadOverviewPaneData({
           refreshLocalDataMetrics,
@@ -5642,7 +5655,13 @@
     async function setActiveSettingsPane(pane, options = {}) {
       const shouldOpen = options.open !== false;
       const requestId = ++settingsPaneOpenRequest;
-      activeSettingsPane = normalizeSettingsPane(pane);
+      const requestedPane = normalizeSettingsPane(pane);
+      activeSettingsPane = requestedPane;
+      if (requestedPane === "system") {
+        closeSettingsModal();
+        applyPageChrome();
+        return;
+      }
       document.querySelectorAll("[data-pane]").forEach((node) => {
         const isActive = node.dataset.pane === activeSettingsPane;
         node.classList.toggle("active", isActive);
@@ -5654,10 +5673,13 @@
         openSettingsModal(activeSettingsPane);
       }
       try {
-        if (activeSettingsPane === "overview" || activeSettingsPane === "connection") {
+        await settingsInitializationPromise;
+        if (requestId !== settingsPaneOpenRequest) return;
+        if (requestedPane === "overview" || requestedPane === "connection") {
           await Promise.all([updateConnectionStatus(), updateLoginStatus()]);
         }
-        await ensurePaneDataLoaded(activeSettingsPane);
+        if (requestId !== settingsPaneOpenRequest) return;
+        await ensurePaneDataLoaded(requestedPane);
         // Swap panes only after data is ready so menu changes never reveal a blank panel.
         if (requestId === settingsPaneOpenRequest) {
           document.querySelectorAll("[data-pane-content]").forEach((node) => {
@@ -5669,7 +5691,8 @@
           setSettingsModalLoading(false, activeSettingsPane);
         }
       } catch (error) {
-        if (requestId === settingsPaneOpenRequest && settingsModalOpen && shouldOpen) {
+        if (requestId !== settingsPaneOpenRequest) return;
+        if (settingsModalOpen && shouldOpen) {
           setSettingsModalLoading(false, activeSettingsPane);
           document.getElementById("settingsModalLoading").textContent = getErrorMessage(error);
         }
@@ -5716,7 +5739,7 @@
 
     function syncConnectionStatusPolling() {
       clearConnectionStatusTimer();
-      if (!["overview", "connection"].includes(activeSettingsPane)) {
+      if (!["system", "overview", "connection"].includes(activeSettingsPane)) {
         return;
       }
       connectionStatusTimer = setTimeout(async () => {
@@ -8843,7 +8866,7 @@
       renderCliProviderRuntimeStatus();
       renderTransferCenter();
       renderAutomationOverview();
-      if (activeSettingsPane === "overview" || activeSettingsPane === "connection") {
+      if (["system", "overview", "connection"].includes(activeSettingsPane)) {
         await Promise.all([updateConnectionStatus(), updateLoginStatus()]);
       }
       void ensurePaneDataLoaded(activeSettingsPane);
@@ -9823,7 +9846,7 @@
 
     if (typeof api.onSettingsPaneChanged === "function") {
       api.onSettingsPaneChanged((pane) => {
-        void setActiveSettingsPane(pane || "overview");
+        void setActiveSettingsPane(pane || "system");
       });
     }
 
@@ -9832,12 +9855,7 @@
     document.getElementById("closeBtn").addEventListener("click", () => api.closeWindow());
 
     async function initialize() {
-      if (supportsDesktopCapability("localCommandGateway")) {
-        await loadLocalCommands();
-      }
       await loadSettings();
-      await setActiveSettingsPane(activeSettingsPane, { open: false });
-      closeSettingsModal();
       preloadSettingsPaneData();
     }
 
@@ -9846,7 +9864,8 @@
       clearProjectPaneRefreshTimer();
     });
 
-    void initialize();
+    settingsInitializationPromise = initialize();
+    void settingsInitializationPromise.catch((error) => showStatus(getErrorMessage(error), true));
   </script>
 </body>
 </html>

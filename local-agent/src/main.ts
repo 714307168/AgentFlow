@@ -312,6 +312,7 @@ interface TemporaryAccessLinkCreateOptions {
 }
 
 type SettingsPane =
+  | "system"
   | "overview"
   | "connection"
   | "project"
@@ -320,6 +321,7 @@ type SettingsPane =
   | "automation"
   | "language"
   | "launch"
+  | "skills"
   | "storage"
   | "schedule"
   | "updates"
@@ -520,7 +522,7 @@ let mainWindow: BrowserWindow | null = null;
 let workspaceWindow: BrowserWindow | null = null;
 let activeWorkspaceProjectId: string | null = null;
 let activeWorkgroupCollaborationId: string | null = null;
-let activeSettingsPane: SettingsPane = "overview";
+let activeSettingsPane: SettingsPane = "system";
 let relayClient: RelayClient | null = null;
 let controllerRelayClient: RelayClient | null = null;
 let remoteSessionStore: RemoteSessionStore | null = null;
@@ -2433,14 +2435,15 @@ async function executeScheduledTask(
 }
 
 function normalizeSettingsPane(pane?: string | null): SettingsPane {
-  if (pane === "advanced" || pane === "system") {
+  if (pane === "advanced") {
     return "runtime";
   }
   if (pane === "message") {
     return "transfer";
   }
   if (
-    pane === "overview"
+    pane === "system"
+    || pane === "overview"
     || pane === "connection"
     || pane === "project"
     || pane === "workgroup"
@@ -2448,6 +2451,7 @@ function normalizeSettingsPane(pane?: string | null): SettingsPane {
     || pane === "automation"
     || pane === "language"
     || pane === "launch"
+    || pane === "skills"
     || pane === "storage"
     || pane === "schedule"
     || pane === "updates"
@@ -2456,7 +2460,7 @@ function normalizeSettingsPane(pane?: string | null): SettingsPane {
   ) {
     return pane;
   }
-  return "overview";
+  return "system";
 }
 
 function getSettingsPaneTitle(pane: SettingsPane): string {
@@ -5316,9 +5320,10 @@ function showMainWindow(parentWindow?: BrowserWindow | null): void {
   mainWindow = new BrowserWindow(buildWindowOptions("settingsWindow", {
     title: getSettingsWindowTitle(activeSettingsPane),
     icon: createAppIcon(256),
+    show: false,
     frame: false,
     transparent: false,
-    backgroundColor: "#eef2f7",
+    backgroundColor: "#07100f",
     minWidth: 980,
     minHeight: 680,
     parent: parentWindow ?? undefined,
@@ -5450,7 +5455,7 @@ function showWorkspaceWindow(projectId?: string): void {
   workspaceWindow = createWorkspaceWindow();
 }
 
-function openSettingsWindow(pane: SettingsPane = "overview"): void {
+function openSettingsWindow(pane: SettingsPane = "system"): void {
   activeSettingsPane = normalizeSettingsPane(pane);
   showMainWindow(workspaceWindow);
 }
