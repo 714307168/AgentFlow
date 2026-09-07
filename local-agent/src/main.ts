@@ -621,6 +621,8 @@ const modelOptionsCache = createTimedAsyncCache<ModelProviderOption[]>({
 });
 
 function syncLoginItemSettings(): void {
+  // A development Electron binary has no app entry point when launched by the OS.
+  if (!app.isPackaged) return;
   const autoStart = appSettingsStore.get("autoStart") as boolean;
   const silentLaunch = appSettingsStore.get("silentLaunch") as boolean;
   app.setLoginItemSettings({
@@ -6630,7 +6632,8 @@ ipcMain.handle("get-app-settings", () => {
   const effectiveLocalDataRoot = getPersistedLocalDataRoot();
   syncLocalDataRootSetting(effectiveLocalDataRoot);
   return {
-    autoStart: appSettingsStore.get("autoStart") as boolean,
+    autoStart: app.isPackaged && (appSettingsStore.get("autoStart") as boolean),
+    autoStartSupported: app.isPackaged,
     silentLaunch: appSettingsStore.get("silentLaunch") as boolean,
     completionSound: appSettingsStore.get("completionSound") as boolean,
     saveLogs: appSettingsStore.get("saveLogs") as boolean,
@@ -6741,6 +6744,9 @@ ipcMain.handle("create-relay-transfer", async (event, options?: RelayTransferCre
 });
 
 ipcMain.handle("set-app-settings", (_event, settings: Partial<AppSettings>) => {
+  if (settings.autoStart !== undefined && !app.isPackaged) {
+    return false;
+  }
   if (settings.autoStart !== undefined) {
     appSettingsStore.set("autoStart", settings.autoStart);
   }

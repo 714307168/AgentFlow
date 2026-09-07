@@ -5785,8 +5785,18 @@
       );
     }
 
+    function applyAutoStartAvailability() {
+      const toggle = document.getElementById("autoStartToggle");
+      toggle.disabled = latestAppSettings?.autoStartSupported === false;
+      if (toggle.disabled) toggle.checked = false;
+      document.getElementById("autoStartLabel").title = toggle.disabled
+        ? inlineText("Start on boot is available in the installed app only.", "开机自启仅在安装版中可用。")
+        : "";
+    }
+
     function applyI18n() {
       applyPageChrome();
+      applyAutoStartAvailability();
       document.getElementById("savedText").textContent = msg("settings.saved.short", "Saved");
       document.getElementById("overviewMenuItem").textContent = inlineText("Overview", "总览");
       document.getElementById("connectionMenuItem").textContent = inlineText("Server Connection", "服务器连接");
@@ -9071,7 +9081,12 @@
     });
 
     document.getElementById("autoStartToggle").addEventListener("change", async (event) => {
-      await api.setAppSettings({ autoStart: event.target.checked });
+      const saved = await api.setAppSettings({ autoStart: event.target.checked });
+      if (saved === false) {
+        event.target.checked = false;
+        showStatus(inlineText("Start on boot is available in the installed app only.", "开机自启仅在安装版中可用。"), true);
+        return;
+      }
       flashSaved();
     });
 
