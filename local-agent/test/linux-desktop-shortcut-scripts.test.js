@@ -86,7 +86,8 @@ test("desktop packages include native modules inside the app", () => {
 test("linux release rebuilds native dependencies before packaging", () => {
   const releaseWorkflow = fs.readFileSync(path.join(projectRoot, "..", ".github", "workflows", "release.yml"), "utf8");
 
-  assert.match(releaseWorkflow, /container:\n\s+image: node:20-bullseye/);
+  assert.match(releaseWorkflow, /container:\n\s+image: node:20-bookworm/);
+  assert.match(releaseWorkflow, /Acquire::Retries=5/);
   assert.match(releaseWorkflow, /Verify Linux build ABI baseline/);
   assert.match(releaseWorkflow, /electron-builder install-app-deps --platform linux --arch x64/);
 });
