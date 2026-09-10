@@ -64,7 +64,7 @@ interface ProviderRegistryEntry {
     baseUrlConfigKey: keyof ProviderConfigSnapshot;
     defaultModelConfigKey: keyof ProviderConfigSnapshot;
     defaultBaseUrl: string;
-    defaultModel: string;
+    defaultModel: string | null;
     env: {
       apiKey: string;
       authToken?: string;
@@ -145,7 +145,7 @@ const PROVIDER_REGISTRY: Record<CliProvider, ProviderRegistryEntry> = {
       baseUrlConfigKey: "openaiBaseUrl",
       defaultModelConfigKey: "openaiDefaultModel",
       defaultBaseUrl: "https://api.openai.com",
-      defaultModel: "gpt-6-astra",
+      defaultModel: null,
       env: {
         apiKey: "OPENAI_API_KEY",
         baseUrl: "OPENAI_BASE_URL",
@@ -193,7 +193,7 @@ export const MODEL_PROVIDER_PRESETS: ModelProviderPreset[] = [
     name: "OpenAI",
     protocol: "openai",
     baseUrl: "https://api.openai.com",
-    defaultModel: "gpt-6-astra",
+    defaultModel: "",
     description: "Official OpenAI-compatible API endpoint.",
   },
   {
@@ -323,13 +323,13 @@ export function createDefaultModelProviderProfiles(
       protocol: preset.protocol,
       apiKey: "",
       baseUrl: preset.baseUrl,
-      defaultModel: preset.defaultModel,
+      defaultModel: preset.defaultModel || null,
       enabled: true,
     };
     if (preset.id === "openai") {
       profile.apiKey = normalizeConfigText(config?.openaiApiKey);
       profile.baseUrl = normalizeConfigText(config?.openaiBaseUrl) || preset.baseUrl;
-      profile.defaultModel = normalizeConfigText(config?.openaiDefaultModel) || preset.defaultModel;
+      profile.defaultModel = normalizeConfigText(config?.openaiDefaultModel) || null;
     } else if (preset.id === "anthropic") {
       profile.apiKey = normalizeConfigText(config?.anthropicApiKey);
       profile.baseUrl = normalizeConfigText(config?.anthropicBaseUrl) || preset.baseUrl;
@@ -354,9 +354,7 @@ export function normalizeModelProviderProfiles(
     const baseId = normalizeProfileId(profile?.id) || fallbackId;
     const id = makeUniqueProfileId(baseId, usedIds);
     const name = normalizeConfigText(profile?.name) || profileDisplayNameFromId(id);
-    const defaultModel = protocol === "openai" && id === "openai"
-      ? "gpt-6-astra"
-      : normalizeConfigText(profile?.defaultModel);
+    const defaultModel = normalizeConfigText(profile?.defaultModel) || null;
     normalized.push({
       id,
       name,
@@ -443,7 +441,7 @@ export function getProviderDefaultSdkBaseUrl(provider: CliProvider): string {
   return PROVIDER_REGISTRY[provider].sdk.defaultBaseUrl;
 }
 
-export function getProviderDefaultSdkModel(provider: CliProvider): string {
+export function getProviderDefaultSdkModel(provider: CliProvider): string | null {
   return PROVIDER_REGISTRY[provider].sdk.defaultModel;
 }
 

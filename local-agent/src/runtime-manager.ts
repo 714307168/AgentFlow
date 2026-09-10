@@ -947,9 +947,8 @@ class RuntimeManager extends EventEmitter {
         if (typeof event.session_id === "string") {
           state.claudeSessionId = event.session_id;
         }
-        if (typeof event.model === "string" && event.model.trim()) {
-          state.model = event.model.trim();
-        }
+        // Keep state.model as the user's selection. The CLI's effective model
+        // is response metadata and must not turn "auto" into a pinned model.
 
         if (event.type === "stream_event" && event.event?.type === "content_block_delta") {
           const deltaType = event.event.delta?.type;
@@ -984,9 +983,6 @@ class RuntimeManager extends EventEmitter {
         }
 
         if (event.type === "assistant" && event.message?.content) {
-          if (typeof event.message.model === "string" && event.message.model.trim()) {
-            state.model = event.message.model.trim();
-          }
           const content = Array.isArray(event.message.content) ? event.message.content : [];
           for (const block of content) {
             if (block?.type === "tool_use") {
@@ -2040,9 +2036,8 @@ class RuntimeManager extends EventEmitter {
         },
       });
 
-      if (result.model) {
-        state.model = result.model;
-      }
+      // result.model is informational metadata. Persisting it in state would
+      // silently convert an automatic selection into a fixed model on the next run.
       if (!context.assistantMessageId) {
         this.appendAssistantText(state, context, run, result.text);
         run.onTextDelta?.(result.text);

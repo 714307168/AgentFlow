@@ -174,11 +174,10 @@ async function executeManagedOpenAiChatCompletion(
   const payloadMessages = systemPrompt
     ? [{ role: "system", content: systemPrompt }, ...messages]
     : messages;
-  const payloadModel =
-    normalizeText(options.model) || normalizeText(options.config.defaultModel) || getProviderDefaultSdkModel("codex");
-  const reasoningEffort = isOpenAiReasoningModel(payloadModel) ? options.reasoningEffort : null;
+  const payloadModel = resolveSelectedModel(options.model, options.config.defaultModel, "codex");
+  const reasoningEffort = payloadModel && isOpenAiReasoningModel(payloadModel) ? options.reasoningEffort : null;
   const response = await client.chat.completions.create({
-    model: payloadModel,
+    ...(payloadModel ? { model: payloadModel } : {}),
     messages: payloadMessages,
     ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
   });
@@ -226,8 +225,7 @@ function isOpenAiReasoningModel(model: string): boolean {
 async function executeOpenAiResponsesStream(
   options: ProviderSdkExecutionOptions,
 ): Promise<ProviderSdkExecutionResult> {
-  const payloadModel =
-    normalizeText(options.model) || normalizeText(options.config.defaultModel) || getProviderDefaultSdkModel("codex");
+  const payloadModel = resolveSelectedModel(options.model, options.config.defaultModel, "codex");
   const url = joinBaseUrl(options.config.baseUrl || getProviderDefaultSdkBaseUrl("codex"), "/v1/responses");
   const response = await fetch(url, {
     method: "POST",
@@ -237,7 +235,7 @@ async function executeOpenAiResponsesStream(
       Authorization: `Bearer ${options.config.apiKey!.trim()}`,
     },
     body: JSON.stringify({
-      model: payloadModel,
+      ...(payloadModel ? { model: payloadModel } : {}),
       instructions: normalizeText(options.projectPrompt) || undefined,
       input: await buildOpenAiResponsesInput(options),
       reasoning: {
@@ -309,8 +307,7 @@ async function generateManagedOpenAiImage(
 ): Promise<ProviderSdkImageGenerationResult> {
   const OpenAI = resolveManagedOpenAiClientConstructor();
   const client = new OpenAI(buildManagedOpenAiClientOptions(options.config));
-  const payloadModel =
-    normalizeText(options.model) || normalizeText(options.config.defaultModel) || getProviderDefaultSdkModel("codex");
+  const payloadModel = resolveSelectedModel(options.model, options.config.defaultModel, "codex") || "gpt-image-1";
   const response = await client.images.generate({
     model: payloadModel,
     prompt: normalizeText(options.prompt),
@@ -378,8 +375,7 @@ async function executeOpenAiChatCompletion(
   const payloadMessages = systemPrompt
     ? [{ role: "system", content: systemPrompt }, ...messages]
     : messages;
-  const payloadModel =
-    normalizeText(options.model) || normalizeText(options.config.defaultModel) || getProviderDefaultSdkModel("codex");
+  const payloadModel = resolveSelectedModel(options.model, options.config.defaultModel, "codex");
 
   const response = await fetch(url, {
     method: "POST",
@@ -388,9 +384,9 @@ async function executeOpenAiChatCompletion(
       Authorization: `Bearer ${options.config.apiKey!.trim()}`,
     },
     body: JSON.stringify({
-      model: payloadModel,
+      ...(payloadModel ? { model: payloadModel } : {}),
       messages: payloadMessages,
-      ...(options.reasoningEffort && isOpenAiReasoningModel(payloadModel)
+      ...(options.reasoningEffort && payloadModel && isOpenAiReasoningModel(payloadModel)
         ? { reasoning_effort: options.reasoningEffort }
         : {}),
     }),
@@ -425,8 +421,7 @@ async function generateOpenAiImageViaHttp(
   options: ProviderSdkImageGenerationOptions,
 ): Promise<ProviderSdkImageGenerationResult> {
   const url = joinBaseUrl(options.config.baseUrl || getProviderDefaultSdkBaseUrl("codex"), "/v1/images/generations");
-  const payloadModel =
-    normalizeText(options.model) || normalizeText(options.config.defaultModel) || getProviderDefaultSdkModel("codex");
+  const payloadModel = resolveSelectedModel(options.model, options.config.defaultModel, "codex") || "gpt-image-1";
   const response = await fetch(url, {
     method: "POST",
     headers: {
@@ -475,7 +470,7 @@ async function executeAnthropicMessages(
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
-      model: normalizeText(options.model) || normalizeText(options.config.defaultModel) || getProviderDefaultSdkModel("claude"),
+      model: resolveSelectedModel(options.model, options.config.defaultModel, "claude"),
       max_tokens: 4096,
       system: normalizeText(options.projectPrompt) || undefined,
       messages,
@@ -644,9 +639,22 @@ function shouldUseOpenAiResponsesApi(config: ProviderSdkConfig, model: string | 
   } catch {
     return false;
   }
-  const selectedModel =
-    normalizeText(model) || normalizeText(config.defaultModel) || getProviderDefaultSdkModel("codex");
-  return host === "api.openai.com" && /^(gpt-[56](?:\.|-|$)|o[134](?:\.|-|$)|o\d(?:\.|-|$))/i.test(selectedModel);
+  const selectedModel = resolveSelectedModel(model, config.defaultModel, "codex");
+  if (host !== "api.openai.com" || !selectedModel) {
+    return false;
+  }
+  return /^(gpt-[56](?:\.|-|$)|o[134](?:\.|-|$)|o\d(?:\.|-|$))/i.test(selectedModel);
+}
+
+function resolveSelectedModel(
+  model: string | null | undefined,
+  configuredDefault: string | null | undefined,
+  provider: CliProvider,
+): string | null {
+  return normalizeText(model)
+    || normalizeText(configuredDefault)
+    || normalizeText(getProviderDefaultSdkModel(provider))
+    || null;
 }
 
 async function readOpenAiSseStream(

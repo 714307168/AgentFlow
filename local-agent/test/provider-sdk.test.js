@@ -89,6 +89,34 @@ test("executeProviderSdkRun falls back to the HTTP chat endpoint when no managed
   }
 });
 
+test("executeProviderSdkRun leaves model selection to OpenAI when no model is configured", async () => {
+  const originalFetch = global.fetch;
+  global.fetch = async (input, init) => {
+    assert.equal(String(input), "https://api.openai.com/v1/chat/completions");
+    const payload = JSON.parse(String(init?.body || "{}"));
+    assert.equal(Object.prototype.hasOwnProperty.call(payload, "model"), false);
+    return {
+      ok: true,
+      async json() {
+        return { model: "provider-selected-model", choices: [{ message: { content: "Auto response" } }] };
+      },
+    };
+  };
+
+  try {
+    const result = await executeProviderSdkRun({
+      provider: "codex",
+      config: { apiKey: "test-key", baseUrl: "https://api.openai.com", defaultModel: null },
+      model: null,
+      prompt: "hello",
+    });
+    assert.equal(result.text, "Auto response");
+    assert.equal(result.model, "provider-selected-model");
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test("executeProviderSdkRun streams OpenAI Responses guidance for GPT-6 models", async () => {
   const originalFetch = global.fetch;
   const textDeltas = [];
