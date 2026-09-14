@@ -22,7 +22,11 @@ class VoiceInputUiWiringTest {
         assertTrue(support.contains("ActivityResultContracts.StartActivityForResult"))
         assertTrue(support.contains("ActivityResultContracts.RequestPermission"))
         assertTrue(support.contains("OfflineVoiceRecognizer"))
+        assertTrue(support.contains("pendingVoicePrompt"))
+        assertTrue(support.contains("startVoiceRecognition(prompt)"))
         assertTrue(root.resolve("ui/common/OfflineVoiceModelStore.kt").exists())
-        assertTrue(root.resolve("ui/common/OfflineVoiceModelStore.kt").readText().contains("rhasspy/vosk-models"))
+        val modelStore = root.resolve("ui/common/OfflineVoiceModelStore.kt").readText()
+        assertTrue(modelStore.contains("rhasspy/vosk-models"))
+        assertTrue(modelStore.contains("alphacephei.com/vosk/models"))
     }
 }

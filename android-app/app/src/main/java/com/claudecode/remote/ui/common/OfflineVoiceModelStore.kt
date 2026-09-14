@@ -13,6 +13,8 @@ import java.util.zip.ZipInputStream
 private const val OFFLINE_VOICE_MODEL_NAME = "vosk-model-small-cn-0.22"
 private const val OFFLINE_VOICE_MODEL_URL =
     "https://huggingface.co/rhasspy/vosk-models/resolve/main/zh/vosk-model-small-cn-0.22.zip"
+private const val OFFLINE_VOICE_MODEL_MIRROR_URL =
+    "https://alphacephei.com/vosk/models/vosk-model-small-cn-0.22.zip"
 private const val OFFLINE_VOICE_MODEL_SHA256 =
     "3af8b0e7e0f835ae9d414ce5df580237a3cfb08d586c9fbbb0f7ff29ad5b14ba"
 private const val MAX_MODEL_ARCHIVE_BYTES = 80L * 1024 * 1024
@@ -37,7 +39,7 @@ internal class OfflineVoiceModelStore(
             val archive = File(installDirectory, "$OFFLINE_VOICE_MODEL_NAME.zip")
             val stagingDirectory = File(installDirectory, "$OFFLINE_VOICE_MODEL_NAME.staging")
             try {
-                downloadArchive(archive)
+                downloadArchiveWithFallbacks(archive)
                 unpackArchive(archive, stagingDirectory)
                 val unpackedModelDirectory = File(stagingDirectory, OFFLINE_VOICE_MODEL_NAME)
                 requireUsableModelDirectory(unpackedModelDirectory)
@@ -53,8 +55,22 @@ internal class OfflineVoiceModelStore(
         }
     }
 
-    private fun downloadArchive(destination: File) {
-        val request = Request.Builder().url(modelUrl).build()
+    private fun downloadArchiveWithFallbacks(destination: File) {
+        var lastError: IOException? = null
+        for (url in listOf(modelUrl, OFFLINE_VOICE_MODEL_MIRROR_URL).distinct()) {
+            try {
+                downloadArchive(destination, url)
+                return
+            } catch (error: IOException) {
+                lastError = error
+                destination.delete()
+            }
+        }
+        throw lastError ?: IOException("Offline voice model download failed.")
+    }
+
+    private fun downloadArchive(destination: File, url: String) {
+        val request = Request.Builder().url(url).build()
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
                 throw IOException("Offline voice model download failed (HTTP ${response.code}).")

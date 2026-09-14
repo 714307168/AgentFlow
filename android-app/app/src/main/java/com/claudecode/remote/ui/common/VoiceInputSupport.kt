@@ -67,7 +67,8 @@ fun rememberVoiceInputLauncher(
     val onTranscribeState = rememberUpdatedState(onTranscribe)
     val onSendState = rememberUpdatedState(onSend)
     val onUnavailableState = rememberUpdatedState(onUnavailable)
-    var pendingOfflinePrompt by remember { mutableStateOf<String?>(null) }
+    var pendingVoicePrompt by remember { mutableStateOf<String?>(null) }
+    lateinit var startVoiceRecognition: (String) -> Unit
 
     fun handleSpokenText(spokenText: String) {
         val normalized = spokenText.trim()
@@ -101,27 +102,15 @@ fun rememberVoiceInputLauncher(
         onDispose { offlineRecognizer.destroy() }
     }
 
-    fun launchOfflineRecognizer(prompt: String) {
-        val hasPermission = ContextCompat.checkSelfPermission(
-            context,
-            Manifest.permission.RECORD_AUDIO
-        ) == PackageManager.PERMISSION_GRANTED
-        if (!hasPermission) {
-            pendingOfflinePrompt = prompt
-            return
-        }
-        offlineRecognizer.start()
-    }
-
     val recordAudioPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
-        val prompt = pendingOfflinePrompt
-        pendingOfflinePrompt = null
-        if (granted && prompt != null) {
-            offlineRecognizer.start()
-        } else if (!granted) {
+        val prompt = pendingVoicePrompt
+        pendingVoicePrompt = null
+        if (!granted) {
             onUnavailableState.value(context.getString(R.string.voice_input_permission_required))
+        } else if (prompt != null) {
+            startVoiceRecognition(prompt)
         }
     }
 
@@ -129,28 +118,42 @@ fun rememberVoiceInputLauncher(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
-            handleSpokenText(extractVoiceInputText(result.data))
+            val text = extractVoiceInputText(result.data)
+            if (text.isBlank()) {
+                onUnavailableState.value(context.getString(R.string.voice_input_no_match))
+            } else {
+                handleSpokenText(text)
+            }
+        } else {
+            onUnavailableState.value(context.getString(R.string.voice_input_failed))
+        }
+    }
+
+    // This indirection keeps the permission callback independent from the
+    // launcher ordering while ensuring the latest Compose callbacks are used.
+    startVoiceRecognition = { prompt ->
+        val intent = buildVoiceInputIntent(prompt)
+        if (isVoiceRecognitionActivityAvailable(context, intent)) {
+            try {
+                systemVoiceLauncher.launch(intent)
+            } catch (_: ActivityNotFoundException) {
+                offlineRecognizer.start()
+            }
+        } else {
+            offlineRecognizer.start()
         }
     }
 
     return remember(context, offlineRecognizer, systemVoiceLauncher, recordAudioPermissionLauncher) {
         { prompt ->
-            val intent = buildVoiceInputIntent(prompt)
-            if (isVoiceRecognitionActivityAvailable(context, intent)) {
-                try {
-                    systemVoiceLauncher.launch(intent)
-                } catch (_: ActivityNotFoundException) {
-                    launchOfflineRecognizer(prompt)
-                }
+            val hasPermission = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.RECORD_AUDIO
+            ) == PackageManager.PERMISSION_GRANTED
+            if (hasPermission) {
+                startVoiceRecognition(prompt)
             } else {
-                launchOfflineRecognizer(prompt)
-            }
-
-            if (
-                pendingOfflinePrompt != null &&
-                ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) !=
-                    PackageManager.PERMISSION_GRANTED
-            ) {
+                pendingVoicePrompt = prompt
                 recordAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
             }
         }
