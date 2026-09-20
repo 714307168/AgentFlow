@@ -193,7 +193,7 @@ jobs:
 
   android:
     name: Android APK
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     if: github.event_name == 'push' || inputs.build_android
     defaults:
       run:
@@ -209,17 +209,8 @@ jobs:
           java-version: 17
           cache: gradle
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android SDK packages
-        run: sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
-
-      - name: Configure Android SDK path
-        run: |
-          SDK_DIR="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-${ANDROID_SDK_HOME:-}}}"
-          test -n "$SDK_DIR"
-          printf 'sdk.dir=%s\n' "$SDK_DIR" > local.properties
+      - name: Configure hosted Android SDK
+        run: bash scripts/setup-ci-sdk.sh
 
       - name: Make Gradle executable
         run: chmod +x ./gradlew

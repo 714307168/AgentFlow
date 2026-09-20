@@ -45,6 +45,8 @@ cd android-app
 单元测试会安装与 APK 相同的真实模型压缩包，覆盖首次安装、缓存复用、
 损坏缓存、校验失败、非法路径、取消后重试及并发初始化。
 GitHub CI 会运行安卓单元测试。
+CI 和发布共用 `android-app/scripts/setup-ci-sdk.sh`，使用 Ubuntu 24.04 构建机
+预装的 SDK 34，缺失时才安装组件，避免额外 SDK 初始化步骤阻塞发布。
 
 发布前还需验证 APK 包含对应 assets，且签名验证通过。
 Windows 上中文仓库路径的构建产物按根 Gradle 配置输出到磁盘根目录的
