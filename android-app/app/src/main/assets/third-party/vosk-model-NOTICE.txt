@@ -1,0 +1,6 @@
+AgentFlow includes the unmodified vosk-model-small-cn-0.22 Chinese speech model
+from Alpha Cephei, distributed under the Apache License, Version 2.0.
+
+Model catalog: https://alphacephei.com/vosk/models
+Source archive: https://alphacephei.com/vosk/models/vosk-model-small-cn-0.22.zip
+The accompanying vosk-model-LICENSE.txt contains the license terms.

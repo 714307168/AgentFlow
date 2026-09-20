@@ -1,129 +1,93 @@
 package com.claudecode.remote.ui.common
 
-import android.content.Context
-import okhttp3.OkHttpClient
-import okhttp3.Request
+import com.claudecode.remote.BuildConfig
 import java.io.File
-import java.io.FileOutputStream
 import java.io.IOException
+import java.io.InputStream
+import java.io.InterruptedIOException
 import java.security.MessageDigest
-import java.util.concurrent.TimeUnit
 import java.util.zip.ZipInputStream
 
-private const val OFFLINE_VOICE_MODEL_NAME = "vosk-model-small-cn-0.22"
-private const val OFFLINE_VOICE_MODEL_URL =
-    "https://huggingface.co/rhasspy/vosk-models/resolve/main/zh/vosk-model-small-cn-0.22.zip"
-private const val OFFLINE_VOICE_MODEL_MIRROR_URL =
-    "https://alphacephei.com/vosk/models/vosk-model-small-cn-0.22.zip"
-private const val OFFLINE_VOICE_MODEL_SHA256 =
-    "3af8b0e7e0f835ae9d414ce5df580237a3cfb08d586c9fbbb0f7ff29ad5b14ba"
 private const val MAX_MODEL_ARCHIVE_BYTES = 80L * 1024 * 1024
 private const val MAX_MODEL_UNPACKED_BYTES = 160L * 1024 * 1024
 
 internal class OfflineVoiceModelStore(
-    private val context: Context,
-    private val client: OkHttpClient = defaultOfflineVoiceHttpClient,
-    private val modelUrl: String = OFFLINE_VOICE_MODEL_URL
+    private val filesDirectory: File,
+    private val openBundledArchive: () -> InputStream,
+    private val expectedSha256: String = BuildConfig.OFFLINE_VOICE_MODEL_SHA256
 ) {
-    fun getInstalledModelDirectory(): File? = modelDirectory.takeIf(::isUsableModelDirectory)
+    fun getInstalledModelDirectory(): File? = modelDirectory.takeIf {
+        isUsableModelDirectory(it) &&
+            File(it, ".installed").takeIf(File::isFile)?.readText() == expectedSha256
+    }
 
     @Throws(IOException::class)
-    fun installIfNeeded(onDownloadStarted: () -> Unit): File {
-        getInstalledModelDirectory()?.let { return it }
-
-        synchronized(installLock) {
-            getInstalledModelDirectory()?.let { return it }
-            onDownloadStarted()
-            installDirectory.deleteRecursively()
-            installDirectory.mkdirsOrThrow()
-            val archive = File(installDirectory, "$OFFLINE_VOICE_MODEL_NAME.zip")
-            val stagingDirectory = File(installDirectory, "$OFFLINE_VOICE_MODEL_NAME.staging")
-            try {
-                downloadArchiveWithFallbacks(archive)
-                unpackArchive(archive, stagingDirectory)
-                val unpackedModelDirectory = File(stagingDirectory, OFFLINE_VOICE_MODEL_NAME)
-                requireUsableModelDirectory(unpackedModelDirectory)
-                modelDirectory.deleteRecursively()
-                if (!unpackedModelDirectory.renameTo(modelDirectory)) {
-                    throw IOException("Unable to activate the offline voice model.")
-                }
-                return modelDirectory
-            } finally {
-                archive.delete()
-                stagingDirectory.deleteRecursively()
-            }
+    fun installIfNeeded(isCancelled: () -> Boolean = { false }): File = synchronized(installLock) {
+        checkCancelled(isCancelled)
+        getInstalledModelDirectory()?.let { return@synchronized it }
+        installDirectory.mkdirsOrThrow()
+        val archive = File(installDirectory, "model.zip")
+        val staging = File(installDirectory, "staging")
+        staging.deleteRecursively()
+        try {
+            copyBundledArchive(archive, isCancelled)
+            unpackArchive(archive, staging, isCancelled)
+            val unpacked = File(staging, BuildConfig.OFFLINE_VOICE_MODEL_NAME)
+            if (!isUsableModelDirectory(unpacked)) throw IOException("Offline voice model files are incomplete.")
+            checkCancelled(isCancelled)
+            File(unpacked, ".installed").writeText(expectedSha256)
+            modelDirectory.deleteRecursively()
+            if (!unpacked.renameTo(modelDirectory)) throw IOException("Unable to activate the offline voice model.")
+            modelDirectory
+        } finally {
+            archive.delete()
+            staging.deleteRecursively()
         }
     }
 
-    private fun downloadArchiveWithFallbacks(destination: File) {
-        var lastError: IOException? = null
-        for (url in listOf(modelUrl, OFFLINE_VOICE_MODEL_MIRROR_URL).distinct()) {
-            try {
-                downloadArchive(destination, url)
-                return
-            } catch (error: IOException) {
-                lastError = error
-                destination.delete()
-            }
-        }
-        throw lastError ?: IOException("Offline voice model download failed.")
-    }
-
-    private fun downloadArchive(destination: File, url: String) {
-        val request = Request.Builder().url(url).build()
-        client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) {
-                throw IOException("Offline voice model download failed (HTTP ${response.code}).")
-            }
-            val body = response.body ?: throw IOException("Offline voice model download was empty.")
-            val contentLength = body.contentLength()
-            if (contentLength > MAX_MODEL_ARCHIVE_BYTES) {
-                throw IOException("Offline voice model download is larger than expected.")
-            }
-            body.byteStream().use { input ->
-                FileOutputStream(destination).use { output ->
-                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                    val digest = MessageDigest.getInstance("SHA-256")
-                    var totalBytes = 0L
-                    while (true) {
-                        val read = input.read(buffer)
-                        if (read < 0) break
-                        totalBytes += read
-                        if (totalBytes > MAX_MODEL_ARCHIVE_BYTES) {
-                            throw IOException("Offline voice model download is larger than expected.")
-                        }
-                        output.write(buffer, 0, read)
-                        digest.update(buffer, 0, read)
-                    }
-                    if (digest.digest().toHexString() != OFFLINE_VOICE_MODEL_SHA256) {
-                        throw IOException("Offline voice model download failed its integrity check.")
-                    }
+    private fun copyBundledArchive(destination: File, isCancelled: () -> Boolean) {
+        val digest = MessageDigest.getInstance("SHA-256")
+        openBundledArchive().use { input ->
+            destination.outputStream().use { output ->
+                val buffer = ByteArray(64 * 1024)
+                var total = 0L
+                while (true) {
+                    checkCancelled(isCancelled)
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    total += count
+                    if (total > MAX_MODEL_ARCHIVE_BYTES) throw IOException("Offline voice archive is too large.")
+                    output.write(buffer, 0, count)
+                    digest.update(buffer, 0, count)
                 }
             }
         }
+        if (digest.digest().joinToString("") { "%02x".format(it) } != expectedSha256) {
+            throw IOException("Bundled voice model failed its integrity check.")
+        }
     }
 
-    private fun unpackArchive(archive: File, stagingDirectory: File) {
-        stagingDirectory.mkdirsOrThrow()
+    private fun unpackArchive(archive: File, staging: File, isCancelled: () -> Boolean) {
+        staging.mkdirsOrThrow()
         var unpackedBytes = 0L
         ZipInputStream(archive.inputStream().buffered()).use { input ->
             while (true) {
+                checkCancelled(isCancelled)
                 val entry = input.nextEntry ?: break
-                val destination = resolveSafeZipDestination(stagingDirectory, entry.name)
+                val destination = resolveSafeZipDestination(staging, entry.name)
                 if (entry.isDirectory) {
                     destination.mkdirsOrThrow()
                 } else {
                     destination.parentFile?.mkdirsOrThrow()
-                    FileOutputStream(destination).use { output ->
-                        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                    destination.outputStream().use { output ->
+                        val buffer = ByteArray(64 * 1024)
                         while (true) {
-                            val read = input.read(buffer)
-                            if (read < 0) break
-                            unpackedBytes += read
-                            if (unpackedBytes > MAX_MODEL_UNPACKED_BYTES) {
-                                throw IOException("Offline voice model is larger than expected.")
-                            }
-                            output.write(buffer, 0, read)
+                            checkCancelled(isCancelled)
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            unpackedBytes += count
+                            if (unpackedBytes > MAX_MODEL_UNPACKED_BYTES) throw IOException("Offline voice model is too large.")
+                            output.write(buffer, 0, count)
                         }
                     }
                 }
@@ -132,46 +96,35 @@ internal class OfflineVoiceModelStore(
         }
     }
 
-    private fun requireUsableModelDirectory(directory: File) {
-        if (!isUsableModelDirectory(directory)) {
-            throw IOException("Offline voice model files are incomplete.")
-        }
-    }
-
-    private val installDirectory: File
-        get() = File(context.filesDir, "offline-voice")
-
-    private val modelDirectory: File
-        get() = File(installDirectory, OFFLINE_VOICE_MODEL_NAME)
+    private val installDirectory get() = File(filesDirectory, "offline-voice")
+    private val modelDirectory get() = File(installDirectory, BuildConfig.OFFLINE_VOICE_MODEL_NAME)
 
     companion object {
         private val installLock = Any()
-        private val defaultOfflineVoiceHttpClient = OkHttpClient.Builder()
-            .connectTimeout(20, TimeUnit.SECONDS)
-            .readTimeout(90, TimeUnit.SECONDS)
-            .build()
     }
 }
 
 internal fun resolveSafeZipDestination(root: File, entryName: String): File {
     val target = File(root, entryName)
-    val rootPath = root.canonicalPath + File.separator
-    if (!target.canonicalPath.startsWith(rootPath)) {
+    if (!target.canonicalPath.startsWith(root.canonicalPath + File.separator)) {
         throw IOException("Offline voice model archive contains an invalid path.")
     }
     return target
 }
 
 internal fun isUsableModelDirectory(directory: File): Boolean =
-    directory.isDirectory &&
-        File(directory, "am").isDirectory &&
-        File(directory, "conf").isDirectory &&
-        File(directory, "graph").isDirectory
+    listOf(
+        "am/final.mdl", "conf/mfcc.conf", "conf/model.conf", "graph/HCLr.fst", "graph/Gr.fst",
+        "graph/disambig_tid.int", "graph/phones/word_boundary.int",
+        "ivector/final.ie", "ivector/final.mat", "ivector/final.dubm",
+        "ivector/splice.conf", "ivector/global_cmvn.stats"
+    ).all { relative -> File(directory, relative).let { it.isFile && it.length() > 0 } } &&
+        File(directory, "ivector/online_cmvn.conf").isFile // Empty in the official model.
 
 private fun File.mkdirsOrThrow() {
-    if (!exists() && !mkdirs()) {
-        throw IOException("Unable to create offline voice model storage.")
-    }
+    if (!isDirectory && !mkdirs()) throw IOException("Unable to create offline voice model storage.")
 }
 
-private fun ByteArray.toHexString(): String = joinToString("") { byte -> "%02x".format(byte) }
+private fun checkCancelled(isCancelled: () -> Boolean) {
+    if (isCancelled() || Thread.currentThread().isInterrupted) throw InterruptedIOException("Voice preparation cancelled.")
+}

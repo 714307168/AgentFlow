@@ -296,7 +296,15 @@
     <string name="voice_mode_transcribe">&#36716;&#25991;&#23383;</string>
     <string name="voice_mode_send">&#30452;&#25509;&#21457;</string>
     <string name="voice_input_unavailable">&#35821;&#38899;&#35782;&#21035;&#19981;&#21487;&#29992;&#65292;&#35831;&#26816;&#26597;&#32593;&#32476;&#21518;&#20877;&#35797;&#12290;</string>
-    <string name="voice_input_offline_preparing">&#39318;&#27425;&#20351;&#29992;&#27491;&#22312;&#20934;&#22791;&#31163;&#32447;&#20013;&#25991;&#35821;&#38899;&#35782;&#21035;&#65292;&#35831;&#31245;&#20505;&#12290;</string>
+    <string name="voice_input_offline_preparing">正在本机准备内置中文语音识别，无需下载。出现“请说话”后再开始说。</string>
+    <string name="voice_input_preparing_title">正在准备语音输入</string>
+    <string name="voice_input_listening_title">请说话</string>
+    <string name="voice_input_listening_hint">请说普通话，停顿后自动结束，也可点击“说完了”。最长录音 30 秒。</string>
+    <string name="voice_input_finishing">正在识别…</string>
+    <string name="voice_input_finish">说完了</string>
+    <string name="voice_input_cancel">取消</string>
+    <string name="voice_input_prepare_failed">内置语音识别准备失败，请检查手机剩余空间后重试。</string>
+    <string name="voice_input_microphone_failed">无法开始录音，请检查麦克风权限，以及是否被其他应用占用。</string>
     <string name="voice_input_permission_required">&#38656;&#35201;&#24405;&#38899;&#26435;&#38480;&#25165;&#33021;&#20351;&#29992;&#35821;&#38899;&#36755;&#20837;&#12290;</string>
     <string name="voice_input_no_match">&#27809;&#21548;&#28165;&#65292;&#35831;&#20877;&#35797;&#19968;&#27425;&#12290;</string>
     <string name="voice_input_failed">&#35821;&#38899;&#35782;&#21035;&#22833;&#36133;&#65292;&#35831;&#31245;&#21518;&#20877;&#35797;&#12290;</string>

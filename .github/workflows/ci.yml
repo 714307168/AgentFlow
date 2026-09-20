@@ -110,3 +110,14 @@ jobs:
         with:
           name: android-ci-build-log
           path: android-app/android-build.log
+
+      # A compile-only check cannot catch an incomplete voice model.
+      - name: Test Android
+        run: ./gradlew --no-daemon --stacktrace testDebugUnitTest
+
+      - name: Upload Android test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-test-reports
+          path: android-app/build/app/reports/tests

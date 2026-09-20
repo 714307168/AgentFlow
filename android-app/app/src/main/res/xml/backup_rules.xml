@@ -2,4 +2,6 @@
 <full-backup-content>
     <!-- EncryptedSharedPreferences must not be restored without the original keystore entry. -->
     <exclude domain="sharedpref" path="claude_secure_prefs.xml" />
+    <!-- Recreated from APK assets; do not upload the speech model to backups. -->
+    <exclude domain="file" path="offline-voice/" />
 </full-backup-content>

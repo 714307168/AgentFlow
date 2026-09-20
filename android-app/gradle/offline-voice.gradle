@@ -1,0 +1,114 @@
+import java.security.MessageDigest
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.provider.Property
+import org.gradle.api.provider.ListProperty
+
+// The archive is fetched only by the build. No binary is committed to the repository.
+abstract class PrepareOfflineVoiceModel extends DefaultTask {
+    @Input abstract Property<String> getModelName()
+    @Input abstract Property<String> getModelSha256()
+    @Input abstract ListProperty<String> getSources()
+    @OutputDirectory abstract DirectoryProperty getAssetDirectory()
+
+    @TaskAction
+    void prepare() {
+        def archiveName = modelName.get() + '.zip'
+        def expectedHash = modelSha256.get()
+        def cached = new File(project.gradle.gradleUserHomeDir, "caches/agentflow-voice/${expectedHash}/${archiveName}")
+        cached.parentFile.mkdirs()
+        if (!cached.isFile() || sha256(cached) != expectedHash) {
+            if (project.gradle.startParameter.offline) {
+                throw new GradleException('Voice model is not cached. Run prepareOfflineVoiceModel once with network access.')
+            }
+            download(cached, expectedHash)
+        }
+        def destination = new File(assetDirectory.get().asFile, archiveName)
+        destination.parentFile.mkdirs()
+        Files.copy(cached.toPath(), destination.toPath(), StandardCopyOption.REPLACE_EXISTING)
+    }
+
+    private void download(File cached, String expectedHash) {
+        def errors = []
+        for (source in sources.get()) {
+            def partial = File.createTempFile('voice-', '.part', cached.parentFile)
+            def connection = null
+            try {
+                logger.lifecycle('Preparing bundled Chinese speech model from {}', source)
+                connection = new URL(source).openConnection()
+                connection.connectTimeout = 15000
+                connection.readTimeout = 30000
+                connection.setRequestProperty('User-Agent', 'AgentFlow-Android-Build')
+                long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.MINUTES.toNanos(5)
+                connection.inputStream.withCloseable { input ->
+                    partial.withOutputStream { output ->
+                        byte[] buffer = new byte[65536]
+                        long total = 0
+                        int count
+                        while ((count = input.read(buffer)) != -1) {
+                            total += count
+                            if (total > 80L * 1024 * 1024 || System.nanoTime() > deadline) {
+                                throw new IOException('Voice model download exceeded its size or time limit')
+                            }
+                            output.write(buffer, 0, count)
+                        }
+                    }
+                }
+                if (sha256(partial) != expectedHash) throw new IOException('Voice model SHA-256 mismatch')
+                Files.move(partial.toPath(), cached.toPath(), StandardCopyOption.REPLACE_EXISTING)
+                return
+            } catch (IOException error) {
+                errors.add(error)
+                logger.warn('Voice model source failed: {}', error.message)
+            } finally {
+                partial.delete()
+                if (connection instanceof HttpURLConnection) connection.disconnect()
+            }
+        }
+        def failure = new GradleException('Cannot bundle the offline voice model; refusing to build an APK without voice support.')
+        errors.each { failure.addSuppressed(it) }
+        throw failure
+    }
+
+    private static String sha256(File file) {
+        def digest = MessageDigest.getInstance('SHA-256')
+        file.withInputStream { input ->
+            byte[] buffer = new byte[65536]
+            int count
+            while ((count = input.read(buffer)) != -1) digest.update(buffer, 0, count)
+        }
+        digest.digest().encodeHex().toString()
+    }
+}
+
+def voiceModelName = 'vosk-model-small-cn-0.22'
+def voiceModelSha256 = '3af8b0e7e0f835ae9d414ce5df580237a3cfb08d586c9fbbb0f7ff29ad5b14ba'
+def voiceAssets = layout.buildDirectory.dir('generated/voiceAssets')
+def prepareVoiceModel = tasks.register('prepareOfflineVoiceModel', PrepareOfflineVoiceModel) {
+    modelName.set(voiceModelName)
+    modelSha256.set(voiceModelSha256)
+    assetDirectory.set(voiceAssets)
+    sources.set([
+        "https://alphacephei.com/vosk/models/${voiceModelName}.zip".toString(),
+        "https://huggingface.co/rhasspy/vosk-models/resolve/main/zh/${voiceModelName}.zip".toString()
+    ])
+}
+
+android {
+    defaultConfig {
+        buildConfigField 'String', 'OFFLINE_VOICE_MODEL_NAME', "\"${voiceModelName}\""
+        buildConfigField 'String', 'OFFLINE_VOICE_MODEL_SHA256', "\"${voiceModelSha256}\""
+    }
+    androidResources.noCompress += 'zip'
+}
+
+// AGP wires this generated directory to packaging AND lint tasks.
+androidComponents.onVariants(androidComponents.selector().all()) { variant ->
+    variant.sources.assets.addGeneratedSourceDirectory(prepareVoiceModel) { task -> task.assetDirectory }
+}
+
+tasks.withType(Test).configureEach {
+    dependsOn(prepareVoiceModel)
+    systemProperty('agentflow.voice.archive', new File(voiceAssets.get().asFile, voiceModelName + '.zip').absolutePath)
+}

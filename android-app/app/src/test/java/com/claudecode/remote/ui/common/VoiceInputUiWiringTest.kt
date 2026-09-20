@@ -25,8 +25,6 @@ class VoiceInputUiWiringTest {
         assertTrue(support.contains("pendingVoicePrompt"))
         assertTrue(support.contains("startVoiceRecognition(prompt)"))
         assertTrue(root.resolve("ui/common/OfflineVoiceModelStore.kt").exists())
-        val modelStore = root.resolve("ui/common/OfflineVoiceModelStore.kt").readText()
-        assertTrue(modelStore.contains("rhasspy/vosk-models"))
-        assertTrue(modelStore.contains("alphacephei.com/vosk/models"))
+        assertTrue(root.resolve("ui/common/VoiceInputDialog.kt").exists())
     }
 }

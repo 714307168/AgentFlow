@@ -9,7 +9,15 @@
     <string name="voice_mode_transcribe">Text</string>
     <string name="voice_mode_send">Send</string>
     <string name="voice_input_unavailable">Voice recognition is unavailable. Check your connection and try again.</string>
-    <string name="voice_input_offline_preparing">Preparing offline Chinese voice recognition for first use. This may take a moment.</string>
+    <string name="voice_input_offline_preparing">Preparing built-in Chinese voice recognition on this device. No download is needed. Wait for “Speak now” before speaking.</string>
+    <string name="voice_input_preparing_title">Preparing voice input</string>
+    <string name="voice_input_listening_title">Speak now</string>
+    <string name="voice_input_listening_hint">Speak in Mandarin. Pause to finish automatically, or tap Done. Recording ends after 30 seconds.</string>
+    <string name="voice_input_finishing">Recognizing…</string>
+    <string name="voice_input_finish">Done</string>
+    <string name="voice_input_cancel">Cancel</string>
+    <string name="voice_input_prepare_failed">Could not prepare built-in speech recognition. Check available storage and try again.</string>
+    <string name="voice_input_microphone_failed">Could not start recording. Check microphone permission and whether another app is using it.</string>
     <string name="voice_input_permission_required">Microphone permission is required for voice input.</string>
     <string name="voice_input_no_match">I could not hear that clearly. Please try again.</string>
     <string name="voice_input_failed">Voice recognition failed. Please try again later.</string>

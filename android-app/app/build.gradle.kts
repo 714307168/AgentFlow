@@ -22,8 +22,8 @@ android {
         applicationId = "com.claudecode.remote"
         minSdk = 26
         targetSdk = 34
-        versionCode = 164
-        versionName = "1.2.80"
+        versionCode = 165
+        versionName = "1.2.81"
         ndk {
             // Vosk ships legacy MIPS and desktop emulator binaries. Keep the
             // production APK focused on Android phone architectures.
@@ -62,6 +62,8 @@ android {
         }
     }
 }
+
+apply(from = rootProject.file("gradle/offline-voice.gradle"))
 
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2024.02.00")

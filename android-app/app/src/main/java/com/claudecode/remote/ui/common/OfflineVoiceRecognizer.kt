@@ -3,126 +3,158 @@ package com.claudecode.remote.ui.common
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import com.claudecode.remote.BuildConfig
+import com.claudecode.remote.util.CrashLogger
 import org.vosk.Model
 import org.vosk.Recognizer
 import org.vosk.android.RecognitionListener
 import org.vosk.android.SpeechService
-import java.util.concurrent.ExecutorService
+import java.io.IOException
 import java.util.concurrent.Executors
+
+internal enum class OfflineVoiceError { Preparation, Microphone }
 
 internal class OfflineVoiceRecognizer(
     context: Context,
     private val onPreparing: () -> Unit,
+    private val onListening: () -> Unit,
+    private val onPartial: (String) -> Unit,
     private val onResult: (String) -> Unit,
     private val onNoMatch: () -> Unit,
-    private val onError: () -> Unit,
-    private val modelStore: OfflineVoiceModelStore = OfflineVoiceModelStore(context)
+    private val onError: (OfflineVoiceError) -> Unit,
+    private val modelStore: OfflineVoiceModelStore = OfflineVoiceModelStore(
+        context.filesDir,
+        { context.assets.open(BuildConfig.OFFLINE_VOICE_MODEL_NAME + ".zip") }
+    )
 ) {
     private val mainHandler = Handler(Looper.getMainLooper())
-    private val worker: ExecutorService = Executors.newSingleThreadExecutor()
+    // Native objects are created and released on one worker, including cancellation.
+    private val worker = Executors.newSingleThreadExecutor()
     private var speechService: SpeechService? = null
     private var recognizer: Recognizer? = null
     private var model: Model? = null
-    private var destroyed = false
-    private var starting = false
+    @Volatile private var generation = 0L
+    @Volatile private var destroyed = false
+    private var active = false
 
     fun start() {
-        synchronized(this) {
-            if (destroyed || starting || speechService != null) return
-            starting = true
-        }
+        if (destroyed || active) return
+        active = true
+        val id = ++generation
+        onPreparing()
         worker.execute {
+            var failure = OfflineVoiceError.Preparation
             try {
-                val modelDirectory = modelStore.installIfNeeded {
-                    mainHandler.post(onPreparing)
+                val directory = modelStore.installIfNeeded { !isCurrent(id) }
+                if (!isCurrent(id)) return@execute
+                model = Model(directory.absolutePath)
+                recognizer = Recognizer(model, SAMPLE_RATE_HZ)
+                failure = OfflineVoiceError.Microphone
+                speechService = SpeechService(recognizer, SAMPLE_RATE_HZ)
+                if (!isCurrent(id)) {
+                    release()
+                    return@execute
                 }
-                if (destroyed) return@execute
-                val nextModel = Model(modelDirectory.absolutePath)
-                val nextRecognizer = Recognizer(nextModel, SAMPLE_RATE_HZ)
-                val nextSpeechService = SpeechService(nextRecognizer, SAMPLE_RATE_HZ)
-                synchronized(this) {
-                    if (destroyed) {
-                        nextSpeechService.shutdown()
-                        nextRecognizer.close()
-                        nextModel.close()
-                        return@execute
-                    }
-                    model = nextModel
-                    recognizer = nextRecognizer
-                    speechService = nextSpeechService
+                if (speechService?.startListening(listener(id), LISTEN_TIMEOUT_MILLIS) != true) {
+                    throw IOException("Unable to start the microphone.")
                 }
-                if (!nextSpeechService.startListening(listener, LISTEN_TIMEOUT_MILLIS)) {
-                    finish()
-                    mainHandler.post(onError)
-                }
-            } catch (_: Exception) {
-                finish()
-                mainHandler.post(onError)
-            } finally {
-                synchronized(this) { starting = false }
+                postIfCurrent(id, onListening)
+            } catch (error: Exception) {
+                handleFailure(id, failure, error)
+            } catch (error: LinkageError) {
+                handleFailure(id, failure, error)
             }
         }
     }
 
-    fun destroy() {
-        synchronized(this) { destroyed = true }
-        finish()
-        worker.shutdownNow()
+    fun stop() {
+        if (!active || destroyed) return
+        val id = generation
+        worker.execute {
+            if (isCurrent(id)) speechService?.stop()
+        }
     }
 
-    private val listener = object : RecognitionListener {
-        override fun onPartialResult(hypothesis: String) = Unit
+    fun cancel() {
+        if (destroyed || !active) return
+        active = false
+        generation++
+        worker.execute { release() }
+    }
+
+    fun destroy() {
+        if (destroyed) return
+        cancel()
+        destroyed = true
+        // Let queued cleanup finish. Interrupting a native read/join can close a live recognizer.
+        worker.shutdown()
+    }
+
+    private fun listener(id: Long) = object : RecognitionListener {
+        private var partial = ""
+
+        override fun onPartialResult(hypothesis: String) {
+            if (!isCurrent(id)) return
+            partial = extractOfflineVoiceText(hypothesis, "partial")
+            onPartial(partial)
+        }
 
         override fun onResult(hypothesis: String) {
-            deliverResult(hypothesis)
+            val text = extractOfflineVoiceText(hypothesis)
+            // Vosk can emit an empty segment during initial silence; keep listening.
+            if (text.isNotBlank()) deliver(text)
         }
 
         override fun onFinalResult(hypothesis: String) {
-            deliverResult(hypothesis)
+            deliver(extractOfflineVoiceText(hypothesis).ifBlank { partial })
         }
 
         override fun onError(exception: Exception) {
-            finish()
-            onError()
+            if (!isCurrent(id)) return
+            CrashLogger.logError("OfflineVoice", "Microphone recognition failed", exception)
+            complete(id) { this@OfflineVoiceRecognizer.onError(OfflineVoiceError.Microphone) }
         }
 
-        override fun onTimeout() {
-            finish()
-            onNoMatch()
+        override fun onTimeout() = deliver(partial)
+
+        private fun deliver(text: String) {
+            complete(id) { if (text.isBlank()) onNoMatch() else this@OfflineVoiceRecognizer.onResult(text) }
         }
     }
 
-    private fun deliverResult(hypothesis: String) {
-        val text = extractOfflineVoiceText(hypothesis)
-        finish()
-        if (text.isBlank()) onNoMatch() else onResult(text)
+    private fun handleFailure(id: Long, failure: OfflineVoiceError, error: Throwable) {
+        release()
+        if (!isCurrent(id)) return
+        CrashLogger.logError("OfflineVoice", "Voice input failed during $failure", error)
+        postIfCurrent(id) { complete(id) { onError(failure) } }
     }
 
-    private fun finish() {
-        val currentService: SpeechService?
-        val currentRecognizer: Recognizer?
-        val currentModel: Model?
-        synchronized(this) {
-            currentService = speechService
-            currentRecognizer = recognizer
-            currentModel = model
-            speechService = null
-            recognizer = null
-            model = null
-        }
-        currentService?.cancel()
-        currentService?.shutdown()
-        currentRecognizer?.close()
-        currentModel?.close()
+    private fun complete(id: Long, callback: () -> Unit) {
+        if (!isCurrent(id)) return
+        active = false
+        generation++
+        worker.execute { release() }
+        callback()
+    }
+
+    private fun isCurrent(id: Long) = !destroyed && generation == id
+
+    private fun postIfCurrent(id: Long, callback: () -> Unit) {
+        mainHandler.post { if (isCurrent(id)) callback() }
+    }
+
+    private fun release() {
+        speechService?.cancel()
+        speechService?.shutdown()
+        speechService = null
+        recognizer?.close()
+        recognizer = null
+        model?.close()
+        model = null
     }
 
     companion object {
         private const val SAMPLE_RATE_HZ = 16_000f
-        private const val LISTEN_TIMEOUT_MILLIS = 15_000
+        private const val LISTEN_TIMEOUT_MILLIS = 30_000
     }
 }
-
-internal fun extractOfflineVoiceText(hypothesis: String): String =
-    VOSK_TEXT_PATTERN.find(hypothesis)?.groupValues?.getOrNull(1)?.trim().orEmpty()
-
-private val VOSK_TEXT_PATTERN = Regex("\\\"text\\\"\\s*:\\s*\\\"([^\\\"]*)\\\"")

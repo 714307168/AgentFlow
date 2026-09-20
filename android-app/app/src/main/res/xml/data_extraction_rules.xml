@@ -2,8 +2,10 @@
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="sharedpref" path="claude_secure_prefs.xml" />
+        <exclude domain="file" path="offline-voice/" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="sharedpref" path="claude_secure_prefs.xml" />
+        <exclude domain="file" path="offline-voice/" />
     </device-transfer>
 </data-extraction-rules>

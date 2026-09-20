@@ -30,6 +30,10 @@ class VoiceInputSupportTest {
             }
             assertEquals("hello", extractOfflineVoiceText("{\"text\":\" hello \"}"))
             assertEquals("", extractOfflineVoiceText("not json"))
+            assertEquals("你好", extractOfflineVoiceText("{\"partial\":\"你好\"}", "partial"))
+            assertEquals("说\"你好\"", extractOfflineVoiceText("{\"text\":\"说\\\"你好\\\"\"}"))
+            assertEquals("", extractOfflineVoiceText("{\"text\":null}"))
+            assertEquals("", extractOfflineVoiceText("{\"text\":42}"))
         } finally {
             root.deleteRecursively()
         }

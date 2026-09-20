@@ -16,7 +16,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.claudecode.remote.R
 import java.util.Locale
 
@@ -68,7 +71,9 @@ fun rememberVoiceInputLauncher(
     val onSendState = rememberUpdatedState(onSend)
     val onUnavailableState = rememberUpdatedState(onUnavailable)
     var pendingVoicePrompt by remember { mutableStateOf<String?>(null) }
-    lateinit var startVoiceRecognition: (String) -> Unit
+    var voicePhase by remember { mutableStateOf<VoiceInputPhase?>(null) }
+    var partialText by remember { mutableStateOf("") }
+    val lifecycleOwner = LocalLifecycleOwner.current
 
     fun handleSpokenText(spokenText: String) {
         val normalized = spokenText.trim()
@@ -86,20 +91,71 @@ fun rememberVoiceInputLauncher(
         OfflineVoiceRecognizer(
             context = context.applicationContext,
             onPreparing = {
-                onUnavailableState.value(context.getString(R.string.voice_input_offline_preparing))
+                partialText = ""
+                voicePhase = VoiceInputPhase.Preparing
             },
-            onResult = ::handleSpokenText,
+            onListening = { voicePhase = VoiceInputPhase.Listening },
+            onPartial = { partialText = it },
+            onResult = {
+                voicePhase = null
+                handleSpokenText(it)
+            },
             onNoMatch = {
+                voicePhase = null
                 onUnavailableState.value(context.getString(R.string.voice_input_no_match))
             },
-            onError = {
-                onUnavailableState.value(context.getString(R.string.voice_input_failed))
+            onError = { failure ->
+                voicePhase = null
+                onUnavailableState.value(context.getString(
+                    if (failure == OfflineVoiceError.Preparation) R.string.voice_input_prepare_failed
+                    else R.string.voice_input_microphone_failed
+                ))
             }
         )
     }
 
-    DisposableEffect(offlineRecognizer) {
-        onDispose { offlineRecognizer.destroy() }
+    DisposableEffect(offlineRecognizer, lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) {
+                offlineRecognizer.cancel()
+                voicePhase = null
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            offlineRecognizer.destroy()
+        }
+    }
+
+    val systemVoiceLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val text = extractVoiceInputText(result.data)
+            if (text.isBlank()) {
+                onUnavailableState.value(context.getString(R.string.voice_input_no_match))
+            } else {
+                handleSpokenText(text)
+            }
+        } else if (result.resultCode != Activity.RESULT_CANCELED) {
+            onUnavailableState.value(context.getString(R.string.voice_input_failed))
+        }
+    }
+
+    val startVoiceRecognition: (String) -> Unit = { prompt ->
+        val intent = buildVoiceInputIntent(prompt)
+        if (isVoiceRecognitionActivityAvailable(context, intent)) {
+            try {
+                systemVoiceLauncher.launch(intent)
+            } catch (_: ActivityNotFoundException) {
+                offlineRecognizer.start()
+            } catch (_: SecurityException) {
+                offlineRecognizer.start()
+            }
+        } else {
+            offlineRecognizer.start()
+        }
     }
 
     val recordAudioPermissionLauncher = rememberLauncherForActivityResult(
@@ -114,38 +170,21 @@ fun rememberVoiceInputLauncher(
         }
     }
 
-    val systemVoiceLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            val text = extractVoiceInputText(result.data)
-            if (text.isBlank()) {
-                onUnavailableState.value(context.getString(R.string.voice_input_no_match))
-            } else {
-                handleSpokenText(text)
-            }
-        } else {
-            onUnavailableState.value(context.getString(R.string.voice_input_failed))
+    VoiceInputDialog(
+        phase = voicePhase,
+        partialText = partialText,
+        onCancel = {
+            offlineRecognizer.cancel()
+            voicePhase = null
+        },
+        onFinish = {
+            voicePhase = VoiceInputPhase.Finishing
+            offlineRecognizer.stop()
         }
-    }
+    )
 
-    // This indirection keeps the permission callback independent from the
-    // launcher ordering while ensuring the latest Compose callbacks are used.
-    startVoiceRecognition = { prompt ->
-        val intent = buildVoiceInputIntent(prompt)
-        if (isVoiceRecognitionActivityAvailable(context, intent)) {
-            try {
-                systemVoiceLauncher.launch(intent)
-            } catch (_: ActivityNotFoundException) {
-                offlineRecognizer.start()
-            }
-        } else {
-            offlineRecognizer.start()
-        }
-    }
-
-    return remember(context, offlineRecognizer, systemVoiceLauncher, recordAudioPermissionLauncher) {
-        { prompt ->
+    return { prompt ->
+        if (voicePhase == null && pendingVoicePrompt == null) {
             val hasPermission = ContextCompat.checkSelfPermission(
                 context,
                 Manifest.permission.RECORD_AUDIO
