@@ -110,5 +110,11 @@ androidComponents.onVariants(androidComponents.selector().all()) { variant ->
 
 tasks.withType(Test).configureEach {
     dependsOn(prepareVoiceModel)
-    systemProperty('agentflow.voice.archive', new File(voiceAssets.get().asFile, voiceModelName + '.zip').absolutePath)
+    // AGP relocates generated source directories when variants are configured.
+    // Read the task's final output provider, not the initial directory convention.
+    def bundledArchive = prepareVoiceModel.flatMap { task -> task.assetDirectory.file(voiceModelName + '.zip') }
+    inputs.file(bundledArchive)
+    doFirst {
+        systemProperty('agentflow.voice.archive', bundledArchive.get().asFile.absolutePath)
+    }
 }

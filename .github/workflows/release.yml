@@ -254,7 +254,7 @@ jobs:
       - name: Build release APK
         run: |
           set +e
-          ./gradlew --no-daemon --stacktrace clean assembleRelease 2>&1 | tee android-build.log
+          ./gradlew --no-daemon --stacktrace clean testDebugUnitTest assembleRelease 2>&1 | tee android-build.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
             summary=$(grep -E -m 1 'Execution failed|SDK location|Could not|this and base files|e: ' android-build.log || true)
@@ -313,6 +313,13 @@ jobs:
           name: agentflow-android
           path: android-app/build/release-assets/*-release.apk
           if-no-files-found: error
+
+      - name: Upload Android test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-release-test-reports
+          path: android-app/build/app/reports/tests
 
   github-release:
     name: Publish GitHub Release

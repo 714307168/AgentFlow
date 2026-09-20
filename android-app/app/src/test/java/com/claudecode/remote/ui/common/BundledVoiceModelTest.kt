@@ -14,7 +14,7 @@ class BundledVoiceModelTest {
     fun realPackagedModelInstallsAndReopensWithoutNetwork() {
         // Gradle provides the same verified archive that mergeAssets places in the APK.
         val archive = File(checkNotNull(System.getProperty("agentflow.voice.archive")))
-        assertTrue("The actual speech model must be included", archive.isFile)
+        assertTrue("The actual speech model must be included: $archive", archive.isFile)
         val root = temporary.newFolder()
         val installed = OfflineVoiceModelStore(root, archive::inputStream).installIfNeeded()
         assertTrue(File(installed, "am/final.mdl").length() > 1_000_000)
